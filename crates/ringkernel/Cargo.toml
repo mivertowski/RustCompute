@@ -1,0 +1,77 @@
+[package]
+name = "ringkernel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GPU-native persistent actor model framework - Rust port of DotCompute Ring Kernel"
+keywords = ["gpu", "actor", "cuda", "wgpu", "distributed"]
+categories = ["concurrency", "asynchronous", "hardware-support"]
+readme = "../../README.md"
+
+[dependencies]
+# Core crate (always included)
+ringkernel-core = { workspace = true }
+
+# Derive macros
+ringkernel-derive = { workspace = true }
+
+# CPU backend (always available)
+ringkernel-cpu = { workspace = true }
+
+# GPU backends (optional)
+ringkernel-cuda = { workspace = true, optional = true }
+ringkernel-wgpu = { workspace = true, optional = true }
+ringkernel-metal = { workspace = true, optional = true }
+
+# Code generation
+ringkernel-codegen = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Utilities
+cfg-if = { workspace = true }
+inventory = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+proptest = { workspace = true }
+criterion = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[features]
+default = ["cpu"]
+cpu = []
+cuda = ["ringkernel-cuda/cuda"]
+wgpu = ["ringkernel-wgpu/wgpu"]
+metal = ["ringkernel-metal/metal"]
+all-backends = ["cpu", "cuda", "wgpu", "metal"]
+
+[[bench]]
+name = "message_queue"
+harness = false
+
+[[bench]]
+name = "serialization"
+harness = false
+
+[[example]]
+name = "hello_kernel"
+path = "examples/hello_kernel.rs"
+
+[[example]]
+name = "vector_add"
+path = "examples/vector_add.rs"
+
+[[example]]
+name = "ping_pong"
+path = "examples/ping_pong.rs"

@@ -1,0 +1,79 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ringkernel",
+    "crates/ringkernel-core",
+    "crates/ringkernel-derive",
+    "crates/ringkernel-cpu",
+    "crates/ringkernel-cuda",
+    "crates/ringkernel-wgpu",
+    "crates/ringkernel-metal",
+    "crates/ringkernel-codegen",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/mivertowski/RustCompute"
+description = "GPU-native persistent actor model framework - Rust port of DotCompute Ring Kernel"
+keywords = ["gpu", "actor", "cuda", "wgpu", "distributed"]
+categories = ["concurrency", "asynchronous", "hardware-support"]
+
+[workspace.dependencies]
+# Core dependencies
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Serialization (zero-copy)
+rkyv = { version = "0.7", features = ["validation", "strict"] }
+zerocopy = { version = "0.7", features = ["derive"] }
+bytemuck = { version = "1.14", features = ["derive"] }
+
+# Synchronization & atomics
+crossbeam = "0.8"
+parking_lot = "0.12"
+atomic = "0.6"
+
+# GPU backends (optionality handled at crate level)
+cudarc = "0.11"
+wgpu = "0.19"
+metal = "0.27"
+
+# Proc macro support
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+darling = "0.20"
+
+# Testing
+proptest = "1.4"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# Utilities
+uuid = { version = "1.6", features = ["v4", "fast-rng"] }
+inventory = "0.3"
+cfg-if = "1.0"
+pin-project-lite = "0.2"
+futures = "0.3"
+
+# Internal crates
+ringkernel-core = { path = "crates/ringkernel-core" }
+ringkernel-derive = { path = "crates/ringkernel-derive" }
+ringkernel-cpu = { path = "crates/ringkernel-cpu" }
+ringkernel-cuda = { path = "crates/ringkernel-cuda" }
+ringkernel-wgpu = { path = "crates/ringkernel-wgpu" }
+ringkernel-metal = { path = "crates/ringkernel-metal" }
+ringkernel-codegen = { path = "crates/ringkernel-codegen" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.bench]
+lto = true
+codegen-units = 1

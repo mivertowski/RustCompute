@@ -1,0 +1,22 @@
+[package]
+name = "ringkernel-derive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Procedural macros for RingKernel GPU-native actor system"
+keywords = ["gpu", "actor", "macro", "derive"]
+categories = ["development-tools::procedural-macro-helpers"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { workspace = true }
+quote = { workspace = true }
+proc-macro2 = { workspace = true }
+darling = { workspace = true }
+
+[dev-dependencies]
+ringkernel-core = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
