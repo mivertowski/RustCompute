@@ -180,7 +180,7 @@ impl MemoryPool {
     }
 
     /// Allocate a buffer from the pool.
-    pub fn allocate(&self) -> PooledBuffer {
+    pub fn allocate(&self) -> PooledBuffer<'_> {
         self.total_allocations.fetch_add(1, Ordering::Relaxed);
 
         let buffer = {

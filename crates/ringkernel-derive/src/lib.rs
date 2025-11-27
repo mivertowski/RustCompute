@@ -56,6 +56,7 @@ struct RingMessageArgs {
 #[darling(attributes(message))]
 struct RingMessageField {
     ident: Option<syn::Ident>,
+    #[allow(dead_code)]
     ty: syn::Type,
     /// Mark this field as the message ID.
     #[darling(default)]
@@ -221,6 +222,7 @@ struct RingKernelArgs {
     block_size: Option<u32>,
     /// Target kernels this kernel publishes to.
     #[darling(default)]
+    #[allow(dead_code)]
     publishes_to: Option<String>,
 }
 

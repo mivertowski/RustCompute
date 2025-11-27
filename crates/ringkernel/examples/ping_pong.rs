@@ -45,13 +45,13 @@ async fn main() -> Result<()> {
             HlcTimestamp::now(1),
         );
 
-        let envelope = MessageEnvelope {
+        let _envelope = MessageEnvelope {
             header,
             payload: vec![round as u8; 8], // Simple payload
         };
 
         // Simulate sending to pong kernel's input queue
-        // In real K2K, this would go through the GPU message bridge
+        // In real K2K, this would go through the GPU message bridge via _envelope
 
         println!("Round {}: PING -> PONG (payload: [{}; 8])", round, round);
 

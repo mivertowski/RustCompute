@@ -1536,6 +1536,7 @@ dependencies = [
  "ringkernel-derive",
  "ringkernel-metal",
  "ringkernel-wgpu",
+ "rkyv",
  "thiserror",
  "tokio",
  "tracing",

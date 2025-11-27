@@ -17,7 +17,6 @@ use ringkernel_core::runtime::{
     KernelHandle, KernelHandleInner, KernelId, KernelState, KernelStatus, LaunchOptions,
 };
 use ringkernel_core::telemetry::{KernelMetrics, TelemetryBuffer};
-use ringkernel_core::types::KernelMode;
 
 /// CPU-based kernel implementation.
 pub struct CpuKernel {

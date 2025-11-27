@@ -95,6 +95,7 @@
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
+#![allow(hidden_glob_reexports)]
 
 // Re-export core types
 pub use ringkernel_core::*;
@@ -118,12 +119,16 @@ pub use ringkernel_metal::MetalRuntime;
 // Re-export codegen
 pub use ringkernel_codegen as codegen;
 
-use async_trait::async_trait;
-use ringkernel_core::error::{Result, RingKernelError};
-use ringkernel_core::runtime::{
-    Backend, KernelHandle, KernelId, LaunchOptions, RingKernelRuntime, RuntimeBuilder,
-    RuntimeMetrics,
-};
+// Use types from the re-exported ringkernel_core
+use ringkernel_core::error::Result;
+use ringkernel_core::error::RingKernelError;
+use ringkernel_core::runtime::Backend;
+use ringkernel_core::runtime::KernelHandle;
+use ringkernel_core::runtime::KernelId;
+use ringkernel_core::runtime::LaunchOptions;
+use ringkernel_core::runtime::RingKernelRuntime;
+use ringkernel_core::runtime::RuntimeBuilder;
+use ringkernel_core::runtime::RuntimeMetrics;
 
 /// Prelude module for convenient imports.
 pub mod prelude {

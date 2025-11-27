@@ -39,7 +39,7 @@ parking_lot = "0.12"
 atomic = "0.6"
 
 # GPU backends (optionality handled at crate level)
-cudarc = "0.11"
+cudarc = { version = "0.11", features = ["cuda-version-from-build-system"] }
 wgpu = "0.19"
 metal = "0.27"
 

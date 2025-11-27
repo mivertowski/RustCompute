@@ -15,10 +15,10 @@
 //! ```
 //! use ringkernel_core::hlc::{HlcTimestamp, HlcClock};
 //!
-//! let mut clock = HlcClock::new(1); // Node ID = 1
-//! let ts1 = clock.now();
+//! let clock = HlcClock::new(1); // Node ID = 1
+//! let ts1 = clock.tick();
 //! let ts2 = clock.tick();
-//! assert!(ts1 < ts2);
+//! assert!(ts1 < ts2); // tick() guarantees strictly increasing timestamps
 //! ```
 
 use bytemuck::{Pod, Zeroable};

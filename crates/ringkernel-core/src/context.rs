@@ -407,26 +407,22 @@ impl<'a> std::fmt::Debug for RingContext<'a> {
 mod tests {
     use super::*;
 
-    fn make_context() -> (HlcClock, impl FnOnce(&HlcClock) -> RingContext<'_>) {
-        let clock = HlcClock::new(1);
-        let make_ctx = |clock: &HlcClock| {
-            RingContext::new(
-                ThreadId::new_1d(0),
-                BlockId::new_1d(0),
-                Dim3::new_1d(256),
-                Dim3::new_1d(1),
-                clock,
-                1,
-                ContextBackend::Cpu,
-            )
-        };
-        (clock, make_ctx)
+    fn make_test_context(clock: &HlcClock) -> RingContext<'_> {
+        RingContext::new(
+            ThreadId::new_1d(0),
+            BlockId::new_1d(0),
+            Dim3::new_1d(256),
+            Dim3::new_1d(1),
+            clock,
+            1,
+            ContextBackend::Cpu,
+        )
     }
 
     #[test]
     fn test_thread_identity() {
-        let (clock, make_ctx) = make_context();
-        let ctx = make_ctx(&clock);
+        let clock = HlcClock::new(1);
+        let ctx = make_test_context(&clock);
 
         assert_eq!(ctx.thread_id().x, 0);
         assert_eq!(ctx.block_id().x, 0);
@@ -452,8 +448,8 @@ mod tests {
 
     #[test]
     fn test_hlc_operations() {
-        let (clock, make_ctx) = make_context();
-        let ctx = make_ctx(&clock);
+        let clock = HlcClock::new(1);
+        let ctx = make_test_context(&clock);
 
         let ts1 = ctx.now();
         let ts2 = ctx.tick();
@@ -462,8 +458,8 @@ mod tests {
 
     #[test]
     fn test_warp_ballot_cpu() {
-        let (clock, make_ctx) = make_context();
-        let ctx = make_ctx(&clock);
+        let clock = HlcClock::new(1);
+        let ctx = make_test_context(&clock);
 
         assert_eq!(ctx.warp_ballot(true), 1);
         assert_eq!(ctx.warp_ballot(false), 0);

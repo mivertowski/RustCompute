@@ -83,6 +83,7 @@ impl Clone for CpuBuffer {
 }
 
 /// CPU device memory allocator.
+#[allow(dead_code)]
 pub struct CpuDeviceMemory {
     /// Total simulated memory.
     total: usize,
@@ -92,6 +93,7 @@ pub struct CpuDeviceMemory {
 
 impl CpuDeviceMemory {
     /// Create a new CPU device memory allocator.
+    #[allow(dead_code)]
     pub fn new(total_memory: usize) -> Self {
         Self {
             total: total_memory,
