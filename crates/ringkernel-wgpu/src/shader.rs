@@ -1,8 +1,6 @@
 //! Shader compilation and management.
 
-use std::sync::Arc;
-
-use ringkernel_core::error::{Result, RingKernelError};
+use ringkernel_core::error::Result;
 
 use crate::adapter::WgpuAdapter;
 
@@ -13,8 +11,10 @@ pub struct ComputePipeline {
     /// Bind group layout.
     bind_group_layout: wgpu::BindGroupLayout,
     /// Pipeline layout.
+    #[allow(dead_code)]
     pipeline_layout: wgpu::PipelineLayout,
     /// Workgroup size.
+    #[allow(dead_code)]
     workgroup_size: (u32, u32, u32),
 }
 
@@ -106,6 +106,7 @@ impl ComputePipeline {
     }
 
     /// Get workgroup size.
+    #[allow(dead_code)]
     pub fn workgroup_size(&self) -> (u32, u32, u32) {
         self.workgroup_size
     }

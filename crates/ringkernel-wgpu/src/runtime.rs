@@ -78,7 +78,7 @@ impl RingKernelRuntime for WgpuRuntime {
         // Check for duplicate
         let id = KernelId::new(kernel_id);
         if self.kernels.read().contains_key(&id) {
-            return Err(RingKernelError::KernelAlreadyExists(kernel_id.to_string()));
+            return Err(RingKernelError::KernelAlreadyActive(kernel_id.to_string()));
         }
 
         let id_num = self.kernel_counter.fetch_add(1, Ordering::Relaxed);
@@ -128,7 +128,8 @@ impl RingKernelRuntime for WgpuRuntime {
         let kernel_ids: Vec<_> = self.kernels.read().keys().cloned().collect();
 
         for id in kernel_ids {
-            if let Some(kernel) = self.kernels.read().get(&id) {
+            let kernel = self.kernels.read().get(&id).cloned();
+            if let Some(kernel) = kernel {
                 if let Err(e) = kernel.terminate().await {
                     tracing::warn!(kernel_id = %id, error = %e, "Failed to terminate kernel");
                 }

@@ -65,12 +65,13 @@ impl WgpuBuffer {
     }
 
     /// Get the underlying wgpu buffer.
+    #[allow(dead_code)]
     pub fn inner(&self) -> &wgpu::Buffer {
         &self.buffer
     }
 
     /// Create a binding for this buffer.
-    pub fn as_entire_binding(&self) -> wgpu::BindingResource {
+    pub fn as_entire_binding(&self) -> wgpu::BindingResource<'_> {
         self.buffer.as_entire_binding()
     }
 }
@@ -80,21 +81,17 @@ impl GpuBuffer for WgpuBuffer {
         self.size
     }
 
-    fn as_ptr(&self) -> *const u8 {
-        // WebGPU doesn't expose raw pointers
-        std::ptr::null()
+    fn device_ptr(&self) -> usize {
+        // WebGPU doesn't expose raw device pointers
+        // Return 0 as a placeholder - actual GPU address is managed internally by wgpu
+        0
     }
 
-    fn as_mut_ptr(&mut self) -> *mut u8 {
-        // WebGPU doesn't expose raw pointers
-        std::ptr::null_mut()
-    }
-
-    fn copy_from_host(&mut self, data: &[u8]) -> Result<()> {
+    fn copy_from_host(&self, data: &[u8]) -> Result<()> {
         if data.len() > self.size {
-            return Err(RingKernelError::BufferOverflow {
-                required: data.len(),
-                available: self.size,
+            return Err(RingKernelError::AllocationFailed {
+                size: data.len(),
+                reason: format!("buffer too small: {} > {}", data.len(), self.size),
             });
         }
 
@@ -104,9 +101,9 @@ impl GpuBuffer for WgpuBuffer {
 
     fn copy_to_host(&self, data: &mut [u8]) -> Result<()> {
         if data.len() > self.size {
-            return Err(RingKernelError::BufferOverflow {
-                required: data.len(),
-                available: self.size,
+            return Err(RingKernelError::AllocationFailed {
+                size: data.len(),
+                reason: format!("buffer too small: {} > {}", data.len(), self.size),
             });
         }
 
@@ -138,20 +135,16 @@ impl GpuBuffer for WgpuBuffer {
         self.device.poll(wgpu::Maintain::Wait);
 
         rx.recv()
-            .map_err(|e| RingKernelError::TransferError(format!("Channel error: {}", e)))?
-            .map_err(|e| RingKernelError::TransferError(format!("Map error: {}", e)))?;
+            .map_err(|e| RingKernelError::TransferFailed(format!("Channel error: {}", e)))?
+            .map_err(|e| RingKernelError::TransferFailed(format!("Map error: {}", e)))?;
 
         let mapped = slice.get_mapped_range();
-        data[..self.size.min(data.len())].copy_from_slice(&mapped[..self.size.min(data.len())]);
+        let copy_len = self.size.min(data.len());
+        data[..copy_len].copy_from_slice(&mapped[..copy_len]);
         drop(mapped);
         staging.unmap();
 
         Ok(())
-    }
-
-    fn fill(&mut self, value: u8) -> Result<()> {
-        let fill_data = vec![value; self.size];
-        self.copy_from_host(&fill_data)
     }
 }
 
@@ -172,11 +165,12 @@ impl WgpuControlBlock {
     }
 
     /// Get the binding resource.
-    pub fn as_binding(&self) -> wgpu::BindingResource {
+    pub fn as_binding(&self) -> wgpu::BindingResource<'_> {
         self.buffer.as_entire_binding()
     }
 
     /// Get the underlying buffer.
+    #[allow(dead_code)]
     pub fn buffer(&self) -> &WgpuBuffer {
         &self.buffer
     }
@@ -191,7 +185,7 @@ impl WgpuControlBlock {
     }
 
     /// Write control block to GPU.
-    pub fn write(&mut self, cb: &ControlBlock) -> Result<()> {
+    pub fn write(&self, cb: &ControlBlock) -> Result<()> {
         let data = unsafe {
             std::slice::from_raw_parts(
                 cb as *const ControlBlock as *const u8,
@@ -207,10 +201,13 @@ pub struct WgpuMessageQueue {
     /// Headers buffer.
     headers: WgpuBuffer,
     /// Payloads buffer.
+    #[allow(dead_code)]
     payloads: WgpuBuffer,
     /// Queue capacity.
+    #[allow(dead_code)]
     capacity: usize,
     /// Max payload size.
+    #[allow(dead_code)]
     max_payload_size: usize,
 }
 
@@ -229,18 +226,8 @@ impl WgpuMessageQueue {
     }
 
     /// Get headers binding.
-    pub fn headers_binding(&self) -> wgpu::BindingResource {
+    pub fn headers_binding(&self) -> wgpu::BindingResource<'_> {
         self.headers.as_entire_binding()
-    }
-
-    /// Get payloads binding.
-    pub fn payloads_binding(&self) -> wgpu::BindingResource {
-        self.payloads.as_entire_binding()
-    }
-
-    /// Get capacity.
-    pub fn capacity(&self) -> usize {
-        self.capacity
     }
 }
 
@@ -252,7 +239,7 @@ mod tests {
     #[ignore] // May not have GPU in CI
     async fn test_wgpu_buffer() {
         let adapter = WgpuAdapter::new().await.unwrap();
-        let mut buffer = WgpuBuffer::new(&adapter, 1024, Some("Test Buffer"));
+        let buffer = WgpuBuffer::new(&adapter, 1024, Some("Test Buffer"));
 
         // Write data
         let data = vec![42u8; 1024];

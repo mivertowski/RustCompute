@@ -23,23 +23,23 @@ impl CudaDevice {
     /// Create a new CUDA device wrapper.
     pub fn new(ordinal: usize) -> Result<Self> {
         let inner = CudarcDevice::new(ordinal).map_err(|e| {
-            RingKernelError::DeviceError(format!("Failed to create CUDA device {}: {}", ordinal, e))
+            RingKernelError::BackendError(format!("Failed to create CUDA device {}: {}", ordinal, e))
         })?;
 
         let name = inner
             .name()
-            .map_err(|e| RingKernelError::DeviceError(format!("Failed to get device name: {}", e)))?;
+            .map_err(|e| RingKernelError::BackendError(format!("Failed to get device name: {}", e)))?;
 
         // Get compute capability
         let major = inner.attribute(cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)
-            .map_err(|e| RingKernelError::DeviceError(format!("Failed to get compute capability: {}", e)))? as u32;
+            .map_err(|e| RingKernelError::BackendError(format!("Failed to get compute capability: {}", e)))? as u32;
         let minor = inner.attribute(cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR)
-            .map_err(|e| RingKernelError::DeviceError(format!("Failed to get compute capability: {}", e)))? as u32;
+            .map_err(|e| RingKernelError::BackendError(format!("Failed to get compute capability: {}", e)))? as u32;
 
         // Get total memory
         let total_memory = inner
             .total_memory()
-            .map_err(|e| RingKernelError::DeviceError(format!("Failed to get total memory: {}", e)))?;
+            .map_err(|e| RingKernelError::BackendError(format!("Failed to get total memory: {}", e)))?;
 
         Ok(Self {
             inner: Arc::new(inner),
@@ -94,21 +94,21 @@ impl CudaDevice {
     pub fn htod_copy<T: DeviceRepr + Clone>(&self, src: &[T]) -> Result<CudaSlice<T>> {
         self.inner
             .htod_copy(src.to_vec())
-            .map_err(|e| RingKernelError::TransferError(format!("HtoD copy failed: {}", e)))
+            .map_err(|e| RingKernelError::TransferFailed(format!("HtoD copy failed: {}", e)))
     }
 
     /// Copy data from device to host.
     pub fn dtoh_copy<T: DeviceRepr + Clone>(&self, src: &CudaSlice<T>) -> Result<Vec<T>> {
         self.inner
             .dtoh_sync_copy(src)
-            .map_err(|e| RingKernelError::TransferError(format!("DtoH copy failed: {}", e)))
+            .map_err(|e| RingKernelError::TransferFailed(format!("DtoH copy failed: {}", e)))
     }
 
     /// Synchronize device.
     pub fn synchronize(&self) -> Result<()> {
         self.inner
             .synchronize()
-            .map_err(|e| RingKernelError::DeviceError(format!("Synchronize failed: {}", e)))
+            .map_err(|e| RingKernelError::BackendError(format!("Synchronize failed: {}", e)))
     }
 }
 
@@ -154,7 +154,7 @@ impl From<&CudaDevice> for CudaDeviceInfo {
 /// Enumerate all CUDA devices.
 pub fn enumerate_devices() -> Result<Vec<CudaDeviceInfo>> {
     let count = CudarcDevice::count().map_err(|e| {
-        RingKernelError::DeviceError(format!("Failed to count CUDA devices: {}", e))
+        RingKernelError::BackendError(format!("Failed to count CUDA devices: {}", e))
     })?;
 
     let mut devices = Vec::with_capacity(count);

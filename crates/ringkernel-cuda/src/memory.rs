@@ -52,36 +52,35 @@ impl GpuBuffer for CudaBuffer {
         self.size
     }
 
-    fn as_ptr(&self) -> *const u8 {
-        *self.data.device_ptr() as *const u8
+    fn device_ptr(&self) -> usize {
+        *self.data.device_ptr() as usize
     }
 
-    fn as_mut_ptr(&mut self) -> *mut u8 {
-        *self.data.device_ptr() as *mut u8
-    }
-
-    fn copy_from_host(&mut self, data: &[u8]) -> Result<()> {
+    fn copy_from_host(&self, data: &[u8]) -> Result<()> {
         if data.len() > self.size {
-            return Err(RingKernelError::BufferOverflow {
-                required: data.len(),
-                available: self.size,
+            return Err(RingKernelError::AllocationFailed {
+                size: data.len(),
+                reason: format!("buffer too small: {} > {}", data.len(), self.size),
             });
         }
 
-        // Use cudarc's copy functionality
+        // Use cudarc's copy functionality - need to work around &self
+        // by using the queue write method
         self.device
             .inner()
-            .htod_copy_into(data.to_vec(), &mut self.data)
-            .map_err(|e| RingKernelError::TransferError(format!("HtoD copy failed: {}", e)))?;
+            .htod_sync_copy_into(data, unsafe {
+                &mut *(&self.data as *const CudaSlice<u8> as *mut CudaSlice<u8>)
+            })
+            .map_err(|e| RingKernelError::TransferFailed(format!("HtoD copy failed: {}", e)))?;
 
         Ok(())
     }
 
     fn copy_to_host(&self, data: &mut [u8]) -> Result<()> {
         if data.len() > self.size {
-            return Err(RingKernelError::BufferOverflow {
-                required: data.len(),
-                available: self.size,
+            return Err(RingKernelError::AllocationFailed {
+                size: data.len(),
+                reason: format!("buffer too small: {} > {}", data.len(), self.size),
             });
         }
 
@@ -89,15 +88,10 @@ impl GpuBuffer for CudaBuffer {
             .device
             .inner()
             .dtoh_sync_copy(&self.data)
-            .map_err(|e| RingKernelError::TransferError(format!("DtoH copy failed: {}", e)))?;
+            .map_err(|e| RingKernelError::TransferFailed(format!("DtoH copy failed: {}", e)))?;
 
         data[..host_data.len()].copy_from_slice(&host_data);
         Ok(())
-    }
-
-    fn fill(&mut self, value: u8) -> Result<()> {
-        let fill_data = vec![value; self.size];
-        self.copy_from_host(&fill_data)
     }
 }
 
@@ -115,18 +109,19 @@ impl CudaControlBlock {
         let buffer = CudaBuffer::new(device, std::mem::size_of::<ControlBlock>())?;
 
         // Initialize to zeros
-        let mut cb = Self {
+        let cb = Self {
             buffer,
             device: device.clone(),
         };
-        cb.buffer.fill(0)?;
+        let zeros = vec![0u8; std::mem::size_of::<ControlBlock>()];
+        cb.buffer.copy_from_host(&zeros)?;
 
         Ok(cb)
     }
 
     /// Get device pointer for kernel launch.
     pub fn device_ptr(&self) -> u64 {
-        self.buffer.device_ptr()
+        self.buffer.device_ptr() as u64
     }
 
     /// Read control block from device.
@@ -146,25 +141,6 @@ impl CudaControlBlock {
         self.buffer.copy_from_host(data)
     }
 
-    /// Update a single field atomically (via full read-modify-write).
-    pub fn set_active(&mut self, active: bool) -> Result<()> {
-        let mut cb = self.read()?;
-        cb.set_active(active);
-        self.write(&cb)
-    }
-
-    /// Request termination.
-    pub fn request_termination(&mut self) -> Result<()> {
-        let mut cb = self.read()?;
-        cb.request_termination();
-        self.write(&cb)
-    }
-
-    /// Check if terminated.
-    pub fn is_terminated(&self) -> Result<bool> {
-        let cb = self.read()?;
-        Ok(cb.has_terminated())
-    }
 }
 
 /// CUDA message queue buffer.

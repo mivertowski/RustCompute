@@ -7,8 +7,10 @@ use ringkernel_core::error::{Result, RingKernelError};
 /// Wrapper around wgpu adapter and device.
 pub struct WgpuAdapter {
     /// The wgpu instance.
+    #[allow(dead_code)]
     instance: wgpu::Instance,
     /// The selected adapter.
+    #[allow(dead_code)]
     adapter: wgpu::Adapter,
     /// The device.
     device: Arc<wgpu::Device>,
@@ -50,7 +52,7 @@ impl WgpuAdapter {
             )
             .await
             .map_err(|e| {
-                RingKernelError::DeviceError(format!("Failed to create device: {}", e))
+                RingKernelError::BackendError(format!("Failed to create device: {}", e))
             })?;
 
         tracing::info!(
@@ -105,11 +107,13 @@ impl WgpuAdapter {
 }
 
 /// Enumerate available adapters.
+#[allow(dead_code)]
 pub async fn enumerate_adapters() -> Vec<WgpuAdapterInfo> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
 
     instance
         .enumerate_adapters(wgpu::Backends::all())
+        .into_iter()
         .map(|adapter| {
             let info = adapter.get_info();
             WgpuAdapterInfo {
@@ -123,6 +127,7 @@ pub async fn enumerate_adapters() -> Vec<WgpuAdapterInfo> {
 
 /// Information about a WebGPU adapter.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct WgpuAdapterInfo {
     /// Adapter name.
     pub name: String,

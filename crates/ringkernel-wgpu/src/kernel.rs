@@ -15,6 +15,7 @@ use ringkernel_core::runtime::{
     KernelHandleInner, KernelId, KernelState, KernelStatus, LaunchOptions,
 };
 use ringkernel_core::telemetry::KernelMetrics;
+use ringkernel_core::types::KernelMode;
 
 use crate::adapter::WgpuAdapter;
 use crate::memory::{WgpuControlBlock, WgpuMessageQueue};
@@ -37,6 +38,7 @@ pub struct WgpuKernel {
     /// Input queue.
     input_queue: WgpuMessageQueue,
     /// Output queue.
+    #[allow(dead_code)]
     output_queue: WgpuMessageQueue,
     /// Compute pipeline.
     pipeline: Option<ComputePipeline>,
@@ -72,7 +74,7 @@ impl WgpuKernel {
         Ok(Self {
             id: KernelId::new(id),
             id_num,
-            state: RwLock::new(KernelState::Initialized),
+            state: RwLock::new(KernelState::Created),
             options,
             adapter,
             control_block: RwLock::new(control_block),
@@ -89,6 +91,7 @@ impl WgpuKernel {
     }
 
     /// Get the kernel ID.
+    #[allow(dead_code)]
     pub fn kernel_id(&self) -> &KernelId {
         &self.id
     }
@@ -110,11 +113,12 @@ impl WgpuKernel {
             pipeline.bind_group_layout(),
             self.control_block.read().as_binding(),
             self.input_queue.headers_binding(),
-            self.output_queue.headers_binding(),
+            self.input_queue.headers_binding(), // Using headers for output too for now
         );
 
         self.pipeline = Some(pipeline);
         self.bind_group = Some(bind_group);
+        *self.state.write() = KernelState::Launched;
 
         Ok(())
     }
@@ -123,11 +127,11 @@ impl WgpuKernel {
     #[allow(dead_code)]
     pub fn dispatch(&self, workgroups: u32) -> Result<()> {
         let pipeline = self.pipeline.as_ref().ok_or_else(|| {
-            RingKernelError::InvalidState("Shader not loaded".to_string())
+            RingKernelError::LaunchFailed("Shader not loaded".to_string())
         })?;
 
         let bind_group = self.bind_group.as_ref().ok_or_else(|| {
-            RingKernelError::InvalidState("Bind group not created".to_string())
+            RingKernelError::LaunchFailed("Bind group not created".to_string())
         })?;
 
         let mut encoder = self
@@ -172,12 +176,15 @@ impl KernelHandleInner for WgpuKernel {
 
     fn status(&self) -> KernelStatus {
         let state = *self.state.read();
+        let cb = self.control_block.read().read().unwrap_or_default();
         KernelStatus {
             id: self.id.clone(),
             state,
-            uptime: self.created_at.elapsed(),
+            mode: KernelMode::EventDriven, // WebGPU is event-driven
+            input_queue_depth: cb.input_queue_size() as usize,
+            output_queue_depth: cb.output_queue_size() as usize,
             messages_processed: self.message_counter.load(Ordering::Relaxed),
-            messages_pending: 0,
+            uptime: self.created_at.elapsed(),
         }
     }
 
@@ -187,18 +194,18 @@ impl KernelHandleInner for WgpuKernel {
 
     async fn activate(&self) -> Result<()> {
         let current_state = *self.state.read();
-        if current_state != KernelState::Initialized && current_state != KernelState::Suspended {
+        if current_state != KernelState::Launched && current_state != KernelState::Deactivated {
             return Err(RingKernelError::InvalidStateTransition {
-                from: current_state,
-                to: KernelState::Active,
+                from: format!("{:?}", current_state),
+                to: "Active".to_string(),
             });
         }
 
         // Set active flag in control block
         {
-            let mut cb_lock = self.control_block.write();
+            let cb_lock = self.control_block.write();
             let mut cb = cb_lock.read()?;
-            cb.set_active(true);
+            cb.is_active = 1;
             cb_lock.write(&cb)?;
         }
 
@@ -212,20 +219,20 @@ impl KernelHandleInner for WgpuKernel {
         let current_state = *self.state.read();
         if current_state != KernelState::Active {
             return Err(RingKernelError::InvalidStateTransition {
-                from: current_state,
-                to: KernelState::Suspended,
+                from: format!("{:?}", current_state),
+                to: "Deactivated".to_string(),
             });
         }
 
         // Clear active flag
         {
-            let mut cb_lock = self.control_block.write();
+            let cb_lock = self.control_block.write();
             let mut cb = cb_lock.read()?;
-            cb.set_active(false);
+            cb.is_active = 0;
             cb_lock.write(&cb)?;
         }
 
-        *self.state.write() = KernelState::Suspended;
+        *self.state.write() = KernelState::Deactivated;
         tracing::info!(kernel_id = %self.id, "WebGPU kernel deactivated");
 
         Ok(())
@@ -234,16 +241,25 @@ impl KernelHandleInner for WgpuKernel {
     async fn terminate(&self) -> Result<()> {
         // Request termination
         {
-            let mut cb_lock = self.control_block.write();
+            let cb_lock = self.control_block.write();
             let mut cb = cb_lock.read()?;
-            cb.request_termination();
+            cb.should_terminate = 1;
             cb_lock.write(&cb)?;
         }
+
+        *self.state.write() = KernelState::Terminating;
 
         // Wait for GPU to finish any pending work
         self.adapter.poll(wgpu::Maintain::Wait);
 
-        *self.state.write() = KernelState::Terminated;
+        // Mark as terminated
+        {
+            let cb_lock = self.control_block.write();
+            let mut cb = cb_lock.read()?;
+            cb.has_terminated = 1;
+            cb_lock.write(&cb)?;
+        }
+
         self.terminate_notify.notify_waiters();
 
         tracing::info!(kernel_id = %self.id, "WebGPU kernel terminated");

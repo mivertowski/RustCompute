@@ -7,15 +7,16 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use cudarc::driver::{CudaFunction, CudaModule, LaunchAsync, LaunchConfig};
 use parking_lot::RwLock;
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::Notify;
 
 use ringkernel_core::error::{Result, RingKernelError};
-use ringkernel_core::hlc::HlcClock;
-use ringkernel_core::message::{CorrelationId, MessageEnvelope, RingMessage};
+use ringkernel_core::hlc::{HlcClock, HlcTimestamp};
+use ringkernel_core::message::{CorrelationId, MessageEnvelope};
 use ringkernel_core::runtime::{
-    KernelHandle, KernelHandleInner, KernelId, KernelState, KernelStatus, LaunchOptions,
+    KernelHandleInner, KernelId, KernelState, KernelStatus, LaunchOptions,
 };
 use ringkernel_core::telemetry::KernelMetrics;
+use ringkernel_core::types::KernelMode;
 
 use crate::device::CudaDevice;
 use crate::memory::{CudaControlBlock, CudaMessageQueue};
@@ -35,15 +36,15 @@ pub struct CudaKernel {
     /// Control block on device.
     control_block: RwLock<CudaControlBlock>,
     /// Input queue on device.
+    #[allow(dead_code)]
     input_queue: CudaMessageQueue,
     /// Output queue on device.
+    #[allow(dead_code)]
     output_queue: CudaMessageQueue,
     /// HLC clock for timestamps.
     clock: HlcClock,
     /// Metrics.
     metrics: RwLock<KernelMetrics>,
-    /// Pending responses (correlation_id -> sender).
-    pending: RwLock<std::collections::HashMap<u64, tokio::sync::oneshot::Sender<MessageEnvelope>>>,
     /// Message counter.
     message_counter: AtomicU64,
     /// Created timestamp.
@@ -51,8 +52,10 @@ pub struct CudaKernel {
     /// Termination notifier.
     terminate_notify: Notify,
     /// CUDA module (compiled kernel).
+    #[allow(dead_code)]
     module: Option<Arc<CudaModule>>,
     /// Kernel function.
+    #[allow(dead_code)]
     kernel_fn: Option<CudaFunction>,
 }
 
@@ -74,7 +77,7 @@ impl CudaKernel {
         Ok(Self {
             id: KernelId::new(id),
             id_num,
-            state: RwLock::new(KernelState::Initialized),
+            state: RwLock::new(KernelState::Created),
             options,
             device,
             control_block: RwLock::new(control_block),
@@ -82,13 +85,18 @@ impl CudaKernel {
             output_queue,
             clock: HlcClock::new(id_num),
             metrics: RwLock::new(KernelMetrics::default()),
-            pending: RwLock::new(std::collections::HashMap::new()),
             message_counter: AtomicU64::new(0),
             created_at: Instant::now(),
             terminate_notify: Notify::new(),
             module: None,
             kernel_fn: None,
         })
+    }
+
+    /// Get the kernel ID.
+    #[allow(dead_code)]
+    pub fn kernel_id(&self) -> &KernelId {
+        &self.id
     }
 
     /// Load and compile the kernel PTX.
@@ -98,13 +106,13 @@ impl CudaKernel {
             .inner()
             .load_ptx(
                 cudarc::nvrtc::compile_ptx(ptx).map_err(|e| {
-                    RingKernelError::CompilationError(format!("PTX compilation failed: {}", e))
+                    RingKernelError::LaunchFailed(format!("PTX compilation failed: {}", e))
                 })?,
                 "ring_kernel",
                 &["ring_kernel_main"],
             )
             .map_err(|e| {
-                RingKernelError::CompilationError(format!("Module load failed: {}", e))
+                RingKernelError::LaunchFailed(format!("Module load failed: {}", e))
             })?;
 
         let kernel_fn = self
@@ -112,19 +120,21 @@ impl CudaKernel {
             .inner()
             .get_func("ring_kernel", "ring_kernel_main")
             .ok_or_else(|| {
-                RingKernelError::CompilationError("Kernel function not found".to_string())
+                RingKernelError::LaunchFailed("Kernel function not found".to_string())
             })?;
 
         self.module = Some(Arc::new(module));
         self.kernel_fn = Some(kernel_fn);
+        *self.state.write() = KernelState::Launched;
 
         Ok(())
     }
 
     /// Launch the kernel on GPU.
-    pub async fn launch(&self) -> Result<()> {
+    #[allow(dead_code)]
+    pub async fn launch_kernel(&self) -> Result<()> {
         let kernel_fn = self.kernel_fn.as_ref().ok_or_else(|| {
-            RingKernelError::InvalidState("Kernel not loaded".to_string())
+            RingKernelError::LaunchFailed("Kernel not loaded".to_string())
         })?;
 
         let control_ptr = self.control_block.read().device_ptr();
@@ -132,12 +142,12 @@ impl CudaKernel {
         let output_ptr = self.output_queue.headers_ptr();
         let shared_ptr = 0u64; // Placeholder for shared state
 
-        let grid_size = self.options.grid_size.unwrap_or(1);
-        let block_size = self.options.block_size.unwrap_or(256);
+        let grid_size = self.options.grid_size;
+        let block_size = self.options.block_size;
 
         let config = LaunchConfig {
-            grid_dim: (grid_size as u32, 1, 1),
-            block_dim: (block_size as u32, 1, 1),
+            grid_dim: (grid_size, 1, 1),
+            block_dim: (block_size, 1, 1),
             shared_mem_bytes: 0,
         };
 
@@ -147,20 +157,9 @@ impl CudaKernel {
                 .clone()
                 .launch(config, (control_ptr, input_ptr, output_ptr, shared_ptr))
                 .map_err(|e| {
-                    RingKernelError::LaunchError(format!("Kernel launch failed: {}", e))
+                    RingKernelError::LaunchFailed(format!("Kernel launch failed: {}", e))
                 })?;
         }
-
-        Ok(())
-    }
-
-    /// Update metrics from control block.
-    fn update_metrics(&self) -> Result<()> {
-        let cb = self.control_block.read().read()?;
-        let mut metrics = self.metrics.write();
-
-        metrics.messages_processed = cb.messages_processed;
-        metrics.uptime = self.created_at.elapsed();
 
         Ok(())
     }
@@ -168,42 +167,47 @@ impl CudaKernel {
 
 #[async_trait]
 impl KernelHandleInner for CudaKernel {
-    fn id(&self) -> &str {
-        self.id.as_str()
+    fn kernel_id_num(&self) -> u64 {
+        self.id_num
+    }
+
+    fn current_timestamp(&self) -> HlcTimestamp {
+        self.clock.tick()
     }
 
     fn status(&self) -> KernelStatus {
         let state = *self.state.read();
+        let cb = self.control_block.read().read().unwrap_or_default();
         KernelStatus {
             id: self.id.clone(),
             state,
-            uptime: self.created_at.elapsed(),
+            mode: KernelMode::Persistent, // CUDA kernels are persistent
+            input_queue_depth: cb.input_queue_size() as usize,
+            output_queue_depth: cb.output_queue_size() as usize,
             messages_processed: self.message_counter.load(Ordering::Relaxed),
-            messages_pending: 0, // Would need to read from control block
+            uptime: self.created_at.elapsed(),
         }
     }
 
     fn metrics(&self) -> KernelMetrics {
-        // Try to update metrics from device
-        let _ = self.update_metrics();
         self.metrics.read().clone()
     }
 
     async fn activate(&self) -> Result<()> {
         let current_state = *self.state.read();
-        if current_state != KernelState::Initialized && current_state != KernelState::Suspended {
+        if current_state != KernelState::Launched && current_state != KernelState::Deactivated {
             return Err(RingKernelError::InvalidStateTransition {
-                from: current_state,
-                to: KernelState::Active,
+                from: format!("{:?}", current_state),
+                to: "Active".to_string(),
             });
         }
 
-        // Set active flag on device
-        self.control_block.write().set_active(true)?;
-
-        // If first activation, launch the kernel
-        if current_state == KernelState::Initialized {
-            self.launch().await?;
+        // Set active flag in control block
+        {
+            let cb_lock = self.control_block.write();
+            let mut cb = cb_lock.read()?;
+            cb.is_active = 1;
+            cb_lock.write(&cb)?;
         }
 
         *self.state.write() = KernelState::Active;
@@ -212,50 +216,47 @@ impl KernelHandleInner for CudaKernel {
         Ok(())
     }
 
-    async fn suspend(&self) -> Result<()> {
+    async fn deactivate(&self) -> Result<()> {
         let current_state = *self.state.read();
         if current_state != KernelState::Active {
             return Err(RingKernelError::InvalidStateTransition {
-                from: current_state,
-                to: KernelState::Suspended,
+                from: format!("{:?}", current_state),
+                to: "Deactivated".to_string(),
             });
         }
 
-        // Clear active flag (kernel will spin-wait)
-        self.control_block.write().set_active(false)?;
-        *self.state.write() = KernelState::Suspended;
-
-        tracing::info!(kernel_id = %self.id, "CUDA kernel suspended");
-        Ok(())
-    }
-
-    async fn resume(&self) -> Result<()> {
-        let current_state = *self.state.read();
-        if current_state != KernelState::Suspended {
-            return Err(RingKernelError::InvalidStateTransition {
-                from: current_state,
-                to: KernelState::Active,
-            });
+        // Clear active flag
+        {
+            let cb_lock = self.control_block.write();
+            let mut cb = cb_lock.read()?;
+            cb.is_active = 0;
+            cb_lock.write(&cb)?;
         }
 
-        // Set active flag
-        self.control_block.write().set_active(true)?;
-        *self.state.write() = KernelState::Active;
+        *self.state.write() = KernelState::Deactivated;
+        tracing::info!(kernel_id = %self.id, "CUDA kernel deactivated");
 
-        tracing::info!(kernel_id = %self.id, "CUDA kernel resumed");
         Ok(())
     }
 
     async fn terminate(&self) -> Result<()> {
         // Request termination via control block
-        self.control_block.write().request_termination()?;
+        {
+            let cb_lock = self.control_block.write();
+            let mut cb = cb_lock.read()?;
+            cb.should_terminate = 1;
+            cb_lock.write(&cb)?;
+        }
+
+        *self.state.write() = KernelState::Terminating;
 
         // Wait for kernel to terminate (with timeout)
         let start = Instant::now();
         let timeout = Duration::from_secs(5);
 
         while start.elapsed() < timeout {
-            if self.control_block.read().is_terminated()? {
+            let cb = self.control_block.read().read()?;
+            if cb.has_terminated() {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -264,74 +265,66 @@ impl KernelHandleInner for CudaKernel {
         // Synchronize device
         self.device.synchronize()?;
 
-        *self.state.write() = KernelState::Terminated;
+        // Mark as terminated
+        {
+            let cb_lock = self.control_block.write();
+            let mut cb = cb_lock.read()?;
+            cb.has_terminated = 1;
+            cb_lock.write(&cb)?;
+        }
+
         self.terminate_notify.notify_waiters();
 
         tracing::info!(kernel_id = %self.id, "CUDA kernel terminated");
         Ok(())
     }
 
-    async fn send<M: RingMessage + Send + Sync>(&self, message: M) -> Result<()> {
-        // Serialize message
-        let payload = message.serialize();
+    async fn send_envelope(&self, envelope: MessageEnvelope) -> Result<()> {
+        // TODO: Copy envelope to input queue on GPU
+        // For CUDA, this would involve:
+        // 1. Write header to headers buffer
+        // 2. Write payload to payloads buffer
+        // 3. Update tail index in control block
+        // 4. Signal kernel if needed
 
-        // Create header
-        let header = ringkernel_core::message::MessageHeader::new(
-            M::message_type(),
-            0, // source (host)
-            self.id_num,
-            payload.len(),
-            self.clock.tick(),
-        );
-
-        // TODO: Copy to input queue on device
-        // For now, this is a placeholder - actual implementation would:
-        // 1. Get current input tail from control block
-        // 2. Copy header to headers buffer at tail position
-        // 3. Copy payload to payloads buffer at tail position
-        // 4. Atomically increment tail
-
+        let _ = envelope; // Suppress unused warning for now
         self.message_counter.fetch_add(1, Ordering::Relaxed);
 
         Ok(())
     }
 
-    async fn request<M: RingMessage + Send + Sync, R: RingMessage + Send + Sync>(
-        &self,
-        message: M,
-        timeout: Duration,
-    ) -> Result<R> {
-        let correlation_id = message.correlation_id().0;
-
-        // Create response channel
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        self.pending.write().insert(correlation_id, tx);
-
-        // Send the message
-        self.send(message).await?;
-
-        // Wait for response with timeout
-        match tokio::time::timeout(timeout, rx).await {
-            Ok(Ok(envelope)) => R::deserialize(&envelope.payload),
-            Ok(Err(_)) => Err(RingKernelError::ChannelError(
-                "Response channel closed".to_string(),
-            )),
-            Err(_) => {
-                self.pending.write().remove(&correlation_id);
-                Err(RingKernelError::Timeout(timeout))
-            }
-        }
-    }
-
-    async fn recv(&self) -> Result<MessageEnvelope> {
-        // TODO: Read from output queue on device
-        // This would need to poll the output queue or use events
+    async fn receive(&self) -> Result<MessageEnvelope> {
+        // TODO: Read from output queue - for now just wait
+        self.terminate_notify.notified().await;
         Err(RingKernelError::QueueEmpty)
     }
 
-    fn try_recv(&self) -> Option<MessageEnvelope> {
+    async fn receive_timeout(&self, timeout: Duration) -> Result<MessageEnvelope> {
+        // Try to receive with timeout
+        match tokio::time::timeout(timeout, self.receive()).await {
+            Ok(result) => result,
+            Err(_) => Err(RingKernelError::Timeout(timeout)),
+        }
+    }
+
+    fn try_receive(&self) -> Result<MessageEnvelope> {
         // TODO: Non-blocking read from output queue
-        None
+        Err(RingKernelError::QueueEmpty)
+    }
+
+    async fn receive_correlated(
+        &self,
+        _correlation: CorrelationId,
+        timeout: Duration,
+    ) -> Result<MessageEnvelope> {
+        // TODO: Implement correlation tracking
+        self.receive_timeout(timeout).await
+    }
+
+    async fn wait(&self) -> Result<()> {
+        // Wait for termination
+        self.terminate_notify.notified().await;
+        Ok(())
     }
 }
 
@@ -339,7 +332,10 @@ impl Drop for CudaKernel {
     fn drop(&mut self) {
         // Ensure kernel is terminated
         if *self.state.read() != KernelState::Terminated {
-            let _ = self.control_block.write().request_termination();
+            if let Ok(mut cb) = self.control_block.write().read() {
+                cb.should_terminate = 1;
+                let _ = self.control_block.write().write(&cb);
+            }
             // Best effort synchronize
             let _ = self.device.synchronize();
         }

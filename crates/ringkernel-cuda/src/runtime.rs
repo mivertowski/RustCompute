@@ -10,10 +10,11 @@ use parking_lot::RwLock;
 
 use ringkernel_core::error::{Result, RingKernelError};
 use ringkernel_core::runtime::{
-    Backend, KernelHandle, KernelId, LaunchOptions, RingKernelRuntime, RuntimeMetrics,
+    Backend, KernelHandle, KernelHandleInner, KernelId, LaunchOptions, RingKernelRuntime,
+    RuntimeMetrics,
 };
 
-use crate::device::{CudaDevice, enumerate_devices};
+use crate::device::CudaDevice;
 use crate::kernel::CudaKernel;
 use crate::memory::CudaMemoryPool;
 use crate::RING_KERNEL_PTX_TEMPLATE;
@@ -23,6 +24,7 @@ pub struct CudaRuntime {
     /// Primary device.
     device: CudaDevice,
     /// Memory pool.
+    #[allow(dead_code)]
     memory_pool: RwLock<CudaMemoryPool>,
     /// Active kernels.
     kernels: RwLock<HashMap<KernelId, Arc<CudaKernel>>>,
@@ -31,6 +33,7 @@ pub struct CudaRuntime {
     /// Total kernels launched.
     total_launched: AtomicU64,
     /// Runtime start time.
+    #[allow(dead_code)]
     start_time: Instant,
 }
 
@@ -76,11 +79,13 @@ impl CudaRuntime {
     }
 
     /// Get device info.
+    #[allow(dead_code)]
     pub fn device(&self) -> &CudaDevice {
         &self.device
     }
 
     /// Check if persistent kernels are supported.
+    #[allow(dead_code)]
     pub fn supports_persistent_kernels(&self) -> bool {
         self.device.supports_persistent_kernels()
     }
@@ -104,7 +109,7 @@ impl RingKernelRuntime for CudaRuntime {
         // Check for duplicate
         let id = KernelId::new(kernel_id);
         if self.kernels.read().contains_key(&id) {
-            return Err(RingKernelError::KernelAlreadyExists(kernel_id.to_string()));
+            return Err(RingKernelError::KernelAlreadyActive(kernel_id.to_string()));
         }
 
         let id_num = self.kernel_counter.fetch_add(1, Ordering::Relaxed);
@@ -121,14 +126,14 @@ impl RingKernelRuntime for CudaRuntime {
 
         tracing::info!(kernel_id = %kernel_id, "Launched CUDA kernel");
 
-        Ok(KernelHandle::new(kernel))
+        Ok(KernelHandle::new(id, kernel))
     }
 
     fn get_kernel(&self, kernel_id: &KernelId) -> Option<KernelHandle> {
-        self.kernels
-            .read()
-            .get(kernel_id)
-            .map(|k| KernelHandle::new(Arc::clone(k)))
+        self.kernels.read().get(kernel_id).map(|k| {
+            let inner: Arc<dyn KernelHandleInner> = Arc::clone(k) as Arc<dyn KernelHandleInner>;
+            KernelHandle::new(kernel_id.clone(), inner)
+        })
     }
 
     fn list_kernels(&self) -> Vec<KernelId> {
@@ -136,14 +141,13 @@ impl RingKernelRuntime for CudaRuntime {
     }
 
     fn metrics(&self) -> RuntimeMetrics {
-        let kernels = self.kernels.read();
         RuntimeMetrics {
-            backend: Backend::Cuda,
-            active_kernels: kernels.len(),
-            total_launched: self.total_launched.load(Ordering::Relaxed) as usize,
-            uptime: self.start_time.elapsed(),
-            memory_used: 0, // TODO: Track actual GPU memory usage
-            memory_total: self.device.total_memory(),
+            active_kernels: self.kernels.read().len(),
+            total_launched: self.total_launched.load(Ordering::Relaxed),
+            messages_sent: 0,
+            messages_received: 0,
+            gpu_memory_used: 0,
+            host_memory_used: 0,
         }
     }
 
@@ -154,7 +158,8 @@ impl RingKernelRuntime for CudaRuntime {
         let kernel_ids: Vec<_> = self.kernels.read().keys().cloned().collect();
 
         for id in kernel_ids {
-            if let Some(kernel) = self.kernels.read().get(&id) {
+            let kernel = self.kernels.read().get(&id).cloned();
+            if let Some(kernel) = kernel {
                 if let Err(e) = kernel.terminate().await {
                     tracing::warn!(kernel_id = %id, error = %e, "Failed to terminate kernel");
                 }
@@ -189,8 +194,8 @@ mod tests {
         let runtime = CudaRuntime::new().await.unwrap();
         let kernel = runtime.launch("test_kernel", LaunchOptions::default()).await.unwrap();
 
-        assert_eq!(kernel.id(), "test_kernel");
-        assert_eq!(kernel.status().state, ringkernel_core::runtime::KernelState::Initialized);
+        assert_eq!(kernel.id().as_str(), "test_kernel");
+        assert_eq!(kernel.status().state, ringkernel_core::runtime::KernelState::Launched);
 
         runtime.shutdown().await.unwrap();
     }
