@@ -1,0 +1,44 @@
+[package]
+name = "ringkernel-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core traits and types for RingKernel GPU-native actor system"
+keywords = ["gpu", "actor", "kernel", "core"]
+categories = ["concurrency", "asynchronous"]
+
+[dependencies]
+# Async runtime
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging/tracing
+tracing = { workspace = true }
+
+# Serialization (zero-copy)
+rkyv = { workspace = true }
+zerocopy = { workspace = true }
+bytemuck = { workspace = true }
+
+# Synchronization
+crossbeam = { workspace = true }
+parking_lot = { workspace = true }
+atomic = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+cfg-if = { workspace = true }
+pin-project-lite = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "macros"] }
+
+[features]
+default = []
+validation = ["rkyv/validation"]

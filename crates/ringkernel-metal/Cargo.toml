@@ -1,0 +1,36 @@
+[package]
+name = "ringkernel-metal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Metal backend for RingKernel - Apple GPU support"
+keywords = ["gpu", "actor", "metal", "apple", "macos"]
+categories = ["hardware-support"]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = { version = "0.27", optional = true }
+
+[dependencies]
+ringkernel-core = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Synchronization
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+
+[features]
+default = []
+metal = ["dep:metal"]

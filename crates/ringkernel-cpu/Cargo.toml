@@ -1,0 +1,34 @@
+[package]
+name = "ringkernel-cpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CPU backend for RingKernel - testing and fallback implementation"
+keywords = ["gpu", "actor", "cpu", "testing"]
+categories = ["concurrency", "development-tools::testing"]
+
+[dependencies]
+ringkernel-core = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Synchronization
+crossbeam = { workspace = true }
+parking_lot = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+proptest = { workspace = true }

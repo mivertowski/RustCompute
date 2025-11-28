@@ -1,0 +1,36 @@
+[package]
+name = "ringkernel-wgpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "WebGPU backend for RingKernel - cross-platform GPU support"
+keywords = ["gpu", "actor", "webgpu", "wgpu", "vulkan"]
+categories = ["hardware-support", "web-programming"]
+
+[dependencies]
+ringkernel-core = { workspace = true }
+
+# WebGPU
+wgpu = { version = "0.19", optional = true }
+
+# Async runtime
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Synchronization
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+
+[features]
+default = []
+wgpu = ["dep:wgpu"]
