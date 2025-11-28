@@ -35,11 +35,15 @@ pub mod context;
 pub mod control;
 pub mod error;
 pub mod hlc;
+pub mod k2k;
 pub mod memory;
 pub mod message;
+pub mod multi_gpu;
+pub mod pubsub;
 pub mod queue;
 pub mod runtime;
 pub mod telemetry;
+pub mod telemetry_pipeline;
 pub mod types;
 
 /// Prelude module for convenient imports
@@ -48,18 +52,29 @@ pub mod prelude {
     pub use crate::control::*;
     pub use crate::error::*;
     pub use crate::hlc::*;
+    pub use crate::k2k::{
+        DeliveryStatus, K2KBroker, K2KBuilder, K2KConfig, K2KEndpoint, K2KMessage,
+    };
     pub use crate::memory::*;
     pub use crate::message::*;
+    pub use crate::multi_gpu::{
+        DeviceInfo, DeviceStatus, LoadBalancingStrategy, MultiGpuBuilder, MultiGpuCoordinator,
+    };
+    pub use crate::pubsub::{PubSubBroker, PubSubBuilder, Publication, QoS, Subscription, Topic};
     pub use crate::queue::*;
     pub use crate::runtime::*;
     pub use crate::telemetry::*;
+    pub use crate::telemetry_pipeline::{
+        MetricsCollector, MetricsSnapshot, TelemetryAlert, TelemetryConfig, TelemetryEvent,
+        TelemetryPipeline,
+    };
     pub use crate::types::*;
 }
 
 // Re-exports for convenience
 pub use context::RingContext;
 pub use control::ControlBlock;
-pub use error::{RingKernelError, Result};
+pub use error::{Result, RingKernelError};
 pub use hlc::HlcTimestamp;
 pub use memory::{DeviceMemory, GpuBuffer, MemoryPool, PinnedMemory};
 pub use message::{MessageHeader, MessageId, Priority, RingMessage};

@@ -26,7 +26,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
-use crate::error::{RingKernelError, Result};
+use crate::error::{Result, RingKernelError};
 
 /// Maximum allowed clock skew in milliseconds.
 pub const MAX_CLOCK_SKEW_MS: u64 = 60_000; // 1 minute
@@ -39,8 +39,9 @@ pub const MAX_CLOCK_SKEW_MS: u64 = 60_000; // 1 minute
 /// - Node ID (for tie-breaking across nodes)
 ///
 /// This struct is 24 bytes and cache-line friendly.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(AsBytes, FromBytes, FromZeroes, Pod, Zeroable)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, AsBytes, FromBytes, FromZeroes, Pod, Zeroable,
+)]
 #[repr(C, align(8))]
 pub struct HlcTimestamp {
     /// Physical time component (microseconds since UNIX epoch).
@@ -148,7 +149,11 @@ impl PartialOrd for HlcTimestamp {
 
 impl std::fmt::Display for HlcTimestamp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "HLC({}.{}.{})", self.physical, self.logical, self.node_id)
+        write!(
+            f,
+            "HLC({}.{}.{})",
+            self.physical, self.logical, self.node_id
+        )
     }
 }
 
@@ -237,7 +242,12 @@ impl HlcClock {
             // Try to update atomically
             if self
                 .physical
-                .compare_exchange(old_physical, new_physical, Ordering::Release, Ordering::Relaxed)
+                .compare_exchange(
+                    old_physical,
+                    new_physical,
+                    Ordering::Release,
+                    Ordering::Relaxed,
+                )
                 .is_ok()
             {
                 self.logical.store(new_logical, Ordering::Release);
@@ -289,7 +299,12 @@ impl HlcClock {
             // Try to update atomically
             if self
                 .physical
-                .compare_exchange(old_physical, max_physical, Ordering::Release, Ordering::Relaxed)
+                .compare_exchange(
+                    old_physical,
+                    max_physical,
+                    Ordering::Release,
+                    Ordering::Relaxed,
+                )
                 .is_ok()
             {
                 self.logical.store(new_logical, Ordering::Release);
@@ -323,8 +338,7 @@ impl std::fmt::Debug for HlcClock {
 }
 
 /// Compact HLC state for GPU-side storage (16 bytes).
-#[derive(Debug, Clone, Copy, Default)]
-#[derive(AsBytes, FromBytes, FromZeroes, Pod, Zeroable)]
+#[derive(Debug, Clone, Copy, Default, AsBytes, FromBytes, FromZeroes, Pod, Zeroable)]
 #[repr(C, align(16))]
 pub struct HlcState {
     /// Physical time in microseconds.

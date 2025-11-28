@@ -10,7 +10,8 @@ use tracing::{debug, info};
 
 use ringkernel_core::error::{Result, RingKernelError};
 use ringkernel_core::runtime::{
-    Backend, KernelHandle, KernelHandleInner, KernelId, LaunchOptions, RingKernelRuntime, RuntimeMetrics,
+    Backend, KernelHandle, KernelHandleInner, KernelId, LaunchOptions, RingKernelRuntime,
+    RuntimeMetrics,
 };
 
 use crate::kernel::CpuKernel;
@@ -134,10 +135,7 @@ impl RingKernelRuntime for CpuRuntime {
 
     fn metrics(&self) -> RuntimeMetrics {
         let kernels = self.kernels.read();
-        let active = kernels
-            .values()
-            .filter(|k| k.state().is_running())
-            .count();
+        let active = kernels.values().filter(|k| k.state().is_running()).count();
 
         RuntimeMetrics {
             active_kernels: active,

@@ -100,12 +100,8 @@ impl WgpuKernel {
     pub fn load_shader(&mut self, wgsl_source: &str) -> Result<()> {
         let workgroup_size = self.options.block_size;
 
-        let pipeline = ComputePipeline::new(
-            &self.adapter,
-            wgsl_source,
-            "main",
-            (workgroup_size, 1, 1),
-        )?;
+        let pipeline =
+            ComputePipeline::new(&self.adapter, wgsl_source, "main", (workgroup_size, 1, 1))?;
 
         // Create bind group
         let bind_group = create_bind_group(
@@ -126,20 +122,22 @@ impl WgpuKernel {
     /// Dispatch the compute shader.
     #[allow(dead_code)]
     pub fn dispatch(&self, workgroups: u32) -> Result<()> {
-        let pipeline = self.pipeline.as_ref().ok_or_else(|| {
-            RingKernelError::LaunchFailed("Shader not loaded".to_string())
-        })?;
+        let pipeline = self
+            .pipeline
+            .as_ref()
+            .ok_or_else(|| RingKernelError::LaunchFailed("Shader not loaded".to_string()))?;
 
-        let bind_group = self.bind_group.as_ref().ok_or_else(|| {
-            RingKernelError::LaunchFailed("Bind group not created".to_string())
-        })?;
+        let bind_group = self
+            .bind_group
+            .as_ref()
+            .ok_or_else(|| RingKernelError::LaunchFailed("Bind group not created".to_string()))?;
 
-        let mut encoder = self
-            .adapter
-            .device()
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("RingKernel Dispatch"),
-            });
+        let mut encoder =
+            self.adapter
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("RingKernel Dispatch"),
+                });
 
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {

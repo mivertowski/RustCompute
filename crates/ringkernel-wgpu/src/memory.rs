@@ -53,7 +53,10 @@ impl WgpuBuffer {
         });
 
         // Copy data
-        buffer.slice(..).get_mapped_range_mut().copy_from_slice(data);
+        buffer
+            .slice(..)
+            .get_mapped_range_mut()
+            .copy_from_slice(data);
         buffer.unmap();
 
         Self {

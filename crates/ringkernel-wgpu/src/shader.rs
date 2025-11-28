@@ -149,13 +149,8 @@ mod tests {
     #[ignore] // May not have GPU in CI
     async fn test_pipeline_creation() {
         let adapter = WgpuAdapter::new().await.unwrap();
-        let pipeline = ComputePipeline::new(
-            &adapter,
-            RING_KERNEL_WGSL_TEMPLATE,
-            "main",
-            (256, 1, 1),
-        )
-        .unwrap();
+        let pipeline =
+            ComputePipeline::new(&adapter, RING_KERNEL_WGSL_TEMPLATE, "main", (256, 1, 1)).unwrap();
 
         assert_eq!(pipeline.workgroup_size(), (256, 1, 1));
     }

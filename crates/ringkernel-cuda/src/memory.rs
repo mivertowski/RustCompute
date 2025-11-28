@@ -136,11 +136,13 @@ impl CudaControlBlock {
     /// Write control block to device.
     pub fn write(&mut self, cb: &ControlBlock) -> Result<()> {
         let data = unsafe {
-            std::slice::from_raw_parts(cb as *const ControlBlock as *const u8, std::mem::size_of::<ControlBlock>())
+            std::slice::from_raw_parts(
+                cb as *const ControlBlock as *const u8,
+                std::mem::size_of::<ControlBlock>(),
+            )
         };
         self.buffer.copy_from_host(data)
     }
-
 }
 
 /// CUDA message queue buffer.
@@ -227,7 +229,11 @@ impl CudaMemoryPool {
     }
 
     /// Allocate a message queue.
-    pub fn alloc_queue(&mut self, capacity: usize, max_payload_size: usize) -> Result<CudaMessageQueue> {
+    pub fn alloc_queue(
+        &mut self,
+        capacity: usize,
+        max_payload_size: usize,
+    ) -> Result<CudaMessageQueue> {
         CudaMessageQueue::new(&self.device, capacity, max_payload_size)
     }
 

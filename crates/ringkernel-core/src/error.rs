@@ -34,6 +34,15 @@ pub enum RingKernelError {
         to: String,
     },
 
+    /// Invalid kernel state.
+    #[error("invalid state: expected {expected}, got {actual}")]
+    InvalidState {
+        /// Expected state
+        expected: String,
+        /// Actual state
+        actual: String,
+    },
+
     /// Kernel launch failed.
     #[error("kernel launch failed: {0}")]
     LaunchFailed(String),
@@ -118,6 +127,10 @@ pub enum RingKernelError {
     #[error("memory pool exhausted")]
     PoolExhausted,
 
+    /// Generic memory error.
+    #[error("memory error: {0}")]
+    MemoryError(String),
+
     // ===== Backend Errors =====
     /// Backend not available.
     #[error("backend not available: {0}")]
@@ -165,6 +178,54 @@ pub enum RingKernelError {
     /// Invalid timestamp.
     #[error("invalid timestamp")]
     InvalidTimestamp,
+
+    // ===== K2K Messaging Errors =====
+    /// K2K messaging error.
+    #[error("K2K error: {0}")]
+    K2KError(String),
+
+    /// K2K destination not found.
+    #[error("K2K destination not found: {0}")]
+    K2KDestinationNotFound(String),
+
+    /// K2K delivery failed.
+    #[error("K2K delivery failed: {0}")]
+    K2KDeliveryFailed(String),
+
+    // ===== Pub/Sub Errors =====
+    /// Pub/sub error.
+    #[error("pub/sub error: {0}")]
+    PubSubError(String),
+
+    /// Topic not found.
+    #[error("topic not found: {0}")]
+    TopicNotFound(String),
+
+    /// Subscription error.
+    #[error("subscription error: {0}")]
+    SubscriptionError(String),
+
+    // ===== Multi-GPU Errors =====
+    /// Multi-GPU coordination error.
+    #[error("multi-GPU error: {0}")]
+    MultiGpuError(String),
+
+    /// Device not available.
+    #[error("device not available: {0}")]
+    DeviceNotAvailable(String),
+
+    /// Cross-device transfer failed.
+    #[error("cross-device transfer failed: {0}")]
+    CrossDeviceTransferFailed(String),
+
+    // ===== Telemetry Errors =====
+    /// Telemetry error.
+    #[error("telemetry error: {0}")]
+    TelemetryError(String),
+
+    /// Metrics collection failed.
+    #[error("metrics collection failed: {0}")]
+    MetricsCollectionFailed(String),
 
     // ===== Configuration Errors =====
     /// Invalid configuration.

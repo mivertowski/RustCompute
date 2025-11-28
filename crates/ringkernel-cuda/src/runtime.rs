@@ -192,10 +192,16 @@ mod tests {
     #[ignore] // Requires CUDA hardware
     async fn test_cuda_kernel_launch() {
         let runtime = CudaRuntime::new().await.unwrap();
-        let kernel = runtime.launch("test_kernel", LaunchOptions::default()).await.unwrap();
+        let kernel = runtime
+            .launch("test_kernel", LaunchOptions::default())
+            .await
+            .unwrap();
 
         assert_eq!(kernel.id().as_str(), "test_kernel");
-        assert_eq!(kernel.status().state, ringkernel_core::runtime::KernelState::Launched);
+        assert_eq!(
+            kernel.status().state,
+            ringkernel_core::runtime::KernelState::Launched
+        );
 
         runtime.shutdown().await.unwrap();
     }

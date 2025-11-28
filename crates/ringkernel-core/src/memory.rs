@@ -68,16 +68,19 @@ impl<T: Copy> PinnedMemory<T> {
             ));
         }
 
-        let layout = Layout::array::<T>(count).map_err(|_| RingKernelError::HostAllocationFailed {
-            size: count * std::mem::size_of::<T>(),
-        })?;
+        let layout =
+            Layout::array::<T>(count).map_err(|_| RingKernelError::HostAllocationFailed {
+                size: count * std::mem::size_of::<T>(),
+            })?;
 
         // In production, this would use platform-specific pinned allocation
         // (e.g., cuMemAllocHost for CUDA, or mlock for general case)
         let ptr = unsafe { alloc(layout) };
 
         if ptr.is_null() {
-            return Err(RingKernelError::HostAllocationFailed { size: layout.size() });
+            return Err(RingKernelError::HostAllocationFailed {
+                size: layout.size(),
+            });
         }
 
         Ok(Self {
@@ -260,15 +263,12 @@ pub struct PooledBuffer<'a> {
 impl<'a> PooledBuffer<'a> {
     /// Get slice reference.
     pub fn as_slice(&self) -> &[u8] {
-        self.buffer.as_ref().map(|b| b.as_slice()).unwrap_or(&[])
+        self.buffer.as_deref().unwrap_or(&[])
     }
 
     /// Get mutable slice reference.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        self.buffer
-            .as_mut()
-            .map(|b| b.as_mut_slice())
-            .unwrap_or(&mut [])
+        self.buffer.as_deref_mut().unwrap_or(&mut [])
     }
 
     /// Get buffer length.
@@ -308,7 +308,11 @@ impl<'a> std::ops::DerefMut for PooledBuffer<'a> {
 pub type SharedMemoryPool = Arc<MemoryPool>;
 
 /// Create a shared memory pool.
-pub fn create_pool(name: impl Into<String>, buffer_size: usize, max_buffers: usize) -> SharedMemoryPool {
+pub fn create_pool(
+    name: impl Into<String>,
+    buffer_size: usize,
+    max_buffers: usize,
+) -> SharedMemoryPool {
     Arc::new(MemoryPool::new(name, buffer_size, max_buffers))
 }
 

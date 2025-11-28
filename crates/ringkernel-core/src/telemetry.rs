@@ -7,7 +7,7 @@
 ///
 /// This structure is updated by the GPU kernel and read by the host
 /// for monitoring and debugging purposes.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C, align(64))]
 pub struct TelemetryBuffer {
     /// Total messages processed successfully.
@@ -96,6 +96,12 @@ impl TelemetryBuffer {
         if other.last_error != 0 {
             self.last_error = other.last_error;
         }
+    }
+}
+
+impl Default for TelemetryBuffer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

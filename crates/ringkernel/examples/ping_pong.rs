@@ -25,7 +25,11 @@ async fn main() -> Result<()> {
         .launch("pong", LaunchOptions::single_block(128))
         .await?;
 
-    println!("Launched kernels: {}, {}", ping_kernel.id(), pong_kernel.id());
+    println!(
+        "Launched kernels: {}, {}",
+        ping_kernel.id(),
+        pong_kernel.id()
+    );
 
     // Monitor kernel states
     println!("\nKernel states:");
@@ -82,7 +86,10 @@ async fn main() -> Result<()> {
     // Get runtime metrics
     let runtime_metrics = runtime.metrics();
     println!("\nRuntime metrics:");
-    println!("  Total kernels launched: {}", runtime_metrics.total_launched);
+    println!(
+        "  Total kernels launched: {}",
+        runtime_metrics.total_launched
+    );
     println!("  Active kernels: {}", runtime_metrics.active_kernels);
 
     runtime.shutdown().await?;

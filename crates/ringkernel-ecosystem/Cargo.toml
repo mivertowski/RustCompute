@@ -1,0 +1,85 @@
+[package]
+name = "ringkernel-ecosystem"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Ecosystem integrations for RingKernel - actors, web frameworks, data processing, ML"
+keywords = ["gpu", "actor", "integration", "axum", "tower"]
+categories = ["concurrency", "asynchronous", "web-programming"]
+
+[features]
+default = []
+
+# Actor framework integrations
+actix = ["dep:actix", "dep:actix-rt"]
+tower = ["dep:tower", "dep:tower-service"]
+
+# Web framework integrations
+axum = ["dep:axum", "tower"]
+
+# Data processing integrations
+arrow = ["dep:arrow"]
+polars = ["dep:polars"]
+
+# Distributed computing
+grpc = ["dep:tonic", "dep:prost"]
+
+# Machine learning
+candle = ["dep:candle-core"]
+
+# Configuration
+config = ["dep:config"]
+
+# Observability
+tracing-integration = []
+prometheus = ["dep:prometheus"]
+
+# Full ecosystem (all integrations)
+full = ["actix", "tower", "axum", "arrow", "polars", "grpc", "candle", "config", "tracing-integration", "prometheus"]
+
+[dependencies]
+# Core ringkernel
+ringkernel-core.workspace = true
+
+# Always required
+tokio.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+futures.workspace = true
+parking_lot.workspace = true
+
+# Standard library
+serde = { version = "1.0", features = ["derive"] }
+pin-project-lite.workspace = true
+
+# Optional: Actor frameworks
+actix = { version = "0.13", optional = true }
+actix-rt = { version = "2.9", optional = true }
+tower = { version = "0.4", optional = true }
+tower-service = { version = "0.3", optional = true }
+
+# Optional: Web frameworks
+axum = { version = "0.7", optional = true }
+
+# Optional: Data processing
+arrow = { version = "52", optional = true }
+polars = { version = "0.39", optional = true, default-features = false, features = ["lazy"] }
+
+# Optional: gRPC
+tonic = { version = "0.11", optional = true }
+prost = { version = "0.12", optional = true }
+
+# Optional: ML
+candle-core = { version = "0.4", optional = true }
+
+# Optional: Configuration
+config = { version = "0.14", optional = true, default-features = false, features = ["toml"] }
+
+# Optional: Metrics
+prometheus = { version = "0.13", optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

@@ -4,8 +4,9 @@ use bytemuck::{Pod, Zeroable};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 /// Thread ID within a block (0 to block_size - 1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-#[derive(AsBytes, FromBytes, FromZeroes, Pod, Zeroable)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, AsBytes, FromBytes, FromZeroes, Pod, Zeroable,
+)]
 #[repr(C)]
 pub struct ThreadId {
     /// X dimension
@@ -44,8 +45,9 @@ impl ThreadId {
 }
 
 /// Block ID within a grid (0 to grid_size - 1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-#[derive(AsBytes, FromBytes, FromZeroes, Pod, Zeroable)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, AsBytes, FromBytes, FromZeroes, Pod, Zeroable,
+)]
 #[repr(C)]
 pub struct BlockId {
     /// X dimension
@@ -79,8 +81,9 @@ impl BlockId {
 }
 
 /// Global thread ID across all blocks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-#[derive(AsBytes, FromBytes, FromZeroes, Pod, Zeroable)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, AsBytes, FromBytes, FromZeroes, Pod, Zeroable,
+)]
 #[repr(C)]
 pub struct GlobalThreadId {
     /// X dimension
@@ -98,11 +101,7 @@ impl GlobalThreadId {
     }
 
     /// Calculate global thread ID from block and thread IDs.
-    pub const fn from_block_thread(
-        block: BlockId,
-        thread: ThreadId,
-        block_dim: Dim3,
-    ) -> Self {
+    pub const fn from_block_thread(block: BlockId, thread: ThreadId, block_dim: Dim3) -> Self {
         Self {
             x: block.x * block_dim.x + thread.x,
             y: block.y * block_dim.y + thread.y,
@@ -117,8 +116,9 @@ impl GlobalThreadId {
 }
 
 /// Warp ID within a block.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-#[derive(AsBytes, FromBytes, FromZeroes, Pod, Zeroable)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, AsBytes, FromBytes, FromZeroes, Pod, Zeroable,
+)]
 #[repr(C)]
 pub struct WarpId(pub u32);
 
@@ -138,8 +138,9 @@ impl WarpId {
 }
 
 /// 3D dimension specification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(AsBytes, FromBytes, FromZeroes, Pod, Zeroable)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, AsBytes, FromBytes, FromZeroes, Pod, Zeroable,
+)]
 #[repr(C)]
 pub struct Dim3 {
     /// X dimension

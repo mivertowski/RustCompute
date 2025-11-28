@@ -10,9 +10,23 @@ use zerocopy::{AsBytes, FromBytes, FromZeroes};
 use crate::hlc::HlcTimestamp;
 
 /// Unique message identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-#[derive(AsBytes, FromBytes, FromZeroes, Pod, Zeroable)]
-#[derive(Archive, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Default,
+    AsBytes,
+    FromBytes,
+    FromZeroes,
+    Pod,
+    Zeroable,
+    Archive,
+    Serialize,
+    Deserialize,
+)]
 #[repr(C)]
 pub struct MessageId(pub u64);
 
@@ -42,9 +56,23 @@ impl std::fmt::Display for MessageId {
 }
 
 /// Correlation ID for request-response patterns.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-#[derive(AsBytes, FromBytes, FromZeroes, Pod, Zeroable)]
-#[derive(Archive, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Default,
+    AsBytes,
+    FromBytes,
+    FromZeroes,
+    Pod,
+    Zeroable,
+    Archive,
+    Serialize,
+    Deserialize,
+)]
 #[repr(C)]
 pub struct CorrelationId(pub u64);
 
@@ -169,9 +197,7 @@ impl MessageHeader {
         if bytes.len() < std::mem::size_of::<Self>() {
             return None;
         }
-        unsafe {
-            Some(std::ptr::read_unaligned(bytes.as_ptr() as *const Self))
-        }
+        unsafe { Some(std::ptr::read_unaligned(bytes.as_ptr() as *const Self)) }
     }
 
     /// Create a new message header.
@@ -361,10 +387,9 @@ impl MessageEnvelope {
         }
 
         let header_bytes = &bytes[..std::mem::size_of::<MessageHeader>()];
-        let header =
-            MessageHeader::read_from(header_bytes).ok_or_else(|| {
-                crate::error::RingKernelError::DeserializationError("invalid header".to_string())
-            })?;
+        let header = MessageHeader::read_from(header_bytes).ok_or_else(|| {
+            crate::error::RingKernelError::DeserializationError("invalid header".to_string())
+        })?;
 
         if !header.validate() {
             return Err(crate::error::RingKernelError::ValidationError(
@@ -384,6 +409,15 @@ impl MessageEnvelope {
         let payload = bytes[payload_start..payload_end].to_vec();
 
         Ok(Self { header, payload })
+    }
+
+    /// Create an empty envelope (for testing).
+    pub fn empty(source_kernel: u64, dest_kernel: u64, timestamp: HlcTimestamp) -> Self {
+        let header = MessageHeader::new(0, source_kernel, dest_kernel, 0, timestamp);
+        Self {
+            header,
+            payload: Vec::new(),
+        }
     }
 }
 

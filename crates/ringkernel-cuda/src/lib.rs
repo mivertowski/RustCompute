@@ -110,7 +110,9 @@ pub fn is_cuda_available() -> bool {
     #[cfg(feature = "cuda")]
     {
         // Check for CUDA devices
-        cudarc::driver::CudaDevice::count().map(|c| c > 0).unwrap_or(false)
+        cudarc::driver::CudaDevice::count()
+            .map(|c| c > 0)
+            .unwrap_or(false)
     }
     #[cfg(not(feature = "cuda"))]
     {
