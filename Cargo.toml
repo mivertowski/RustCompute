@@ -9,6 +9,7 @@ members = [
     "crates/ringkernel-wgpu",
     "crates/ringkernel-metal",
     "crates/ringkernel-codegen",
+    "crates/ringkernel-ecosystem",
 ]
 
 [workspace.package]
