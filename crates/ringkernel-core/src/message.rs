@@ -410,6 +410,15 @@ impl MessageEnvelope {
 
         Ok(Self { header, payload })
     }
+
+    /// Create an empty envelope (for testing).
+    pub fn empty(source_kernel: u64, dest_kernel: u64, timestamp: HlcTimestamp) -> Self {
+        let header = MessageHeader::new(0, source_kernel, dest_kernel, 0, timestamp);
+        Self {
+            header,
+            payload: Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]

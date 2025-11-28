@@ -113,8 +113,7 @@ pub struct KernelStatus {
 }
 
 /// GPU backend type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Backend {
     /// CPU backend (for testing).
     Cpu,
@@ -141,7 +140,6 @@ impl Backend {
         }
     }
 }
-
 
 /// Options for launching a kernel.
 #[derive(Debug, Clone)]

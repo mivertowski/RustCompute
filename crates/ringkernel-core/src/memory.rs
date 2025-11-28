@@ -268,8 +268,7 @@ impl<'a> PooledBuffer<'a> {
 
     /// Get mutable slice reference.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        self.buffer.as_deref_mut()
-            .unwrap_or(&mut [])
+        self.buffer.as_deref_mut().unwrap_or(&mut [])
     }
 
     /// Get buffer length.
