@@ -48,6 +48,7 @@ proptest = { workspace = true }
 criterion = { workspace = true }
 tracing-subscriber = { workspace = true }
 rkyv = { workspace = true }
+zerocopy = { workspace = true }
 
 [features]
 default = ["cpu"]
@@ -71,6 +72,30 @@ harness = false
 
 [[bench]]
 name = "serialization"
+harness = false
+
+[[bench]]
+name = "startup"
+harness = false
+
+[[bench]]
+name = "latency"
+harness = false
+
+[[bench]]
+name = "memory_layout"
+harness = false
+
+[[bench]]
+name = "hlc"
+harness = false
+
+[[bench]]
+name = "k2k_messaging"
+harness = false
+
+[[bench]]
+name = "claims_validation"
 harness = false
 
 [[example]]
