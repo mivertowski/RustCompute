@@ -279,13 +279,15 @@ pub fn ring_kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     // Get message type
-    let msg_type = msg_arg.map(|arg| {
-        if let syn::FnArg::Typed(pat_type) = arg {
-            pat_type.ty.clone()
-        } else {
-            syn::parse_quote!(())
-        }
-    }).unwrap_or_else(|| syn::parse_quote!(()));
+    let msg_type = msg_arg
+        .map(|arg| {
+            if let syn::FnArg::Typed(pat_type) = arg {
+                pat_type.ty.clone()
+            } else {
+                syn::parse_quote!(())
+            }
+        })
+        .unwrap_or_else(|| syn::parse_quote!(()));
 
     // Generate kernel mode
     let mode = args.mode.as_deref().unwrap_or("persistent");
@@ -300,7 +302,10 @@ pub fn ring_kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
     let block_size = args.block_size.unwrap_or(256);
 
     // Generate registration struct name
-    let registration_name = format_ident!("__RINGKERNEL_REGISTRATION_{}", fn_name.to_string().to_uppercase());
+    let registration_name = format_ident!(
+        "__RINGKERNEL_REGISTRATION_{}",
+        fn_name.to_string().to_uppercase()
+    );
     let handler_name = format_ident!("{}_handler", fn_name);
 
     // Generate the expanded code

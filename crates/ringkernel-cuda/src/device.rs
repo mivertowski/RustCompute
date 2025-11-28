@@ -23,12 +23,15 @@ impl CudaDevice {
     /// Create a new CUDA device wrapper.
     pub fn new(ordinal: usize) -> Result<Self> {
         let inner = CudarcDevice::new(ordinal).map_err(|e| {
-            RingKernelError::BackendError(format!("Failed to create CUDA device {}: {}", ordinal, e))
+            RingKernelError::BackendError(format!(
+                "Failed to create CUDA device {}: {}",
+                ordinal, e
+            ))
         })?;
 
-        let name = inner
-            .name()
-            .map_err(|e| RingKernelError::BackendError(format!("Failed to get device name: {}", e)))?;
+        let name = inner.name().map_err(|e| {
+            RingKernelError::BackendError(format!("Failed to get device name: {}", e))
+        })?;
 
         // Get compute capability
         let major = inner.attribute(cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)
@@ -37,9 +40,9 @@ impl CudaDevice {
             .map_err(|e| RingKernelError::BackendError(format!("Failed to get compute capability: {}", e)))? as u32;
 
         // Get total memory
-        let total_memory = inner
-            .total_memory()
-            .map_err(|e| RingKernelError::BackendError(format!("Failed to get total memory: {}", e)))?;
+        let total_memory = inner.total_memory().map_err(|e| {
+            RingKernelError::BackendError(format!("Failed to get total memory: {}", e))
+        })?;
 
         Ok(Self {
             inner: Arc::new(inner),
@@ -181,7 +184,10 @@ mod tests {
             for device in &devices {
                 println!(
                     "Device {}: {} (CC {}.{})",
-                    device.ordinal, device.name, device.compute_capability.0, device.compute_capability.1
+                    device.ordinal,
+                    device.name,
+                    device.compute_capability.0,
+                    device.compute_capability.1
                 );
             }
         }

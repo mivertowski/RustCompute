@@ -59,7 +59,7 @@ pub mod prelude {
 // Re-exports for convenience
 pub use context::RingContext;
 pub use control::ControlBlock;
-pub use error::{RingKernelError, Result};
+pub use error::{Result, RingKernelError};
 pub use hlc::HlcTimestamp;
 pub use memory::{DeviceMemory, GpuBuffer, MemoryPool, PinnedMemory};
 pub use message::{MessageHeader, MessageId, Priority, RingMessage};

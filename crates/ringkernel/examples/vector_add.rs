@@ -127,7 +127,10 @@ async fn main() -> Result<()> {
         b: b.clone(),
     };
 
-    println!("\nSending request (correlation_id: {})...", request.correlation_id);
+    println!(
+        "\nSending request (correlation_id: {})...",
+        request.correlation_id
+    );
 
     // Send message
     kernel.send(request.clone()).await?;

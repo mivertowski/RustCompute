@@ -113,7 +113,9 @@ pub fn is_wgpu_available() -> bool {
     {
         // Try to create an instance
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
-        !instance.enumerate_adapters(wgpu::Backends::all()).is_empty()
+        !instance
+            .enumerate_adapters(wgpu::Backends::all())
+            .is_empty()
     }
     #[cfg(not(feature = "wgpu"))]
     {

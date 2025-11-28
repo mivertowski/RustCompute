@@ -114,6 +114,7 @@ pub struct KernelStatus {
 
 /// GPU backend type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum Backend {
     /// CPU backend (for testing).
     Cpu,
@@ -124,6 +125,7 @@ pub enum Backend {
     /// WebGPU cross-platform backend.
     Wgpu,
     /// Automatically select best available backend.
+    #[default]
     Auto,
 }
 
@@ -140,11 +142,6 @@ impl Backend {
     }
 }
 
-impl Default for Backend {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 /// Options for launching a kernel.
 #[derive(Debug, Clone)]
@@ -323,7 +320,11 @@ impl KernelHandle {
     }
 
     /// Send request and wait for response (call pattern).
-    pub async fn call<M: RingMessage>(&self, message: M, timeout: Duration) -> Result<MessageEnvelope> {
+    pub async fn call<M: RingMessage>(
+        &self,
+        message: M,
+        timeout: Duration,
+    ) -> Result<MessageEnvelope> {
         // Generate correlation ID
         let correlation = crate::message::CorrelationId::generate();
 

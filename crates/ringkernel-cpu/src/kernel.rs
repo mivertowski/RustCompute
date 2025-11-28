@@ -58,10 +58,7 @@ impl CpuKernel {
         let input_capacity = options.input_queue_capacity;
         let output_capacity = options.output_queue_capacity;
 
-        let control = ControlBlock::with_capacities(
-            input_capacity as u32,
-            output_capacity as u32,
-        );
+        let control = ControlBlock::with_capacities(input_capacity as u32, output_capacity as u32);
 
         Self {
             id,
@@ -113,7 +110,10 @@ impl CpuKernel {
 
     /// Create a handle to this kernel.
     pub fn handle(self: &Arc<Self>) -> KernelHandle {
-        KernelHandle::new(self.id.clone(), Arc::clone(self) as Arc<dyn KernelHandleInner>)
+        KernelHandle::new(
+            self.id.clone(),
+            Arc::clone(self) as Arc<dyn KernelHandleInner>,
+        )
     }
 }
 
@@ -271,7 +271,7 @@ impl KernelHandleInner for CpuKernel {
     }
 
     fn metrics(&self) -> KernelMetrics {
-        let telemetry = self.telemetry.read().clone();
+        let telemetry = *self.telemetry.read();
         KernelMetrics {
             telemetry,
             kernel_id: self.id.to_string(),

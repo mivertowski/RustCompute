@@ -91,14 +91,18 @@ impl<'a> RingContext<'a> {
     /// Get warp ID within block.
     #[inline]
     pub fn warp_id(&self) -> WarpId {
-        let linear = self.thread_id.linear_for_dim(self.block_dim.x, self.block_dim.y);
+        let linear = self
+            .thread_id
+            .linear_for_dim(self.block_dim.x, self.block_dim.y);
         WarpId::from_thread_linear(linear)
     }
 
     /// Get lane ID within warp (0-31).
     #[inline]
     pub fn lane_id(&self) -> u32 {
-        let linear = self.thread_id.linear_for_dim(self.block_dim.x, self.block_dim.y);
+        let linear = self
+            .thread_id
+            .linear_for_dim(self.block_dim.x, self.block_dim.y);
         WarpId::lane_id(linear)
     }
 
@@ -230,7 +234,12 @@ impl<'a> RingContext<'a> {
 
     /// Atomic add and return old value.
     #[inline]
-    pub fn atomic_add(&self, ptr: &std::sync::atomic::AtomicU64, val: u64, order: MemoryOrder) -> u64 {
+    pub fn atomic_add(
+        &self,
+        ptr: &std::sync::atomic::AtomicU64,
+        val: u64,
+        order: MemoryOrder,
+    ) -> u64 {
         let ordering = match order {
             MemoryOrder::Relaxed => std::sync::atomic::Ordering::Relaxed,
             MemoryOrder::Acquire => std::sync::atomic::Ordering::Acquire,
@@ -270,7 +279,12 @@ impl<'a> RingContext<'a> {
 
     /// Atomic exchange.
     #[inline]
-    pub fn atomic_exchange(&self, ptr: &std::sync::atomic::AtomicU64, val: u64, order: MemoryOrder) -> u64 {
+    pub fn atomic_exchange(
+        &self,
+        ptr: &std::sync::atomic::AtomicU64,
+        val: u64,
+        order: MemoryOrder,
+    ) -> u64 {
         let ordering = match order {
             MemoryOrder::Relaxed => std::sync::atomic::Ordering::Relaxed,
             MemoryOrder::Acquire => std::sync::atomic::Ordering::Acquire,
@@ -373,7 +387,11 @@ impl<'a> RingContext<'a> {
     ///
     /// This is a placeholder; actual implementation requires runtime support.
     #[inline]
-    pub fn k2k_send(&self, _target_kernel: u64, _envelope: &MessageEnvelope) -> crate::error::Result<()> {
+    pub fn k2k_send(
+        &self,
+        _target_kernel: u64,
+        _envelope: &MessageEnvelope,
+    ) -> crate::error::Result<()> {
         // K2K messaging requires runtime bridge support
         Err(crate::error::RingKernelError::NotSupported(
             "K2K messaging requires runtime".to_string(),

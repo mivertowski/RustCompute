@@ -293,7 +293,10 @@ mod tests {
     #[test]
     fn test_intrinsic_mapping() {
         let intrinsics = standard_intrinsics();
-        let sync = intrinsics.iter().find(|i| i.rust_name == "sync_threads").unwrap();
+        let sync = intrinsics
+            .iter()
+            .find(|i| i.rust_name == "sync_threads")
+            .unwrap();
 
         assert_eq!(sync.get(Target::Cuda), "__syncthreads()");
         assert!(sync.get(Target::Metal).contains("barrier"));

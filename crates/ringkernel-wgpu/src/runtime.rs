@@ -84,8 +84,7 @@ impl RingKernelRuntime for WgpuRuntime {
         let id_num = self.kernel_counter.fetch_add(1, Ordering::Relaxed);
 
         // Create kernel
-        let mut kernel =
-            WgpuKernel::new(kernel_id, id_num, Arc::clone(&self.adapter), options)?;
+        let mut kernel = WgpuKernel::new(kernel_id, id_num, Arc::clone(&self.adapter), options)?;
 
         // Load shader
         kernel.load_shader(RING_KERNEL_WGSL_TEMPLATE)?;

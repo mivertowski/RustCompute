@@ -44,7 +44,10 @@ async fn main() -> Result<()> {
     // Get metrics
     let metrics = kernel.metrics();
     println!("Kernel metrics:");
-    println!("  Messages processed: {}", metrics.telemetry.messages_processed);
+    println!(
+        "  Messages processed: {}",
+        metrics.telemetry.messages_processed
+    );
     println!("  Avg latency: {:.2}µs", metrics.telemetry.avg_latency_us());
     println!();
 

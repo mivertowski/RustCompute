@@ -61,12 +61,7 @@ pub struct CudaKernel {
 
 impl CudaKernel {
     /// Create a new CUDA kernel.
-    pub fn new(
-        id: &str,
-        id_num: u64,
-        device: CudaDevice,
-        options: LaunchOptions,
-    ) -> Result<Self> {
+    pub fn new(id: &str, id_num: u64, device: CudaDevice, options: LaunchOptions) -> Result<Self> {
         let input_capacity = options.input_queue_capacity;
         let output_capacity = options.output_queue_capacity;
 
@@ -111,9 +106,7 @@ impl CudaKernel {
                 "ring_kernel",
                 &["ring_kernel_main"],
             )
-            .map_err(|e| {
-                RingKernelError::LaunchFailed(format!("Module load failed: {}", e))
-            })?;
+            .map_err(|e| RingKernelError::LaunchFailed(format!("Module load failed: {}", e)))?;
 
         let kernel_fn = self
             .device
@@ -133,9 +126,10 @@ impl CudaKernel {
     /// Launch the kernel on GPU.
     #[allow(dead_code)]
     pub async fn launch_kernel(&self) -> Result<()> {
-        let kernel_fn = self.kernel_fn.as_ref().ok_or_else(|| {
-            RingKernelError::LaunchFailed("Kernel not loaded".to_string())
-        })?;
+        let kernel_fn = self
+            .kernel_fn
+            .as_ref()
+            .ok_or_else(|| RingKernelError::LaunchFailed("Kernel not loaded".to_string()))?;
 
         let control_ptr = self.control_block.read().device_ptr();
         let input_ptr = self.input_queue.headers_ptr();

@@ -55,11 +55,7 @@ impl WgpuAdapter {
                 RingKernelError::BackendError(format!("Failed to create device: {}", e))
             })?;
 
-        tracing::info!(
-            "Created WebGPU adapter: {} ({:?})",
-            info.name,
-            info.backend
-        );
+        tracing::info!("Created WebGPU adapter: {} ({:?})", info.name, info.backend);
 
         Ok(Self {
             instance,

@@ -51,11 +51,19 @@ rkyv = { workspace = true }
 
 [features]
 default = ["cpu"]
+
+# Backend features
 cpu = []
 cuda = ["ringkernel-cuda/cuda"]
 wgpu = ["ringkernel-wgpu/wgpu"]
 metal = ["ringkernel-metal/metal"]
 all-backends = ["cpu", "cuda", "wgpu", "metal"]
+
+# Functionality features (planned - not yet fully implemented)
+telemetry = []        # Real-time performance metrics
+k2k-messaging = []    # Kernel-to-kernel direct messaging
+topic-pubsub = []     # Topic-based publish/subscribe
+multi-gpu = ["cuda"]  # Multi-GPU coordination
 
 [[bench]]
 name = "message_queue"
