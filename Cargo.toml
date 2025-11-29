@@ -10,6 +10,7 @@ members = [
     "crates/ringkernel-metal",
     "crates/ringkernel-codegen",
     "crates/ringkernel-ecosystem",
+    "crates/ringkernel-audio-fft",
 ]
 
 [workspace.package]

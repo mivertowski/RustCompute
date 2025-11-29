@@ -1,0 +1,61 @@
+[package]
+name = "ringkernel-audio-fft"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GPU-accelerated audio FFT processing with direct/ambience separation using RingKernel actors"
+keywords = ["gpu", "audio", "fft", "dsp", "ringkernel"]
+categories = ["multimedia::audio", "concurrency", "hardware-support"]
+
+[dependencies]
+# Core RingKernel
+ringkernel-core = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Serialization
+rkyv = { workspace = true }
+zerocopy = { workspace = true }
+bytemuck = { workspace = true }
+
+# Synchronization
+crossbeam = { workspace = true }
+parking_lot = { workspace = true }
+atomic = { workspace = true }
+
+# FFT processing
+rustfft = "6.2"
+
+# Audio I/O
+cpal = { version = "0.15", optional = true }
+hound = "3.5"
+
+# Numeric utilities
+num-complex = "0.4"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread", "signal"] }
+proptest = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[features]
+default = []
+device-input = ["cpal"]  # Enable real-time audio device input
+
+[[example]]
+name = "audio_separator"
+path = "examples/audio_separator.rs"
+
+[[example]]
+name = "realtime_separator"
+path = "examples/realtime_separator.rs"
