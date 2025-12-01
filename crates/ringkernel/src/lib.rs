@@ -398,8 +398,14 @@ mod tests {
     #[tokio::test]
     async fn test_runtime_creation() {
         let runtime = RingKernel::new().await.unwrap();
-        // Should default to CPU when no GPU is available
-        assert_eq!(runtime.backend(), Backend::Cpu);
+        // Default backend is Auto which selects best available (CUDA > Metal > WebGPU > CPU)
+        // On systems with CUDA, this will select CUDA; otherwise CPU
+        let backend = runtime.backend();
+        assert!(
+            backend == Backend::Cuda || backend == Backend::Cpu,
+            "Expected Cuda or Cpu backend, got {:?}",
+            backend
+        );
     }
 
     #[tokio::test]

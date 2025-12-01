@@ -1,6 +1,6 @@
 //! CUDA kernel management.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -53,6 +53,8 @@ pub struct CudaKernel {
     /// Kernel function.
     #[allow(dead_code)]
     kernel_fn: Option<CudaFunction>,
+    /// Whether the kernel has been launched on the GPU.
+    gpu_launched: AtomicBool,
 }
 
 impl CudaKernel {
@@ -80,6 +82,7 @@ impl CudaKernel {
             created_at: Instant::now(),
             terminate_notify: Notify::new(),
             kernel_fn: None,
+            gpu_launched: AtomicBool::new(false),
         })
     }
 
@@ -91,17 +94,13 @@ impl CudaKernel {
 
     /// Load and compile the kernel PTX.
     pub fn load_ptx(&mut self, ptx: &str) -> Result<()> {
-        // Compile PTX and load module
+        // Load PTX directly (PTX is already compiled assembly, not CUDA C)
+        let ptx_code = cudarc::nvrtc::Ptx::from_src(ptx);
+
         self.device
             .inner()
-            .load_ptx(
-                cudarc::nvrtc::compile_ptx(ptx).map_err(|e| {
-                    RingKernelError::LaunchFailed(format!("PTX compilation failed: {}", e))
-                })?,
-                "ring_kernel",
-                &["ring_kernel_main"],
-            )
-            .map_err(|e| RingKernelError::LaunchFailed(format!("Module load failed: {}", e)))?;
+            .load_ptx(ptx_code, "ring_kernel", &["ring_kernel_main"])
+            .map_err(|e| RingKernelError::LaunchFailed(format!("PTX load failed: {}", e)))?;
 
         let kernel_fn = self
             .device
@@ -118,7 +117,6 @@ impl CudaKernel {
     }
 
     /// Launch the kernel on GPU.
-    #[allow(dead_code)]
     pub async fn launch_kernel(&self) -> Result<()> {
         let kernel_fn = self
             .kernel_fn
@@ -148,6 +146,9 @@ impl CudaKernel {
                     RingKernelError::LaunchFailed(format!("Kernel launch failed: {}", e))
                 })?;
         }
+
+        // Mark that the GPU kernel has been launched
+        self.gpu_launched.store(true, Ordering::Release);
 
         Ok(())
     }
@@ -198,6 +199,11 @@ impl KernelHandleInner for CudaKernel {
             cb_lock.write(&cb)?;
         }
 
+        // Launch the GPU kernel if this is the first activation
+        if current_state == KernelState::Launched {
+            self.launch_kernel().await?;
+        }
+
         *self.state.write() = KernelState::Active;
         tracing::info!(kernel_id = %self.id, "CUDA kernel activated");
 
@@ -238,20 +244,23 @@ impl KernelHandleInner for CudaKernel {
 
         *self.state.write() = KernelState::Terminating;
 
-        // Wait for kernel to terminate (with timeout)
-        let start = Instant::now();
-        let timeout = Duration::from_secs(5);
+        // Only wait for kernel to terminate if it was actually launched on GPU
+        if self.gpu_launched.load(Ordering::Acquire) {
+            // Wait for kernel to terminate (with timeout)
+            let start = Instant::now();
+            let timeout = Duration::from_secs(5);
 
-        while start.elapsed() < timeout {
-            let cb = self.control_block.read().read()?;
-            if cb.has_terminated() {
-                break;
+            while start.elapsed() < timeout {
+                let cb = self.control_block.read().read()?;
+                if cb.has_terminated() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
 
-        // Synchronize device
-        self.device.synchronize()?;
+            // Synchronize device
+            self.device.synchronize()?;
+        }
 
         // Mark as terminated
         {
@@ -261,6 +270,7 @@ impl KernelHandleInner for CudaKernel {
             cb_lock.write(&cb)?;
         }
 
+        *self.state.write() = KernelState::Terminated;
         self.terminate_notify.notify_waiters();
 
         tracing::info!(kernel_id = %self.id, "CUDA kernel terminated");
@@ -318,13 +328,14 @@ impl KernelHandleInner for CudaKernel {
 
 impl Drop for CudaKernel {
     fn drop(&mut self) {
-        // Ensure kernel is terminated
+        // Ensure kernel is terminated - only do cleanup if not already terminated
         if *self.state.read() != KernelState::Terminated {
-            if let Ok(mut cb) = self.control_block.write().read() {
+            // Request termination via control block
+            if let Ok(mut cb) = self.control_block.get_mut().read() {
                 cb.should_terminate = 1;
-                let _ = self.control_block.write().write(&cb);
+                let _ = self.control_block.get_mut().write(&cb);
             }
-            // Best effort synchronize
+            // Best effort synchronize - don't block indefinitely
             let _ = self.device.synchronize();
         }
     }
