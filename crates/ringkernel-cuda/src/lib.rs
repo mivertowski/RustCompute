@@ -45,9 +45,15 @@ pub use device::CudaDevice;
 #[cfg(feature = "cuda")]
 pub use kernel::CudaKernel;
 #[cfg(feature = "cuda")]
-pub use memory::CudaBuffer;
+pub use memory::{CudaBuffer, CudaControlBlock, CudaMemoryPool, CudaMessageQueue};
 #[cfg(feature = "cuda")]
 pub use runtime::CudaRuntime;
+
+/// Re-export memory module for advanced usage.
+#[cfg(feature = "cuda")]
+pub mod memory_exports {
+    pub use super::memory::{CudaBuffer, CudaControlBlock, CudaMemoryPool, CudaMessageQueue};
+}
 
 // Placeholder implementations when CUDA is not available
 #[cfg(not(feature = "cuda"))]
@@ -124,7 +130,7 @@ pub fn is_cuda_available() -> bool {
 pub fn cuda_device_count() -> usize {
     #[cfg(feature = "cuda")]
     {
-        cudarc::driver::CudaDevice::count().unwrap_or(0)
+        cudarc::driver::CudaDevice::count().unwrap_or(0) as usize
     }
     #[cfg(not(feature = "cuda"))]
     {

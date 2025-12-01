@@ -105,7 +105,8 @@ pub struct FftProcessor {
     hop_size: usize,
     /// Sample rate in Hz.
     sample_rate: u32,
-    /// Window function.
+    /// Window function (stored for potential reconfiguration).
+    #[allow(dead_code)]
     window: WindowFunction,
     /// Pre-computed window coefficients.
     window_coeffs: Vec<f32>,
@@ -324,10 +325,10 @@ impl IfftProcessor {
         // Calculate the sum of squared windows at each output sample
         let mut cola_sum = vec![0.0f32; hop_size];
         for offset in 0..overlap_factor {
-            for i in 0..hop_size {
+            for (i, sum) in cola_sum.iter_mut().enumerate() {
                 let window_idx = offset * hop_size + i;
                 if window_idx < fft_size {
-                    cola_sum[i] += window_coeffs[window_idx] * window_coeffs[window_idx];
+                    *sum += window_coeffs[window_idx] * window_coeffs[window_idx];
                 }
             }
         }

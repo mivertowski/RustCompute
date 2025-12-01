@@ -11,8 +11,9 @@ categories = ["hardware-support"]
 [dependencies]
 ringkernel-core = { workspace = true }
 
-# CUDA bindings
-cudarc = { version = "0.11", optional = true }
+# CUDA bindings - use cuda-12050 (API compatible with CUDA 13.0)
+# Note: cudarc 0.11.x doesn't support CUDA 13.0 yet, but 12.5 API is compatible
+cudarc = { version = "0.11", optional = true, features = ["cuda-12050"] }
 
 # Async runtime
 tokio = { workspace = true }

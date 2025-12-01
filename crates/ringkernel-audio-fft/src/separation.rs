@@ -170,7 +170,7 @@ impl CoherenceAnalyzer {
         current: &Complex,
         left_neighbor: Option<&NeighborData>,
         right_neighbor: Option<&NeighborData>,
-        phase_derivative: f32,
+        _phase_derivative: f32,
         spectral_flux: f32,
     ) -> (f32, f32) {
         self.frame_count += 1;
@@ -425,6 +425,7 @@ impl StereoSeparator {
     }
 
     /// Process stereo bins and return separated results.
+    #[allow(clippy::too_many_arguments)]
     pub fn process_stereo(
         &mut self,
         left_bin: &Complex,

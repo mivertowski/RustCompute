@@ -1,11 +1,10 @@
 //! CUDA kernel management.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use cudarc::driver::{CudaFunction, CudaModule, LaunchAsync, LaunchConfig};
+use cudarc::driver::{CudaFunction, LaunchAsync, LaunchConfig};
 use parking_lot::RwLock;
 use tokio::sync::Notify;
 
@@ -51,9 +50,6 @@ pub struct CudaKernel {
     created_at: Instant,
     /// Termination notifier.
     terminate_notify: Notify,
-    /// CUDA module (compiled kernel).
-    #[allow(dead_code)]
-    module: Option<Arc<CudaModule>>,
     /// Kernel function.
     #[allow(dead_code)]
     kernel_fn: Option<CudaFunction>,
@@ -83,7 +79,6 @@ impl CudaKernel {
             message_counter: AtomicU64::new(0),
             created_at: Instant::now(),
             terminate_notify: Notify::new(),
-            module: None,
             kernel_fn: None,
         })
     }
@@ -96,8 +91,8 @@ impl CudaKernel {
 
     /// Load and compile the kernel PTX.
     pub fn load_ptx(&mut self, ptx: &str) -> Result<()> {
-        let module = self
-            .device
+        // Compile PTX and load module
+        self.device
             .inner()
             .load_ptx(
                 cudarc::nvrtc::compile_ptx(ptx).map_err(|e| {
@@ -116,7 +111,6 @@ impl CudaKernel {
                 RingKernelError::LaunchFailed("Kernel function not found".to_string())
             })?;
 
-        self.module = Some(Arc::new(module));
         self.kernel_fn = Some(kernel_fn);
         *self.state.write() = KernelState::Launched;
 

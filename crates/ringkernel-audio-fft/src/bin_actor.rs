@@ -6,13 +6,12 @@
 //! 3. Performs coherence analysis for direct/ambience separation
 //! 4. Outputs separated bin data
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{info, trace, warn};
 
 use ringkernel_core::prelude::*;
 use ringkernel_core::k2k::K2KStats;
@@ -128,7 +127,8 @@ pub struct BinActorHandle {
     pub bin_index: u32,
     /// Kernel ID.
     kernel_id: KernelId,
-    /// K2K endpoint for this actor.
+    /// K2K endpoint for this actor (reserved for future direct communication).
+    #[allow(dead_code)]
     endpoint: K2KEndpoint,
     /// State (shared for monitoring).
     state: Arc<RwLock<BinActorState>>,
@@ -179,9 +179,11 @@ impl BinActorHandle {
 pub struct BinActor {
     /// Bin index.
     bin_index: u32,
-    /// Total number of bins.
+    /// Total number of bins (reserved for frequency-dependent processing).
+    #[allow(dead_code)]
     total_bins: u32,
-    /// Kernel ID.
+    /// Kernel ID (reserved for multi-actor coordination).
+    #[allow(dead_code)]
     kernel_id: KernelId,
     /// State.
     state: Arc<RwLock<BinActorState>>,
@@ -451,7 +453,8 @@ pub struct BinNetwork {
     handles: Vec<BinActorHandle>,
     /// Actor tasks.
     tasks: Vec<tokio::task::JoinHandle<Result<()>>>,
-    /// Configuration.
+    /// Configuration (reserved for runtime reconfiguration).
+    #[allow(dead_code)]
     config: SeparationConfig,
     /// Running flag.
     running: Arc<AtomicBool>,
@@ -478,7 +481,7 @@ impl BinNetwork {
         }
 
         // Set up neighbor relationships
-        for i in 0..num_bins {
+        for (i, actor) in actors.iter_mut().enumerate() {
             let left = if i > 0 {
                 Some(KernelId::new(format!("bin_actor_{}", i - 1)))
             } else {
@@ -489,7 +492,7 @@ impl BinNetwork {
             } else {
                 None
             };
-            actors[i].set_neighbors(left, right);
+            actor.set_neighbors(left, right);
         }
 
         let running = Arc::new(AtomicBool::new(true));

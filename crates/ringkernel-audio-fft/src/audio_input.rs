@@ -8,9 +8,13 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
-use crossbeam::channel::{bounded, Receiver, Sender};
-use parking_lot::RwLock;
+use crossbeam::channel::{Receiver, Sender};
+#[cfg(feature = "device-input")]
+use crossbeam::channel::bounded;
+#[cfg(feature = "device-input")]
 use tracing::{debug, error, info, warn};
+#[cfg(not(feature = "device-input"))]
+use tracing::{debug, info};
 
 use crate::error::{AudioFftError, Result};
 use crate::messages::AudioFrame;

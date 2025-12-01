@@ -1,7 +1,8 @@
 //! CUDA memory management for RingKernel.
 
-use cudarc::driver::{CudaSlice, DevicePtr, DeviceRepr};
-use std::sync::Arc;
+use std::cell::UnsafeCell;
+
+use cudarc::driver::{CudaSlice, DevicePtr};
 
 use ringkernel_core::control::ControlBlock;
 use ringkernel_core::error::{Result, RingKernelError};
@@ -11,21 +12,29 @@ use ringkernel_core::message::MessageHeader;
 use crate::device::CudaDevice;
 
 /// CUDA buffer implementing GpuBuffer trait.
+///
+/// Uses UnsafeCell for interior mutability since cudarc requires &mut for HtoD copies
+/// but we need to implement the GpuBuffer trait which takes &self.
 pub struct CudaBuffer {
-    /// Device memory slice.
-    data: CudaSlice<u8>,
+    /// Device memory slice (wrapped in UnsafeCell for interior mutability).
+    data: UnsafeCell<CudaSlice<u8>>,
     /// Size in bytes.
     size: usize,
     /// Parent device.
     device: CudaDevice,
 }
 
+// Safety: CudaBuffer is only accessed from one thread at a time
+// (CUDA operations are inherently serialized on a device)
+unsafe impl Send for CudaBuffer {}
+unsafe impl Sync for CudaBuffer {}
+
 impl CudaBuffer {
     /// Create a new CUDA buffer.
     pub fn new(device: &CudaDevice, size: usize) -> Result<Self> {
         let data = device.alloc::<u8>(size)?;
         Ok(Self {
-            data,
+            data: UnsafeCell::new(data),
             size,
             device: device.clone(),
         })
@@ -33,17 +42,19 @@ impl CudaBuffer {
 
     /// Get the device pointer.
     pub fn device_ptr(&self) -> u64 {
-        *self.data.device_ptr() as u64
+        // Safety: we only read the device pointer, not mutate the slice
+        unsafe { *(*self.data.get()).device_ptr() }
     }
 
     /// Get underlying slice for kernel launches.
     pub fn as_slice(&self) -> &CudaSlice<u8> {
-        &self.data
+        // Safety: caller ensures no concurrent mutation
+        unsafe { &*self.data.get() }
     }
 
     /// Get mutable reference for uploads.
     pub fn as_mut_slice(&mut self) -> &mut CudaSlice<u8> {
-        &mut self.data
+        self.data.get_mut()
     }
 }
 
@@ -53,7 +64,8 @@ impl GpuBuffer for CudaBuffer {
     }
 
     fn device_ptr(&self) -> usize {
-        *self.data.device_ptr() as usize
+        // Safety: we only read the device pointer
+        unsafe { *(*self.data.get()).device_ptr() as usize }
     }
 
     fn copy_from_host(&self, data: &[u8]) -> Result<()> {
@@ -64,13 +76,12 @@ impl GpuBuffer for CudaBuffer {
             });
         }
 
-        // Use cudarc's copy functionality - need to work around &self
-        // by using the queue write method
+        // Safety: UnsafeCell allows interior mutability, and CUDA operations
+        // are serialized on the device, so concurrent access is not an issue.
+        let slice = unsafe { &mut *self.data.get() };
         self.device
             .inner()
-            .htod_sync_copy_into(data, unsafe {
-                &mut *(&self.data as *const CudaSlice<u8> as *mut CudaSlice<u8>)
-            })
+            .htod_sync_copy_into(data, slice)
             .map_err(|e| RingKernelError::TransferFailed(format!("HtoD copy failed: {}", e)))?;
 
         Ok(())
@@ -84,10 +95,12 @@ impl GpuBuffer for CudaBuffer {
             });
         }
 
+        // Safety: we only read from the slice
+        let slice = unsafe { &*self.data.get() };
         let host_data = self
             .device
             .inner()
-            .dtoh_sync_copy(&self.data)
+            .dtoh_sync_copy(slice)
             .map_err(|e| RingKernelError::TransferFailed(format!("DtoH copy failed: {}", e)))?;
 
         data[..host_data.len()].copy_from_slice(&host_data);
@@ -99,7 +112,8 @@ impl GpuBuffer for CudaBuffer {
 pub struct CudaControlBlock {
     /// Device buffer for control block.
     buffer: CudaBuffer,
-    /// Device for operations.
+    /// Device for operations (kept for potential future use).
+    #[allow(dead_code)]
     device: CudaDevice,
 }
 
@@ -121,7 +135,7 @@ impl CudaControlBlock {
 
     /// Get device pointer for kernel launch.
     pub fn device_ptr(&self) -> u64 {
-        self.buffer.device_ptr() as u64
+        self.buffer.device_ptr()
     }
 
     /// Read control block from device.
@@ -134,7 +148,7 @@ impl CudaControlBlock {
     }
 
     /// Write control block to device.
-    pub fn write(&mut self, cb: &ControlBlock) -> Result<()> {
+    pub fn write(&self, cb: &ControlBlock) -> Result<()> {
         let data = unsafe {
             std::slice::from_raw_parts(
                 cb as *const ControlBlock as *const u8,
@@ -142,6 +156,20 @@ impl CudaControlBlock {
             )
         };
         self.buffer.copy_from_host(data)
+    }
+
+    /// Set the active flag.
+    pub fn set_active(&self, active: bool) -> Result<()> {
+        let mut cb = self.read()?;
+        cb.is_active = if active { 1 } else { 0 };
+        self.write(&cb)
+    }
+
+    /// Set the termination request flag.
+    pub fn set_should_terminate(&self, terminate: bool) -> Result<()> {
+        let mut cb = self.read()?;
+        cb.should_terminate = if terminate { 1 } else { 0 };
+        self.write(&cb)
     }
 }
 
@@ -155,7 +183,8 @@ pub struct CudaMessageQueue {
     capacity: usize,
     /// Maximum payload size per message.
     max_payload_size: usize,
-    /// Device reference.
+    /// Device reference (kept for potential future use).
+    #[allow(dead_code)]
     device: CudaDevice,
 }
 
@@ -207,9 +236,11 @@ impl CudaMessageQueue {
 pub struct CudaMemoryPool {
     /// Device reference.
     device: CudaDevice,
-    /// Pre-allocated control blocks.
+    /// Pre-allocated control blocks (reserved for pooling).
+    #[allow(dead_code)]
     control_blocks: Vec<CudaControlBlock>,
-    /// Pre-allocated queues.
+    /// Pre-allocated queues (reserved for pooling).
+    #[allow(dead_code)]
     queues: Vec<CudaMessageQueue>,
 }
 
@@ -252,7 +283,7 @@ mod tests {
     #[ignore]
     fn test_cuda_buffer() {
         let device = CudaDevice::new(0).unwrap();
-        let mut buffer = CudaBuffer::new(&device, 1024).unwrap();
+        let buffer = CudaBuffer::new(&device, 1024).unwrap();
 
         // Write data
         let data = vec![42u8; 1024];
@@ -266,10 +297,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore] // Requires CUDA hardware
     fn test_cuda_control_block() {
         let device = CudaDevice::new(0).unwrap();
-        let mut cb = CudaControlBlock::new(&device).unwrap();
+        let cb = CudaControlBlock::new(&device).unwrap();
 
         // Initially not active
         let state = cb.read().unwrap();
@@ -279,5 +310,53 @@ mod tests {
         cb.set_active(true).unwrap();
         let state = cb.read().unwrap();
         assert!(state.is_active());
+
+        // Deactivate
+        cb.set_active(false).unwrap();
+        let state = cb.read().unwrap();
+        assert!(!state.is_active());
+    }
+
+    #[test]
+    #[ignore] // Requires CUDA hardware
+    fn test_cuda_control_block_termination() {
+        let device = CudaDevice::new(0).unwrap();
+        let cb = CudaControlBlock::new(&device).unwrap();
+
+        // Initially not requesting termination
+        let state = cb.read().unwrap();
+        assert!(!state.should_terminate());
+
+        // Request termination
+        cb.set_should_terminate(true).unwrap();
+        let state = cb.read().unwrap();
+        assert!(state.should_terminate());
+    }
+
+    #[test]
+    #[ignore] // Requires CUDA hardware
+    fn test_cuda_message_queue() {
+        let device = CudaDevice::new(0).unwrap();
+        let queue = CudaMessageQueue::new(&device, 64, 4096).unwrap();
+
+        assert_eq!(queue.capacity(), 64);
+        assert_eq!(queue.max_payload_size(), 4096);
+        assert!(queue.headers_ptr() > 0);
+        assert!(queue.payloads_ptr() > 0);
+    }
+
+    #[test]
+    #[ignore] // Requires CUDA hardware
+    fn test_cuda_memory_pool() {
+        let device = CudaDevice::new(0).unwrap();
+        let mut pool = CudaMemoryPool::new(device);
+
+        // Allocate control block
+        let cb = pool.alloc_control_block().unwrap();
+        assert!(cb.device_ptr() > 0);
+
+        // Allocate queue
+        let queue = pool.alloc_queue(32, 2048).unwrap();
+        assert_eq!(queue.capacity(), 32);
     }
 }

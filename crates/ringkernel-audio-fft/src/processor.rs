@@ -7,14 +7,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use tracing::{debug, info, warn};
+use tracing::info;
 
 use crate::audio_input::{AudioInput, AudioOutput, AudioSource};
 use crate::bin_actor::BinNetwork;
 use crate::error::{AudioFftError, Result};
-use crate::fft::{FftProcessor, IfftProcessor, StftProcessor, WindowFunction};
-use crate::messages::{Complex, SeparatedBin};
-use crate::mixer::{DryWetMixer, FrameMixer, MixerConfig};
+use crate::fft::{FftProcessor, IfftProcessor, WindowFunction};
+use crate::mixer::{FrameMixer, MixerConfig};
 use crate::separation::SeparationConfig;
 
 /// Builder for AudioFftProcessor.
@@ -169,7 +168,8 @@ pub struct AudioFftProcessor {
     fft_size: usize,
     /// Hop size.
     hop_size: usize,
-    /// Sample rate.
+    /// Sample rate (reserved for resampling support).
+    #[allow(dead_code)]
     sample_rate: u32,
     /// Window function.
     window: WindowFunction,

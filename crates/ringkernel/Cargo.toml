@@ -49,6 +49,8 @@ criterion = { workspace = true }
 tracing-subscriber = { workspace = true }
 rkyv = { workspace = true }
 zerocopy = { workspace = true }
+# For CUDA tests - need explicit dep for test imports even though it's an optional dep
+ringkernel-cuda = { workspace = true }
 
 [features]
 default = ["cpu"]
