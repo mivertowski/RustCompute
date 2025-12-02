@@ -9,6 +9,11 @@
 //! - Persistent GPU buffers (pressure stays on GPU)
 //! - Halo-only transfers (64 bytes per edge per step)
 //! - Full grid readback only when rendering
+//!
+//! ## Kernel Source
+//!
+//! When the `cuda-codegen` feature is enabled, kernels are generated from Rust DSL.
+//! Otherwise, handwritten CUDA source from `shaders/fdtd_tile.cu` is used.
 
 use ringkernel_core::error::{Result, RingKernelError};
 use ringkernel_core::memory::GpuBuffer;
@@ -17,7 +22,18 @@ use ringkernel_cuda::{CudaBuffer, CudaDevice};
 use super::gpu_backend::{Edge, FdtdParams, TileGpuBackend, TileGpuBuffers};
 
 /// CUDA kernel source for tile FDTD.
-const CUDA_FDTD_SOURCE: &str = include_str!("../shaders/fdtd_tile.cu");
+///
+/// Uses generated DSL kernels when `cuda-codegen` feature is enabled,
+/// otherwise falls back to handwritten CUDA source.
+#[cfg(feature = "cuda-codegen")]
+fn get_cuda_source() -> String {
+    super::kernels::generate_tile_kernels()
+}
+
+#[cfg(not(feature = "cuda-codegen"))]
+fn get_cuda_source() -> String {
+    include_str!("../shaders/fdtd_tile.cu").to_string()
+}
 
 /// Module name for loaded kernels.
 const MODULE_NAME: &str = "fdtd_tile";
@@ -58,7 +74,8 @@ impl CudaTileBackend {
         );
 
         // Compile CUDA source to PTX and load module
-        let ptx = cudarc::nvrtc::compile_ptx(CUDA_FDTD_SOURCE).map_err(|e| {
+        let cuda_source = get_cuda_source();
+        let ptx = cudarc::nvrtc::compile_ptx(&cuda_source).map_err(|e| {
             RingKernelError::BackendError(format!("NVRTC compilation failed: {}", e))
         })?;
 

@@ -24,7 +24,18 @@ use ringkernel_core::memory::GpuBuffer;
 use ringkernel_cuda::{CudaBuffer, CudaDevice};
 
 /// CUDA kernel source for packed tile FDTD.
-const CUDA_PACKED_SOURCE: &str = include_str!("../shaders/fdtd_packed.cu");
+///
+/// Uses generated DSL kernels when `cuda-codegen` feature is enabled,
+/// otherwise falls back to handwritten CUDA source.
+#[cfg(feature = "cuda-codegen")]
+fn get_cuda_packed_source() -> String {
+    super::kernels::generate_packed_kernels()
+}
+
+#[cfg(not(feature = "cuda-codegen"))]
+fn get_cuda_packed_source() -> String {
+    include_str!("../shaders/fdtd_packed.cu").to_string()
+}
 
 /// Module name for loaded kernels.
 const MODULE_NAME: &str = "fdtd_packed";
@@ -141,7 +152,8 @@ impl CudaPackedBackend {
         );
 
         // Compile CUDA source to PTX and load module
-        let ptx = cudarc::nvrtc::compile_ptx(CUDA_PACKED_SOURCE).map_err(|e| {
+        let cuda_source = get_cuda_packed_source();
+        let ptx = cudarc::nvrtc::compile_ptx(&cuda_source).map_err(|e| {
             RingKernelError::BackendError(format!("NVRTC compilation failed: {}", e))
         })?;
 
