@@ -6,6 +6,20 @@
 use super::AcousticParams;
 use rayon::prelude::*;
 
+/// Cell type for drawing mode.
+///
+/// Determines how a cell interacts with the wave simulation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CellType {
+    /// Normal cell - wave propagates freely.
+    #[default]
+    Normal,
+    /// Absorber - fully absorbs waves (0% reflection).
+    Absorber,
+    /// Reflector - fully reflects waves (100% reflection, like a wall).
+    Reflector,
+}
+
 /// The main simulation grid containing all cells.
 ///
 /// Uses SoA (Structure of Arrays) memory layout for cache-friendly
@@ -26,6 +40,8 @@ pub struct SimulationGrid {
     is_boundary: Vec<bool>,
     /// Reflection coefficients per cell (0 = absorb, 1 = reflect).
     reflection_coeff: Vec<f32>,
+    /// Cell types for drawing mode (Normal, Absorber, Reflector).
+    cell_types: Vec<CellType>,
 
     /// Acoustic simulation parameters.
     pub params: AcousticParams,
@@ -48,6 +64,7 @@ impl SimulationGrid {
             pressure_prev: vec![0.0; size],
             is_boundary: vec![false; size],
             reflection_coeff: vec![1.0; size],
+            cell_types: vec![CellType::Normal; size],
             params,
         };
         grid.initialize_boundaries();
@@ -417,6 +434,7 @@ impl SimulationGrid {
         self.pressure_prev = vec![0.0; size];
         self.is_boundary = vec![false; size];
         self.reflection_coeff = vec![1.0; size];
+        self.cell_types = vec![CellType::Normal; size];
         self.initialize_boundaries();
     }
 
@@ -456,6 +474,64 @@ impl SimulationGrid {
         } else {
             false
         }
+    }
+
+    /// Set the cell type at the given position.
+    ///
+    /// This affects how the cell interacts with waves:
+    /// - Normal: waves propagate freely
+    /// - Absorber: waves are absorbed (0% reflection)
+    /// - Reflector: waves are reflected (100% reflection)
+    pub fn set_cell_type(&mut self, x: u32, y: u32, cell_type: CellType) {
+        if x < self.width && y < self.height {
+            let idx = self.idx(x, y);
+            self.cell_types[idx] = cell_type;
+
+            // Update reflection coefficient based on cell type
+            self.reflection_coeff[idx] = match cell_type {
+                CellType::Normal => {
+                    // Normal cells at boundary get slight absorption, interior gets full reflection
+                    if self.is_boundary[idx] { 0.95 } else { 1.0 }
+                }
+                CellType::Absorber => 0.0,  // Full absorption
+                CellType::Reflector => 1.0, // Full reflection
+            };
+
+            // Mark reflectors/absorbers as boundary-like for FDTD calculation
+            // (they need special handling in the step function)
+            if cell_type != CellType::Normal {
+                self.is_boundary[idx] = true;
+            } else {
+                // Restore original boundary status
+                let is_edge = x == 0 || y == 0 || x == self.width - 1 || y == self.height - 1;
+                self.is_boundary[idx] = is_edge;
+            }
+        }
+    }
+
+    /// Get the cell type at the given position.
+    pub fn get_cell_type(&self, x: u32, y: u32) -> Option<CellType> {
+        if x < self.width && y < self.height {
+            Some(self.cell_types[self.idx(x, y)])
+        } else {
+            None
+        }
+    }
+
+    /// Get all cell types as a flat slice (row-major order).
+    pub fn cell_types_slice(&self) -> &[CellType] {
+        &self.cell_types
+    }
+
+    /// Clear all user-defined cell types (reset to Normal).
+    ///
+    /// This keeps the grid boundaries intact.
+    pub fn clear_cell_types(&mut self) {
+        for i in 0..self.cell_types.len() {
+            self.cell_types[i] = CellType::Normal;
+        }
+        // Re-initialize boundary reflection coefficients
+        self.initialize_boundaries();
     }
 }
 

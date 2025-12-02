@@ -31,7 +31,7 @@ pub mod cuda_compute;
 pub mod cuda_packed;
 
 pub use cell::{CellState, Direction};
-pub use grid::SimulationGrid;
+pub use grid::{CellType, SimulationGrid};
 pub use kernel_grid::KernelGrid;
 pub use physics::AcousticParams;
 pub use tile_grid::{TileKernelGrid, TileActor, HaloDirection, DEFAULT_TILE_SIZE, GpuPersistentBackend};

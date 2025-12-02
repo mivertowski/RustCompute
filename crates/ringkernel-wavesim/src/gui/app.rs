@@ -2,7 +2,7 @@
 
 use super::canvas::GridCanvas;
 use super::controls;
-use crate::simulation::{AcousticParams, KernelGrid, SimulationGrid};
+use crate::simulation::{AcousticParams, CellType, KernelGrid, SimulationGrid};
 
 #[cfg(feature = "cuda")]
 use crate::simulation::CudaPackedBackend;
@@ -33,6 +33,31 @@ impl std::fmt::Display for ComputeBackend {
             ComputeBackend::GpuActor => write!(f, "GPU Actor"),
             #[cfg(feature = "cuda")]
             ComputeBackend::CudaPacked => write!(f, "CUDA Packed"),
+        }
+    }
+}
+
+/// Drawing mode for cell manipulation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DrawMode {
+    /// Normal mode - left click injects impulse.
+    #[default]
+    Impulse,
+    /// Draw absorber cells (absorb waves).
+    Absorber,
+    /// Draw reflector cells (reflect waves like walls).
+    Reflector,
+    /// Erase cell types (reset to normal).
+    Erase,
+}
+
+impl std::fmt::Display for DrawMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DrawMode::Impulse => write!(f, "Impulse"),
+            DrawMode::Absorber => write!(f, "Absorber"),
+            DrawMode::Reflector => write!(f, "Reflector"),
+            DrawMode::Erase => write!(f, "Erase"),
         }
     }
 }
@@ -81,6 +106,10 @@ pub struct WaveSimApp {
     show_stats: bool,
     /// Impulse amplitude for clicks.
     impulse_amplitude: f32,
+    /// Current drawing mode.
+    draw_mode: DrawMode,
+    /// Cell types for drawing (CPU mode uses grid's internal, CUDA uses this).
+    cell_types: Vec<Vec<CellType>>,
 
     // Performance tracking
     /// Last frame time for FPS calculation.
@@ -140,8 +169,14 @@ pub enum Message {
     #[cfg(feature = "cuda")]
     CudaPackedSwitched(Result<Arc<std::sync::Mutex<CudaPackedBackend>>, String>),
 
-    /// User clicked on the canvas.
+    /// User clicked on the canvas (left click).
     CanvasClick(f32, f32),
+    /// User right-clicked on the canvas (for drawing).
+    CanvasRightClick(f32, f32),
+    /// Drawing mode changed.
+    DrawModeChanged(DrawMode),
+    /// Clear all drawn cell types.
+    ClearCellTypes,
 
     /// Animation tick.
     Tick,
@@ -181,6 +216,8 @@ impl WaveSimApp {
                 is_running: false,
                 show_stats: true,
                 impulse_amplitude: 1.0,
+                draw_mode: DrawMode::Impulse,
+                cell_types: vec![vec![CellType::Normal; 64]; 64],
                 last_frame: now,
                 fps: 0.0,
                 steps_per_sec: 0.0,
@@ -430,52 +467,102 @@ impl WaveSimApp {
                 let gx = gx.min(self.grid_width - 1);
                 let gy = gy.min(self.grid_height - 1);
 
-                match &self.engine {
-                    SimulationEngine::Cpu(_) => {
-                        if let SimulationEngine::Cpu(grid) = &mut self.engine {
-                            grid.inject_impulse(gx, gy, self.impulse_amplitude);
-                            let pressure_grid = grid.get_pressure_grid();
-                            self.max_pressure = grid.max_pressure();
-                            self.total_energy = grid.total_energy();
-                            self.canvas.update_pressure(pressure_grid);
+                // Handle based on draw mode
+                match self.draw_mode {
+                    DrawMode::Impulse => {
+                        // Original impulse behavior
+                        match &self.engine {
+                            SimulationEngine::Cpu(_) => {
+                                if let SimulationEngine::Cpu(grid) = &mut self.engine {
+                                    grid.inject_impulse(gx, gy, self.impulse_amplitude);
+                                    let pressure_grid = grid.get_pressure_grid();
+                                    self.max_pressure = grid.max_pressure();
+                                    self.total_energy = grid.total_energy();
+                                    self.canvas.update_pressure(pressure_grid);
+                                }
+                            }
+                            SimulationEngine::Gpu(kernel_grid) => {
+                                let grid = kernel_grid.clone();
+                                let amp = self.impulse_amplitude;
+                                return Task::perform(
+                                    async move {
+                                        let mut g = grid.lock().await;
+                                        g.inject_impulse(gx, gy, amp);
+                                        (
+                                            g.get_pressure_grid(),
+                                            g.max_pressure(),
+                                            g.total_energy(),
+                                        )
+                                    },
+                                    |(pressure, max_p, energy)| {
+                                        Message::GpuStepCompleted(pressure, max_p, energy)
+                                    },
+                                );
+                            }
+                            #[cfg(feature = "cuda")]
+                            SimulationEngine::CudaPacked(backend) => {
+                                let backend = backend.clone();
+                                let amp = self.impulse_amplitude;
+                                return Task::perform(
+                                    async move {
+                                        let b = backend.lock().unwrap();
+                                        let _ = b.inject_impulse(gx, gy, amp);
+                                        let pressure = b.read_pressure_grid().unwrap_or_default();
+                                        (pressure, 0u32)
+                                    },
+                                    |(pressure, steps)| {
+                                        Message::CudaPackedStepCompleted(pressure, steps)
+                                    },
+                                );
+                            }
+                            SimulationEngine::Switching => {}
                         }
                     }
-                    SimulationEngine::Gpu(kernel_grid) => {
-                        let grid = kernel_grid.clone();
-                        let amp = self.impulse_amplitude;
-                        return Task::perform(
-                            async move {
-                                let mut g = grid.lock().await;
-                                g.inject_impulse(gx, gy, amp);
-                                (
-                                    g.get_pressure_grid(),
-                                    g.max_pressure(),
-                                    g.total_energy(),
-                                )
-                            },
-                            |(pressure, max_p, energy)| {
-                                Message::GpuStepCompleted(pressure, max_p, energy)
-                            },
-                        );
+                    DrawMode::Absorber | DrawMode::Reflector | DrawMode::Erase => {
+                        // Set cell type
+                        let cell_type = match self.draw_mode {
+                            DrawMode::Absorber => CellType::Absorber,
+                            DrawMode::Reflector => CellType::Reflector,
+                            DrawMode::Erase => CellType::Normal,
+                            _ => CellType::Normal,
+                        };
+                        self.set_cell_type_at(gx, gy, cell_type);
                     }
-                    #[cfg(feature = "cuda")]
-                    SimulationEngine::CudaPacked(backend) => {
-                        let backend = backend.clone();
-                        let amp = self.impulse_amplitude;
-                        return Task::perform(
-                            async move {
-                                let b = backend.lock().unwrap();
-                                let _ = b.inject_impulse(gx, gy, amp);
-                                let pressure = b.read_pressure_grid().unwrap_or_default();
-                                (pressure, 0u32)
-                            },
-                            |(pressure, steps)| {
-                                Message::CudaPackedStepCompleted(pressure, steps)
-                            },
-                        );
-                    }
-                    SimulationEngine::Switching => {}
                 }
+            }
+
+            Message::CanvasRightClick(x, y) => {
+                // Right-click always sets cell type based on current draw mode
+                let gx = (x * self.grid_width as f32) as u32;
+                let gy = (y * self.grid_height as f32) as u32;
+                let gx = gx.min(self.grid_width - 1);
+                let gy = gy.min(self.grid_height - 1);
+
+                let cell_type = match self.draw_mode {
+                    DrawMode::Impulse => CellType::Normal, // Right-click in impulse mode erases
+                    DrawMode::Absorber => CellType::Absorber,
+                    DrawMode::Reflector => CellType::Reflector,
+                    DrawMode::Erase => CellType::Normal,
+                };
+                self.set_cell_type_at(gx, gy, cell_type);
+            }
+
+            Message::DrawModeChanged(mode) => {
+                self.draw_mode = mode;
+            }
+
+            Message::ClearCellTypes => {
+                // Clear all cell types
+                for row in &mut self.cell_types {
+                    for cell in row {
+                        *cell = CellType::Normal;
+                    }
+                }
+                // Also clear in the CPU grid if applicable
+                if let SimulationEngine::Cpu(grid) = &mut self.engine {
+                    grid.clear_cell_types();
+                }
+                self.canvas.update_cell_types(self.cell_types.clone());
             }
 
             Message::Tick => {
@@ -628,6 +715,32 @@ impl WaveSimApp {
         self.canvas.update_pressure(grid);
     }
 
+    /// Set cell type at the given grid position.
+    fn set_cell_type_at(&mut self, gx: u32, gy: u32, cell_type: CellType) {
+        let gx = gx as usize;
+        let gy = gy as usize;
+
+        // Resize cell_types if needed
+        let height = self.grid_height as usize;
+        let width = self.grid_width as usize;
+        if self.cell_types.len() != height || (height > 0 && self.cell_types[0].len() != width) {
+            self.cell_types = vec![vec![CellType::Normal; width]; height];
+        }
+
+        // Update local cell_types array
+        if gy < self.cell_types.len() && gx < self.cell_types[gy].len() {
+            self.cell_types[gy][gx] = cell_type;
+        }
+
+        // Update simulation grid for CPU mode
+        if let SimulationEngine::Cpu(grid) = &mut self.engine {
+            grid.set_cell_type(gx as u32, gy as u32, cell_type);
+        }
+
+        // Update canvas to show cell types
+        self.canvas.update_cell_types(self.cell_types.clone());
+    }
+
     /// Perform simulation step(s).
     fn step_simulation(&mut self) -> Task<Message> {
         match &self.engine {
@@ -711,6 +824,7 @@ impl WaveSimApp {
             &self.grid_height_input,
             self.impulse_amplitude,
             self.compute_backend,
+            self.draw_mode,
             self.show_stats,
             self.fps,
             self.steps_per_sec,

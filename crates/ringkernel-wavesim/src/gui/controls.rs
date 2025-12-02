@@ -1,6 +1,6 @@
 //! Control panel widgets.
 
-use super::app::{ComputeBackend, Message};
+use super::app::{ComputeBackend, DrawMode, Message};
 use iced::widget::{button, column, container, pick_list, row, slider, text, text_input, vertical_space};
 use iced::{Alignment, Element, Length};
 
@@ -14,6 +14,7 @@ pub fn view_controls(
     grid_height_input: &str,
     impulse_amplitude: f32,
     compute_backend: ComputeBackend,
+    draw_mode: DrawMode,
     show_stats: bool,
     fps: f32,
     steps_per_sec: f32,
@@ -109,6 +110,33 @@ pub fn view_controls(
     ]
     .spacing(5);
 
+    // Draw mode picker
+    let draw_mode_options: Vec<DrawMode> = vec![
+        DrawMode::Impulse,
+        DrawMode::Absorber,
+        DrawMode::Reflector,
+        DrawMode::Erase,
+    ];
+
+    let clear_btn = button(text("Clear All").size(12))
+        .on_press(Message::ClearCellTypes)
+        .width(80);
+
+    let draw_mode_section = column![
+        text("Draw Mode").size(14),
+        row![
+            pick_list(draw_mode_options, Some(draw_mode), Message::DrawModeChanged).width(Length::FillPortion(2)),
+            clear_btn,
+        ].spacing(5),
+        text(match draw_mode {
+            DrawMode::Impulse => "(Click to inject wave)",
+            DrawMode::Absorber => "(Click to place absorber)",
+            DrawMode::Reflector => "(Click to place reflector)",
+            DrawMode::Erase => "(Click to remove cell type)",
+        }).size(11),
+    ]
+    .spacing(5);
+
     // Stats toggle button
     let stats_btn = button(text(if show_stats { "Hide Stats" } else { "Show Stats" }).size(14))
         .on_press(Message::ToggleStats)
@@ -156,10 +184,11 @@ pub fn view_controls(
     // Instructions
     let instructions = column![
         text("Instructions").size(16),
-        text("Click on grid to inject impulse").size(12),
+        text("Click to draw (based on mode)").size(12),
+        text("Use Absorber/Reflector modes").size(12),
+        text("to create obstacles and walls").size(12),
         text("Play/Pause to run simulation").size(12),
-        text("Step for single frame advance").size(12),
-        text("Adjust speed to slow down waves").size(12),
+        text("(Works best in CPU mode)").size(11),
     ]
     .spacing(3);
 
@@ -199,6 +228,28 @@ pub fn view_controls(
             text(" Positive pressure (+)").size(12),
         ]
         .spacing(5),
+        row![
+            container(text("").size(12))
+                .width(20)
+                .height(20)
+                .style(|_theme| container::Style {
+                    background: Some(iced::Color::from_rgb(0.2, 0.0, 0.3).into()),
+                    ..Default::default()
+                }),
+            text(" Absorber (purple)").size(12),
+        ]
+        .spacing(5),
+        row![
+            container(text("").size(12))
+                .width(20)
+                .height(20)
+                .style(|_theme| container::Style {
+                    background: Some(iced::Color::from_rgb(0.7, 0.7, 0.7).into()),
+                    ..Default::default()
+                }),
+            text(" Reflector (gray)").size(12),
+        ]
+        .spacing(5),
     ]
     .spacing(5);
 
@@ -217,6 +268,8 @@ pub fn view_controls(
         impulse_section,
         vertical_space().height(15),
         backend_section,
+        vertical_space().height(15),
+        draw_mode_section,
         vertical_space().height(15),
         stats_btn,
         stats_panel,

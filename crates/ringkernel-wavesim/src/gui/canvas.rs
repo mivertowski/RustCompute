@@ -1,6 +1,7 @@
 //! Canvas widget for rendering the pressure grid.
 
 use super::app::Message;
+use crate::simulation::CellType;
 use iced::mouse;
 use iced::widget::canvas::{self, Cache, Geometry};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
@@ -14,6 +15,8 @@ pub struct GridCanvas {
     cache: Cache,
     /// Current pressure values.
     pressure_grid: Vec<Vec<f32>>,
+    /// Cell types for drawing mode.
+    cell_types: Vec<Vec<CellType>>,
     /// Maximum pressure for color scaling.
     max_pressure: f32,
     /// Whether to show tile boundaries.
@@ -23,9 +26,12 @@ pub struct GridCanvas {
 impl GridCanvas {
     /// Create a new canvas with the given pressure grid.
     pub fn new(pressure_grid: Vec<Vec<f32>>) -> Self {
+        let rows = pressure_grid.len();
+        let cols = if rows > 0 { pressure_grid[0].len() } else { 0 };
         Self {
             cache: Cache::new(),
             pressure_grid,
+            cell_types: vec![vec![CellType::Normal; cols]; rows],
             max_pressure: 1.0,
             show_tiles: true,
         }
@@ -50,7 +56,23 @@ impl GridCanvas {
 
         // Use adaptive scaling with a minimum threshold
         self.max_pressure = max.max(0.1);
+
+        // Resize cell_types if grid size changed
+        let rows = pressure_grid.len();
+        let cols = if rows > 0 { pressure_grid[0].len() } else { 0 };
+        if self.cell_types.len() != rows
+            || (rows > 0 && self.cell_types[0].len() != cols)
+        {
+            self.cell_types = vec![vec![CellType::Normal; cols]; rows];
+        }
+
         self.pressure_grid = pressure_grid;
+        self.cache.clear();
+    }
+
+    /// Update cell types and invalidate the cache.
+    pub fn update_cell_types(&mut self, cell_types: Vec<Vec<CellType>>) {
+        self.cell_types = cell_types;
         self.cache.clear();
     }
 
@@ -124,7 +146,35 @@ impl canvas::Program<Message> for GridCanvas {
             // Draw cells
             for (y, row) in self.pressure_grid.iter().enumerate() {
                 for (x, &pressure) in row.iter().enumerate() {
-                    let color = self.pressure_to_color(pressure);
+                    // Get cell type if available
+                    let cell_type = self
+                        .cell_types
+                        .get(y)
+                        .and_then(|r| r.get(x))
+                        .copied()
+                        .unwrap_or(CellType::Normal);
+
+                    let color = match cell_type {
+                        CellType::Normal => self.pressure_to_color(pressure),
+                        CellType::Absorber => {
+                            // Dark purple for absorbers - blend with pressure
+                            let base = self.pressure_to_color(pressure);
+                            Color::from_rgb(
+                                base.r * 0.3 + 0.2,
+                                base.g * 0.1,
+                                base.b * 0.3 + 0.3,
+                            )
+                        }
+                        CellType::Reflector => {
+                            // Bright white/gray for reflectors - blend with pressure
+                            let base = self.pressure_to_color(pressure);
+                            Color::from_rgb(
+                                base.r * 0.5 + 0.5,
+                                base.g * 0.5 + 0.5,
+                                base.b * 0.5 + 0.5,
+                            )
+                        }
+                    };
 
                     frame.fill_rectangle(
                         Point::new(x as f32 * cell_width, y as f32 * cell_height),
@@ -216,17 +266,32 @@ impl canvas::Program<Message> for GridCanvas {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> (canvas::event::Status, Option<Message>) {
-        if let canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event {
-            if let Some(position) = cursor.position_in(bounds) {
-                // Convert to normalized coordinates [0, 1]
-                let x = position.x / bounds.width;
-                let y = position.y / bounds.height;
+        match event {
+            canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                if let Some(position) = cursor.position_in(bounds) {
+                    // Convert to normalized coordinates [0, 1]
+                    let x = position.x / bounds.width;
+                    let y = position.y / bounds.height;
 
-                return (
-                    canvas::event::Status::Captured,
-                    Some(Message::CanvasClick(x, y)),
-                );
+                    return (
+                        canvas::event::Status::Captured,
+                        Some(Message::CanvasClick(x, y)),
+                    );
+                }
             }
+            canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
+                if let Some(position) = cursor.position_in(bounds) {
+                    // Convert to normalized coordinates [0, 1]
+                    let x = position.x / bounds.width;
+                    let y = position.y / bounds.height;
+
+                    return (
+                        canvas::event::Status::Captured,
+                        Some(Message::CanvasRightClick(x, y)),
+                    );
+                }
+            }
+            _ => {}
         }
 
         (canvas::event::Status::Ignored, None)
