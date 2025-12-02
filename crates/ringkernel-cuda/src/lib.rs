@@ -39,6 +39,8 @@ mod kernel;
 mod memory;
 #[cfg(feature = "cuda")]
 mod runtime;
+#[cfg(feature = "cuda")]
+mod stencil;
 
 #[cfg(feature = "cuda")]
 pub use device::CudaDevice;
@@ -48,6 +50,8 @@ pub use kernel::CudaKernel;
 pub use memory::{CudaBuffer, CudaControlBlock, CudaMemoryPool, CudaMessageQueue};
 #[cfg(feature = "cuda")]
 pub use runtime::CudaRuntime;
+#[cfg(feature = "cuda")]
+pub use stencil::{CompiledStencilKernel, LaunchConfig, StencilKernelLoader};
 
 /// Re-export memory module for advanced usage.
 #[cfg(feature = "cuda")]

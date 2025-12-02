@@ -262,6 +262,27 @@ Benchmarked on NVIDIA hardware:
 - Host-to-device bandwidth: ~7.6 GB/s (PCIe 4.0)
 - HLC timestamp generation: <10ns per tick
 
+### WaveSim Showcase Application
+
+The `ringkernel-wavesim` crate demonstrates RingKernel's capabilities with a 2D acoustic wave simulation using tile-based actors. Performance highlights:
+
+| Backend | Grid Size | Steps/sec | Throughput |
+|---------|-----------|-----------|------------|
+| CPU (SoA + SIMD + Rayon) | 256×256 | 35,418 | 2.3B cells/s |
+| CUDA Packed (GPU-only halo) | 256×256 | 112,837 | 7.4M cells/s |
+| CUDA Packed (GPU-only halo) | 512×512 | 71,324 | 18.7M cells/s |
+
+**GPU vs CPU speedup at 512×512: 9.9x**
+
+The CUDA Packed backend demonstrates GPU-only halo exchange—all tile communication happens via GPU memory copies with zero host transfers during simulation. This eliminates the traditional bottleneck of host-GPU synchronization for stencil computations.
+
+```bash
+# Run WaveSim benchmarks
+cargo run -p ringkernel-wavesim --bin bench_packed --release --features cuda
+```
+
+See [WaveSim PERFORMANCE.md](crates/ringkernel-wavesim/PERFORMANCE.md) for detailed analysis.
+
 Performance varies significantly by hardware and workload.
 
 ## Documentation

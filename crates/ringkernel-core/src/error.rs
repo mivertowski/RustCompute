@@ -47,6 +47,10 @@ pub enum RingKernelError {
     #[error("kernel launch failed: {0}")]
     LaunchFailed(String),
 
+    /// Kernel compilation failed (NVRTC, shader compilation, etc.).
+    #[error("kernel compilation failed: {0}")]
+    CompilationError(String),
+
     // ===== Message Errors =====
     /// Queue is full, message cannot be enqueued.
     #[error("queue full: capacity {capacity}, attempted to enqueue message")]

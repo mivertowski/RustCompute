@@ -6,6 +6,9 @@ mod kernel_grid;
 mod physics;
 mod tile_grid;
 
+// FDTD kernel defined in Rust DSL (transpiled to CUDA at compile time)
+pub mod fdtd_dsl;
+
 #[cfg(feature = "simd")]
 mod simd;
 

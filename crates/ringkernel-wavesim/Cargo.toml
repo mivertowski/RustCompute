@@ -8,6 +8,9 @@ description = "Interactive 2D wave propagation showcase for RingKernel"
 [dependencies]
 ringkernel = { path = "../ringkernel" }
 ringkernel-core = { path = "../ringkernel-core" }
+ringkernel-derive = { path = "../ringkernel-derive" }
+ringkernel-cuda-codegen = { path = "../ringkernel-cuda-codegen", optional = true }
+inventory = { workspace = true }
 
 # GUI
 iced = { version = "0.13", features = ["canvas", "tokio"] }
@@ -30,6 +33,9 @@ bytemuck = { version = "1.24", features = ["derive"], optional = true }
 ringkernel-cuda = { path = "../ringkernel-cuda", optional = true }
 cudarc = { workspace = true, optional = true }
 
+# Code generation (optional, for DSL-to-CUDA transpilation)
+syn = { workspace = true, optional = true }
+
 [dev-dependencies]
 criterion = { workspace = true }
 
@@ -37,6 +43,7 @@ criterion = { workspace = true }
 default = ["cpu", "cuda", "simd"]
 cpu = ["ringkernel/cpu"]
 cuda = ["ringkernel/cuda", "dep:ringkernel-cuda", "dep:cudarc", "dep:bytemuck"]
+cuda-codegen = ["cuda", "dep:ringkernel-cuda-codegen", "dep:syn", "ringkernel-derive/cuda-codegen"]
 wgpu = ["ringkernel/wgpu", "dep:wgpu", "dep:bytemuck"]
 simd = []  # Enable SIMD optimizations (requires nightly)
 all-backends = ["cpu", "cuda", "wgpu"]

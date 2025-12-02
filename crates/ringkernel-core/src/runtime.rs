@@ -141,6 +141,12 @@ impl Backend {
     }
 }
 
+impl std::fmt::Display for Backend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name())
+    }
+}
+
 /// Options for launching a kernel.
 #[derive(Debug, Clone)]
 pub struct LaunchOptions {
