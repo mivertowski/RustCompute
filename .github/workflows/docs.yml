@@ -1,0 +1,631 @@
+name: Documentation
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build API documentation
+        run: |
+          cargo doc --workspace --no-deps --document-private-items
+        env:
+          RUSTDOCFLAGS: "--enable-index-page -Zunstable-options"
+          RUSTC_BOOTSTRAP: 1
+
+      - name: Create documentation directory structure
+        run: |
+          mkdir -p ./docs-output/api
+          mkdir -p ./docs-output/guide
+
+          # Copy API docs
+          cp -r ./target/doc/* ./docs-output/api/
+
+          # Copy guide documentation
+          cp -r ./docs/* ./docs-output/guide/
+
+          # Disable Jekyll processing
+          touch ./docs-output/.nojekyll
+
+      - name: Create landing page
+        run: |
+          cat > ./docs-output/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>RingKernel - GPU-native Persistent Actor Model for Rust</title>
+              <link rel="preconnect" href="https://fonts.googleapis.com">
+              <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+              <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+              <style>
+                  :root {
+                      --primary: #f97316;
+                      --primary-dark: #ea580c;
+                      --bg-dark: #0f172a;
+                      --bg-card: #1e293b;
+                      --text-primary: #f8fafc;
+                      --text-secondary: #94a3b8;
+                      --border: #334155;
+                      --accent-green: #22c55e;
+                      --accent-blue: #3b82f6;
+                      --accent-purple: #a855f7;
+                  }
+
+                  * {
+                      margin: 0;
+                      padding: 0;
+                      box-sizing: border-box;
+                  }
+
+                  body {
+                      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+                      background: var(--bg-dark);
+                      color: var(--text-primary);
+                      line-height: 1.6;
+                  }
+
+                  .container {
+                      max-width: 1200px;
+                      margin: 0 auto;
+                      padding: 0 24px;
+                  }
+
+                  /* Header */
+                  header {
+                      border-bottom: 1px solid var(--border);
+                      padding: 16px 0;
+                  }
+
+                  .header-content {
+                      display: flex;
+                      justify-content: space-between;
+                      align-items: center;
+                  }
+
+                  .logo {
+                      font-size: 1.5rem;
+                      font-weight: 700;
+                      color: var(--primary);
+                      text-decoration: none;
+                  }
+
+                  nav a {
+                      color: var(--text-secondary);
+                      text-decoration: none;
+                      margin-left: 24px;
+                      font-size: 0.95rem;
+                      transition: color 0.2s;
+                  }
+
+                  nav a:hover {
+                      color: var(--text-primary);
+                  }
+
+                  /* Hero */
+                  .hero {
+                      padding: 80px 0;
+                      text-align: center;
+                  }
+
+                  .hero h1 {
+                      font-size: 3.5rem;
+                      font-weight: 700;
+                      margin-bottom: 16px;
+                      background: linear-gradient(135deg, var(--text-primary) 0%, var(--primary) 100%);
+                      -webkit-background-clip: text;
+                      -webkit-text-fill-color: transparent;
+                      background-clip: text;
+                  }
+
+                  .hero .subtitle {
+                      font-size: 1.25rem;
+                      color: var(--text-secondary);
+                      max-width: 700px;
+                      margin: 0 auto 32px;
+                  }
+
+                  .hero-buttons {
+                      display: flex;
+                      gap: 16px;
+                      justify-content: center;
+                      flex-wrap: wrap;
+                  }
+
+                  .btn {
+                      display: inline-flex;
+                      align-items: center;
+                      padding: 12px 24px;
+                      border-radius: 8px;
+                      font-weight: 500;
+                      text-decoration: none;
+                      transition: all 0.2s;
+                  }
+
+                  .btn-primary {
+                      background: var(--primary);
+                      color: white;
+                  }
+
+                  .btn-primary:hover {
+                      background: var(--primary-dark);
+                  }
+
+                  .btn-secondary {
+                      background: var(--bg-card);
+                      color: var(--text-primary);
+                      border: 1px solid var(--border);
+                  }
+
+                  .btn-secondary:hover {
+                      border-color: var(--text-secondary);
+                  }
+
+                  /* Features */
+                  .features {
+                      padding: 60px 0;
+                  }
+
+                  .features-grid {
+                      display: grid;
+                      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                      gap: 24px;
+                  }
+
+                  .feature-card {
+                      background: var(--bg-card);
+                      border: 1px solid var(--border);
+                      border-radius: 12px;
+                      padding: 24px;
+                  }
+
+                  .feature-card h3 {
+                      font-size: 1.1rem;
+                      margin-bottom: 8px;
+                      display: flex;
+                      align-items: center;
+                      gap: 8px;
+                  }
+
+                  .feature-card p {
+                      color: var(--text-secondary);
+                      font-size: 0.95rem;
+                  }
+
+                  .icon {
+                      width: 24px;
+                      height: 24px;
+                      display: inline-flex;
+                      align-items: center;
+                      justify-content: center;
+                  }
+
+                  /* Documentation Section */
+                  .docs-section {
+                      padding: 60px 0;
+                  }
+
+                  .docs-section h2 {
+                      font-size: 2rem;
+                      margin-bottom: 32px;
+                      text-align: center;
+                  }
+
+                  .docs-grid {
+                      display: grid;
+                      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                      gap: 20px;
+                  }
+
+                  .doc-link {
+                      background: var(--bg-card);
+                      border: 1px solid var(--border);
+                      border-radius: 8px;
+                      padding: 20px;
+                      text-decoration: none;
+                      transition: all 0.2s;
+                      display: block;
+                  }
+
+                  .doc-link:hover {
+                      border-color: var(--primary);
+                      transform: translateY(-2px);
+                  }
+
+                  .doc-link h4 {
+                      color: var(--text-primary);
+                      margin-bottom: 4px;
+                  }
+
+                  .doc-link p {
+                      color: var(--text-secondary);
+                      font-size: 0.9rem;
+                  }
+
+                  /* API Docs Banner */
+                  .api-banner {
+                      background: linear-gradient(135deg, var(--bg-card) 0%, #1a2744 100%);
+                      border: 1px solid var(--border);
+                      border-radius: 12px;
+                      padding: 40px;
+                      text-align: center;
+                      margin: 40px 0;
+                  }
+
+                  .api-banner h3 {
+                      font-size: 1.5rem;
+                      margin-bottom: 12px;
+                  }
+
+                  .api-banner p {
+                      color: var(--text-secondary);
+                      margin-bottom: 20px;
+                  }
+
+                  /* Code Block */
+                  .code-block {
+                      background: var(--bg-card);
+                      border: 1px solid var(--border);
+                      border-radius: 8px;
+                      padding: 20px;
+                      font-family: 'JetBrains Mono', monospace;
+                      font-size: 0.9rem;
+                      overflow-x: auto;
+                      margin: 32px 0;
+                  }
+
+                  .code-block code {
+                      color: var(--text-secondary);
+                  }
+
+                  .code-block .keyword { color: var(--accent-purple); }
+                  .code-block .string { color: var(--accent-green); }
+                  .code-block .comment { color: #64748b; }
+
+                  /* Backends Table */
+                  .backends {
+                      padding: 40px 0;
+                  }
+
+                  .backends h2 {
+                      text-align: center;
+                      margin-bottom: 24px;
+                  }
+
+                  table {
+                      width: 100%;
+                      border-collapse: collapse;
+                      background: var(--bg-card);
+                      border-radius: 8px;
+                      overflow: hidden;
+                  }
+
+                  th, td {
+                      padding: 12px 16px;
+                      text-align: left;
+                      border-bottom: 1px solid var(--border);
+                  }
+
+                  th {
+                      background: rgba(249, 115, 22, 0.1);
+                      font-weight: 600;
+                  }
+
+                  .status-stable {
+                      color: var(--accent-green);
+                  }
+
+                  .status-planned {
+                      color: var(--text-secondary);
+                  }
+
+                  /* Footer */
+                  footer {
+                      border-top: 1px solid var(--border);
+                      padding: 40px 0;
+                      text-align: center;
+                      color: var(--text-secondary);
+                  }
+
+                  footer a {
+                      color: var(--primary);
+                      text-decoration: none;
+                  }
+
+                  @media (max-width: 768px) {
+                      .hero h1 {
+                          font-size: 2.5rem;
+                      }
+
+                      .header-content {
+                          flex-direction: column;
+                          gap: 16px;
+                      }
+
+                      nav a {
+                          margin: 0 12px;
+                      }
+                  }
+              </style>
+          </head>
+          <body>
+              <header>
+                  <div class="container header-content">
+                      <a href="/" class="logo">RingKernel</a>
+                      <nav>
+                          <a href="#features">Features</a>
+                          <a href="#docs">Documentation</a>
+                          <a href="./api/ringkernel/index.html">API Reference</a>
+                          <a href="https://github.com/mivertowski/RustCompute">GitHub</a>
+                      </nav>
+                  </div>
+              </header>
+
+              <main>
+                  <section class="hero">
+                      <div class="container">
+                          <h1>RingKernel</h1>
+                          <p class="subtitle">
+                              A GPU-native persistent actor model framework for Rust. Build high-performance
+                              GPU-accelerated actor systems with persistent kernels, lock-free message passing,
+                              and hybrid logical clocks.
+                          </p>
+                          <div class="hero-buttons">
+                              <a href="./api/ringkernel/index.html" class="btn btn-primary">API Documentation</a>
+                              <a href="./guide/01-architecture-overview.md" class="btn btn-secondary">Getting Started</a>
+                              <a href="https://github.com/mivertowski/RustCompute" class="btn btn-secondary">View on GitHub</a>
+                          </div>
+                      </div>
+                  </section>
+
+                  <section class="features" id="features">
+                      <div class="container">
+                          <div class="features-grid">
+                              <div class="feature-card">
+                                  <h3><span class="icon">&#x1F680;</span> Persistent GPU Kernels</h3>
+                                  <p>Long-running GPU kernels that maintain state across invocations, eliminating launch overhead.</p>
+                              </div>
+                              <div class="feature-card">
+                                  <h3><span class="icon">&#x1F517;</span> Lock-free Message Passing</h3>
+                                  <p>High-performance ring buffers for host-GPU and kernel-to-kernel communication.</p>
+                              </div>
+                              <div class="feature-card">
+                                  <h3><span class="icon">&#x23F1;</span> Hybrid Logical Clocks</h3>
+                                  <p>Causal ordering across distributed operations with HLC timestamps.</p>
+                              </div>
+                              <div class="feature-card">
+                                  <h3><span class="icon">&#x1F4E6;</span> Zero-Copy Serialization</h3>
+                                  <p>Efficient message passing with rkyv-based zero-copy serialization.</p>
+                              </div>
+                              <div class="feature-card">
+                                  <h3><span class="icon">&#x1F4BB;</span> Multi-Backend Support</h3>
+                                  <p>Target CPU, CUDA, WebGPU, or Metal with a unified API.</p>
+                              </div>
+                              <div class="feature-card">
+                                  <h3><span class="icon">&#x1F3AF;</span> Proc Macro DSL</h3>
+                                  <p>Declarative message and kernel definitions with derive macros.</p>
+                              </div>
+                          </div>
+                      </div>
+                  </section>
+
+                  <section class="container">
+                      <div class="code-block">
+          <code><span class="keyword">use</span> ringkernel::prelude::*;
+
+          <span class="keyword">async fn</span> main() -> std::result::Result&lt;(), Box&lt;<span class="keyword">dyn</span> std::error::Error&gt;&gt; {
+              <span class="comment">// Create runtime with auto-detected backend</span>
+              <span class="keyword">let</span> runtime = RingKernel::builder()
+                  .backend(Backend::Auto)
+                  .build()
+                  .<span class="keyword">await</span>?;
+
+              <span class="comment">// Launch a persistent kernel</span>
+              <span class="keyword">let</span> kernel = runtime.launch(<span class="string">"processor"</span>, LaunchOptions::default()).<span class="keyword">await</span>?;
+
+              <span class="comment">// Kernel is active and ready</span>
+              println!(<span class="string">"State: {:?}"</span>, kernel.state());
+
+              runtime.shutdown().<span class="keyword">await</span>?;
+              Ok(())
+          }</code>
+                      </div>
+                  </section>
+
+                  <section class="backends">
+                      <div class="container">
+                          <h2>Supported Backends</h2>
+                          <table>
+                              <thead>
+                                  <tr>
+                                      <th>Backend</th>
+                                      <th>Status</th>
+                                      <th>Platforms</th>
+                                      <th>Requirements</th>
+                                  </tr>
+                              </thead>
+                              <tbody>
+                                  <tr>
+                                      <td><strong>CPU</strong></td>
+                                      <td class="status-stable">Stable</td>
+                                      <td>All</td>
+                                      <td>None</td>
+                                  </tr>
+                                  <tr>
+                                      <td><strong>CUDA</strong></td>
+                                      <td class="status-stable">Stable</td>
+                                      <td>Linux, Windows</td>
+                                      <td>NVIDIA GPU, CUDA 12.x</td>
+                                  </tr>
+                                  <tr>
+                                      <td><strong>WebGPU</strong></td>
+                                      <td class="status-stable">Stable</td>
+                                      <td>All</td>
+                                      <td>Vulkan/Metal/DX12 capable GPU</td>
+                                  </tr>
+                                  <tr>
+                                      <td><strong>Metal</strong></td>
+                                      <td class="status-planned">Planned</td>
+                                      <td>macOS, iOS</td>
+                                      <td>-</td>
+                                  </tr>
+                              </tbody>
+                          </table>
+                      </div>
+                  </section>
+
+                  <section class="docs-section" id="docs">
+                      <div class="container">
+                          <h2>Documentation</h2>
+
+                          <div class="api-banner">
+                              <h3>API Reference</h3>
+                              <p>Complete API documentation generated from source code with rustdoc.</p>
+                              <a href="./api/ringkernel/index.html" class="btn btn-primary">Browse API Docs</a>
+                          </div>
+
+                          <h3 style="margin-bottom: 16px;">Guide</h3>
+                          <div class="docs-grid">
+                              <a href="./guide/01-architecture-overview.md" class="doc-link">
+                                  <h4>Architecture Overview</h4>
+                                  <p>System design, component mapping, and kernel lifecycle.</p>
+                              </a>
+                              <a href="./guide/02-crate-structure.md" class="doc-link">
+                                  <h4>Crate Structure</h4>
+                                  <p>Workspace organization and crate responsibilities.</p>
+                              </a>
+                              <a href="./guide/03-core-abstractions.md" class="doc-link">
+                                  <h4>Core Abstractions</h4>
+                                  <p>Key traits, types, and the message queue system.</p>
+                              </a>
+                              <a href="./guide/04-memory-management.md" class="doc-link">
+                                  <h4>Memory Management</h4>
+                                  <p>GPU memory allocation and buffer handling.</p>
+                              </a>
+                              <a href="./guide/05-gpu-backends.md" class="doc-link">
+                                  <h4>GPU Backends</h4>
+                                  <p>Backend implementations: CPU, CUDA, WebGPU, Metal.</p>
+                              </a>
+                              <a href="./guide/06-serialization.md" class="doc-link">
+                                  <h4>Serialization</h4>
+                                  <p>Zero-copy serialization with rkyv and zerocopy.</p>
+                              </a>
+                              <a href="./guide/07-proc-macros.md" class="doc-link">
+                                  <h4>Proc Macros</h4>
+                                  <p>RingMessage, ring_kernel, and GpuType derive macros.</p>
+                              </a>
+                              <a href="./guide/08-runtime.md" class="doc-link">
+                                  <h4>Runtime</h4>
+                                  <p>Runtime configuration and kernel management.</p>
+                              </a>
+                              <a href="./guide/09-testing.md" class="doc-link">
+                                  <h4>Testing</h4>
+                                  <p>Testing strategies and GPU test patterns.</p>
+                              </a>
+                              <a href="./guide/10-performance.md" class="doc-link">
+                                  <h4>Performance</h4>
+                                  <p>Benchmarks, optimization, and profiling.</p>
+                              </a>
+                              <a href="./guide/11-ecosystem.md" class="doc-link">
+                                  <h4>Ecosystem</h4>
+                                  <p>Integration with other Rust libraries.</p>
+                              </a>
+                              <a href="./guide/12-migration.md" class="doc-link">
+                                  <h4>Migration Guide</h4>
+                                  <p>Upgrading between versions.</p>
+                              </a>
+                          </div>
+
+                          <h3 style="margin: 32px 0 16px;">Crate Documentation</h3>
+                          <div class="docs-grid">
+                              <a href="./api/ringkernel/index.html" class="doc-link">
+                                  <h4>ringkernel</h4>
+                                  <p>Main facade crate - start here</p>
+                              </a>
+                              <a href="./api/ringkernel_core/index.html" class="doc-link">
+                                  <h4>ringkernel-core</h4>
+                                  <p>Core traits, types, HLC, K2K, PubSub</p>
+                              </a>
+                              <a href="./api/ringkernel_derive/index.html" class="doc-link">
+                                  <h4>ringkernel-derive</h4>
+                                  <p>Proc macros for messages and kernels</p>
+                              </a>
+                              <a href="./api/ringkernel_cpu/index.html" class="doc-link">
+                                  <h4>ringkernel-cpu</h4>
+                                  <p>CPU backend implementation</p>
+                              </a>
+                              <a href="./api/ringkernel_cuda/index.html" class="doc-link">
+                                  <h4>ringkernel-cuda</h4>
+                                  <p>NVIDIA CUDA backend</p>
+                              </a>
+                              <a href="./api/ringkernel_wgpu/index.html" class="doc-link">
+                                  <h4>ringkernel-wgpu</h4>
+                                  <p>WebGPU cross-platform backend</p>
+                              </a>
+                          </div>
+                      </div>
+                  </section>
+              </main>
+
+              <footer>
+                  <div class="container">
+                      <p>
+                          RingKernel is licensed under <a href="https://github.com/mivertowski/RustCompute/blob/main/LICENSE">Apache-2.0</a>.
+                          <br>
+                          <a href="https://github.com/mivertowski/RustCompute">GitHub</a> &middot;
+                          <a href="./api/ringkernel/index.html">API Docs</a> &middot;
+                          <a href="https://crates.io/crates/ringkernel">crates.io</a>
+                      </p>
+                  </div>
+              </footer>
+          </body>
+          </html>
+          EOF
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './docs-output'
+
+  deploy:
+    name: Deploy to GitHub Pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
