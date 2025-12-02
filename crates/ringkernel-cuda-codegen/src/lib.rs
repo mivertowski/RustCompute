@@ -36,6 +36,7 @@
 //! let cuda_code = transpile_stencil_kernel(rust_code, &config)?;
 //! ```
 
+pub mod dsl;
 mod intrinsics;
 mod stencil;
 mod transpiler;
@@ -101,13 +102,42 @@ pub fn transpile_stencil_kernel(
     transpiler.transpile_stencil(func)
 }
 
-/// Transpile a Rust function to CUDA without stencil-specific patterns.
+/// Transpile a Rust function to a CUDA `__device__` function.
 ///
-/// This is a lower-level API for non-stencil kernels that still want
-/// Rust-to-CUDA translation.
-pub fn transpile_generic_kernel(func: &syn::ItemFn) -> Result<String> {
+/// This generates a device-callable function (not a kernel) from Rust code.
+pub fn transpile_device_function(func: &syn::ItemFn) -> Result<String> {
     validate_function(func)?;
     transpile_function(func)
+}
+
+/// Transpile a Rust function to a CUDA `__global__` kernel.
+///
+/// This generates an externally-callable kernel without stencil-specific patterns.
+/// Use DSL functions like `thread_idx_x()`, `block_idx_x()` to access CUDA indices.
+///
+/// # Example
+///
+/// ```ignore
+/// use ringkernel_cuda_codegen::transpile_global_kernel;
+/// use syn::parse_quote;
+///
+/// let func: syn::ItemFn = parse_quote! {
+///     fn exchange_halos(buffer: &mut [f32], copies: &[u32], num_copies: i32) {
+///         let idx = block_idx_x() * block_dim_x() + thread_idx_x();
+///         if idx >= num_copies { return; }
+///         let src = copies[idx * 2] as usize;
+///         let dst = copies[idx * 2 + 1] as usize;
+///         buffer[dst] = buffer[src];
+///     }
+/// };
+///
+/// let cuda = transpile_global_kernel(&func)?;
+/// // Generates: extern "C" __global__ void exchange_halos(...) { ... }
+/// ```
+pub fn transpile_global_kernel(func: &syn::ItemFn) -> Result<String> {
+    validate_function(func)?;
+    let mut transpiler = CudaTranspiler::new_generic();
+    transpiler.transpile_generic_kernel(func)
 }
 
 #[cfg(test)]
@@ -123,12 +153,40 @@ mod tests {
             }
         };
 
-        let result = transpile_generic_kernel(&func);
+        let result = transpile_device_function(&func);
         assert!(result.is_ok(), "Should transpile simple function: {:?}", result);
 
         let cuda = result.unwrap();
         assert!(cuda.contains("float"), "Should contain CUDA float type");
         assert!(cuda.contains("a + b"), "Should contain the expression");
+    }
+
+    #[test]
+    fn test_global_kernel_transpile() {
+        let func: syn::ItemFn = parse_quote! {
+            fn exchange_halos(buffer: &mut [f32], copies: &[u32], num_copies: i32) {
+                let idx = block_idx_x() * block_dim_x() + thread_idx_x();
+                if idx >= num_copies {
+                    return;
+                }
+                let src = copies[idx * 2] as usize;
+                let dst = copies[idx * 2 + 1] as usize;
+                buffer[dst] = buffer[src];
+            }
+        };
+
+        let result = transpile_global_kernel(&func);
+        assert!(result.is_ok(), "Should transpile global kernel: {:?}", result);
+
+        let cuda = result.unwrap();
+        assert!(cuda.contains("extern \"C\" __global__"), "Should be global kernel");
+        assert!(cuda.contains("exchange_halos"), "Should have kernel name");
+        assert!(cuda.contains("blockIdx.x"), "Should contain blockIdx.x");
+        assert!(cuda.contains("blockDim.x"), "Should contain blockDim.x");
+        assert!(cuda.contains("threadIdx.x"), "Should contain threadIdx.x");
+        assert!(cuda.contains("return"), "Should have early return");
+
+        println!("Generated global kernel:\n{}", cuda);
     }
 
     #[test]

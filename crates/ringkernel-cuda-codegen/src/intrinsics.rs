@@ -50,6 +50,20 @@ pub enum GpuIntrinsic {
     WarpBallot,
     WarpAll,
     WarpAny,
+
+    /// CUDA thread/block indices.
+    ThreadIdxX,
+    ThreadIdxY,
+    ThreadIdxZ,
+    BlockIdxX,
+    BlockIdxY,
+    BlockIdxZ,
+    BlockDimX,
+    BlockDimY,
+    BlockDimZ,
+    GridDimX,
+    GridDimY,
+    GridDimZ,
 }
 
 impl GpuIntrinsic {
@@ -90,6 +104,18 @@ impl GpuIntrinsic {
             GpuIntrinsic::WarpBallot => "__ballot_sync",
             GpuIntrinsic::WarpAll => "__all_sync",
             GpuIntrinsic::WarpAny => "__any_sync",
+            GpuIntrinsic::ThreadIdxX => "threadIdx.x",
+            GpuIntrinsic::ThreadIdxY => "threadIdx.y",
+            GpuIntrinsic::ThreadIdxZ => "threadIdx.z",
+            GpuIntrinsic::BlockIdxX => "blockIdx.x",
+            GpuIntrinsic::BlockIdxY => "blockIdx.y",
+            GpuIntrinsic::BlockIdxZ => "blockIdx.z",
+            GpuIntrinsic::BlockDimX => "blockDim.x",
+            GpuIntrinsic::BlockDimY => "blockDim.y",
+            GpuIntrinsic::BlockDimZ => "blockDim.z",
+            GpuIntrinsic::GridDimX => "gridDim.x",
+            GpuIntrinsic::GridDimY => "gridDim.y",
+            GpuIntrinsic::GridDimZ => "gridDim.z",
         }
     }
 }
@@ -148,6 +174,20 @@ impl IntrinsicRegistry {
         mappings.insert("mul_add".to_string(), GpuIntrinsic::Fma);
         mappings.insert("min".to_string(), GpuIntrinsic::Min);
         mappings.insert("max".to_string(), GpuIntrinsic::Max);
+
+        // CUDA thread/block indices (function-style access in Rust DSL)
+        mappings.insert("thread_idx_x".to_string(), GpuIntrinsic::ThreadIdxX);
+        mappings.insert("thread_idx_y".to_string(), GpuIntrinsic::ThreadIdxY);
+        mappings.insert("thread_idx_z".to_string(), GpuIntrinsic::ThreadIdxZ);
+        mappings.insert("block_idx_x".to_string(), GpuIntrinsic::BlockIdxX);
+        mappings.insert("block_idx_y".to_string(), GpuIntrinsic::BlockIdxY);
+        mappings.insert("block_idx_z".to_string(), GpuIntrinsic::BlockIdxZ);
+        mappings.insert("block_dim_x".to_string(), GpuIntrinsic::BlockDimX);
+        mappings.insert("block_dim_y".to_string(), GpuIntrinsic::BlockDimY);
+        mappings.insert("block_dim_z".to_string(), GpuIntrinsic::BlockDimZ);
+        mappings.insert("grid_dim_x".to_string(), GpuIntrinsic::GridDimX);
+        mappings.insert("grid_dim_y".to_string(), GpuIntrinsic::GridDimY);
+        mappings.insert("grid_dim_z".to_string(), GpuIntrinsic::GridDimZ);
 
         Self { mappings }
     }

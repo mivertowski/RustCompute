@@ -7,7 +7,7 @@
 //! `shaders/fdtd_tile.cu` and `shaders/fdtd_packed.cu` exactly.
 
 #[cfg(feature = "cuda-codegen")]
-use ringkernel_cuda_codegen::{transpile_stencil_kernel, Grid, StencilConfig};
+use ringkernel_cuda_codegen::{transpile_global_kernel, transpile_stencil_kernel, Grid, StencilConfig};
 
 // ============================================================================
 // Tile-Based Kernels (fdtd_tile.cu equivalent)
@@ -299,156 +299,200 @@ pub const PACKED_KERNELS_HEADER: &str = r#"// CUDA Kernels for Packed Tile-Based
 /// Generate exchange_all_halos kernel.
 #[cfg(feature = "cuda-codegen")]
 fn generate_exchange_all_halos() -> String {
-    r#"// Halo Exchange Kernel - copies all halo edges between adjacent tiles
-__global__ void exchange_all_halos(
-    float* __restrict__ packed_buffer,
-    const unsigned int* __restrict__ copies,
-    int num_copies
-) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= num_copies) return;
+    use syn::parse_quote;
 
-    unsigned int src_idx = copies[idx * 2];
-    unsigned int dst_idx = copies[idx * 2 + 1];
+    let kernel_fn: syn::ItemFn = parse_quote! {
+        fn exchange_all_halos(
+            packed_buffer: &mut [f32],
+            copies: &[u32],
+            num_copies: i32,
+        ) {
+            let idx = block_idx_x() * block_dim_x() + thread_idx_x();
+            if idx >= num_copies {
+                return;
+            }
 
-    packed_buffer[dst_idx] = packed_buffer[src_idx];
-}
-"#.to_string()
+            let src_idx = copies[(idx * 2) as usize];
+            let dst_idx = copies[(idx * 2 + 1) as usize];
+
+            packed_buffer[dst_idx as usize] = packed_buffer[src_idx as usize];
+        }
+    };
+
+    match transpile_global_kernel(&kernel_fn) {
+        Ok(cuda) => format!("// Halo Exchange Kernel - copies all halo edges between adjacent tiles\n{}", cuda),
+        Err(e) => format!("// Transpilation error: {}\n", e),
+    }
 }
 
 /// Generate fdtd_all_tiles kernel.
 #[cfg(feature = "cuda-codegen")]
 fn generate_fdtd_all_tiles() -> String {
-    r#"// Batched FDTD Kernel - computes FDTD for ALL tiles in single launch
-__global__ void fdtd_all_tiles(
-    const float* __restrict__ packed_curr,
-    float* __restrict__ packed_prev,
-    int tiles_x,
-    int tiles_y,
-    int tile_size,
-    int buffer_width,
-    float c2,
-    float damping
-) {
-    int tile_x = blockIdx.x;
-    int tile_y = blockIdx.y;
+    use syn::parse_quote;
 
-    int lx = threadIdx.x;
-    int ly = threadIdx.y;
+    let kernel_fn: syn::ItemFn = parse_quote! {
+        fn fdtd_all_tiles(
+            packed_curr: &[f32],
+            packed_prev: &mut [f32],
+            tiles_x: i32,
+            tiles_y: i32,
+            tile_size: i32,
+            buffer_width: i32,
+            c2: f32,
+            damping: f32,
+        ) {
+            let tile_x = block_idx_x();
+            let tile_y = block_idx_y();
+            let lx = thread_idx_x();
+            let ly = thread_idx_y();
 
-    if (tile_x >= tiles_x || tile_y >= tiles_y) return;
-    if (lx >= tile_size || ly >= tile_size) return;
+            if tile_x >= tiles_x || tile_y >= tiles_y {
+                return;
+            }
+            if lx >= tile_size || ly >= tile_size {
+                return;
+            }
 
-    int tile_buffer_size = buffer_width * buffer_width;
-    int tile_idx = tile_y * tiles_x + tile_x;
-    int tile_offset = tile_idx * tile_buffer_size;
+            let tile_buffer_size = buffer_width * buffer_width;
+            let tile_idx = tile_y * tiles_x + tile_x;
+            let tile_offset = tile_idx * tile_buffer_size;
 
-    int idx = tile_offset + (ly + 1) * buffer_width + (lx + 1);
+            let idx = tile_offset + (ly + 1) * buffer_width + (lx + 1);
 
-    float p = packed_curr[idx];
-    float p_prev = packed_prev[idx];
+            let p = packed_curr[idx as usize];
+            let p_prev_val = packed_prev[idx as usize];
 
-    float p_n = packed_curr[idx - buffer_width];
-    float p_s = packed_curr[idx + buffer_width];
-    float p_w = packed_curr[idx - 1];
-    float p_e = packed_curr[idx + 1];
+            let p_n = packed_curr[(idx - buffer_width) as usize];
+            let p_s = packed_curr[(idx + buffer_width) as usize];
+            let p_w = packed_curr[(idx - 1) as usize];
+            let p_e = packed_curr[(idx + 1) as usize];
 
-    float laplacian = p_n + p_s + p_e + p_w - 4.0f * p;
-    float p_new = 2.0f * p - p_prev + c2 * laplacian;
+            let laplacian = p_n + p_s + p_e + p_w - 4.0 * p;
+            let p_new = 2.0 * p - p_prev_val + c2 * laplacian;
 
-    packed_prev[idx] = p_new * damping;
-}
-"#.to_string()
+            packed_prev[idx as usize] = p_new * damping;
+        }
+    };
+
+    match transpile_global_kernel(&kernel_fn) {
+        Ok(cuda) => format!("// Batched FDTD Kernel - computes FDTD for ALL tiles in single launch\n{}", cuda),
+        Err(e) => format!("// Transpilation error: {}\n", e),
+    }
 }
 
 /// Generate upload_tile_data kernel.
 #[cfg(feature = "cuda-codegen")]
 fn generate_upload_tile_data() -> String {
-    r#"// Upload Initial State - copies initial data to packed buffer
-__global__ void upload_tile_data(
-    float* __restrict__ packed_buffer,
-    const float* __restrict__ staging,
-    int tile_x,
-    int tile_y,
-    int tiles_x,
-    int buffer_width
-) {
-    int lx = threadIdx.x;
-    int ly = threadIdx.y;
+    use syn::parse_quote;
 
-    if (lx >= buffer_width || ly >= buffer_width) return;
+    let kernel_fn: syn::ItemFn = parse_quote! {
+        fn upload_tile_data(
+            packed_buffer: &mut [f32],
+            staging: &[f32],
+            tile_x: i32,
+            tile_y: i32,
+            tiles_x: i32,
+            buffer_width: i32,
+        ) {
+            let lx = thread_idx_x();
+            let ly = thread_idx_y();
 
-    int tile_buffer_size = buffer_width * buffer_width;
-    int tile_idx = tile_y * tiles_x + tile_x;
-    int tile_offset = tile_idx * tile_buffer_size;
+            if lx >= buffer_width || ly >= buffer_width {
+                return;
+            }
 
-    int local_idx = ly * buffer_width + lx;
-    int global_idx = tile_offset + local_idx;
+            let tile_buffer_size = buffer_width * buffer_width;
+            let tile_idx = tile_y * tiles_x + tile_x;
+            let tile_offset = tile_idx * tile_buffer_size;
 
-    packed_buffer[global_idx] = staging[local_idx];
-}
-"#.to_string()
+            let local_idx = ly * buffer_width + lx;
+            let global_idx = tile_offset + local_idx;
+
+            packed_buffer[global_idx as usize] = staging[local_idx as usize];
+        }
+    };
+
+    match transpile_global_kernel(&kernel_fn) {
+        Ok(cuda) => format!("// Upload Initial State - copies initial data to packed buffer\n{}", cuda),
+        Err(e) => format!("// Transpilation error: {}\n", e),
+    }
 }
 
 /// Generate read_all_interiors kernel.
 #[cfg(feature = "cuda-codegen")]
 fn generate_read_all_interiors() -> String {
-    r#"// Read All Interiors - extracts all tile interiors for visualization
-__global__ void read_all_interiors(
-    const float* __restrict__ packed_buffer,
-    float* __restrict__ output,
-    int tiles_x,
-    int tiles_y,
-    int tile_size,
-    int buffer_width,
-    int grid_width,
-    int grid_height
-) {
-    int gx = blockIdx.x * blockDim.x + threadIdx.x;
-    int gy = blockIdx.y * blockDim.y + threadIdx.y;
+    use syn::parse_quote;
 
-    if (gx >= grid_width || gy >= grid_height) return;
+    let kernel_fn: syn::ItemFn = parse_quote! {
+        fn read_all_interiors(
+            packed_buffer: &[f32],
+            output: &mut [f32],
+            tiles_x: i32,
+            tiles_y: i32,
+            tile_size: i32,
+            buffer_width: i32,
+            grid_width: i32,
+            grid_height: i32,
+        ) {
+            let gx = block_idx_x() * block_dim_x() + thread_idx_x();
+            let gy = block_idx_y() * block_dim_y() + thread_idx_y();
 
-    int tile_x = gx / tile_size;
-    int tile_y = gy / tile_size;
+            if gx >= grid_width || gy >= grid_height {
+                return;
+            }
 
-    int lx = gx % tile_size;
-    int ly = gy % tile_size;
+            let tile_x = gx / tile_size;
+            let tile_y = gy / tile_size;
 
-    int tile_buffer_size = buffer_width * buffer_width;
-    int tile_idx = tile_y * tiles_x + tile_x;
-    int tile_offset = tile_idx * tile_buffer_size;
-    int src_idx = tile_offset + (ly + 1) * buffer_width + (lx + 1);
+            let lx = gx % tile_size;
+            let ly = gy % tile_size;
 
-    int dst_idx = gy * grid_width + gx;
+            let tile_buffer_size = buffer_width * buffer_width;
+            let tile_idx = tile_y * tiles_x + tile_x;
+            let tile_offset = tile_idx * tile_buffer_size;
+            let src_idx = tile_offset + (ly + 1) * buffer_width + (lx + 1);
 
-    output[dst_idx] = packed_buffer[src_idx];
-}
-"#.to_string()
+            let dst_idx = gy * grid_width + gx;
+
+            output[dst_idx as usize] = packed_buffer[src_idx as usize];
+        }
+    };
+
+    match transpile_global_kernel(&kernel_fn) {
+        Ok(cuda) => format!("// Read All Interiors - extracts all tile interiors for visualization\n{}", cuda),
+        Err(e) => format!("// Transpilation error: {}\n", e),
+    }
 }
 
 /// Generate inject_impulse kernel.
 #[cfg(feature = "cuda-codegen")]
 fn generate_inject_impulse() -> String {
-    r#"// Inject Impulse - adds energy to specific cell
-__global__ void inject_impulse(
-    float* __restrict__ packed_buffer,
-    int tile_x,
-    int tile_y,
-    int local_x,
-    int local_y,
-    int tiles_x,
-    int buffer_width,
-    float amplitude
-) {
-    int tile_buffer_size = buffer_width * buffer_width;
-    int tile_idx = tile_y * tiles_x + tile_x;
-    int tile_offset = tile_idx * tile_buffer_size;
-    int idx = tile_offset + (local_y + 1) * buffer_width + (local_x + 1);
+    use syn::parse_quote;
 
-    packed_buffer[idx] += amplitude;
-}
-"#.to_string()
+    let kernel_fn: syn::ItemFn = parse_quote! {
+        fn inject_impulse(
+            packed_buffer: &mut [f32],
+            tile_x: i32,
+            tile_y: i32,
+            local_x: i32,
+            local_y: i32,
+            tiles_x: i32,
+            buffer_width: i32,
+            amplitude: f32,
+        ) {
+            let tile_buffer_size = buffer_width * buffer_width;
+            let tile_idx = tile_y * tiles_x + tile_x;
+            let tile_offset = tile_idx * tile_buffer_size;
+            let idx = tile_offset + (local_y + 1) * buffer_width + (local_x + 1);
+
+            packed_buffer[idx as usize] = packed_buffer[idx as usize] + amplitude;
+        }
+    };
+
+    match transpile_global_kernel(&kernel_fn) {
+        Ok(cuda) => format!("// Inject Impulse - adds energy to specific cell\n{}", cuda),
+        Err(e) => format!("// Transpilation error: {}\n", e),
+    }
 }
 
 /// Generate apply_boundary_conditions kernel.

@@ -9,8 +9,8 @@ use crate::{Result, TranspileError};
 use quote::ToTokens;
 use syn::{
     BinOp, Expr, ExprAssign, ExprBinary, ExprCall, ExprCast, ExprIf, ExprIndex, ExprLit,
-    ExprMethodCall, ExprParen, ExprPath, ExprUnary, FnArg, ItemFn, Lit, Pat, ReturnType, Stmt,
-    UnOp,
+    ExprMatch, ExprMethodCall, ExprParen, ExprPath, ExprReturn, ExprUnary, FnArg, ItemFn, Lit,
+    Pat, ReturnType, Stmt, UnOp,
 };
 
 /// CUDA code transpiler.
@@ -86,6 +86,47 @@ impl CudaTranspiler {
         Ok(format!(
             "extern \"C\" __global__ void {signature} {{\n{preamble}\n{body}}}\n"
         ))
+    }
+
+    /// Transpile a generic (non-stencil) kernel function.
+    ///
+    /// This generates a `__global__` kernel without stencil-specific preamble.
+    /// The kernel code can use `thread_idx_x()`, `block_idx_x()` etc. to access
+    /// CUDA thread indices directly.
+    pub fn transpile_generic_kernel(&mut self, func: &ItemFn) -> Result<String> {
+        // Generate function signature with all params
+        let signature = self.transpile_generic_kernel_signature(func)?;
+
+        // Generate function body
+        let body = self.transpile_block(&func.block)?;
+
+        Ok(format!(
+            "extern \"C\" __global__ void {signature} {{\n{body}}}\n"
+        ))
+    }
+
+    /// Transpile a generic kernel function signature (keeps all params).
+    fn transpile_generic_kernel_signature(&self, func: &ItemFn) -> Result<String> {
+        let name = func.sig.ident.to_string();
+
+        let mut params = Vec::new();
+        for param in &func.sig.inputs {
+            if let FnArg::Typed(pat_type) = param {
+                let param_name = match pat_type.pat.as_ref() {
+                    Pat::Ident(ident) => ident.ident.to_string(),
+                    _ => {
+                        return Err(TranspileError::Unsupported(
+                            "Complex pattern in parameter".into(),
+                        ))
+                    }
+                };
+
+                let cuda_type = self.type_mapper.map_type(&pat_type.ty)?;
+                params.push(format!("{} {}", cuda_type.to_cuda_string(), param_name));
+            }
+        }
+
+        Ok(format!("{}({})", name, params.join(", ")))
     }
 
     /// Transpile the kernel function signature.
@@ -172,13 +213,30 @@ impl CudaTranspiler {
             }
             Stmt::Expr(expr, semi) => {
                 let indent = self.indent_str();
+
+                // Check if this is an if statement with early return (shouldn't wrap in return)
+                if let Expr::If(if_expr) = expr {
+                    // Check if the body contains only a return statement
+                    if let Some(Stmt::Expr(Expr::Return(_), _)) = if_expr.then_branch.stmts.first() {
+                        if if_expr.then_branch.stmts.len() == 1 && if_expr.else_branch.is_none() {
+                            let expr_str = self.transpile_expr(expr)?;
+                            return Ok(format!("{indent}{expr_str};\n"));
+                        }
+                    }
+                }
+
                 let expr_str = self.transpile_expr(expr)?;
 
                 if semi.is_some() {
                     Ok(format!("{indent}{expr_str};\n"))
                 } else {
                     // Expression without semicolon (implicit return)
-                    Ok(format!("{indent}return {expr_str};\n"))
+                    // But check if it's already a return or an if with return
+                    if matches!(expr, Expr::Return(_)) || expr_str.starts_with("return") || expr_str.starts_with("if (") {
+                        Ok(format!("{indent}{expr_str};\n"))
+                    } else {
+                        Ok(format!("{indent}return {expr_str};\n"))
+                    }
                 }
             }
             Stmt::Item(_) => {
@@ -203,6 +261,7 @@ impl CudaTranspiler {
             Expr::If(if_expr) => self.transpile_if(if_expr),
             Expr::Assign(assign) => self.transpile_assign(assign),
             Expr::Cast(cast) => self.transpile_cast(cast),
+            Expr::Match(match_expr) => self.transpile_match(match_expr),
             Expr::Block(block) => {
                 // For block expressions, we just return the last expression
                 if let Some(Stmt::Expr(expr, None)) = block.block.stmts.last() {
@@ -220,6 +279,7 @@ impl CudaTranspiler {
                 };
                 Ok(format!("{base}.{member}"))
             }
+            Expr::Return(ret) => self.transpile_return(ret),
             _ => Err(TranspileError::Unsupported(format!(
                 "Expression type: {}",
                 expr.to_token_stream()
@@ -352,7 +412,23 @@ impl CudaTranspiler {
         // Check for intrinsics
         if let Some(intrinsic) = self.intrinsics.lookup(&func) {
             let cuda_name = intrinsic.to_cuda_string();
+
+            // Check if this is a "value" intrinsic (like threadIdx.x) vs a "function" intrinsic
+            // Value intrinsics don't have parentheses in CUDA
+            let is_value_intrinsic = cuda_name.contains("Idx.")
+                || cuda_name.contains("Dim.")
+                || cuda_name.starts_with("threadIdx")
+                || cuda_name.starts_with("blockIdx")
+                || cuda_name.starts_with("blockDim")
+                || cuda_name.starts_with("gridDim");
+
+            if is_value_intrinsic && call.args.is_empty() {
+                // Value intrinsics: threadIdx.x, blockIdx.y, etc. - no parens
+                return Ok(cuda_name.to_string());
+            }
+
             if call.args.is_empty() && cuda_name.ends_with("()") {
+                // Zero-arg function intrinsics: __syncthreads()
                 return Ok(cuda_name.to_string());
             }
 
@@ -467,6 +543,18 @@ impl CudaTranspiler {
     fn transpile_if(&self, if_expr: &ExprIf) -> Result<String> {
         let cond = self.transpile_expr(&if_expr.cond)?;
 
+        // Check if the body contains only a return statement (early return pattern)
+        if let Some(Stmt::Expr(Expr::Return(ret), _)) = if_expr.then_branch.stmts.first() {
+            if if_expr.then_branch.stmts.len() == 1 && if_expr.else_branch.is_none() {
+                // Simple early return: if (cond) return;
+                if ret.expr.is_none() {
+                    return Ok(format!("if ({cond}) return"));
+                }
+                let ret_val = self.transpile_expr(ret.expr.as_ref().unwrap())?;
+                return Ok(format!("if ({cond}) return {ret_val}"));
+            }
+        }
+
         // For now, only handle if-else as ternary when it's an expression
         if let Some((_, else_branch)) = &if_expr.else_branch {
             // If both branches are simple expressions, use ternary
@@ -508,6 +596,15 @@ impl CudaTranspiler {
                     let expr_str = self.transpile_expr(expr)?;
                     body.push_str(&format!(" {expr_str};"));
                 }
+                Stmt::Expr(Expr::Return(ret), None) => {
+                    // Handle explicit return without semicolon
+                    if let Some(ret_expr) = &ret.expr {
+                        let expr_str = self.transpile_expr(ret_expr)?;
+                        body.push_str(&format!(" return {expr_str};"));
+                    } else {
+                        body.push_str(" return;");
+                    }
+                }
                 Stmt::Expr(expr, None) => {
                     let expr_str = self.transpile_expr(expr)?;
                     body.push_str(&format!(" return {expr_str};"));
@@ -532,6 +629,136 @@ impl CudaTranspiler {
         Ok(format!("({})({})", cuda_type.to_cuda_string(), expr))
     }
 
+    /// Transpile a return expression.
+    fn transpile_return(&self, ret: &ExprReturn) -> Result<String> {
+        if let Some(expr) = &ret.expr {
+            let expr_str = self.transpile_expr(expr)?;
+            Ok(format!("return {expr_str}"))
+        } else {
+            Ok("return".to_string())
+        }
+    }
+
+    /// Transpile a match expression to switch/case.
+    fn transpile_match(&self, match_expr: &ExprMatch) -> Result<String> {
+        let scrutinee = self.transpile_expr(&match_expr.expr)?;
+        let mut output = format!("switch ({scrutinee}) {{\n");
+
+        for arm in &match_expr.arms {
+            // Handle the pattern
+            let case_label = self.transpile_match_pattern(&arm.pat)?;
+
+            if case_label == "default" || case_label.starts_with("/*") {
+                output.push_str("        default: {\n");
+            } else {
+                output.push_str(&format!("        case {case_label}: {{\n"));
+            }
+
+            // Handle the arm body - check if it's a block with statements
+            match arm.body.as_ref() {
+                Expr::Block(block) => {
+                    // Block expression with multiple statements
+                    for stmt in &block.block.stmts {
+                        let stmt_str = self.transpile_stmt_inline(stmt)?;
+                        output.push_str(&format!("            {stmt_str}\n"));
+                    }
+                }
+                _ => {
+                    // Single expression - wrap in statement
+                    let body = self.transpile_expr(&arm.body)?;
+                    output.push_str(&format!("            {body};\n"));
+                }
+            }
+
+            output.push_str("            break;\n");
+            output.push_str("        }\n");
+        }
+
+        output.push_str("    }");
+        Ok(output)
+    }
+
+    /// Transpile a match pattern to a case label.
+    fn transpile_match_pattern(&self, pat: &Pat) -> Result<String> {
+        match pat {
+            Pat::Lit(pat_lit) => {
+                // Integer literal pattern - pat_lit.lit contains the literal
+                match &pat_lit.lit {
+                    Lit::Int(i) => Ok(i.to_string()),
+                    Lit::Bool(b) => Ok(if b.value { "1" } else { "0" }.to_string()),
+                    _ => Err(TranspileError::Unsupported(
+                        "Non-integer literal in match pattern".into(),
+                    )),
+                }
+            }
+            Pat::Wild(_) => {
+                // _ pattern becomes default
+                Ok("default".to_string())
+            }
+            Pat::Ident(ident) => {
+                // Named pattern - treat as default case for now
+                // This handles things like `x => ...` which bind a value
+                Ok(format!("/* {} */ default", ident.ident))
+            }
+            Pat::Or(pat_or) => {
+                // Multiple patterns: 0 | 1 | 2 => ...
+                // CUDA switch doesn't support this directly, we need multiple case labels
+                // For now, just use the first pattern and note the limitation
+                if let Some(first) = pat_or.cases.first() {
+                    self.transpile_match_pattern(first)
+                } else {
+                    Err(TranspileError::Unsupported("Empty or pattern".into()))
+                }
+            }
+            _ => Err(TranspileError::Unsupported(format!(
+                "Match pattern: {}",
+                pat.to_token_stream()
+            ))),
+        }
+    }
+
+    /// Transpile a statement without indentation (for inline use in switch).
+    fn transpile_stmt_inline(&self, stmt: &Stmt) -> Result<String> {
+        match stmt {
+            Stmt::Local(local) => {
+                let var_name = match &local.pat {
+                    Pat::Ident(ident) => ident.ident.to_string(),
+                    Pat::Type(pat_type) => {
+                        if let Pat::Ident(ident) = pat_type.pat.as_ref() {
+                            ident.ident.to_string()
+                        } else {
+                            return Err(TranspileError::Unsupported(
+                                "Complex pattern in let binding".into(),
+                            ));
+                        }
+                    }
+                    _ => {
+                        return Err(TranspileError::Unsupported(
+                            "Complex pattern in let binding".into(),
+                        ))
+                    }
+                };
+
+                if let Some(init) = &local.init {
+                    let expr_str = self.transpile_expr(&init.expr)?;
+                    let type_str = self.infer_cuda_type(&init.expr);
+                    Ok(format!("{type_str} {var_name} = {expr_str};"))
+                } else {
+                    Ok(format!("float {var_name};"))
+                }
+            }
+            Stmt::Expr(expr, semi) => {
+                let expr_str = self.transpile_expr(expr)?;
+                if semi.is_some() {
+                    Ok(format!("{expr_str};"))
+                } else {
+                    Ok(format!("return {expr_str};"))
+                }
+            }
+            _ => Err(TranspileError::Unsupported("Unsupported statement in match arm".into())),
+        }
+    }
+
     /// Infer CUDA type from expression (simple heuristic).
     fn infer_cuda_type(&self, expr: &Expr) -> &'static str {
         match expr {
@@ -541,7 +768,42 @@ impl CudaTranspiler {
                 Lit::Bool(_) => "int",
                 _ => "float",
             },
-            Expr::Binary(_) | Expr::MethodCall(_) | Expr::Call(_) => "float",
+            Expr::Binary(bin) => {
+                // Check if this is an integer operation
+                let left_type = self.infer_cuda_type(&bin.left);
+                let right_type = self.infer_cuda_type(&bin.right);
+                // If both sides are int, result is int
+                if left_type == "int" && right_type == "int" {
+                    "int"
+                } else {
+                    "float"
+                }
+            }
+            Expr::Call(call) => {
+                // Check for intrinsics that return int
+                if let Ok(func) = self.transpile_expr(&call.func) {
+                    if let Some(intrinsic) = self.intrinsics.lookup(&func) {
+                        let cuda_name = intrinsic.to_cuda_string();
+                        // Thread/block indices return int
+                        if cuda_name.contains("Idx") || cuda_name.contains("Dim") {
+                            return "int";
+                        }
+                    }
+                }
+                "float"
+            }
+            Expr::Index(_) => "float", // Array access - could be any type, default to float
+            Expr::Cast(cast) => {
+                // Use the target type of the cast
+                if let Ok(cuda_type) = self.type_mapper.map_type(&cast.ty) {
+                    let s = cuda_type.to_cuda_string();
+                    if s.contains("int") || s.contains("size_t") || s == "unsigned long long" {
+                        return "int";
+                    }
+                }
+                "float"
+            }
+            Expr::MethodCall(_) => "float",
             _ => "float",
         }
     }
@@ -676,5 +938,74 @@ mod tests {
         assert!(!cuda.contains("GridPos")); // GridPos should be removed
 
         println!("Generated CUDA:\n{}", cuda);
+    }
+
+    #[test]
+    fn test_early_return() {
+        let mut transpiler = CudaTranspiler::new_generic();
+
+        let stmt: Stmt = parse_quote!(return;);
+        let result = transpiler.transpile_stmt(&stmt).unwrap();
+        assert!(result.contains("return;"));
+
+        let stmt_val: Stmt = parse_quote!(return 42;);
+        let result_val = transpiler.transpile_stmt(&stmt_val).unwrap();
+        assert!(result_val.contains("return 42;"));
+    }
+
+    #[test]
+    fn test_match_to_switch() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            match edge {
+                0 => { idx = 1 * 18 + i; }
+                1 => { idx = 16 * 18 + i; }
+                _ => { idx = 0; }
+            }
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert!(result.contains("switch (edge)"), "Should generate switch: {}", result);
+        assert!(result.contains("case 0:"), "Should have case 0: {}", result);
+        assert!(result.contains("case 1:"), "Should have case 1: {}", result);
+        assert!(result.contains("default:"), "Should have default: {}", result);
+        assert!(result.contains("break;"), "Should have break: {}", result);
+
+        println!("Generated switch:\n{}", result);
+    }
+
+    #[test]
+    fn test_block_idx_intrinsics() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        // Test block_idx_x() call
+        let expr: Expr = parse_quote!(block_idx_x());
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert_eq!(result, "blockIdx.x");
+
+        // Test thread_idx_y() call
+        let expr2: Expr = parse_quote!(thread_idx_y());
+        let result2 = transpiler.transpile_expr(&expr2).unwrap();
+        assert_eq!(result2, "threadIdx.y");
+
+        // Test grid_dim_x() call
+        let expr3: Expr = parse_quote!(grid_dim_x());
+        let result3 = transpiler.transpile_expr(&expr3).unwrap();
+        assert_eq!(result3, "gridDim.x");
+    }
+
+    #[test]
+    fn test_global_index_calculation() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        // Common CUDA pattern: gx = blockIdx.x * blockDim.x + threadIdx.x
+        let expr: Expr = parse_quote!(block_idx_x() * block_dim_x() + thread_idx_x());
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert!(result.contains("blockIdx.x"), "Should contain blockIdx.x");
+        assert!(result.contains("blockDim.x"), "Should contain blockDim.x");
+        assert!(result.contains("threadIdx.x"), "Should contain threadIdx.x");
+
+        println!("Global index expression: {}", result);
     }
 }
