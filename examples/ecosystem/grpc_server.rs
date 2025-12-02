@@ -36,11 +36,11 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("=== RingKernel gRPC Server Example ===\n");
 
     // ====== Server Configuration ======
@@ -224,23 +224,24 @@ struct KernelInfo {
 
 #[derive(Clone)]
 struct KernelRegistry {
-    kernels: Arc<parking_lot::RwLock<HashMap<String, KernelInfo>>>,
+    kernels: Arc<RwLock<HashMap<String, KernelInfo>>>,
 }
 
 impl KernelRegistry {
     fn new() -> Self {
         Self {
-            kernels: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+            kernels: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
     fn register(&self, id: &str, info: KernelInfo) {
-        self.kernels.write().insert(id.to_string(), info);
+        self.kernels.write().unwrap().insert(id.to_string(), info);
     }
 
     fn list_kernels(&self) -> Vec<(String, KernelInfo)> {
         self.kernels
             .read()
+            .unwrap()
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
@@ -321,7 +322,7 @@ impl GpuGrpcServer {
         }
     }
 
-    async fn process(&self, request: GrpcRequest) -> Result<GrpcResponse, Box<dyn std::error::Error>> {
+    async fn process(&self, request: GrpcRequest) -> std::result::Result<GrpcResponse, Box<dyn std::error::Error>> {
         let start = Instant::now();
 
         self.stats.total.fetch_add(1, Ordering::Relaxed);

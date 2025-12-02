@@ -123,6 +123,31 @@ impl Priority {
             _ => Self::Critical,
         }
     }
+
+    /// Convert to u8.
+    pub const fn as_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+/// Priority constants for convenient use.
+///
+/// # Example
+/// ```ignore
+/// use ringkernel::prelude::*;
+///
+/// let opts = LaunchOptions::default()
+///     .with_priority(priority::HIGH);
+/// ```
+pub mod priority {
+    /// Low priority (0) - background tasks.
+    pub const LOW: u8 = 0;
+    /// Normal priority (64) - default.
+    pub const NORMAL: u8 = 64;
+    /// High priority (128) - important tasks.
+    pub const HIGH: u8 = 128;
+    /// Critical priority (192) - system messages.
+    pub const CRITICAL: u8 = 192;
 }
 
 /// Fixed-size message header (256 bytes, cache-line aligned).

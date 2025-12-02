@@ -56,7 +56,9 @@ pub mod prelude {
         DeliveryStatus, K2KBroker, K2KBuilder, K2KConfig, K2KEndpoint, K2KMessage,
     };
     pub use crate::memory::*;
-    pub use crate::message::*;
+    pub use crate::message::{
+        priority, CorrelationId, MessageEnvelope, MessageHeader, MessageId, Priority, RingMessage,
+    };
     pub use crate::multi_gpu::{
         DeviceInfo, DeviceStatus, LoadBalancingStrategy, MultiGpuBuilder, MultiGpuCoordinator,
     };
@@ -77,7 +79,7 @@ pub use control::ControlBlock;
 pub use error::{Result, RingKernelError};
 pub use hlc::HlcTimestamp;
 pub use memory::{DeviceMemory, GpuBuffer, MemoryPool, PinnedMemory};
-pub use message::{MessageHeader, MessageId, Priority, RingMessage};
+pub use message::{priority, MessageHeader, MessageId, Priority, RingMessage};
 pub use queue::{MessageQueue, QueueStats};
 pub use runtime::{
     Backend, KernelHandle, KernelId, KernelState, KernelStatus, LaunchOptions, RingKernelRuntime,

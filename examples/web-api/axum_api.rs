@@ -156,7 +156,7 @@ impl IntoResponse for AppError {
 async fn vector_add_handler(
     State(state): State<Arc<AppState>>,
     Json(request): Json<VectorAddRequest>,
-) -> Result<Json<VectorAddResponse>, AppError> {
+) -> std::result::Result<Json<VectorAddResponse>, AppError> {
     let start = Instant::now();
 
     // Validate input
@@ -198,7 +198,7 @@ async fn vector_add_handler(
 async fn matrix_multiply_handler(
     State(state): State<Arc<AppState>>,
     Json(request): Json<MatrixMultiplyRequest>,
-) -> Result<Json<MatrixMultiplyResponse>, AppError> {
+) -> std::result::Result<Json<MatrixMultiplyResponse>, AppError> {
     let start = Instant::now();
 
     // Validate dimensions
@@ -264,7 +264,7 @@ async fn metrics_handler(State(state): State<Arc<AppState>>) -> Json<MetricsResp
 // ============ Main ============
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
     println!("=== RingKernel Axum API Example ===\n");

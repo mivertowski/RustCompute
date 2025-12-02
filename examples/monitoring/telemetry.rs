@@ -37,8 +37,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::interval;
 
+// Type alias for cleaner code
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
     println!("=== Real-Time Telemetry Example ===\n");
@@ -62,8 +65,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create telemetry pipeline
     let pipeline = TelemetryPipeline::new(telemetry_config);
 
-    // Create metrics collector
-    let collector = MetricsCollector::new();
+    // Create metrics collector (wrapped in Arc for sharing)
+    let collector = Arc::new(MetricsCollector::new());
 
     // ====== Basic Telemetry Buffer ======
     println!("=== Telemetry Buffer Demo ===\n");
@@ -71,11 +74,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ====== Metrics Collection ======
     println!("\n=== Metrics Collection Demo ===\n");
-    demonstrate_metrics_collection(&collector);
+    demonstrate_metrics_collection(&*collector);
 
     // ====== Latency Histograms ======
     println!("\n=== Latency Histogram Demo ===\n");
-    demonstrate_histograms(&collector);
+    demonstrate_histograms(&*collector);
 
     // ====== Alert System ======
     println!("\n=== Alert System Demo ===\n");
@@ -83,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ====== Real-time Monitoring Loop ======
     println!("\n=== Real-time Monitoring Demo ===\n");
-    demonstrate_monitoring_loop(&collector).await;
+    demonstrate_monitoring_loop(collector).await;
 
     println!("\n=== Example completed! ===");
     Ok(())
@@ -185,13 +188,13 @@ fn demonstrate_histograms(collector: &MetricsCollector) {
     }
 }
 
-async fn demonstrate_alerts(pipeline: &Arc<TelemetryPipeline>) {
+async fn demonstrate_alerts(pipeline: &TelemetryPipeline) {
     println!("Subscribing to telemetry alerts...\n");
 
     // Subscribe to alerts
     let mut alert_receiver = pipeline.subscribe();
 
-    // Spawn alert handler
+    // Spawn alert handler - we need to move the receiver into the task
     let alert_handler = tokio::spawn(async move {
         println!("Alert handler started. Waiting for alerts...\n");
 
@@ -201,10 +204,10 @@ async fn demonstrate_alerts(pipeline: &Arc<TelemetryPipeline>) {
             match tokio::time::timeout(Duration::from_millis(500), alert_receiver.recv()).await {
                 Ok(Ok(event)) => {
                     match event {
-                        TelemetryEvent::Snapshot(snapshot) => {
-                            println!("Received snapshot:");
+                        TelemetryEvent::MetricsSnapshot(snapshot) => {
+                            println!("Received metrics snapshot:");
                             println!("  Active kernels: {}", snapshot.aggregate.active_kernels);
-                            println!("  Throughput: {:.2}/s", snapshot.aggregate.throughput);
+                            println!("  Total messages: {}", snapshot.aggregate.total_messages_processed);
                         }
                         TelemetryEvent::Alert(alert) => {
                             println!("ALERT: {:?}", alert.alert_type);
@@ -214,6 +217,9 @@ async fn demonstrate_alerts(pipeline: &Arc<TelemetryPipeline>) {
                                 println!("  Kernel: {}", kernel);
                             }
                             count += 1;
+                        }
+                        TelemetryEvent::KernelStateChange { kernel_id, previous, new } => {
+                            println!("State change: {} {} -> {}", kernel_id, previous, new);
                         }
                     }
                 }
@@ -237,7 +243,7 @@ async fn demonstrate_alerts(pipeline: &Arc<TelemetryPipeline>) {
     println!("  - QueueFull: When input queue is at capacity");
 }
 
-async fn demonstrate_monitoring_loop(collector: &MetricsCollector) {
+async fn demonstrate_monitoring_loop(collector: Arc<MetricsCollector>) {
     println!("Running monitoring loop for 3 seconds...\n");
 
     let kernel_ids = vec![
@@ -246,13 +252,12 @@ async fn demonstrate_monitoring_loop(collector: &MetricsCollector) {
         KernelId::new("kernel_c"),
     ];
 
-    // Simulate activity
-    let collector = Arc::new(collector.clone());
-    let collector_sim = collector.clone();
+    // Clone Arc for the simulator task
+    let collector_sim = Arc::clone(&collector);
     let kernel_ids_sim = kernel_ids.clone();
 
     let simulator = tokio::spawn(async move {
-        let mut count = 0;
+        let mut count = 0u64;
         loop {
             for kernel_id in &kernel_ids_sim {
                 collector_sim.record_message_processed(

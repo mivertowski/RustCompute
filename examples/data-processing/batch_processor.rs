@@ -149,7 +149,7 @@ struct DataPipeline {
 }
 
 impl DataPipeline {
-    async fn new(config: PipelineConfig) -> Result<Self, Box<dyn std::error::Error>> {
+    async fn new(config: PipelineConfig) -> std::result::Result<Self, Box<dyn std::error::Error>> {
         let runtime = Arc::new(
             RingKernel::builder()
                 .backend(Backend::Cpu)
@@ -157,8 +157,11 @@ impl DataPipeline {
                 .await?,
         );
 
+        // Queue capacity must be a power of 2
+        let queue_capacity = (config.max_batch_size * 2).next_power_of_two();
         let options = LaunchOptions::default()
-            .with_queue_capacity(config.max_batch_size * 2);
+            .with_queue_capacity(queue_capacity)
+            .without_auto_activate();
 
         let compute_kernel = runtime.launch("batch_compute", options).await?;
         compute_kernel.activate().await?;
@@ -172,7 +175,7 @@ impl DataPipeline {
     }
 
     /// Process a single batch
-    async fn process_batch(&mut self, batch: DataBatch) -> Result<ProcessedResult, Box<dyn std::error::Error>> {
+    async fn process_batch(&mut self, batch: DataBatch) -> std::result::Result<ProcessedResult, Box<dyn std::error::Error>> {
         let start = Instant::now();
 
         // Step 1: Preprocess on CPU
@@ -222,7 +225,7 @@ impl DataPipeline {
     }
 
     /// Preprocess data on CPU
-    fn preprocess(&self, batch: &DataBatch) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    fn preprocess(&self, batch: &DataBatch) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error>> {
         let flat = batch.flatten();
 
         // Normalize features (z-score normalization)
@@ -254,7 +257,7 @@ impl DataPipeline {
         &self.stats
     }
 
-    async fn shutdown(self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn shutdown(self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         self.compute_kernel.terminate().await?;
         // Note: runtime will be dropped when Arc count goes to 0
         Ok(())
@@ -264,7 +267,7 @@ impl DataPipeline {
 // ============ Main ============
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
     println!("=== Batch Data Processing Pipeline Example ===\n");

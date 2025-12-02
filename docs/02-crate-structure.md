@@ -3,90 +3,90 @@
 ## Workspace Organization
 
 ```
-ringkernel/
+RustCompute/
 ├── Cargo.toml                    # Workspace manifest
 ├── README.md
-├── LICENSE
+├── CLAUDE.md                     # AI assistant guidance
+├── LICENSE-MIT / LICENSE-APACHE
 │
 ├── crates/
 │   ├── ringkernel/               # Main facade crate (re-exports)
-│   │   ├── Cargo.toml
+│   │   ├── Cargo.toml            # Dependencies + 11 examples
 │   │   └── src/lib.rs
 │   │
 │   ├── ringkernel-core/          # Core traits and types
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── message.rs        # RingMessage trait
+│   │       ├── message.rs        # RingMessage trait, priority constants
 │   │       ├── queue.rs          # MessageQueue trait
-│   │       ├── runtime.rs        # RingKernelRuntime trait
+│   │       ├── runtime.rs        # RingKernel, KernelHandle, LaunchOptions
 │   │       ├── context.rs        # RingContext struct
 │   │       ├── control.rs        # ControlBlock struct
-│   │       ├── telemetry.rs      # TelemetryBuffer struct
-│   │       ├── hlc.rs            # HlcTimestamp
+│   │       ├── telemetry.rs      # TelemetryBuffer, MetricsCollector
+│   │       ├── pubsub.rs         # PubSubBroker, Topic wildcards
+│   │       ├── hlc.rs            # HlcTimestamp, HlcClock
 │   │       └── error.rs          # Error types
 │   │
-│   ├── ringkernel-derive/        # Proc macros
-│   │   ├── Cargo.toml
+│   ├── ringkernel-derive/        # Proc macros (in development)
+│   │   └── src/lib.rs
+│   │
+│   ├── ringkernel-cpu/           # CPU backend (working)
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── ring_kernel.rs    # #[ring_kernel] macro
-│   │       └── ring_message.rs   # #[derive(RingMessage)] macro
+│   │       └── runtime.rs
 │   │
-│   ├── ringkernel-cuda/          # CUDA backend
+│   ├── ringkernel-cuda/          # CUDA backend (working)
 │   │   ├── Cargo.toml
-│   │   ├── build.rs              # CUDA compilation
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── runtime.rs        # CudaRingKernelRuntime
-│   │       ├── compiler.rs       # PTX/CUBIN compilation
-│   │       ├── queue.rs          # CudaMessageQueue
-│   │       ├── bridge.rs         # Host↔GPU bridge
-│   │       └── ffi.rs            # CUDA driver API bindings
+│   │   ├── src/
+│   │   │   ├── lib.rs
+│   │   │   ├── runtime.rs        # CudaRuntime implementation
+│   │   │   └── ptx.rs            # PTX template for persistent kernels
+│   │   └── tests/
+│   │       └── gpu_execution_verify.rs  # GPU execution verification
 │   │
-│   ├── ringkernel-metal/         # Metal backend (macOS/iOS)
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── runtime.rs
-│   │       ├── compiler.rs       # MSL compilation
-│   │       └── queue.rs
+│   ├── ringkernel-metal/         # Metal backend (scaffolded)
+│   │   └── src/lib.rs
 │   │
-│   ├── ringkernel-wgpu/          # WebGPU backend (cross-platform)
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── runtime.rs
-│   │       ├── compiler.rs       # WGSL compilation
-│   │       └── queue.rs
+│   ├── ringkernel-wgpu/          # WebGPU backend (scaffolded)
+│   │   └── src/lib.rs
 │   │
-│   ├── ringkernel-cpu/           # CPU backend (testing/fallback)
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── runtime.rs
-│   │       └── queue.rs
+│   ├── ringkernel-codegen/       # Kernel code generation
+│   │   └── src/lib.rs
 │   │
-│   └── ringkernel-codegen/       # Kernel code generation
-│       ├── Cargo.toml
-│       └── src/
-│           ├── lib.rs
-│           ├── cuda.rs           # C# → CUDA C translation
-│           ├── metal.rs          # → MSL translation
-│           └── wgsl.rs           # → WGSL translation
+│   ├── ringkernel-ecosystem/     # Integration utilities
+│   │   └── src/lib.rs
+│   │
+│   └── ringkernel-audio-fft/     # Example: GPU audio processing
+│       └── src/lib.rs
 │
-├── examples/
-│   ├── vector_add.rs
-│   ├── pagerank.rs
-│   └── multi_gpu.rs
+├── examples/                     # 11 working examples
+│   ├── basic/
+│   │   ├── hello_kernel.rs       # Runtime, lifecycle, suspend/resume
+│   │   └── kernel_states.rs      # State machine, multi-kernel
+│   ├── messaging/
+│   │   ├── request_response.rs   # Correlation IDs, priorities
+│   │   └── pub_sub.rs            # Topic wildcards, QoS
+│   ├── web-api/
+│   │   └── axum_api.rs           # REST API integration
+│   ├── data-processing/
+│   │   └── batch_processor.rs    # Data pipelines
+│   ├── monitoring/
+│   │   └── telemetry.rs          # Metrics, alerts
+│   ├── ecosystem/
+│   │   ├── grpc_server.rs        # gRPC patterns
+│   │   ├── config_management.rs  # TOML, env vars
+│   │   └── ml_pipeline.rs        # ML inference
+│   └── advanced/
+│       └── multi_gpu.rs          # Load balancing
 │
-├── benches/
-│   ├── message_throughput.rs
-│   └── serialization.rs
+├── docs/                         # Architecture documentation
+│   ├── 01-architecture-overview.md
+│   ├── 02-crate-structure.md
+│   └── ...
 │
-└── tests/
-    ├── integration/
-    └── hardware/
+└── benches/
+    └── serialization.rs
 ```
 
 ---
@@ -95,8 +95,7 @@ ringkernel/
 
 ```
                     ┌──────────────────┐
-                    │   ringkernel     │  (facade)
-                    │   (re-exports)   │
+                    │   ringkernel     │  (facade - re-exports all)
                     └────────┬─────────┘
                              │
            ┌─────────────────┼─────────────────┐
@@ -104,7 +103,8 @@ ringkernel/
            ▼                 ▼                 ▼
     ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
     │ ringkernel- │  │ ringkernel- │  │ ringkernel- │
-    │    cuda     │  │   metal     │  │    wgpu     │
+    │    cpu      │  │    cuda     │  │  ecosystem  │
+    │  (working)  │  │  (working)  │  │             │
     └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
            │                │                 │
            └────────────────┼─────────────────┘
@@ -120,9 +120,25 @@ ringkernel/
               ▼              ▼              ▼
        ┌───────────┐  ┌───────────┐  ┌───────────┐
        │ ringkernel│  │ ringkernel│  │   rkyv    │
-       │  -derive  │  │ -codegen  │  │ (serde)   │
+       │  -derive  │  │ -codegen  │  │ (zero-copy│
+       │(in dev)   │  │           │  │  serde)   │
        └───────────┘  └───────────┘  └───────────┘
 ```
+
+### Crate Descriptions
+
+| Crate | Status | Description |
+|-------|--------|-------------|
+| `ringkernel` | Working | Main facade, re-exports everything |
+| `ringkernel-core` | Working | Core traits: RingKernel, KernelHandle, HLC, PubSub |
+| `ringkernel-cpu` | Working | CPU backend for development/testing |
+| `ringkernel-cuda` | Working | NVIDIA CUDA backend with PTX kernels |
+| `ringkernel-metal` | Scaffolded | Apple Metal backend (API defined) |
+| `ringkernel-wgpu` | Scaffolded | WebGPU cross-platform backend (API defined) |
+| `ringkernel-derive` | In Development | Proc macros for message/kernel definitions |
+| `ringkernel-codegen` | In Development | GPU kernel code generation |
+| `ringkernel-ecosystem` | Working | Integration utilities |
+| `ringkernel-audio-fft` | Working | Example: GPU audio FFT processing |
 
 ---
 
@@ -195,21 +211,30 @@ proptest = "1.4"
 [features]
 default = ["cpu"]
 
-# Backends
-cpu = ["ringkernel-cpu"]
-cuda = ["ringkernel-cuda"]
-metal = ["ringkernel-metal"]
-wgpu = ["ringkernel-wgpu"]
+# Backends (enable as needed)
+cpu = ["ringkernel-cpu"]       # Always available
+cuda = ["ringkernel-cuda"]     # Requires NVIDIA GPU + CUDA toolkit
 
 # All backends
-full = ["cpu", "cuda", "metal", "wgpu"]
+full = ["cpu", "cuda"]
 
-# Optional features
-telemetry = []           # Real-time metrics
-k2k-messaging = []       # Kernel-to-kernel communication
-topic-pubsub = []        # Topic-based pub/sub
-multi-gpu = ["cuda"]     # Multi-GPU coordination
+# Built-in features (always available in ringkernel-core)
+# - telemetry: TelemetryPipeline, MetricsCollector
+# - pubsub: PubSubBroker, Topic wildcards
+# - hlc: HlcTimestamp, HlcClock
 ```
+
+### Enabling CUDA
+
+```toml
+[dependencies]
+ringkernel = { version = "0.1", features = ["cuda"] }
+```
+
+Requires:
+- NVIDIA GPU with compute capability 3.5+
+- CUDA toolkit installed
+- `CUDA_PATH` environment variable (or `/usr/local/cuda`)
 
 ---
 

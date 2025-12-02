@@ -4,18 +4,23 @@
 //!
 //! ```text
 //!                 ┌──────────┐
-//!                 │  Idle    │ (Initial state after launch)
+//!                 │ Created  │
+//!                 └────┬─────┘
+//!                      │ launch()
+//!                      ▼
+//!                 ┌──────────┐
+//!                 │ Launched │
 //!                 └────┬─────┘
 //!                      │ activate()
 //!                      ▼
-//!    suspend() ┌──────────┐ error
-//!         ┌────│ Running  │────────┐
-//!         │    └────┬─────┘        │
-//!         │         │              ▼
-//!         ▼         │         ┌────────┐
-//!    ┌──────────┐   │         │ Error  │
-//!    │Suspended │───┘         └────────┘
-//!    └────┬─────┘ activate()
+//!    deactivate() ┌──────────┐
+//!         ┌───────│  Active  │
+//!         │       └────┬─────┘
+//!         │            │
+//!         ▼            │ terminate()
+//!    ┌────────────┐    │
+//!    │Deactivated │────┘
+//!    └────────────┘
 //!         │
 //!         │ terminate()
 //!         ▼
@@ -26,15 +31,13 @@
 //!
 //! ## Run this example:
 //! ```bash
-//! cargo run --example kernel_states
+//! cargo run -p ringkernel --example kernel_states
 //! ```
 
 use ringkernel::prelude::*;
-use std::time::Duration;
-use tokio::time::sleep;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
     println!("=== Kernel Lifecycle Example ===\n");
@@ -47,36 +50,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create multiple kernels to demonstrate different states
     println!("Creating kernels...\n");
 
-    let kernel_a = runtime.launch("kernel_a", LaunchOptions::default()).await?;
-    let kernel_b = runtime.launch("kernel_b", LaunchOptions::default()).await?;
-    let kernel_c = runtime.launch("kernel_c", LaunchOptions::default()).await?;
+    let kernel_a = runtime
+        .launch("kernel_a", LaunchOptions::default().without_auto_activate())
+        .await?;
+    let kernel_b = runtime
+        .launch("kernel_b", LaunchOptions::default().without_auto_activate())
+        .await?;
+    let kernel_c = runtime
+        .launch("kernel_c", LaunchOptions::default().without_auto_activate())
+        .await?;
 
-    // ====== State: Idle ======
-    println!("=== State: IDLE ===");
-    println!("Kernels start in Idle state after launch.");
+    // ====== State: Launched ======
+    println!("=== State: LAUNCHED ===");
+    println!("Kernels start in Launched state after launch (auto_activate=false).");
     print_states(&[&kernel_a, &kernel_b, &kernel_c]);
 
-    // ====== State: Running ======
-    println!("\n=== State: RUNNING ===");
+    // ====== State: Active ======
+    println!("\n=== State: ACTIVE ===");
     println!("After activate(), kernels begin processing.");
 
     kernel_a.activate().await?;
     kernel_b.activate().await?;
-    // kernel_c stays Idle
+    // kernel_c stays Launched
 
     print_states(&[&kernel_a, &kernel_b, &kernel_c]);
 
-    // ====== State: Suspended ======
-    println!("\n=== State: SUSPENDED ===");
-    println!("Suspended kernels pause but preserve state.");
+    // ====== State: Deactivated ======
+    println!("\n=== State: DEACTIVATED ===");
+    println!("Deactivated kernels pause but preserve state.");
 
-    kernel_b.suspend().await?;
+    kernel_b.deactivate().await?; // or suspend()
 
     print_states(&[&kernel_a, &kernel_b, &kernel_c]);
 
-    // Resume suspended kernel
+    // Resume deactivated kernel
     println!("\nResuming kernel_b...");
-    kernel_b.activate().await?;
+    kernel_b.activate().await?; // or resume()
     print_states(&[&kernel_a, &kernel_b, &kernel_c]);
 
     // ====== Checking Status Details ======
@@ -85,11 +94,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let status = kernel.status();
         println!("\nKernel {}:", name);
         println!("  State: {:?}", status.state);
+        println!("  Mode: {:?}", status.mode);
         println!("  Input queue depth: {}", status.input_queue_depth);
         println!("  Output queue depth: {}", status.output_queue_depth);
         println!("  Messages processed: {}", status.messages_processed);
         println!("  Uptime: {:?}", status.uptime);
     }
+
+    // ====== Using convenience methods ======
+    println!("\n=== Convenience Methods ===");
+    println!("kernel_a.is_active(): {}", kernel_a.is_active());
+    println!("kernel_b.is_active(): {}", kernel_b.is_active());
+    println!("kernel_c.is_active(): {}", kernel_c.is_active());
 
     // ====== State: Terminated ======
     println!("\n=== State: TERMINATED ===");
@@ -98,6 +114,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     kernel_a.terminate().await?;
     kernel_b.terminate().await?;
     kernel_c.terminate().await?;
+
+    println!("\nKernel states after termination:");
+    println!("kernel_a.is_terminated(): {}", kernel_a.is_terminated());
+    println!("kernel_b.is_terminated(): {}", kernel_b.is_terminated());
+    println!("kernel_c.is_terminated(): {}", kernel_c.is_terminated());
 
     // After termination, kernels are removed from the runtime
     println!("\nKernels remaining: {:?}", runtime.list_kernels());
@@ -118,14 +139,20 @@ fn print_states(kernels: &[&KernelHandle]) {
     }
 }
 
-/// Demonstrates orchestrating multiple kernels
-async fn demonstrate_orchestration(runtime: &RingKernel) -> Result<(), Box<dyn std::error::Error>> {
+/// Demonstrates orchestrating multiple kernels in a pipeline
+async fn demonstrate_orchestration(runtime: &RingKernel) -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("\nLaunching pipeline: ingress -> processor -> egress");
 
     // Create a processing pipeline
-    let ingress = runtime.launch("ingress", LaunchOptions::default()).await?;
-    let processor = runtime.launch("processor", LaunchOptions::default()).await?;
-    let egress = runtime.launch("egress", LaunchOptions::default()).await?;
+    let ingress = runtime
+        .launch("ingress", LaunchOptions::default().without_auto_activate())
+        .await?;
+    let processor = runtime
+        .launch("processor", LaunchOptions::default().without_auto_activate())
+        .await?;
+    let egress = runtime
+        .launch("egress", LaunchOptions::default().without_auto_activate())
+        .await?;
 
     // Activate in order (downstream first for back-pressure handling)
     println!("Activating pipeline (downstream first)...");
@@ -134,6 +161,8 @@ async fn demonstrate_orchestration(runtime: &RingKernel) -> Result<(), Box<dyn s
     ingress.activate().await?;
 
     println!("Pipeline active. Processing would happen here...");
+    println!("  All active: {}",
+        ingress.is_active() && processor.is_active() && egress.is_active());
 
     // Graceful shutdown (upstream first)
     println!("Shutting down pipeline (upstream first)...");

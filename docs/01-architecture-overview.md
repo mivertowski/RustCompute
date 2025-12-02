@@ -1,14 +1,32 @@
 # Architecture Overview
 
+## Current Status
+
+RingKernel is under active development. The core runtime, CPU backend, and CUDA backend are functional with verified GPU execution.
+
+**Working today:**
+- Runtime creation and kernel lifecycle management
+- CPU backend (fully functional)
+- CUDA backend (verified with real PTX kernels, ~75M elements/sec)
+- Message passing infrastructure (queues, serialization, HLC timestamps)
+- Pub/Sub messaging with topic wildcards
+- Telemetry and metrics collection
+- 11 working examples
+
+**In progress:**
+- Metal and WebGPU backends (scaffolded)
+- Proc macro code generation for custom kernels
+- K2K (kernel-to-kernel) direct messaging
+
 ## DotCompute Ring Kernel Architecture
 
-The Ring Kernel system implements a **GPU-native actor model** with persistent state. Here's the component mapping from .NET to Rust:
+The Ring Kernel system implements a **GPU-native actor model** with persistent state. This is a Rust port of DotCompute's Ring Kernel system.
 
 ## Component Mapping
 
 | DotCompute Component | Rust Equivalent | Purpose |
 |---------------------|-----------------|---------|
-| `IRingKernelRuntime` | `trait RingKernelRuntime` | Kernel lifecycle management |
+| `IRingKernelRuntime` | `RingKernel` struct | Runtime and kernel lifecycle |
 | `IRingKernelMessage` | `trait RingMessage` | Type-safe message protocol |
 | `IMessageQueue<T>` | `trait MessageQueue<T>` | Lock-free ring buffer |
 | `RingKernelContext` | `struct RingContext` | GPU intrinsics facade |
@@ -70,45 +88,53 @@ The Ring Kernel system implements a **GPU-native actor model** with persistent s
 
 ## Kernel Lifecycle State Machine
 
+Kernels follow a deterministic state machine. By default, kernels auto-activate on launch.
+
 ```
-                    ┌─────────────┐
-                    │   Created   │
-                    └──────┬──────┘
-                           │ launch()
-                           ▼
-                    ┌─────────────┐
-         ┌─────────│  Launched   │─────────┐
-         │         │  (inactive) │         │
-         │         └──────┬──────┘         │
-         │                │ activate()     │
-         │                ▼                │
-         │         ┌─────────────┐         │
-         │    ┌───▶│   Active    │◀───┐    │
-         │    │    │ (processing)│    │    │
-         │    │    └──────┬──────┘    │    │
-         │    │           │           │    │
-         │ terminate()    │      reactivate()
-         │    │           │           │    │
-         │    │    deactivate()       │    │
-         │    │           │           │    │
-         │    │           ▼           │    │
-         │    │    ┌─────────────┐    │    │
-         │    └────│  Deactivated│────┘    │
-         │         │  (paused)   │         │
-         │         └──────┬──────┘         │
-         │                │ terminate()    │
-         │                ▼                │
-         │         ┌─────────────┐         │
-         └────────▶│ Terminating │◀────────┘
-                   │  (cleanup)  │
-                   └──────┬──────┘
-                          │
-                          ▼
-                   ┌─────────────┐
-                   │ Terminated  │
-                   │ (resources  │
-                   │  freed)     │
-                   └─────────────┘
+        ┌──────────┐
+        │ Launched │
+        └────┬─────┘
+             │ activate()
+             ▼
+        ┌──────────┐
+   ┌────│  Active  │────┐
+   │    └────┬─────┘    │
+   │         │          │ deactivate() / suspend()
+   │         │          ▼
+   │         │    ┌────────────┐
+   │         │    │Deactivated │
+   │         │    └─────┬──────┘
+   │         │          │
+   │         │ terminate()
+   │         ▼          │
+   │    ┌──────────┐    │
+   └───▶│Terminated│◀───┘
+        └──────────┘
+```
+
+### API Usage
+
+```rust
+// Launch with auto-activation (default)
+let kernel = runtime.launch("processor", LaunchOptions::default()).await?;
+assert!(kernel.is_active());
+
+// Launch without auto-activation
+let kernel = runtime.launch("processor",
+    LaunchOptions::default().without_auto_activate()
+).await?;
+kernel.activate().await?;
+
+// Suspend and resume
+kernel.suspend().await?;  // alias for deactivate()
+kernel.resume().await?;   // alias for activate()
+
+// Check state
+println!("State: {:?}", kernel.state());
+println!("Active: {}", kernel.is_active());
+
+// Clean shutdown
+kernel.terminate().await?;
 ```
 
 ---
@@ -203,24 +229,38 @@ pub struct TelemetryBuffer {
 
 ## Backend Abstraction
 
+RingKernel supports multiple GPU backends through the `Backend` enum:
+
+| Backend | Platform | Status | Notes |
+|---------|----------|--------|-------|
+| **CPU** | All | **Working** | Full functionality, ideal for development |
+| **CUDA** | Linux, Windows | **Working** | Verified GPU execution, requires CUDA toolkit |
+| **Metal** | macOS, iOS | Scaffolded | API defined, implementation pending |
+| **WebGPU** | Cross-platform | Scaffolded | API defined, implementation pending |
+
+### Backend Selection
+
 ```rust
-pub trait GpuBackend: Send + Sync {
-    type Buffer: GpuBuffer;
-    type Stream: GpuStream;
-    type Module: GpuModule;
-    type Function: GpuFunction;
+// Auto-detect best available backend
+let runtime = RingKernel::builder()
+    .backend(Backend::Auto)  // CUDA → Metal → WebGPU → CPU
+    .build()
+    .await?;
 
-    fn name(&self) -> &'static str;
-    fn device_count(&self) -> usize;
+// Force specific backend
+let runtime = RingKernel::builder()
+    .backend(Backend::Cuda)
+    .build()
+    .await?;
 
-    async fn allocate(&self, size: usize) -> Result<Self::Buffer>;
-    async fn copy_to_device(&self, src: &[u8], dst: &Self::Buffer) -> Result<()>;
-    async fn copy_to_host(&self, src: &Self::Buffer, dst: &mut [u8]) -> Result<()>;
-
-    async fn compile(&self, source: &str, options: &CompileOptions) -> Result<Self::Module>;
-    async fn launch(&self, func: &Self::Function, grid: Dim3, block: Dim3, args: &[KernelArg]) -> Result<()>;
-}
+// Check active backend
+println!("Using backend: {:?}", runtime.backend());
 ```
+
+### Performance (CUDA backend, RTX 2000 Ada)
+
+- Vector operations: ~75M elements/sec
+- Memory bandwidth: 7.6 GB/s HtoD, 1.4 GB/s DtoH
 
 ---
 

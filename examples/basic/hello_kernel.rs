@@ -8,7 +8,7 @@
 //!
 //! ## Run this example:
 //! ```bash
-//! cargo run --example hello_kernel
+//! cargo run -p ringkernel --example basic_hello_kernel
 //! ```
 //!
 //! ## What this demonstrates:
@@ -27,10 +27,9 @@
 //! ```
 
 use ringkernel::prelude::*;
-use std::time::Duration;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing for debug output
     tracing_subscriber::fmt::init();
 
@@ -45,13 +44,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("1. Creating RingKernel runtime...");
 
     let runtime = RingKernel::builder()
-        .backend(Backend::Auto)  // Auto-select best backend
-        .debug(true)             // Enable debug output
+        .backend(Backend::Auto) // Auto-select best backend
+        .debug(true) // Enable debug output
         .build()
         .await?;
 
     println!("   Backend selected: {:?}", runtime.backend());
-    println!("   Available backends: {:?}\n", ringkernel::availability::available_backends());
+    println!(
+        "   Available backends: {:?}\n",
+        ringkernel::availability::available_backends()
+    );
 
     // Step 2: Launch a kernel
     // -----------------------
@@ -60,69 +62,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("2. Launching kernel 'hello_processor'...");
 
+    // By default, kernels auto-activate. Use without_auto_activate() to launch in Launched state.
     let options = LaunchOptions::default()
-        .with_queue_capacity(1024);  // Configure input queue size
+        .with_queue_capacity(1024) // Configure input queue size
+        .without_auto_activate();   // Start in Launched state for manual activation
 
     let kernel = runtime.launch("hello_processor", options).await?;
 
     println!("   Kernel ID: {}", kernel.id());
     println!("   Initial state: {:?}", kernel.state());
-    println!("   Queue capacity: {}\n", kernel.queue_capacity());
 
     // Step 3: Activate the kernel
     // ---------------------------
-    // Activating transitions the kernel from Idle to Running state.
+    // Activating transitions the kernel from Launched to Active state.
     // The kernel begins its main processing loop on the GPU.
 
-    println!("3. Activating kernel...");
+    println!("\n3. Activating kernel...");
     kernel.activate().await?;
-    println!("   State after activation: {:?}\n", kernel.state());
+    println!("   State after activation: {:?}", kernel.state());
 
     // Step 4: Check kernel status
     // ---------------------------
     // We can query the kernel's status including telemetry data.
 
-    println!("4. Checking kernel status...");
+    println!("\n4. Checking kernel status...");
     let status = kernel.status();
     println!("   State: {:?}", status.state);
     println!("   Messages in queue: {}", status.input_queue_depth);
-    println!("   Messages processed: {}\n", status.messages_processed);
+    println!("   Messages processed: {}", status.messages_processed);
 
     // Step 5: Suspend and resume (demonstration)
     // ------------------------------------------
     // Kernels can be suspended to pause processing while preserving state.
 
-    println!("5. Demonstrating suspend/resume...");
+    println!("\n5. Demonstrating suspend/resume...");
     kernel.suspend().await?;
     println!("   State after suspend: {:?}", kernel.state());
 
     // Kernel state is preserved, can be resumed later
-    kernel.activate().await?;
-    println!("   State after resume: {:?}\n", kernel.state());
+    kernel.resume().await?;
+    println!("   State after resume: {:?}", kernel.state());
 
     // Step 6: Get runtime metrics
     // ---------------------------
     // The runtime tracks overall performance metrics.
 
-    println!("6. Runtime metrics:");
+    println!("\n6. Runtime metrics:");
     let metrics = runtime.metrics();
     println!("   Active kernels: {}", metrics.active_kernels);
-    println!("   Total launched: {}", metrics.total_kernels_launched);
-    println!("   Uptime: {:?}\n", metrics.uptime);
+    println!("   Total launched: {}", metrics.total_launched);
 
     // Step 7: List all kernels
     // ------------------------
-    println!("7. Listing all kernels:");
+    println!("\n7. Listing all kernels:");
     for kernel_id in runtime.list_kernels() {
         println!("   - {}", kernel_id);
     }
-    println!();
 
     // Step 8: Clean shutdown
     // ----------------------
     // Always terminate kernels before shutting down the runtime.
 
-    println!("8. Shutting down...");
+    println!("\n8. Shutting down...");
     kernel.terminate().await?;
     println!("   Kernel terminated");
 
@@ -140,25 +141,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[allow(dead_code)]
 fn high_throughput_options() -> LaunchOptions {
     LaunchOptions::default()
-        .with_queue_capacity(8192)        // Large queue for batching
-        .with_shared_memory(65536)        // 64KB shared memory
-        .with_priority(128)               // Higher priority
+        .with_queue_capacity(8192) // Large queue for batching
+        .with_shared_memory(65536) // 64KB shared memory
+        .with_priority(priority::HIGH) // Higher priority
 }
 
 /// Example: Low-latency configuration for real-time processing
 #[allow(dead_code)]
 fn low_latency_options() -> LaunchOptions {
     LaunchOptions::default()
-        .with_queue_capacity(256)         // Small queue for fast turnaround
-        .with_shared_memory(16384)        // 16KB shared memory
-        .with_priority(255)               // Highest priority
+        .with_queue_capacity(256) // Small queue for fast turnaround
+        .with_shared_memory(16384) // 16KB shared memory
+        .with_priority(priority::CRITICAL) // Highest priority
 }
 
 /// Example: Multi-block configuration for parallel processing
 #[allow(dead_code)]
 fn parallel_options() -> LaunchOptions {
     LaunchOptions::default()
-        .with_grid_size(4)                // 4 blocks
-        .with_block_size(256)             // 256 threads per block
+        .with_grid_size(4) // 4 blocks
+        .with_block_size(256) // 256 threads per block
         .with_queue_capacity(4096)
 }

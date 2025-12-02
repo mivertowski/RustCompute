@@ -6,131 +6,109 @@ This directory contains working examples demonstrating RingKernel's capabilities
 
 RingKernel is a framework for building high-performance, GPU-accelerated applications using a persistent actor model. Unlike traditional GPU programming where kernels are short-lived, RingKernel actors (kernels) persist on the GPU and communicate via lock-free message queues.
 
+All examples in this directory are functional and can be run with the commands shown below.
+
 ## Directory Structure
 
 ```
 examples/
 ├── basic/                  # Getting started examples
-│   ├── hello_kernel.rs         # Your first kernel
-│   └── kernel_states.rs        # Kernel lifecycle management
+│   ├── hello_kernel.rs         # Runtime, lifecycle, suspend/resume
+│   └── kernel_states.rs        # State machine, multi-kernel orchestration
 ├── messaging/              # Message passing patterns
-│   ├── request_response.rs     # Request-response pattern
-│   └── pub_sub.rs              # Topic-based pub/sub
+│   ├── request_response.rs     # Correlation IDs, priorities, CPU fallback
+│   └── pub_sub.rs              # Topic wildcards, QoS levels, IoT scenario
 ├── web-api/                # Web service integration
-│   └── axum_api.rs             # REST API with Axum
+│   └── axum_api.rs             # REST API with vector/matrix operations
 ├── data-processing/        # Data pipeline examples
-│   └── batch_processor.rs      # Batch processing pipeline
+│   └── batch_processor.rs      # Preprocessing, GPU compute, statistics
 ├── monitoring/             # Observability examples
-│   └── telemetry.rs            # Real-time metrics & histograms
+│   └── telemetry.rs            # Metrics, histograms, alerts, monitoring
 ├── ecosystem/              # External integration examples
-│   ├── grpc_server.rs          # gRPC server for distributed GPU
-│   ├── config_management.rs    # Configuration loading & validation
-│   └── ml_pipeline.rs          # ML inference with Candle
+│   ├── grpc_server.rs          # gRPC server with streaming
+│   ├── config_management.rs    # TOML, env vars, validation
+│   └── ml_pipeline.rs          # ML inference patterns, batching
 └── advanced/               # Advanced patterns
-    └── multi_gpu.rs            # Multi-GPU coordination
+    └── multi_gpu.rs            # Load balancing, fault tolerance
 ```
 
-## Quick Start
+## Running Examples
 
-### Prerequisites
+All examples are wired to the `ringkernel` crate and can be run with:
 
 ```bash
-# Ensure Rust is installed
-rustup --version
-
-# Clone the repository
-git clone https://github.com/mivertowski/RustCompute.git
-cd RustCompute
+cargo run -p ringkernel --example <example_name>
 ```
 
-### Running Examples
+### Basic Examples
 
 ```bash
-# Run a basic example
-cargo run --example hello_kernel
+# Runtime creation, kernel lifecycle, suspend/resume
+cargo run -p ringkernel --example basic_hello_kernel
 
-# Run with specific features
-cargo run --example axum_api --features "ringkernel-ecosystem/axum"
-
-# Run with release optimizations
-cargo run --release --example batch_processor
+# Kernel state machine with multi-kernel pipeline orchestration
+cargo run -p ringkernel --example kernel_states
 ```
 
-## Use Cases
+### Messaging Examples
 
-### 1. Real-Time Data Processing
+```bash
+# Request-response with correlation IDs and priorities
+# Includes real CPU fallback computation (vector add, matrix multiply)
+cargo run -p ringkernel --example request_response
 
-Process streaming data with GPU acceleration while maintaining state:
-
-```rust
-// Create a persistent kernel for stream processing
-let runtime = RingKernelRuntime::builder()
-    .backend(Backend::Cuda)
-    .build()
-    .await?;
-
-// Launch a stateful processor
-runtime.launch_kernel("stream_processor", config).await?;
-
-// Feed data continuously - kernel maintains state between messages
-for batch in data_stream {
-    runtime.send("stream_processor", batch).await?;
-}
+# Topic-based pub/sub with wildcard matching
+# Demonstrates QoS levels and IoT sensor network scenario
+cargo run -p ringkernel --example pub_sub
 ```
 
-### 2. GPU-Accelerated Microservices
+### Web API Examples
 
-Build web services that offload computation to GPU:
-
-```rust
-// Axum handler delegating to GPU kernel
-async fn compute_embeddings(
-    State(state): State<AppState>,
-    Json(request): Json<EmbeddingRequest>,
-) -> Result<Json<EmbeddingResponse>, AppError> {
-    state.runtime.send("embedding_kernel", request).await?;
-    let response = state.runtime.receive("embedding_kernel", timeout).await?;
-    Ok(Json(response))
-}
+```bash
+# REST API with Axum framework
+# Endpoints for vector addition and matrix multiplication
+cargo run -p ringkernel --example axum_api
 ```
 
-### 3. Multi-GPU Workload Distribution
+### Data Processing Examples
 
-Distribute work across multiple GPUs with automatic load balancing:
-
-```rust
-let coordinator = MultiGpuBuilder::new()
-    .load_balancing(LoadBalancingStrategy::LeastLoaded)
-    .build();
-
-// Register available GPUs
-coordinator.register_device(DeviceInfo::new(0, "RTX 4090", Backend::Cuda));
-coordinator.register_device(DeviceInfo::new(1, "RTX 4090", Backend::Cuda));
-
-// Coordinator automatically selects optimal device
-let device = coordinator.select_device(&launch_options)?;
+```bash
+# Batch processing pipeline with preprocessing and statistics
+# Shows ~1.2M rows/sec throughput on CPU fallback
+cargo run -p ringkernel --example batch_processor
 ```
 
-### 4. Distributed GPU Computing
+### Monitoring Examples
 
-Expose GPU kernels over the network via gRPC:
+```bash
+# Real-time telemetry collection
+# Histograms, percentiles, alerts, 3-second monitoring loop
+cargo run -p ringkernel --example telemetry
+```
 
-```rust
-let server = GrpcServerBuilder::new(runtime)
-    .timeout(Duration::from_secs(30))
-    .max_message_size(16 * 1024 * 1024)
-    .build();
+### Ecosystem Integration Examples
 
-// Serve GPU compute over the network
-Server::builder()
-    .add_service(RingKernelServer::new(server))
-    .serve("[::1]:50051".parse()?)
-    .await?;
+```bash
+# gRPC server patterns for distributed GPU computing
+cargo run -p ringkernel --example grpc_server
+
+# Configuration management with TOML, env vars, validation
+cargo run -p ringkernel --example config_management
+
+# ML inference pipeline patterns and benchmarking
+cargo run -p ringkernel --example ml_pipeline
+```
+
+### Advanced Examples
+
+```bash
+# Multi-GPU coordination with load balancing strategies
+cargo run -p ringkernel --example multi_gpu
 ```
 
 ## Architecture Concepts
 
-### Persistent Actors
+### Persistent Kernels
 
 Traditional GPU programming:
 ```
@@ -146,139 +124,166 @@ CPU: Launch kernel → GPU: Persist & Process messages continuously
      └── ... (kernel maintains state)
 ```
 
+### Kernel Lifecycle
+
+Kernels follow a state machine:
+
+```
+        ┌──────────┐
+        │ Launched │
+        └────┬─────┘
+             │ activate()
+             ▼
+        ┌──────────┐
+   ┌────│  Active  │────┐
+   │    └────┬─────┘    │
+   │         │          │ deactivate()
+   │         │          ▼
+   │         │    ┌────────────┐
+   │         │    │Deactivated │
+   │         │    └─────┬──────┘
+   │         │          │
+   │         │ terminate()
+   │         ▼          │
+   │    ┌──────────┐    │
+   └───▶│Terminated│◀───┘
+        └──────────┘
+```
+
 ### Message Queues
 
-Each kernel has input/output ring buffers for zero-copy message passing:
+Each kernel has input/output ring buffers for communication:
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌─────────────┐
 │  Producer   │────▶│ Ring Buffer  │────▶│   Kernel    │
-│   (Host)    │     │  (GPU mem)   │     │   (GPU)     │
+│   (Host)    │     │ (lock-free)  │     │   (GPU)     │
 └─────────────┘     └──────────────┘     └─────────────┘
-                           │
-                           ▼
-                    Lock-free SPSC
-                    (no synchronization)
 ```
+
+Queue capacity must be a power of 2 (e.g., 1024, 2048, 4096).
 
 ### Hybrid Logical Clocks
 
-Messages are ordered using Hybrid Logical Clocks (HLC) for causal consistency:
+Messages are timestamped with HLC for causal ordering:
 
 ```rust
 let clock = HlcClock::new(node_id);
-let timestamp = clock.now();  // Combines wall clock + logical counter
+let timestamp = clock.tick();
 
 // Timestamps enable:
 // - Causal ordering of messages
 // - Distributed system coordination
-// - Debugging and tracing
+// - Request-response correlation
 ```
 
-## Performance Considerations
+## Example Highlights
 
-1. **Message Size**: Keep messages small (<64KB) for best throughput
+### basic_hello_kernel
+
+Demonstrates:
+- Runtime creation with backend selection
+- Launching kernels with custom options
+- Suspend/resume (deactivate/activate)
+- Status queries and metrics
+- Clean shutdown
+
+### kernel_states
+
+Demonstrates:
+- Multiple kernels in different states simultaneously
+- Pipeline orchestration (ingress → processor → egress)
+- Graceful shutdown sequence
+
+### request_response
+
+Demonstrates:
+- Type-safe message types
+- Correlation IDs for tracking
+- Priority levels (LOW, NORMAL, HIGH, CRITICAL)
+- CPU fallback computation (real matrix multiplication)
+- Timeout handling patterns
+
+### pub_sub
+
+Demonstrates:
+- PubSubBroker creation and configuration
+- Topic subscriptions with wildcards (`*`, `#`)
+- QoS levels (AtMostOnce, AtLeastOnce, ExactlyOnce)
+- Real-world IoT sensor network scenario
+
+### batch_processor
+
+Demonstrates:
+- Data pipeline with preprocessing
+- GPU compute simulation with CPU fallback
+- Statistics collection (throughput, GPU utilization)
+- Batch processing with configurable sizes
+
+### telemetry
+
+Demonstrates:
+- TelemetryBuffer (64-byte GPU-friendly structure)
+- MetricsCollector for per-kernel tracking
+- Latency histograms with percentiles
+- Alert subscription system
+- Real-time monitoring loop
+
+## Performance Notes
+
+The examples demonstrate patterns rather than peak performance. For production:
+
+1. **Queue Sizing**: Size queues based on expected message rate
 2. **Batch Operations**: Group related operations into single messages
-3. **Queue Capacity**: Size queues based on expected message rate
-4. **Backend Selection**: CUDA for NVIDIA, Metal for Apple, WebGPU for portability
+3. **Backend Selection**: Use CUDA for NVIDIA GPUs, CPU for development
+4. **Profiling**: Use `nvprof` or similar tools before optimizing
 
-## Ecosystem Integration Examples
-
-The `ecosystem/` directory demonstrates integration with popular Rust crates:
-
-### gRPC Server (`ecosystem/grpc_server.rs`)
-
-Expose GPU kernels over the network for distributed computing:
-
-```bash
-cargo run --example grpc_server --features "ringkernel-ecosystem/grpc"
-```
-
-- Protocol buffer serialization
-- Bidirectional streaming
-- Health checks and metrics
-- Load balancing ready
-
-### Configuration Management (`ecosystem/config_management.rs`)
-
-Flexible configuration from multiple sources:
-
-```bash
-cargo run --example config_management --features "ringkernel-ecosystem/config"
-```
-
-- TOML configuration files
-- Environment variable overrides
-- Validation and builder patterns
-- Multi-environment setup (dev/staging/prod)
-
-### ML Pipeline (`ecosystem/ml_pipeline.rs`)
-
-Build ML inference pipelines with GPU acceleration:
-
-```bash
-cargo run --example ml_pipeline --features "ringkernel-ecosystem/candle"
-```
-
-- Image preprocessing
-- Batch inference
-- Custom GPU kernels for ML ops
-- Performance benchmarking
-
-## Advanced Examples
-
-### Multi-GPU Coordination (`advanced/multi_gpu.rs`)
-
-Scale across multiple GPUs for maximum performance:
-
-```bash
-cargo run --example multi_gpu
-```
-
-- GPU discovery and management
-- Load balancing strategies
-- Data and model parallelism
-- Fault tolerance and recovery
-
-## Next Steps
-
-1. Start with `basic/hello_kernel.rs` to understand the fundamentals
-2. Explore `messaging/` for communication patterns
-3. Check `web-api/` for service integration
-4. Review `monitoring/` for production observability
-5. Dive into `ecosystem/` for external integrations
-6. Check `advanced/` for multi-GPU and complex patterns
+Current examples use CPU fallback computation. With GPU execution:
+- Vector operations: ~75M elements/sec (verified on RTX 2000 Ada)
+- Memory transfers: 7.6 GB/s HtoD, 1.4 GB/s DtoH
 
 ## Troubleshooting
 
-### GPU Not Available
+### GPU Not Detected
 
-If CUDA/Metal is not detected, the runtime falls back to CPU:
-
-```rust
-let backend = if cuda_available() {
-    Backend::Cuda
-} else {
-    Backend::Cpu
-};
-```
-
-### Memory Issues
-
-For large datasets, use streaming:
+If CUDA is not available, RingKernel falls back to CPU:
 
 ```rust
-for chunk in data.chunks(1024) {
-    runtime.send("processor", chunk).await?;
-}
+let runtime = RingKernel::builder()
+    .backend(Backend::Auto)  // Will use CPU if no GPU found
+    .build()
+    .await?;
+
+println!("Backend: {:?}", runtime.backend());
 ```
 
-### Performance Tips
+### Queue Capacity Error
 
-1. **Warm up the GPU**: Run a few iterations before benchmarking
-2. **Batch operations**: Group small operations into larger batches
-3. **Reuse buffers**: Pre-allocate and reuse memory when possible
-4. **Profile first**: Use `nvprof` or Instruments before optimizing
+Queue capacity must be a power of 2:
+
+```rust
+// Wrong
+let options = LaunchOptions::default().with_queue_capacity(1000);
+
+// Correct
+let options = LaunchOptions::default().with_queue_capacity(1024);
+
+// Or calculate it
+let capacity = desired_size.next_power_of_two();
+```
+
+### State Transition Errors
+
+Don't activate an already active kernel:
+
+```rust
+// Use without_auto_activate if you want manual control
+let options = LaunchOptions::default().without_auto_activate();
+let kernel = runtime.launch("processor", options).await?;
+
+// Now safe to call activate
+kernel.activate().await?;
+```
 
 ## License
 

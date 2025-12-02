@@ -52,6 +52,30 @@ zerocopy = { workspace = true }
 # For CUDA tests - need explicit dep for test imports even though it's an optional dep
 ringkernel-cuda = { workspace = true }
 
+# Web API (for axum example)
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# gRPC (for grpc_server example)
+tonic = "0.12"
+prost = "0.13"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Async utilities
+futures = "0.3"
+async-stream = "0.3"
+
+# Console output
+crossterm = "0.28"
+
+# HTTP client for testing
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+
 [features]
 default = ["cpu"]
 
@@ -111,3 +135,56 @@ path = "examples/vector_add.rs"
 [[example]]
 name = "ping_pong"
 path = "examples/ping_pong.rs"
+
+# === Real-world examples from /examples directory ===
+
+# Basic examples
+[[example]]
+name = "basic_hello_kernel"
+path = "../../examples/basic/hello_kernel.rs"
+
+[[example]]
+name = "kernel_states"
+path = "../../examples/basic/kernel_states.rs"
+
+# Messaging examples
+[[example]]
+name = "request_response"
+path = "../../examples/messaging/request_response.rs"
+
+[[example]]
+name = "pub_sub"
+path = "../../examples/messaging/pub_sub.rs"
+
+# Web API examples
+[[example]]
+name = "axum_api"
+path = "../../examples/web-api/axum_api.rs"
+
+# Data processing examples
+[[example]]
+name = "batch_processor"
+path = "../../examples/data-processing/batch_processor.rs"
+
+# Monitoring examples
+[[example]]
+name = "telemetry"
+path = "../../examples/monitoring/telemetry.rs"
+
+# Ecosystem examples
+[[example]]
+name = "grpc_server"
+path = "../../examples/ecosystem/grpc_server.rs"
+
+[[example]]
+name = "config_management"
+path = "../../examples/ecosystem/config_management.rs"
+
+[[example]]
+name = "ml_pipeline"
+path = "../../examples/ecosystem/ml_pipeline.rs"
+
+# Advanced examples
+[[example]]
+name = "multi_gpu"
+path = "../../examples/advanced/multi_gpu.rs"

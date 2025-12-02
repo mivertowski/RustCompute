@@ -216,6 +216,38 @@ impl LaunchOptions {
         self.auto_activate = false;
         self
     }
+
+    /// Set the grid size (number of blocks).
+    pub fn with_grid_size(mut self, grid_size: u32) -> Self {
+        self.grid_size = grid_size;
+        self
+    }
+
+    /// Set the block size (threads per block).
+    pub fn with_block_size(mut self, block_size: u32) -> Self {
+        self.block_size = block_size;
+        self
+    }
+
+    /// Set priority hint for kernel scheduling.
+    ///
+    /// Note: This is a hint for future use - currently ignored by backends.
+    pub fn with_priority(self, _priority: u8) -> Self {
+        // Priority hint stored for future scheduling use
+        self
+    }
+
+    /// Set input queue capacity only.
+    pub fn with_input_queue_capacity(mut self, capacity: usize) -> Self {
+        self.input_queue_capacity = capacity;
+        self
+    }
+
+    /// Set output queue capacity only.
+    pub fn with_output_queue_capacity(mut self, capacity: usize) -> Self {
+        self.output_queue_capacity = capacity;
+        self
+    }
 }
 
 /// Type-erased future for async operations.
@@ -353,6 +385,37 @@ impl KernelHandle {
     /// Wait for kernel to terminate.
     pub async fn wait(&self) -> Result<()> {
         self.inner.wait().await
+    }
+
+    /// Get the current kernel state.
+    ///
+    /// This is a convenience method that returns just the state from status().
+    pub fn state(&self) -> KernelState {
+        self.status().state
+    }
+
+    /// Suspend (deactivate) the kernel.
+    ///
+    /// This is an alias for `deactivate()` for more intuitive API usage.
+    pub async fn suspend(&self) -> Result<()> {
+        self.deactivate().await
+    }
+
+    /// Resume (activate) the kernel.
+    ///
+    /// This is an alias for `activate()` for more intuitive API usage.
+    pub async fn resume(&self) -> Result<()> {
+        self.activate().await
+    }
+
+    /// Check if the kernel is currently active.
+    pub fn is_active(&self) -> bool {
+        self.state() == KernelState::Active
+    }
+
+    /// Check if the kernel has terminated.
+    pub fn is_terminated(&self) -> bool {
+        self.state() == KernelState::Terminated
     }
 }
 

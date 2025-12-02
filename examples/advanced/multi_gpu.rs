@@ -48,7 +48,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("=== RingKernel Multi-GPU Coordination ===\n");
 
     // ====== GPU Discovery ======
