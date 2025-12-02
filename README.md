@@ -237,11 +237,13 @@ cargo run -p ringkernel --example telemetry
 | `ringkernel-cuda` | NVIDIA CUDA backend |
 | `ringkernel-wgpu` | WebGPU backend |
 | `ringkernel-codegen` | GPU kernel code generation |
+| `ringkernel-cuda-codegen` | Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL |
+| `ringkernel-wavesim` | 2D wave simulation demo with tile-based FDTD |
 
 ## Testing
 
 ```bash
-# Run all tests (202 tests)
+# Run all tests (240+ tests)
 cargo test --workspace
 
 # CUDA backend tests (requires NVIDIA GPU)
@@ -269,6 +271,7 @@ The `ringkernel-wavesim` crate demonstrates RingKernel's capabilities with a 2D 
 | Backend | Grid Size | Steps/sec | Throughput |
 |---------|-----------|-----------|------------|
 | CPU (SoA + SIMD + Rayon) | 256×256 | 35,418 | 2.3B cells/s |
+| CUDA Packed (GPU-only halo) | 128×128 | 100,000+ | 100M+ cells/s |
 | CUDA Packed (GPU-only halo) | 256×256 | 112,837 | 7.4M cells/s |
 | CUDA Packed (GPU-only halo) | 512×512 | 71,324 | 18.7M cells/s |
 
@@ -276,7 +279,15 @@ The `ringkernel-wavesim` crate demonstrates RingKernel's capabilities with a 2D 
 
 The CUDA Packed backend demonstrates GPU-only halo exchange—all tile communication happens via GPU memory copies with zero host transfers during simulation. This eliminates the traditional bottleneck of host-GPU synchronization for stencil computations.
 
+**Features:**
+- Interactive GUI with real-time visualization
+- Drawing mode for absorbers and reflectors to create interference patterns
+- Multiple backends: CPU (SIMD), CUDA tile-based, CUDA packed
+
 ```bash
+# Run WaveSim GUI
+cargo run -p ringkernel-wavesim --bin wavesim --release --features cuda
+
 # Run WaveSim benchmarks
 cargo run -p ringkernel-wavesim --bin bench_packed --release --features cuda
 ```
@@ -299,10 +310,38 @@ Detailed documentation is also available in the `docs/` directory:
 - [Memory Management](docs/04-memory-management.md)
 - [GPU Backends](docs/05-gpu-backends.md)
 
+## Rust-to-CUDA Code Generation
+
+Write GPU kernels in Rust and transpile them to CUDA C:
+
+```rust
+use ringkernel_cuda_codegen::{transpile_global_kernel, dsl::*};
+use syn::parse_quote;
+
+// Write kernel logic in Rust DSL
+let kernel: syn::ItemFn = parse_quote! {
+    fn my_kernel(data: &mut [f32], n: i32) {
+        let idx = block_idx_x() * block_dim_x() + thread_idx_x();
+        if idx >= n { return; }
+        data[idx as usize] = data[idx as usize] * 2.0;
+    }
+};
+
+// Transpile to CUDA C
+let cuda_code = transpile_global_kernel(&kernel)?;
+// Generates: extern "C" __global__ void my_kernel(float* data, int n) { ... }
+```
+
+**Supported DSL Features:**
+- Thread/block indices: `thread_idx_x()`, `block_idx_x()`, `block_dim_x()`, `grid_dim_x()`
+- Early return: `if cond { return; }`
+- Match expressions → switch/case
+- Stencil patterns with `GridPos` abstraction
+- Automatic type mapping (f32→float, i32→int, etc.)
+
 ## Known Limitations
 
 - Metal backend is not yet implemented
-- Custom GPU kernel code generation is in development
 - WebGPU lacks 64-bit atomics (WGSL limitation)
 - Persistent kernel mode requires CUDA compute capability 7.0+
 

@@ -54,8 +54,10 @@ The project is a Cargo workspace with these crates:
 - **`ringkernel-wgpu`** - WebGPU cross-platform backend (feature-gated)
 - **`ringkernel-metal`** - Apple Metal backend (feature-gated, macOS only, scaffolded)
 - **`ringkernel-codegen`** - GPU kernel code generation
+- **`ringkernel-cuda-codegen`** - Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL
 - **`ringkernel-ecosystem`** - Integration utilities
 - **`ringkernel-audio-fft`** - Example application: GPU-accelerated audio FFT processing
+- **`ringkernel-wavesim`** - Example application: 2D acoustic wave simulation with GPU-accelerated FDTD
 
 ### Core Abstractions (in ringkernel-core)
 
@@ -106,6 +108,44 @@ struct Matrix4x4 {
 }
 ```
 
+### CUDA Code Generation (ringkernel-cuda-codegen)
+
+Write GPU kernels in Rust DSL and transpile to CUDA C:
+
+```rust
+use ringkernel_cuda_codegen::{transpile_global_kernel, transpile_stencil_kernel, StencilConfig, Grid};
+use ringkernel_cuda_codegen::dsl::*;
+
+// Generic CUDA kernel (non-stencil)
+let kernel_fn: syn::ItemFn = parse_quote! {
+    fn exchange_halos(buffer: &mut [f32], copies: &[u32], num_copies: i32) {
+        let idx = block_idx_x() * block_dim_x() + thread_idx_x();
+        if idx >= num_copies { return; }
+        buffer[copies[(idx * 2 + 1) as usize] as usize] =
+            buffer[copies[(idx * 2) as usize] as usize];
+    }
+};
+let cuda_code = transpile_global_kernel(&kernel_fn)?;
+
+// Stencil kernel with GridPos abstraction
+let stencil_fn: syn::ItemFn = parse_quote! {
+    fn fdtd_step(p: &[f32], p_prev: &mut [f32], c2: f32, pos: GridPos) {
+        let laplacian = pos.north(p) + pos.south(p) + pos.east(p) + pos.west(p)
+                        - 4.0 * p[pos.idx()];
+        p_prev[pos.idx()] = 2.0 * p[pos.idx()] - p_prev[pos.idx()] + c2 * laplacian;
+    }
+};
+let config = StencilConfig::new("fdtd").with_tile_size(16, 16).with_halo(1);
+let cuda_code = transpile_stencil_kernel(&stencil_fn, &config)?;
+```
+
+**DSL Features:**
+- Block/grid indices: `block_idx_x()`, `thread_idx_x()`, `block_dim_x()`, `grid_dim_x()`, etc.
+- Early return: `if cond { return; }`
+- Match expressions → switch/case
+- Stencil intrinsics: `pos.north(buf)`, `pos.south(buf)`, `pos.east(buf)`, `pos.west(buf)`, `pos.at(buf, dx, dy)`
+- Type inference for int vs float expressions
+
 ### K2K (Kernel-to-Kernel) Messaging
 
 Direct messaging between kernels without going through the host application:
@@ -146,11 +186,13 @@ Main crate (`ringkernel`) features:
 
 ### Test Count Summary
 
-202 tests across the workspace:
+240+ tests across the workspace:
 - ringkernel-core: 65 tests
 - ringkernel-cpu: 11 tests
 - ringkernel-cuda: 6 GPU execution tests
+- ringkernel-cuda-codegen: 39 tests
 - ringkernel-derive: 14 macro tests
+- ringkernel-wavesim: 46 tests
 - k2k_integration: 11 tests
 - control_block: 29 tests
 - hlc: 16 tests
