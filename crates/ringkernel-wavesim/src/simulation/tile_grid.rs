@@ -128,7 +128,8 @@ pub struct TileActor {
     /// K2K endpoint for this tile.
     endpoint: K2KEndpoint,
 
-    /// Kernel ID for this tile.
+    /// Kernel ID for this tile (used for K2K routing).
+    #[allow(dead_code)]
     kernel_id: KernelId,
 
     /// Is this tile on the grid boundary?

@@ -69,7 +69,7 @@ async fn main() {
                 }
             }
 
-            let avg_diff = total_diff / (size * size) as f32;
+            let _avg_diff = total_diff / (size * size) as f32;
             let cpu_center = cpu_pressure[(size / 2) as usize][(size / 2) as usize];
             let cuda_center = cuda_pressure[(size / 2) as usize * size as usize + (size / 2) as usize];
 

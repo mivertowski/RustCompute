@@ -449,10 +449,8 @@ async fn benchmark_full_comparison() {
              "Backend", "Time (ms)", "Steps/sec", "Speedup");
     println!("{}", "-".repeat(78));
 
-    let mut baseline_steps_per_sec: Option<f64> = None;
-
     // 1. CPU SimulationGrid (baseline)
-    {
+    let baseline_steps_per_sec: f64 = {
         let params = AcousticParams::new(343.0, 1.0);
         let mut grid = SimulationGrid::new(size, size, params);
         grid.inject_impulse(size / 2, size / 2, 1.0);
@@ -470,7 +468,6 @@ async fn benchmark_full_comparison() {
 
         let total_ms = elapsed.as_secs_f64() * 1000.0;
         let steps_per_sec = steps as f64 / elapsed.as_secs_f64();
-        baseline_steps_per_sec = Some(steps_per_sec);
 
         println!(
             "{:<35} {:>12.2} {:>15.0} {:>12}",
@@ -479,7 +476,9 @@ async fn benchmark_full_comparison() {
             steps_per_sec,
             "1.00x (baseline)"
         );
-    }
+
+        steps_per_sec
+    };
 
     // 2. TileKernelGrid CPU
     if let Ok(mut grid) = TileKernelGrid::new(size, size, AcousticParams::new(343.0, 1.0), Backend::Cpu).await {
@@ -497,7 +496,7 @@ async fn benchmark_full_comparison() {
 
         let total_ms = elapsed.as_secs_f64() * 1000.0;
         let steps_per_sec = steps as f64 / elapsed.as_secs_f64();
-        let speedup = steps_per_sec / baseline_steps_per_sec.unwrap();
+        let speedup = steps_per_sec / baseline_steps_per_sec;
 
         println!(
             "{:<35} {:>12.2} {:>15.0} {:>12.2}x",
@@ -526,7 +525,7 @@ async fn benchmark_full_comparison() {
 
             let total_ms = elapsed.as_secs_f64() * 1000.0;
             let steps_per_sec = steps as f64 / elapsed.as_secs_f64();
-            let speedup = steps_per_sec / baseline_steps_per_sec.unwrap();
+            let speedup = steps_per_sec / baseline_steps_per_sec;
 
             println!(
                 "{:<35} {:>12.2} {:>15.0} {:>12.2}x",
@@ -556,7 +555,7 @@ async fn benchmark_full_comparison() {
 
             let total_ms = elapsed.as_secs_f64() * 1000.0;
             let steps_per_sec = steps as f64 / elapsed.as_secs_f64();
-            let speedup = steps_per_sec / baseline_steps_per_sec.unwrap();
+            let speedup = steps_per_sec / baseline_steps_per_sec;
 
             println!(
                 "{:<35} {:>12.2} {:>15.0} {:>12.2}x",
@@ -586,7 +585,7 @@ async fn benchmark_full_comparison() {
 
             let total_ms = elapsed.as_secs_f64() * 1000.0;
             let steps_per_sec = steps as f64 / elapsed.as_secs_f64();
-            let speedup = steps_per_sec / baseline_steps_per_sec.unwrap();
+            let speedup = steps_per_sec / baseline_steps_per_sec;
 
             println!(
                 "{:<35} {:>12.2} {:>15.0} {:>12.2}x",

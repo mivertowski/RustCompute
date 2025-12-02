@@ -77,23 +77,23 @@ impl CudaTileBackend {
     }
 
     /// Get buffer width (tile_size + 2 for halos).
-    fn buffer_width(&self) -> u32 {
+    pub fn buffer_width(&self) -> u32 {
         self.tile_size + 2
     }
 
     /// Get buffer size in bytes (18x18 floats for 16x16 tile).
-    fn buffer_size_bytes(&self) -> usize {
+    pub fn buffer_size_bytes(&self) -> usize {
         let bw = self.buffer_width() as usize;
         bw * bw * std::mem::size_of::<f32>()
     }
 
     /// Get halo buffer size in bytes (16 floats).
-    fn halo_size_bytes(&self) -> usize {
+    pub fn halo_size_bytes(&self) -> usize {
         self.tile_size as usize * std::mem::size_of::<f32>()
     }
 
     /// Get interior buffer size in bytes (16x16 floats).
-    fn interior_size_bytes(&self) -> usize {
+    pub fn interior_size_bytes(&self) -> usize {
         (self.tile_size * self.tile_size) as usize * std::mem::size_of::<f32>()
     }
 

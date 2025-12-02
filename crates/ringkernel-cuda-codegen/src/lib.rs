@@ -42,11 +42,11 @@ mod transpiler;
 mod types;
 mod validation;
 
-pub use intrinsics::{GpuIntrinsic, IntrinsicRegistry};
-pub use stencil::{Grid, GridPos, StencilConfig};
+pub use intrinsics::{GpuIntrinsic, IntrinsicRegistry, StencilIntrinsic};
+pub use stencil::{Grid, GridPos, StencilConfig, StencilLaunchConfig};
 pub use transpiler::{transpile_function, CudaTranspiler};
-pub use types::{CudaType, TypeMapper};
-pub use validation::{validate_function, ValidationError};
+pub use types::{get_slice_element_type, is_mutable_reference, CudaType, TypeMapper};
+pub use validation::{is_simple_assignment, validate_function, validate_stencil_signature, ValidationError};
 
 use thiserror::Error;
 
