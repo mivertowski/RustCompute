@@ -54,11 +54,27 @@ RustCompute/
 │   ├── ringkernel-codegen/       # Kernel code generation
 │   │   └── src/lib.rs
 │   │
+│   ├── ringkernel-cuda-codegen/  # Rust-to-CUDA transpiler
+│   │   └── src/
+│   │       ├── lib.rs            # Public API
+│   │       ├── transpiler.rs     # Core transpilation engine
+│   │       ├── intrinsics.rs     # GPU intrinsic mappings
+│   │       ├── stencil.rs        # Stencil kernel support
+│   │       ├── types.rs          # Type mapping (Rust → CUDA)
+│   │       ├── dsl.rs            # DSL functions (block_idx_x, etc.)
+│   │       └── validation.rs     # Code validation
+│   │
 │   ├── ringkernel-ecosystem/     # Integration utilities
 │   │   └── src/lib.rs
 │   │
-│   └── ringkernel-audio-fft/     # Example: GPU audio processing
-│       └── src/lib.rs
+│   ├── ringkernel-audio-fft/     # Example: GPU audio processing
+│   │   └── src/lib.rs
+│   │
+│   └── ringkernel-wavesim/       # Example: 2D wave simulation
+│       └── src/
+│           ├── lib.rs
+│           ├── simulation/       # Grid, kernels, backends
+│           └── gui/              # Interactive visualization
 │
 ├── examples/                     # 11 working examples
 │   ├── basic/
@@ -121,8 +137,15 @@ RustCompute/
        ┌───────────┐  ┌───────────┐  ┌───────────┐
        │ ringkernel│  │ ringkernel│  │   rkyv    │
        │  -derive  │  │ -codegen  │  │ (zero-copy│
-       │(in dev)   │  │           │  │  serde)   │
+       │ (working) │  │           │  │  serde)   │
        └───────────┘  └───────────┘  └───────────┘
+                            │
+                            ▼
+                    ┌───────────────┐
+                    │ ringkernel-   │
+                    │ cuda-codegen  │
+                    │ (transpiler)  │
+                    └───────────────┘
 ```
 
 ### Crate Descriptions
@@ -130,15 +153,17 @@ RustCompute/
 | Crate | Status | Description |
 |-------|--------|-------------|
 | `ringkernel` | Working | Main facade, re-exports everything |
-| `ringkernel-core` | Working | Core traits: RingKernel, KernelHandle, HLC, PubSub |
+| `ringkernel-core` | Working | Core traits: RingKernel, KernelHandle, HLC, PubSub, K2K |
 | `ringkernel-cpu` | Working | CPU backend for development/testing |
 | `ringkernel-cuda` | Working | NVIDIA CUDA backend with PTX kernels |
 | `ringkernel-metal` | Scaffolded | Apple Metal backend (API defined) |
-| `ringkernel-wgpu` | Scaffolded | WebGPU cross-platform backend (API defined) |
-| `ringkernel-derive` | In Development | Proc macros for message/kernel definitions |
+| `ringkernel-wgpu` | Working | WebGPU cross-platform backend |
+| `ringkernel-derive` | Working | Proc macros for message/kernel definitions |
 | `ringkernel-codegen` | In Development | GPU kernel code generation |
+| `ringkernel-cuda-codegen` | Working | Rust-to-CUDA transpiler for GPU kernels |
 | `ringkernel-ecosystem` | Working | Integration utilities |
 | `ringkernel-audio-fft` | Working | Example: GPU audio FFT processing |
+| `ringkernel-wavesim` | Working | Example: 2D wave simulation with FDTD |
 
 ---
 

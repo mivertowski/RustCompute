@@ -331,4 +331,92 @@ pub fn find_kernel(id: &str) -> Option<&'static KernelRegistration> {
 
 ---
 
+## CUDA Code Generation (ringkernel-cuda-codegen)
+
+The `ringkernel-cuda-codegen` crate provides a Rust-to-CUDA transpiler that allows writing GPU kernels in a Rust DSL:
+
+### Generic Kernel Transpilation
+
+```rust
+use ringkernel_cuda_codegen::{transpile_global_kernel, dsl::*};
+use syn::parse_quote;
+
+// Write kernel in Rust DSL
+let kernel: syn::ItemFn = parse_quote! {
+    fn exchange_halos(buffer: &mut [f32], copies: &[u32], num_copies: i32) {
+        let idx = block_idx_x() * block_dim_x() + thread_idx_x();
+        if idx >= num_copies { return; }
+        let src = copies[(idx * 2) as usize];
+        let dst = copies[(idx * 2 + 1) as usize];
+        buffer[dst as usize] = buffer[src as usize];
+    }
+};
+
+// Transpile to CUDA C
+let cuda = transpile_global_kernel(&kernel)?;
+```
+
+Generated output:
+```cuda
+extern "C" __global__ void exchange_halos(
+    float* __restrict__ buffer,
+    const unsigned int* __restrict__ copies,
+    int num_copies
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= num_copies) return;
+    int src = copies[idx * 2];
+    int dst = copies[idx * 2 + 1];
+    buffer[dst] = buffer[src];
+}
+```
+
+### Stencil Kernel Transpilation
+
+For stencil computations, the transpiler supports a `GridPos` abstraction:
+
+```rust
+use ringkernel_cuda_codegen::{transpile_stencil_kernel, StencilConfig};
+
+let stencil: syn::ItemFn = parse_quote! {
+    fn fdtd_step(p: &[f32], p_prev: &mut [f32], c2: f32, pos: GridPos) {
+        let curr = p[pos.idx()];
+        let prev = p_prev[pos.idx()];
+        let lap = pos.north(p) + pos.south(p) + pos.east(p) + pos.west(p) - 4.0 * curr;
+        p_prev[pos.idx()] = 2.0 * curr - prev + c2 * lap;
+    }
+};
+
+let config = StencilConfig::new("fdtd").with_tile_size(16, 16).with_halo(1);
+let cuda = transpile_stencil_kernel(&stencil, &config)?;
+```
+
+### Supported DSL Features
+
+| Rust DSL | CUDA Output |
+|----------|-------------|
+| `thread_idx_x()` | `threadIdx.x` |
+| `block_idx_x()` | `blockIdx.x` |
+| `block_dim_x()` | `blockDim.x` |
+| `grid_dim_x()` | `gridDim.x` |
+| `if cond { return; }` | `if (cond) return;` |
+| `match expr { ... }` | `switch (expr) { ... }` |
+| `pos.north(buf)` | `buf[idx - width]` |
+| `pos.south(buf)` | `buf[idx + width]` |
+| `sync_threads()` | `__syncthreads()` |
+
+### Type Mapping
+
+| Rust Type | CUDA Type |
+|-----------|-----------|
+| `f32` | `float` |
+| `f64` | `double` |
+| `i32` | `int` |
+| `u32` | `unsigned int` |
+| `i64` | `long long` |
+| `&[f32]` | `const float* __restrict__` |
+| `&mut [f32]` | `float* __restrict__` |
+
+---
+
 ## Next: [Runtime Implementation](./08-runtime.md)

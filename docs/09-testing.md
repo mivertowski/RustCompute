@@ -11,6 +11,17 @@ Following DotCompute's testing structure:
 | Hardware | `tests/hardware/` | Yes | GPU-specific |
 | Benchmarks | `benches/` | Yes | Performance |
 
+## Test Count Summary
+
+240+ tests across the workspace:
+- `ringkernel-core`: 65 tests (queue, HLC, control block, K2K, PubSub)
+- `ringkernel-cpu`: 11 tests (CPU backend)
+- `ringkernel-cuda`: 6 GPU execution tests
+- `ringkernel-cuda-codegen`: 39 tests (transpiler, intrinsics, type mapping)
+- `ringkernel-derive`: 14 macro tests
+- `ringkernel-wavesim`: 46 tests (simulation, kernels, grid)
+- `ringkernel-audio-fft`: 32 tests
+
 ---
 
 ## Unit Tests

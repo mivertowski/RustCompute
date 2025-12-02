@@ -453,4 +453,56 @@ pub fn select_backend() -> Result<Box<dyn GpuBackend>> {
 
 ---
 
+## Rust-to-CUDA Transpilation
+
+The `ringkernel-cuda-codegen` crate enables writing CUDA kernels in a Rust DSL:
+
+```rust
+use ringkernel_cuda_codegen::{transpile_global_kernel, transpile_stencil_kernel, StencilConfig};
+use ringkernel_cuda_codegen::dsl::*;
+use syn::parse_quote;
+
+// Generic kernel using block/thread indices
+let kernel: syn::ItemFn = parse_quote! {
+    fn vector_scale(data: &mut [f32], scale: f32, n: i32) {
+        let idx = block_idx_x() * block_dim_x() + thread_idx_x();
+        if idx >= n { return; }
+        data[idx as usize] = data[idx as usize] * scale;
+    }
+};
+let cuda = transpile_global_kernel(&kernel)?;
+
+// Stencil kernel using GridPos abstraction
+let stencil: syn::ItemFn = parse_quote! {
+    fn laplacian(input: &[f32], output: &mut [f32], pos: GridPos) {
+        let lap = pos.north(input) + pos.south(input)
+                + pos.east(input) + pos.west(input)
+                - 4.0 * input[pos.idx()];
+        output[pos.idx()] = lap;
+    }
+};
+let config = StencilConfig::new("laplacian").with_tile_size(16, 16).with_halo(1);
+let cuda_stencil = transpile_stencil_kernel(&stencil, &config)?;
+```
+
+### DSL Functions (CPU Fallback Implementations)
+
+The `dsl` module provides functions that compile to CUDA intrinsics but also work on CPU:
+
+```rust
+use ringkernel_cuda_codegen::dsl::*;
+
+// Thread/block indices (return 0 on CPU, compile to CUDA intrinsics)
+let tx = thread_idx_x();  // -> threadIdx.x
+let bx = block_idx_x();   // -> blockIdx.x
+let bd = block_dim_x();   // -> blockDim.x
+let gd = grid_dim_x();    // -> gridDim.x
+
+// Synchronization (no-op on CPU)
+sync_threads();           // -> __syncthreads()
+thread_fence();           // -> __threadfence()
+```
+
+---
+
 ## Next: [Serialization Strategy](./06-serialization.md)

@@ -2,21 +2,22 @@
 
 ## Current Status
 
-RingKernel is under active development. The core runtime, CPU backend, and CUDA backend are functional with verified GPU execution.
+RingKernel is under active development. The core runtime, CPU backend, CUDA backend, and WebGPU backend are functional with verified GPU execution.
 
 **Working today:**
 - Runtime creation and kernel lifecycle management
 - CPU backend (fully functional)
 - CUDA backend (verified with real PTX kernels, ~75M elements/sec)
+- WebGPU backend (cross-platform via wgpu)
 - Message passing infrastructure (queues, serialization, HLC timestamps)
 - Pub/Sub messaging with topic wildcards
+- K2K (kernel-to-kernel) direct messaging
 - Telemetry and metrics collection
-- 11 working examples
+- Rust-to-CUDA transpiler (ringkernel-cuda-codegen)
+- 11 working examples + WaveSim showcase app
 
 **In progress:**
-- Metal and WebGPU backends (scaffolded)
-- Proc macro code generation for custom kernels
-- K2K (kernel-to-kernel) direct messaging
+- Metal backend (scaffolded)
 
 ## DotCompute Ring Kernel Architecture
 
@@ -236,7 +237,7 @@ RingKernel supports multiple GPU backends through the `Backend` enum:
 | **CPU** | All | **Working** | Full functionality, ideal for development |
 | **CUDA** | Linux, Windows | **Working** | Verified GPU execution, requires CUDA toolkit |
 | **Metal** | macOS, iOS | Scaffolded | API defined, implementation pending |
-| **WebGPU** | Cross-platform | Scaffolded | API defined, implementation pending |
+| **WebGPU** | Cross-platform | **Working** | Via wgpu (Vulkan, Metal, DX12) |
 
 ### Backend Selection
 
