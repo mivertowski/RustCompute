@@ -1,9 +1,10 @@
 //! Procedural macros for RingKernel.
 //!
-//! This crate provides two main macros:
+//! This crate provides the following macros:
 //!
 //! - `#[derive(RingMessage)]` - Implement the RingMessage trait for message types
 //! - `#[ring_kernel]` - Define a ring kernel handler
+//! - `#[stencil_kernel]` - Define a GPU stencil kernel (with `cuda-codegen` feature)
 //!
 //! # Example
 //!
@@ -31,6 +32,20 @@
 //!         id: MessageId::generate(),
 //!         result: req.a + req.b,
 //!     }
+//! }
+//! ```
+//!
+//! # Stencil Kernels (with `cuda-codegen` feature)
+//!
+//! ```ignore
+//! use ringkernel_derive::stencil_kernel;
+//! use ringkernel_cuda_codegen::GridPos;
+//!
+//! #[stencil_kernel(id = "fdtd", grid = "2d", tile_size = 16, halo = 1)]
+//! fn fdtd(p: &[f32], p_prev: &mut [f32], c2: f32, pos: GridPos) {
+//!     let curr = p[pos.idx()];
+//!     let lap = pos.north(p) + pos.south(p) + pos.east(p) + pos.west(p) - 4.0 * curr;
+//!     p_prev[pos.idx()] = 2.0 * curr - p_prev[pos.idx()] + c2 * lap;
 //! }
 //! ```
 
@@ -386,6 +401,177 @@ pub fn derive_gpu_type(input: TokenStream) -> TokenStream {
         // Verify type is Pod (plain old data)
         unsafe impl #impl_generics ::bytemuck::Pod for #name #ty_generics #where_clause {}
         unsafe impl #impl_generics ::bytemuck::Zeroable for #name #ty_generics #where_clause {}
+    };
+
+    TokenStream::from(expanded)
+}
+
+// ============================================================================
+// Stencil Kernel Macro (requires cuda-codegen feature)
+// ============================================================================
+
+/// Attributes for the stencil_kernel macro.
+#[derive(Debug, FromMeta)]
+struct StencilKernelArgs {
+    /// Kernel identifier.
+    id: String,
+    /// Grid dimensionality: "1d", "2d", or "3d".
+    #[darling(default)]
+    grid: Option<String>,
+    /// Tile/block size (single value for square tiles).
+    #[darling(default)]
+    tile_size: Option<u32>,
+    /// Tile width (for non-square tiles).
+    #[darling(default)]
+    tile_width: Option<u32>,
+    /// Tile height (for non-square tiles).
+    #[darling(default)]
+    tile_height: Option<u32>,
+    /// Halo/ghost cell width (stencil radius).
+    #[darling(default)]
+    halo: Option<u32>,
+}
+
+/// Attribute macro for defining stencil kernels that transpile to CUDA.
+///
+/// This macro generates CUDA C code from Rust stencil kernel functions at compile time.
+/// The generated CUDA source is embedded in the binary and can be compiled at runtime
+/// using NVRTC.
+///
+/// # Attributes
+///
+/// - `id` (required) - Unique kernel identifier
+/// - `grid` - Grid dimensionality: "1d", "2d" (default), or "3d"
+/// - `tile_size` - Tile/block size (default: 16)
+/// - `tile_width` / `tile_height` - Non-square tile dimensions
+/// - `halo` - Stencil radius / ghost cell width (default: 1)
+///
+/// # Supported Rust Subset
+///
+/// - Primitives: `f32`, `f64`, `i32`, `u32`, `i64`, `u64`, `bool`
+/// - Slices: `&[T]`, `&mut [T]`
+/// - Arithmetic: `+`, `-`, `*`, `/`, `%`
+/// - Comparisons: `<`, `>`, `<=`, `>=`, `==`, `!=`
+/// - Let bindings: `let x = expr;`
+/// - If/else: `if cond { a } else { b }`
+/// - Stencil intrinsics via `GridPos`
+///
+/// # Example
+///
+/// ```ignore
+/// use ringkernel_derive::stencil_kernel;
+/// use ringkernel_cuda_codegen::GridPos;
+///
+/// #[stencil_kernel(id = "fdtd", grid = "2d", tile_size = 16, halo = 1)]
+/// fn fdtd(p: &[f32], p_prev: &mut [f32], c2: f32, pos: GridPos) {
+///     let curr = p[pos.idx()];
+///     let lap = pos.north(p) + pos.south(p) + pos.east(p) + pos.west(p) - 4.0 * curr;
+///     p_prev[pos.idx()] = 2.0 * curr - p_prev[pos.idx()] + c2 * lap;
+/// }
+///
+/// // Access generated CUDA source:
+/// assert!(FDTD_CUDA_SOURCE.contains("__global__"));
+/// ```
+#[proc_macro_attribute]
+pub fn stencil_kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let args = match darling::ast::NestedMeta::parse_meta_list(attr.into()) {
+        Ok(v) => v,
+        Err(e) => return TokenStream::from(darling::Error::from(e).write_errors()),
+    };
+
+    let args = match StencilKernelArgs::from_list(&args) {
+        Ok(v) => v,
+        Err(e) => return TokenStream::from(e.write_errors()),
+    };
+
+    let input = parse_macro_input!(item as ItemFn);
+
+    // Generate the stencil kernel code
+    stencil_kernel_impl(args, input)
+}
+
+fn stencil_kernel_impl(args: StencilKernelArgs, input: ItemFn) -> TokenStream {
+    let kernel_id = &args.id;
+    let fn_name = &input.sig.ident;
+    let fn_vis = &input.vis;
+    let fn_block = &input.block;
+    let fn_inputs = &input.sig.inputs;
+    let fn_output = &input.sig.output;
+    let fn_attrs = &input.attrs;
+
+    // Parse configuration
+    let grid = args.grid.as_deref().unwrap_or("2d");
+    let tile_width = args.tile_width.unwrap_or_else(|| args.tile_size.unwrap_or(16));
+    let tile_height = args.tile_height.unwrap_or_else(|| args.tile_size.unwrap_or(16));
+    let halo = args.halo.unwrap_or(1);
+
+    // Generate CUDA source constant name
+    let cuda_const_name = format_ident!(
+        "{}_CUDA_SOURCE",
+        fn_name.to_string().to_uppercase()
+    );
+
+    // Generate registration name
+    let registration_name = format_ident!(
+        "__STENCIL_KERNEL_REGISTRATION_{}",
+        fn_name.to_string().to_uppercase()
+    );
+
+    // Transpile to CUDA (if feature enabled)
+    #[cfg(feature = "cuda-codegen")]
+    let cuda_source_code = {
+        use ringkernel_cuda_codegen::{transpile_stencil_kernel, Grid, StencilConfig};
+
+        let grid_type = match grid {
+            "1d" => Grid::Grid1D,
+            "2d" => Grid::Grid2D,
+            "3d" => Grid::Grid3D,
+            _ => Grid::Grid2D,
+        };
+
+        let config = StencilConfig::new(kernel_id.clone())
+            .with_grid(grid_type)
+            .with_tile_size(tile_width as usize, tile_height as usize)
+            .with_halo(halo as usize);
+
+        match transpile_stencil_kernel(&input, &config) {
+            Ok(cuda) => cuda,
+            Err(e) => {
+                return TokenStream::from(
+                    syn::Error::new_spanned(&input.sig.ident, format!("CUDA transpilation failed: {}", e))
+                        .to_compile_error(),
+                );
+            }
+        }
+    };
+
+    #[cfg(not(feature = "cuda-codegen"))]
+    let cuda_source_code = format!(
+        "// CUDA codegen not enabled. Enable 'cuda-codegen' feature.\n// Kernel: {}\n",
+        kernel_id
+    );
+
+    // Generate the expanded code
+    let expanded = quote! {
+        // Original function (for documentation/testing/CPU fallback)
+        #(#fn_attrs)*
+        #fn_vis fn #fn_name #fn_inputs #fn_output #fn_block
+
+        /// Generated CUDA source code for this stencil kernel.
+        #fn_vis const #cuda_const_name: &str = #cuda_source_code;
+
+        /// Stencil kernel registration for runtime discovery.
+        #[allow(non_upper_case_globals)]
+        #[::inventory::submit]
+        static #registration_name: ::ringkernel_core::__private::StencilKernelRegistration =
+            ::ringkernel_core::__private::StencilKernelRegistration {
+                id: #kernel_id,
+                grid: #grid,
+                tile_width: #tile_width,
+                tile_height: #tile_height,
+                halo: #halo,
+                cuda_source: #cuda_source_code,
+            };
     };
 
     TokenStream::from(expanded)

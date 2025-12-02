@@ -11,11 +11,16 @@ categories = ["development-tools::procedural-macro-helpers"]
 [lib]
 proc-macro = true
 
+[features]
+default = []
+cuda-codegen = ["dep:ringkernel-cuda-codegen"]
+
 [dependencies]
 syn = { workspace = true }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
 darling = { workspace = true }
+ringkernel-cuda-codegen = { workspace = true, optional = true }
 
 [dev-dependencies]
 ringkernel-core = { workspace = true }

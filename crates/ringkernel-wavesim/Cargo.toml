@@ -1,0 +1,66 @@
+[package]
+name = "ringkernel-wavesim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Interactive 2D wave propagation showcase for RingKernel"
+
+[dependencies]
+ringkernel = { path = "../ringkernel" }
+ringkernel-core = { path = "../ringkernel-core" }
+
+# GUI
+iced = { version = "0.13", features = ["canvas", "tokio"] }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Utilities
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Parallel processing
+rayon = "1.10"
+
+# GPU compute (optional, for tile GPU acceleration)
+wgpu = { workspace = true, optional = true }
+bytemuck = { version = "1.24", features = ["derive"], optional = true }
+
+# CUDA compute (optional, for NVIDIA GPU acceleration)
+ringkernel-cuda = { path = "../ringkernel-cuda", optional = true }
+cudarc = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[features]
+default = ["cpu", "cuda", "simd"]
+cpu = ["ringkernel/cpu"]
+cuda = ["ringkernel/cuda", "dep:ringkernel-cuda", "dep:cudarc", "dep:bytemuck"]
+wgpu = ["ringkernel/wgpu", "dep:wgpu", "dep:bytemuck"]
+simd = []  # Enable SIMD optimizations (requires nightly)
+all-backends = ["cpu", "cuda", "wgpu"]
+
+[[bin]]
+name = "wavesim"
+path = "src/bin/wavesim.rs"
+
+[[bin]]
+name = "benchmark"
+path = "src/bin/benchmark.rs"
+
+[[bin]]
+name = "full_benchmark"
+path = "src/bin/full_benchmark.rs"
+
+[[bin]]
+name = "test_cuda"
+path = "src/bin/test_cuda.rs"
+
+[[bin]]
+name = "bench_packed"
+path = "src/bin/bench_packed.rs"
+
+[[bin]]
+name = "verify_packed"
+path = "src/bin/verify_packed.rs"

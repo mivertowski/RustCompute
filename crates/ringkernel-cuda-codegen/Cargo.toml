@@ -1,0 +1,15 @@
+[package]
+name = "ringkernel-cuda-codegen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CUDA code generation from Rust DSL for RingKernel stencil kernels"
+keywords = ["gpu", "cuda", "codegen", "stencil", "transpiler"]
+categories = ["development-tools", "compilers"]
+
+[dependencies]
+syn = { workspace = true, features = ["full", "visit", "extra-traits"] }
+quote = { workspace = true }
+proc-macro2 = { workspace = true }
+thiserror = { workspace = true }

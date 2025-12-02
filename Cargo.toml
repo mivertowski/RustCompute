@@ -9,8 +9,10 @@ members = [
     "crates/ringkernel-wgpu",
     "crates/ringkernel-metal",
     "crates/ringkernel-codegen",
+    "crates/ringkernel-cuda-codegen",
     "crates/ringkernel-ecosystem",
     "crates/ringkernel-audio-fft",
+    "crates/ringkernel-wavesim",
 ]
 
 [workspace.package]
@@ -70,6 +72,7 @@ ringkernel-cuda = { path = "crates/ringkernel-cuda" }
 ringkernel-wgpu = { path = "crates/ringkernel-wgpu" }
 ringkernel-metal = { path = "crates/ringkernel-metal" }
 ringkernel-codegen = { path = "crates/ringkernel-codegen" }
+ringkernel-cuda-codegen = { path = "crates/ringkernel-cuda-codegen" }
 
 [profile.release]
 lto = true
