@@ -31,6 +31,8 @@ parking_lot = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+# For GPU execution tests - needs cudarc directly
+cudarc = { version = "0.11", features = ["cuda-12050"] }
 
 [features]
 default = []

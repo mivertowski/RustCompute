@@ -38,6 +38,7 @@ use std::time::{Duration, Instant};
 use tokio::time::interval;
 
 // Type alias for cleaner code
+#[allow(dead_code)]
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 #[tokio::main]

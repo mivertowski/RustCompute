@@ -3714,6 +3714,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "axum 0.7.9",
+ "bytemuck",
  "cfg-if",
  "criterion",
  "crossterm",
@@ -3791,6 +3792,7 @@ dependencies = [
  "cfg-if",
  "crossbeam",
  "futures",
+ "inventory",
  "parking_lot",
  "pin-project-lite",
  "proptest",
@@ -3836,10 +3838,13 @@ dependencies = [
 name = "ringkernel-derive"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "darling",
+ "inventory",
  "proc-macro2",
  "quote",
  "ringkernel-core",
+ "rkyv",
  "syn 2.0.111",
  "tokio",
 ]

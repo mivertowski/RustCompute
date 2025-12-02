@@ -258,6 +258,7 @@ struct RingKernelConfig {
     logging: LoggingConfig,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct KernelConfig {
     default_block_size: usize,
@@ -275,6 +276,7 @@ struct MemoryConfig {
     max_allocation: usize,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct NetworkConfig {
     grpc_address: String,
@@ -284,12 +286,14 @@ struct NetworkConfig {
     tls: Option<TlsConfig>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct TlsConfig {
     cert_path: String,
     key_path: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct LoggingConfig {
     level: String,

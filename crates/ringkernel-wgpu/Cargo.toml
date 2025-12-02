@@ -34,3 +34,4 @@ tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"
 [features]
 default = []
 wgpu = ["dep:wgpu"]
+wgpu-tests = ["wgpu"]

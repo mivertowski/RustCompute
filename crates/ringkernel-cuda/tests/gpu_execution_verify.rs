@@ -166,7 +166,7 @@ fn test_gpu_multiply_kernel_execution() {
         .htod_sync_copy(&host_data)
         .expect("Failed to copy to device");
 
-    let device_ptr = *device_data.device_ptr();
+    let _device_ptr = *device_data.device_ptr();
 
     let config = LaunchConfig {
         grid_dim: (1, 1, 1),

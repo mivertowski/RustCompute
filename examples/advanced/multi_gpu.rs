@@ -43,7 +43,7 @@
 //! ```
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -189,6 +189,7 @@ impl GpuManager {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 struct WorkItem {
     id: String,
@@ -197,6 +198,7 @@ struct WorkItem {
     estimated_time_ms: u64,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, PartialEq)]
 enum Priority {
     High,
@@ -384,7 +386,7 @@ async fn demonstrate_data_parallelism(coordinator: &GpuCoordinator) {
     println!("Effective throughput: {} samples/sec", batch_size * 1000 / elapsed.as_millis() as usize);
 }
 
-async fn demonstrate_model_parallelism(coordinator: &GpuCoordinator) {
+async fn demonstrate_model_parallelism(_coordinator: &GpuCoordinator) {
     println!("Model parallelism: Split large model across GPUs\n");
 
     let layers_per_gpu = vec![
@@ -419,7 +421,7 @@ async fn demonstrate_model_parallelism(coordinator: &GpuCoordinator) {
     println!("\nPipeline throughput: {} micro-batches in {:?}", micro_batches, elapsed);
 }
 
-async fn demonstrate_fault_tolerance(coordinator: &GpuCoordinator) {
+async fn demonstrate_fault_tolerance(_coordinator: &GpuCoordinator) {
     println!("Fault tolerance strategies:\n");
 
     println!("1. Health Monitoring:");

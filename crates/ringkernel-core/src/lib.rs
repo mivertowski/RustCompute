@@ -46,6 +46,11 @@ pub mod telemetry;
 pub mod telemetry_pipeline;
 pub mod types;
 
+/// Private module for proc macro integration.
+/// Not part of the public API - exposed for macro-generated code only.
+#[doc(hidden)]
+pub mod __private;
+
 /// Prelude module for convenient imports
 pub mod prelude {
     pub use crate::context::*;

@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use parking_lot::RwLock;
 
 use ringkernel_core::error::{Result, RingKernelError};
+use ringkernel_core::k2k::{K2KBroker, K2KBuilder, K2KConfig};
 use ringkernel_core::runtime::{
     Backend, KernelHandle, KernelHandleInner, KernelId, LaunchOptions, RingKernelRuntime,
     RuntimeMetrics,
@@ -31,15 +32,49 @@ pub struct WgpuRuntime {
     /// Runtime start time.
     #[allow(dead_code)]
     start_time: Instant,
+    /// K2K broker for kernel-to-kernel messaging.
+    k2k_broker: Option<Arc<K2KBroker>>,
 }
 
 impl WgpuRuntime {
     /// Create a new WebGPU runtime.
     pub async fn new() -> Result<Self> {
+        Self::with_config(true).await
+    }
+
+    /// Create a runtime with configuration options.
+    pub async fn with_config(enable_k2k: bool) -> Result<Self> {
         let adapter = WgpuAdapter::new().await?;
 
         tracing::info!(
-            "Initialized WebGPU runtime on {} ({:?})",
+            "Initialized WebGPU runtime on {} ({:?}), k2k={}",
+            adapter.name(),
+            adapter.backend(),
+            enable_k2k
+        );
+
+        let k2k_broker = if enable_k2k {
+            Some(K2KBuilder::new().build())
+        } else {
+            None
+        };
+
+        Ok(Self {
+            adapter: Arc::new(adapter),
+            kernels: RwLock::new(HashMap::new()),
+            kernel_counter: AtomicU64::new(0),
+            total_launched: AtomicU64::new(0),
+            start_time: Instant::now(),
+            k2k_broker,
+        })
+    }
+
+    /// Create a runtime with custom K2K configuration.
+    pub async fn with_k2k_config(k2k_config: K2KConfig) -> Result<Self> {
+        let adapter = WgpuAdapter::new().await?;
+
+        tracing::info!(
+            "Initialized WebGPU runtime with custom K2K config on {} ({:?})",
             adapter.name(),
             adapter.backend()
         );
@@ -50,6 +85,7 @@ impl WgpuRuntime {
             kernel_counter: AtomicU64::new(0),
             total_launched: AtomicU64::new(0),
             start_time: Instant::now(),
+            k2k_broker: Some(K2KBroker::new(k2k_config)),
         })
     }
 
@@ -57,6 +93,16 @@ impl WgpuRuntime {
     #[allow(dead_code)]
     pub fn adapter(&self) -> &WgpuAdapter {
         &self.adapter
+    }
+
+    /// Check if K2K messaging is enabled.
+    pub fn is_k2k_enabled(&self) -> bool {
+        self.k2k_broker.is_some()
+    }
+
+    /// Get the K2K broker (if enabled).
+    pub fn k2k_broker(&self) -> Option<&Arc<K2KBroker>> {
+        self.k2k_broker.as_ref()
     }
 }
 
@@ -83,6 +129,10 @@ impl RingKernelRuntime for WgpuRuntime {
 
         let id_num = self.kernel_counter.fetch_add(1, Ordering::Relaxed);
 
+        // Register with K2K broker if enabled
+        // Note: WebGPU K2K is host-mediated - messages go through host, not GPU-direct
+        let _k2k_endpoint = self.k2k_broker.as_ref().map(|broker| broker.register(id.clone()));
+
         // Create kernel
         let mut kernel = WgpuKernel::new(kernel_id, id_num, Arc::clone(&self.adapter), options)?;
 
@@ -93,7 +143,11 @@ impl RingKernelRuntime for WgpuRuntime {
         self.kernels.write().insert(id.clone(), Arc::clone(&kernel));
         self.total_launched.fetch_add(1, Ordering::Relaxed);
 
-        tracing::info!(kernel_id = %kernel_id, "Launched WebGPU kernel");
+        tracing::info!(
+            kernel_id = %kernel_id,
+            k2k = %self.is_k2k_enabled(),
+            "Launched WebGPU kernel"
+        );
 
         Ok(KernelHandle::new(id, kernel))
     }
@@ -126,12 +180,16 @@ impl RingKernelRuntime for WgpuRuntime {
         // Terminate all kernels
         let kernel_ids: Vec<_> = self.kernels.read().keys().cloned().collect();
 
-        for id in kernel_ids {
-            let kernel = self.kernels.read().get(&id).cloned();
+        for id in kernel_ids.iter() {
+            let kernel = self.kernels.read().get(id).cloned();
             if let Some(kernel) = kernel {
                 if let Err(e) = kernel.terminate().await {
                     tracing::warn!(kernel_id = %id, error = %e, "Failed to terminate kernel");
                 }
+            }
+            // Unregister from K2K broker
+            if let Some(broker) = &self.k2k_broker {
+                broker.unregister(id);
             }
         }
 

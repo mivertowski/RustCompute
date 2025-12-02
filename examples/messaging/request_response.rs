@@ -56,6 +56,7 @@ impl VectorAddRequest {
 }
 
 /// Vector addition response
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct VectorAddResponse {
     /// Response message ID
@@ -69,6 +70,7 @@ struct VectorAddResponse {
 }
 
 /// Matrix multiply request
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct MatrixMultiplyRequest {
     id: MessageId,

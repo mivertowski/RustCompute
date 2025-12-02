@@ -92,6 +92,7 @@ struct MetricsResponse {
 
 // ============ Application State ============
 
+#[allow(dead_code)]
 struct AppState {
     runtime: Arc<RingKernel>,
     vector_kernel: Arc<KernelHandle>,
@@ -133,6 +134,7 @@ impl RequestStats {
 
 // ============ Error Handling ============
 
+#[allow(dead_code)]
 enum AppError {
     KernelError(String),
     ValidationError(String),

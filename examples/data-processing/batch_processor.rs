@@ -36,6 +36,7 @@ use std::time::{Duration, Instant};
 // ============ Data Types ============
 
 /// A batch of records to process
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct DataBatch {
     /// Batch identifier
@@ -48,6 +49,7 @@ struct DataBatch {
     metadata: HashMap<String, String>,
 }
 
+#[allow(dead_code)]
 impl DataBatch {
     fn new(id: u64, features: Vec<Vec<f32>>) -> Self {
         Self {
@@ -78,6 +80,7 @@ impl DataBatch {
 }
 
 /// Processed result
+#[allow(dead_code)]
 #[derive(Debug)]
 struct ProcessedResult {
     batch_id: u64,
@@ -141,6 +144,7 @@ impl PipelineStats {
 }
 
 /// The main processing pipeline
+#[allow(dead_code)]
 struct DataPipeline {
     runtime: Arc<RingKernel>,
     compute_kernel: KernelHandle,

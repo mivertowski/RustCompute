@@ -1,42 +1,28 @@
-# RingKernel (RustCompute)
+# RingKernel
 
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 
-**GPU-native persistent actor model framework for Rust** - A port of DotCompute's Ring Kernel system.
+A GPU-native persistent actor model framework for Rust.
 
-RingKernel enables GPU-accelerated actor systems with persistent kernels, lock-free message passing, and hybrid logical clocks for causal ordering across distributed GPU computations.
+RingKernel provides infrastructure for building GPU-accelerated actor systems with persistent kernels, lock-free message passing, and hybrid logical clocks for causal ordering.
 
-## Current Status
+## Overview
 
-RingKernel is under active development. The core runtime, CPU backend, and CUDA backend are functional. The framework includes working examples demonstrating real-world usage patterns.
+RingKernel treats GPU compute units as long-running actors that maintain state between invocations. Instead of launching kernels per-operation, kernels persist on the GPU, communicate via lock-free queues, and process messages continuously.
 
-**What works today:**
-- Runtime creation and kernel lifecycle management
-- CPU backend (fully functional for development and testing)
-- CUDA backend (verified GPU execution with real PTX kernels)
-- Message passing infrastructure (queues, serialization, HLC timestamps)
-- Pub/Sub messaging with topic wildcards
-- Telemetry and metrics collection
-- 11 working examples covering common use cases
+**Key capabilities:**
 
-**In progress:**
-- Metal and WebGPU backends (scaffolded, not yet functional)
-- Proc macro code generation for custom kernels
-- K2K (kernel-to-kernel) direct messaging
+- Persistent GPU-resident kernels that maintain state across invocations
+- Lock-free message queues for host↔GPU and kernel-to-kernel communication
+- Hybrid Logical Clocks (HLC) for causal ordering across distributed operations
+- Multiple backend support: CPU, CUDA, WebGPU
+- Zero-copy serialization via rkyv
+- Proc macros for message and kernel definitions
 
-## Features
+## Installation
 
-- **Persistent GPU-resident state** across kernel invocations
-- **Lock-free message passing** between host and kernels
-- **Hybrid Logical Clocks (HLC)** for temporal ordering and causality
-- **Multiple GPU backends**: CUDA (working), Metal, WebGPU, CPU (fallback)
-- **Zero-copy serialization** via rkyv
-- **Type-safe Rust** with async/await support
-
-## Quick Start
-
-Add RingKernel to your `Cargo.toml`:
+Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
@@ -44,36 +30,41 @@ ringkernel = "0.1"
 tokio = { version = "1", features = ["full"] }
 ```
 
-Basic usage:
+For GPU backends:
+
+```toml
+# NVIDIA CUDA
+ringkernel = { version = "0.1", features = ["cuda"] }
+
+# WebGPU (cross-platform)
+ringkernel = { version = "0.1", features = ["wgpu"] }
+```
+
+## Quick Start
 
 ```rust
 use ringkernel::prelude::*;
 
 #[tokio::main]
-async fn main() -> Result<()> {
-    // Create runtime with auto-detected backend
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    // Create runtime (uses CPU backend by default)
     let runtime = RingKernel::builder()
-        .backend(Backend::Auto)
+        .backend(Backend::Cpu)
         .build()
         .await?;
 
-    // Launch a kernel (auto-activates by default)
-    let kernel = runtime.launch("my_kernel", LaunchOptions::default()).await?;
-    println!("Kernel state: {:?}", kernel.state());
+    // Launch a kernel
+    let kernel = runtime.launch("processor", LaunchOptions::default()).await?;
 
-    // Check if active
-    if kernel.is_active() {
-        println!("Kernel is processing");
-    }
+    // Kernel is active and ready to process messages
+    println!("State: {:?}", kernel.state());
 
-    // Suspend and resume
-    kernel.suspend().await?;
-    kernel.resume().await?;
-
-    // Terminate when done
+    // Lifecycle management
+    kernel.deactivate().await?;
+    kernel.activate().await?;
     kernel.terminate().await?;
-    runtime.shutdown().await?;
 
+    runtime.shutdown().await?;
     Ok(())
 }
 ```
@@ -82,130 +73,74 @@ async fn main() -> Result<()> {
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Host (CPU)                               │
+│                       Host (CPU)                            │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
 │  │ Application │──│   Runtime   │──│   Message Bridge    │  │
-│  │  (async)    │  │  (tokio)    │  │  (DMA transfers)    │  │
+│  │   (async)   │  │   (tokio)   │  │   (DMA transfers)   │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
 └────────────────────────────┬────────────────────────────────┘
                              │ PCIe / Unified Memory
 ┌────────────────────────────┴────────────────────────────────┐
-│                    Device (GPU)                             │
+│                      Device (GPU)                           │
 │  ┌───────────────┐  ┌─────────────────┐  ┌───────────────┐  │
 │  │ Control Block │  │   Input Queue   │  │ Output Queue  │  │
-│  │   (128 B)     │  │  (lock-free)    │  │ (lock-free)   │  │
+│  │    (128 B)    │  │  (lock-free)    │  │ (lock-free)   │  │
 │  └───────────────┘  └─────────────────┘  └───────────────┘  │
 │  ┌─────────────────────────────────────────────────────────┐│
-│  │              Persistent Kernel                          ││
-│  │     (maintains state between messages)                  ││
+│  │                  Persistent Kernel                      ││
+│  │        (maintains state between messages)               ││
 │  └─────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## Backends
 
-| Backend | Platform | Status | Notes |
-|---------|----------|--------|-------|
-| **CPU** | All | **Working** | Full functionality, ideal for development |
-| **CUDA** | Linux, Windows | **Working** | Verified GPU execution, requires CUDA toolkit |
-| **Metal** | macOS, iOS | Scaffolded | API defined, implementation pending |
-| **WebGPU** | Cross-platform | Scaffolded | API defined, implementation pending |
-
-Enable backends via Cargo features:
-
-```toml
-[dependencies]
-ringkernel = { version = "0.1", features = ["cuda"] }
-```
-
-## Examples
-
-RingKernel includes 11 working examples demonstrating real-world patterns:
-
-### Basic Examples
-```bash
-# Runtime and kernel lifecycle
-cargo run -p ringkernel --example basic_hello_kernel
-
-# Kernel state machine and orchestration
-cargo run -p ringkernel --example kernel_states
-```
-
-### Messaging Examples
-```bash
-# Request-response with correlation IDs
-cargo run -p ringkernel --example request_response
-
-# Topic-based pub/sub with wildcards
-cargo run -p ringkernel --example pub_sub
-```
-
-### Integration Examples
-```bash
-# REST API with Axum
-cargo run -p ringkernel --example axum_api
-
-# gRPC server patterns
-cargo run -p ringkernel --example grpc_server
-
-# Configuration management (TOML, env vars)
-cargo run -p ringkernel --example config_management
-```
-
-### Data Processing
-```bash
-# Batch processing pipeline
-cargo run -p ringkernel --example batch_processor
-```
-
-### Monitoring
-```bash
-# Telemetry and metrics collection
-cargo run -p ringkernel --example telemetry
-```
-
-### Advanced
-```bash
-# ML inference pipeline patterns
-cargo run -p ringkernel --example ml_pipeline
-
-# Multi-GPU coordination
-cargo run -p ringkernel --example multi_gpu
-```
+| Backend | Status | Platforms | Requirements |
+|---------|--------|-----------|--------------|
+| CPU | Stable | All | None |
+| CUDA | Stable | Linux, Windows | NVIDIA GPU, CUDA 12.x |
+| WebGPU | Stable | All | Vulkan/Metal/DX12 capable GPU |
+| Metal | Planned | macOS, iOS | — |
 
 ## Core Concepts
 
 ### Kernel Lifecycle
 
-Kernels follow a state machine:
-
-```
-Launched → Active ⇄ Deactivated → Terminated
-```
+Kernels follow a state machine: `Created → Launched → Active ⇄ Deactivated → Terminated`
 
 ```rust
-let kernel = runtime.launch("processor",
+// Manual lifecycle control
+let kernel = runtime.launch("worker",
     LaunchOptions::default().without_auto_activate()
 ).await?;
 
-kernel.activate().await?;   // Start processing
-kernel.suspend().await?;    // Pause (alias for deactivate)
-kernel.resume().await?;     // Resume (alias for activate)
-kernel.terminate().await?;  // Clean shutdown
+kernel.activate().await?;    // Start processing
+kernel.deactivate().await?;  // Pause
+kernel.activate().await?;    // Resume
+kernel.terminate().await?;   // Clean shutdown
 ```
 
 ### Launch Options
 
-Configure kernel behavior at launch:
-
 ```rust
 let options = LaunchOptions::default()
-    .with_queue_capacity(4096)      // Input/output queue size (must be power of 2)
-    .with_grid_size(4)              // Number of blocks
+    .with_queue_capacity(4096)      // Must be power of 2
     .with_block_size(256)           // Threads per block
-    .with_shared_memory(16384)      // Shared memory bytes
-    .with_priority(priority::HIGH)  // Scheduling hint
-    .without_auto_activate();       // Don't activate immediately
+    .with_priority(priority::HIGH)
+    .without_auto_activate();
+```
+
+### Kernel-to-Kernel Messaging
+
+Direct communication between kernels:
+
+```rust
+// K2K is enabled by default
+let runtime = CpuRuntime::new().await?;
+let broker = runtime.k2k_broker().unwrap();
+
+// Kernels can send messages directly to each other
+let receipt = broker.send(source_id, dest_id, envelope).await?;
 ```
 
 ### Hybrid Logical Clocks
@@ -213,16 +148,15 @@ let options = LaunchOptions::default()
 HLC provides causal ordering across distributed operations:
 
 ```rust
-let clock = HlcClock::new(1); // Node ID = 1
+let clock = HlcClock::new(node_id);
 
 let ts1 = clock.tick();
 let ts2 = clock.tick();
-assert!(ts1 < ts2); // Total ordering guaranteed
+assert!(ts1 < ts2);
 
-// Update from received message
-let remote_ts = HlcTimestamp::new(100, 5, 2);
-let updated = clock.update(&remote_ts)?;
-assert!(updated > remote_ts); // Causality preserved
+// Synchronize with remote timestamp
+let remote_ts = receive_timestamp();
+let synced = clock.update(&remote_ts)?;
 ```
 
 ### Pub/Sub Messaging
@@ -232,82 +166,135 @@ Topic-based messaging with wildcard support:
 ```rust
 let broker = PubSubBroker::new(PubSubConfig::default());
 
-// Subscribe with wildcards
-let sub = broker.subscribe(kernel_id, Topic::new("sensors/#"));
+// Subscribe with wildcards: * (single level), # (multi-level)
+broker.subscribe(kernel_id, Topic::new("sensors/+/temperature"));
+broker.subscribe(kernel_id, Topic::new("events/#"));
 
 // Publish
-broker.publish(
-    Topic::new("sensors/temperature"),
-    publisher_id,
-    envelope,
-    timestamp,
-)?;
+broker.publish(Topic::new("sensors/room1/temperature"), sender, envelope, timestamp)?;
+```
+
+### Proc Macros
+
+Define messages and kernels declaratively:
+
+```rust
+use ringkernel::prelude::*;
+
+#[derive(RingMessage)]
+#[message(type_id = 1)]
+struct ComputeRequest {
+    #[message(id)]
+    id: MessageId,
+    data: Vec<f32>,
+}
+
+#[derive(GpuType)]
+struct Matrix4x4 {
+    data: [f32; 16],
+}
+```
+
+## Examples
+
+The repository includes working examples:
+
+```bash
+# Basic kernel lifecycle
+cargo run -p ringkernel --example basic_hello_kernel
+
+# Kernel state management
+cargo run -p ringkernel --example kernel_states
+
+# Request-response patterns
+cargo run -p ringkernel --example request_response
+
+# Pub/sub messaging
+cargo run -p ringkernel --example pub_sub
+
+# Kernel-to-kernel messaging
+cargo run -p ringkernel --example kernel_to_kernel
+
+# WebGPU backend
+cargo run -p ringkernel --example wgpu_hello --features wgpu
+
+# Batch data processing
+cargo run -p ringkernel --example batch_processor
+
+# Telemetry and monitoring
+cargo run -p ringkernel --example telemetry
 ```
 
 ## Crate Structure
 
 | Crate | Description |
 |-------|-------------|
-| `ringkernel` | Main facade crate (re-exports everything) |
-| `ringkernel-core` | Core traits, types, and runtime |
-| `ringkernel-derive` | Proc macros (in development) |
+| `ringkernel` | Main facade crate |
+| `ringkernel-core` | Core traits, types, HLC, K2K, PubSub |
+| `ringkernel-derive` | Proc macros (`#[derive(RingMessage)]`, `#[ring_kernel]`) |
 | `ringkernel-cpu` | CPU backend |
 | `ringkernel-cuda` | NVIDIA CUDA backend |
-| `ringkernel-metal` | Apple Metal backend (scaffolded) |
-| `ringkernel-wgpu` | WebGPU backend (scaffolded) |
+| `ringkernel-wgpu` | WebGPU backend |
 | `ringkernel-codegen` | GPU kernel code generation |
-| `ringkernel-ecosystem` | Integration utilities |
-| `ringkernel-audio-fft` | Example: GPU-accelerated audio processing |
 
-## Running Tests
+## Testing
 
 ```bash
-# Core tests (no GPU required)
-cargo test --workspace --exclude ringkernel-cuda
+# Run all tests (202 tests)
+cargo test --workspace
 
-# With CUDA backend
-cargo test --features cuda -p ringkernel-cuda
+# CUDA backend tests (requires NVIDIA GPU)
+cargo test -p ringkernel-cuda --test gpu_execution_verify
 
-# GPU execution verification (requires NVIDIA GPU)
-cargo test --features cuda -p ringkernel-cuda --test gpu_execution_verify
+# WebGPU backend tests (requires GPU)
+cargo test -p ringkernel-wgpu --features wgpu-tests -- --ignored
 
 # Benchmarks
 cargo bench --package ringkernel
 ```
 
+## Performance
+
+Benchmarked on NVIDIA hardware:
+
+- Message queue throughput: ~75M operations/sec
+- Host-to-device bandwidth: ~7.6 GB/s (PCIe 4.0)
+- HLC timestamp generation: <10ns per tick
+
+Performance varies significantly by hardware and workload.
+
 ## Documentation
 
+Detailed documentation is available in the `docs/` directory:
+
 - [Architecture Overview](docs/01-architecture-overview.md)
-- [Crate Structure](docs/02-crate-structure.md)
 - [Core Abstractions](docs/03-core-abstractions.md)
 - [Memory Management](docs/04-memory-management.md)
 - [GPU Backends](docs/05-gpu-backends.md)
-- [Serialization](docs/06-serialization.md)
-- [Proc Macros](docs/07-proc-macros.md)
-- [Runtime](docs/08-runtime.md)
-- [Testing](docs/09-testing.md)
-- [Performance](docs/10-performance.md)
-- [Ecosystem Integration](docs/11-ecosystem.md)
+
+## Known Limitations
+
+- Metal backend is not yet implemented
+- Custom GPU kernel code generation is in development
+- WebGPU lacks 64-bit atomics (WGSL limitation)
+- Persistent kernel mode requires CUDA compute capability 7.0+
 
 ## License
 
 Licensed under either of:
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
 
 at your option.
 
 ## Contributing
 
-Contributions are welcome! Areas where help is needed:
+Contributions welcome. Priority areas:
 
 - Metal backend implementation
-- WebGPU backend implementation
 - Additional examples and documentation
 - Performance optimization
-- Testing on different hardware
+- Testing on diverse hardware
 
-## Acknowledgments
-
-This project is a Rust port of [DotCompute](https://github.com/dotcompute) Ring Kernel system. Thanks to the DotCompute team for the original design and architecture.
+Please open an issue to discuss significant changes before submitting PRs.

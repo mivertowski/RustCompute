@@ -179,8 +179,9 @@ pub fn derive_ring_message(input: TokenStream) -> TokenStream {
             }
 
             fn serialize(&self) -> Vec<u8> {
-                // Use rkyv for serialization
-                ::rkyv::to_bytes::<_, 256>(self)
+                // Use rkyv for serialization with a 4KB scratch buffer
+                // For larger payloads, rkyv will allocate as needed
+                ::rkyv::to_bytes::<_, 4096>(self)
                     .map(|v| v.to_vec())
                     .unwrap_or_default()
             }
@@ -189,6 +190,7 @@ pub fn derive_ring_message(input: TokenStream) -> TokenStream {
             where
                 Self: Sized,
             {
+                use ::rkyv::Deserialize as _;
                 let archived = unsafe { ::rkyv::archived_root::<Self>(bytes) };
                 let deserialized: Self = archived.deserialize(&mut ::rkyv::Infallible)
                     .map_err(|_| ::ringkernel_core::error::RingKernelError::DeserializationError(
@@ -222,7 +224,6 @@ struct RingKernelArgs {
     block_size: Option<u32>,
     /// Target kernels this kernel publishes to.
     #[darling(default)]
-    #[allow(dead_code)]
     publishes_to: Option<String>,
 }
 
@@ -301,6 +302,13 @@ pub fn ring_kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
     let grid_size = args.grid_size.unwrap_or(1);
     let block_size = args.block_size.unwrap_or(256);
 
+    // Parse publishes_to into a list of target kernel IDs
+    let publishes_to_targets: Vec<String> = args
+        .publishes_to
+        .as_ref()
+        .map(|s| s.split(',').map(|t| t.trim().to_string()).collect())
+        .unwrap_or_default();
+
     // Generate registration struct name
     let registration_name = format_ident!(
         "__RINGKERNEL_REGISTRATION_{}",
@@ -351,6 +359,7 @@ pub fn ring_kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
             mode: #mode_expr,
             grid_size: #grid_size,
             block_size: #block_size,
+            publishes_to: &[#(#publishes_to_targets),*],
         };
     };
 

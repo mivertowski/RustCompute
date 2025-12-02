@@ -204,14 +204,15 @@ pub struct WgpuMessageQueue {
     /// Headers buffer.
     headers: WgpuBuffer,
     /// Payloads buffer.
-    #[allow(dead_code)]
     payloads: WgpuBuffer,
     /// Queue capacity.
-    #[allow(dead_code)]
     capacity: usize,
     /// Max payload size.
-    #[allow(dead_code)]
     max_payload_size: usize,
+    /// Current head index (for reading).
+    head: std::sync::atomic::AtomicU32,
+    /// Current tail index (for writing).
+    tail: std::sync::atomic::AtomicU32,
 }
 
 impl WgpuMessageQueue {
@@ -225,12 +226,139 @@ impl WgpuMessageQueue {
             payloads: WgpuBuffer::new(adapter, payload_size, Some("Message Payloads")),
             capacity,
             max_payload_size,
+            head: std::sync::atomic::AtomicU32::new(0),
+            tail: std::sync::atomic::AtomicU32::new(0),
         }
     }
 
     /// Get headers binding.
     pub fn headers_binding(&self) -> wgpu::BindingResource<'_> {
         self.headers.as_entire_binding()
+    }
+
+    /// Get payloads binding.
+    pub fn payloads_binding(&self) -> wgpu::BindingResource<'_> {
+        self.payloads.as_entire_binding()
+    }
+
+    /// Get queue capacity.
+    #[allow(dead_code)]
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// Get current queue size.
+    pub fn len(&self) -> usize {
+        let head = self.head.load(std::sync::atomic::Ordering::Acquire);
+        let tail = self.tail.load(std::sync::atomic::Ordering::Acquire);
+        if tail >= head {
+            (tail - head) as usize
+        } else {
+            self.capacity - (head - tail) as usize
+        }
+    }
+
+    /// Check if queue is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Check if queue is full.
+    pub fn is_full(&self) -> bool {
+        self.len() >= self.capacity - 1
+    }
+
+    /// Enqueue a message envelope.
+    ///
+    /// This writes the header and payload to GPU buffers.
+    pub fn enqueue(&self, envelope: &ringkernel_core::message::MessageEnvelope) -> Result<()> {
+        if self.is_full() {
+            return Err(RingKernelError::QueueFull {
+                capacity: self.capacity,
+            });
+        }
+
+        let tail = self.tail.load(std::sync::atomic::Ordering::Acquire) as usize;
+
+        // Write header at the appropriate offset
+        let header_offset = tail * std::mem::size_of::<MessageHeader>();
+        let header_bytes = envelope.header.as_bytes();
+
+        // Create a write buffer for header
+        let mut header_data = vec![0u8; std::mem::size_of::<MessageHeader>()];
+        header_data[..header_bytes.len()].copy_from_slice(header_bytes);
+
+        // Write to GPU - we need to write to the specific offset
+        // For now, we write the entire header region (this could be optimized)
+        let mut all_headers = vec![0u8; self.headers.size()];
+        self.headers.copy_to_host(&mut all_headers)?;
+        all_headers[header_offset..header_offset + header_data.len()].copy_from_slice(&header_data);
+        self.headers.copy_from_host(&all_headers)?;
+
+        // Write payload at the appropriate offset
+        if !envelope.payload.is_empty() {
+            let payload_offset = tail * self.max_payload_size;
+            let payload_len = envelope.payload.len().min(self.max_payload_size);
+
+            let mut all_payloads = vec![0u8; self.payloads.size()];
+            self.payloads.copy_to_host(&mut all_payloads)?;
+            all_payloads[payload_offset..payload_offset + payload_len]
+                .copy_from_slice(&envelope.payload[..payload_len]);
+            self.payloads.copy_from_host(&all_payloads)?;
+        }
+
+        // Update tail index
+        let new_tail = ((tail + 1) % self.capacity) as u32;
+        self.tail.store(new_tail, std::sync::atomic::Ordering::Release);
+
+        Ok(())
+    }
+
+    /// Dequeue a message envelope.
+    ///
+    /// This reads the header and payload from GPU buffers.
+    pub fn dequeue(&self) -> Result<ringkernel_core::message::MessageEnvelope> {
+        if self.is_empty() {
+            return Err(RingKernelError::QueueEmpty);
+        }
+
+        let head = self.head.load(std::sync::atomic::Ordering::Acquire) as usize;
+
+        // Read header at the appropriate offset
+        let header_offset = head * std::mem::size_of::<MessageHeader>();
+        let mut all_headers = vec![0u8; self.headers.size()];
+        self.headers.copy_to_host(&mut all_headers)?;
+
+        let header_bytes = &all_headers[header_offset..header_offset + std::mem::size_of::<MessageHeader>()];
+        let header = MessageHeader::read_from(header_bytes)
+            .ok_or_else(|| RingKernelError::DeserializationError("Failed to read header".to_string()))?;
+
+        // Read payload
+        let payload_offset = head * self.max_payload_size;
+        let payload_size = (header.payload_size as usize).min(self.max_payload_size);
+
+        let payload = if payload_size > 0 {
+            let mut all_payloads = vec![0u8; self.payloads.size()];
+            self.payloads.copy_to_host(&mut all_payloads)?;
+            all_payloads[payload_offset..payload_offset + payload_size].to_vec()
+        } else {
+            Vec::new()
+        };
+
+        // Update head index
+        let new_head = ((head + 1) % self.capacity) as u32;
+        self.head.store(new_head, std::sync::atomic::Ordering::Release);
+
+        Ok(ringkernel_core::message::MessageEnvelope { header, payload })
+    }
+
+    /// Try to dequeue without blocking (returns None if empty).
+    pub fn try_dequeue(&self) -> Option<ringkernel_core::message::MessageEnvelope> {
+        if self.is_empty() {
+            None
+        } else {
+            self.dequeue().ok()
+        }
     }
 }
 

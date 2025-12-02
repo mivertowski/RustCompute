@@ -49,6 +49,7 @@ criterion = { workspace = true }
 tracing-subscriber = { workspace = true }
 rkyv = { workspace = true }
 zerocopy = { workspace = true }
+bytemuck = { workspace = true }
 # For CUDA tests - need explicit dep for test imports even though it's an optional dep
 ringkernel-cuda = { workspace = true }
 
@@ -156,6 +157,10 @@ path = "../../examples/messaging/request_response.rs"
 name = "pub_sub"
 path = "../../examples/messaging/pub_sub.rs"
 
+[[example]]
+name = "kernel_to_kernel"
+path = "../../examples/messaging/kernel_to_kernel.rs"
+
 # Web API examples
 [[example]]
 name = "axum_api"
@@ -188,3 +193,14 @@ path = "../../examples/ecosystem/ml_pipeline.rs"
 [[example]]
 name = "multi_gpu"
 path = "../../examples/advanced/multi_gpu.rs"
+
+# Macro examples
+[[example]]
+name = "derive_example"
+path = "../../examples/macros/derive_example.rs"
+
+# WebGPU examples
+[[example]]
+name = "wgpu_hello"
+path = "../../examples/basic/wgpu_hello.rs"
+required-features = ["wgpu"]

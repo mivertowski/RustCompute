@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use parking_lot::RwLock;
 
 use ringkernel_core::error::{Result, RingKernelError};
+use ringkernel_core::k2k::{K2KBroker, K2KBuilder, K2KConfig};
 use ringkernel_core::runtime::{
     Backend, KernelHandle, KernelHandleInner, KernelId, LaunchOptions, RingKernelRuntime,
     RuntimeMetrics,
@@ -35,6 +36,8 @@ pub struct CudaRuntime {
     /// Runtime start time.
     #[allow(dead_code)]
     start_time: Instant,
+    /// K2K broker for kernel-to-kernel messaging.
+    k2k_broker: Option<Arc<K2KBroker>>,
 }
 
 impl CudaRuntime {
@@ -45,6 +48,11 @@ impl CudaRuntime {
 
     /// Create a runtime with a specific device.
     pub async fn with_device(device_index: usize) -> Result<Self> {
+        Self::with_config(device_index, true).await
+    }
+
+    /// Create a runtime with configuration options.
+    pub async fn with_config(device_index: usize, enable_k2k: bool) -> Result<Self> {
         let device = CudaDevice::new(device_index)?;
 
         // Check compute capability
@@ -59,7 +67,50 @@ impl CudaRuntime {
         }
 
         tracing::info!(
-            "Initialized CUDA runtime on device {} ({}) with CC {}.{}",
+            "Initialized CUDA runtime on device {} ({}) with CC {}.{}, k2k={}",
+            device_index,
+            device.name(),
+            major,
+            minor,
+            enable_k2k
+        );
+
+        let memory_pool = CudaMemoryPool::new(device.clone());
+
+        let k2k_broker = if enable_k2k {
+            Some(K2KBuilder::new().build())
+        } else {
+            None
+        };
+
+        Ok(Self {
+            device,
+            memory_pool: RwLock::new(memory_pool),
+            kernels: RwLock::new(HashMap::new()),
+            kernel_counter: AtomicU64::new(0),
+            total_launched: AtomicU64::new(0),
+            start_time: Instant::now(),
+            k2k_broker,
+        })
+    }
+
+    /// Create a runtime with custom K2K configuration.
+    pub async fn with_k2k_config(device_index: usize, k2k_config: K2KConfig) -> Result<Self> {
+        let device = CudaDevice::new(device_index)?;
+
+        // Check compute capability
+        let (major, minor) = device.compute_capability();
+        if major < 7 {
+            tracing::warn!(
+                "CUDA device {} has compute capability {}.{}, persistent kernels require 7.0+",
+                device_index,
+                major,
+                minor
+            );
+        }
+
+        tracing::info!(
+            "Initialized CUDA runtime with custom K2K config on device {} ({}) with CC {}.{}",
             device_index,
             device.name(),
             major,
@@ -75,6 +126,7 @@ impl CudaRuntime {
             kernel_counter: AtomicU64::new(0),
             total_launched: AtomicU64::new(0),
             start_time: Instant::now(),
+            k2k_broker: Some(K2KBroker::new(k2k_config)),
         })
     }
 
@@ -88,6 +140,16 @@ impl CudaRuntime {
     #[allow(dead_code)]
     pub fn supports_persistent_kernels(&self) -> bool {
         self.device.supports_persistent_kernels()
+    }
+
+    /// Check if K2K messaging is enabled.
+    pub fn is_k2k_enabled(&self) -> bool {
+        self.k2k_broker.is_some()
+    }
+
+    /// Get the K2K broker (if enabled).
+    pub fn k2k_broker(&self) -> Option<&Arc<K2KBroker>> {
+        self.k2k_broker.as_ref()
     }
 }
 
@@ -114,6 +176,10 @@ impl RingKernelRuntime for CudaRuntime {
 
         let id_num = self.kernel_counter.fetch_add(1, Ordering::Relaxed);
 
+        // Register with K2K broker if enabled
+        // Note: CUDA K2K is host-mediated - messages go through host, not GPU-direct
+        let _k2k_endpoint = self.k2k_broker.as_ref().map(|broker| broker.register(id.clone()));
+
         // Create kernel
         let mut kernel = CudaKernel::new(kernel_id, id_num, self.device.clone(), options)?;
 
@@ -124,7 +190,11 @@ impl RingKernelRuntime for CudaRuntime {
         self.kernels.write().insert(id.clone(), Arc::clone(&kernel));
         self.total_launched.fetch_add(1, Ordering::Relaxed);
 
-        tracing::info!(kernel_id = %kernel_id, "Launched CUDA kernel");
+        tracing::info!(
+            kernel_id = %kernel_id,
+            k2k = %self.is_k2k_enabled(),
+            "Launched CUDA kernel"
+        );
 
         Ok(KernelHandle::new(id, kernel))
     }
@@ -157,12 +227,16 @@ impl RingKernelRuntime for CudaRuntime {
         // Terminate all kernels
         let kernel_ids: Vec<_> = self.kernels.read().keys().cloned().collect();
 
-        for id in kernel_ids {
-            let kernel = self.kernels.read().get(&id).cloned();
+        for id in kernel_ids.iter() {
+            let kernel = self.kernels.read().get(id).cloned();
             if let Some(kernel) = kernel {
                 if let Err(e) = kernel.terminate().await {
                     tracing::warn!(kernel_id = %id, error = %e, "Failed to terminate kernel");
                 }
+            }
+            // Unregister from K2K broker
+            if let Some(broker) = &self.k2k_broker {
+                broker.unregister(id);
             }
         }
 

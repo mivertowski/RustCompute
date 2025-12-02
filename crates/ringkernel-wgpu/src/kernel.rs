@@ -265,23 +265,45 @@ impl KernelHandleInner for WgpuKernel {
     }
 
     async fn send_envelope(&self, envelope: MessageEnvelope) -> Result<()> {
-        // TODO: Copy envelope to input queue on GPU
-        // For WebGPU, this would involve:
-        // 1. Write header to headers buffer
-        // 2. Write payload to payloads buffer
-        // 3. Update tail index in control block
-        // 4. Dispatch compute shader
+        // Check kernel is active
+        let state = *self.state.read();
+        if state != KernelState::Active {
+            return Err(RingKernelError::KernelNotActive(self.id.to_string()));
+        }
 
-        let _ = envelope; // Suppress unused warning for now
+        // Enqueue to input queue
+        self.input_queue.enqueue(&envelope)?;
+
         self.message_counter.fetch_add(1, Ordering::Relaxed);
+
+        // For event-driven mode, dispatch compute shader after each message
+        if self.options.mode == KernelMode::EventDriven {
+            if let (Some(_pipeline), Some(_bind_group)) = (&self.pipeline, &self.bind_group) {
+                // Dispatch one workgroup to process the message
+                self.dispatch(1)?;
+            }
+        }
 
         Ok(())
     }
 
     async fn receive(&self) -> Result<MessageEnvelope> {
-        // TODO: Read from output queue - for now just wait
-        self.terminate_notify.notified().await;
-        Err(RingKernelError::QueueEmpty)
+        // Poll for available messages
+        loop {
+            // Try to dequeue from output queue
+            if let Some(envelope) = self.output_queue.try_dequeue() {
+                return Ok(envelope);
+            }
+
+            // Check if terminated
+            if *self.state.read() == KernelState::Terminated {
+                return Err(RingKernelError::QueueEmpty);
+            }
+
+            // Poll GPU and yield
+            self.adapter.poll(wgpu::Maintain::Poll);
+            tokio::task::yield_now().await;
+        }
     }
 
     async fn receive_timeout(&self, timeout: Duration) -> Result<MessageEnvelope> {
@@ -293,17 +315,37 @@ impl KernelHandleInner for WgpuKernel {
     }
 
     fn try_receive(&self) -> Result<MessageEnvelope> {
-        // TODO: Non-blocking read from output queue
-        Err(RingKernelError::QueueEmpty)
+        // Non-blocking read from output queue
+        self.output_queue.try_dequeue().ok_or(RingKernelError::QueueEmpty)
     }
 
     async fn receive_correlated(
         &self,
-        _correlation: CorrelationId,
+        correlation: CorrelationId,
         timeout: Duration,
     ) -> Result<MessageEnvelope> {
-        // TODO: Implement correlation tracking
-        self.receive_timeout(timeout).await
+        // Simple correlation implementation - receive until we find matching correlation
+        let start = Instant::now();
+        loop {
+            match self.try_receive() {
+                Ok(envelope) => {
+                    if envelope.header.correlation_id == correlation {
+                        return Ok(envelope);
+                    }
+                    // Not the right message, continue waiting
+                }
+                Err(RingKernelError::QueueEmpty) => {
+                    // Check timeout
+                    if start.elapsed() >= timeout {
+                        return Err(RingKernelError::Timeout(timeout));
+                    }
+                    // Poll GPU and yield
+                    self.adapter.poll(wgpu::Maintain::Poll);
+                    tokio::task::yield_now().await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     async fn wait(&self) -> Result<()> {

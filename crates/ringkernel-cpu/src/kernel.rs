@@ -11,6 +11,7 @@ use tokio::sync::{mpsc, Notify};
 use ringkernel_core::control::ControlBlock;
 use ringkernel_core::error::{Result, RingKernelError};
 use ringkernel_core::hlc::HlcClock;
+use ringkernel_core::k2k::{DeliveryReceipt, K2KEndpoint, K2KMessage};
 use ringkernel_core::message::{CorrelationId, MessageEnvelope};
 use ringkernel_core::queue::{BoundedQueue, MessageQueue};
 use ringkernel_core::runtime::{
@@ -46,11 +47,23 @@ pub struct CpuKernel {
     launched_at: Instant,
     /// Message counter.
     message_counter: AtomicU64,
+    /// K2K endpoint for kernel-to-kernel messaging.
+    k2k_endpoint: Mutex<Option<K2KEndpoint>>,
 }
 
 impl CpuKernel {
     /// Create a new CPU kernel.
     pub fn new(id: KernelId, options: LaunchOptions, node_id: u64) -> Self {
+        Self::new_with_k2k(id, options, node_id, None)
+    }
+
+    /// Create a new CPU kernel with optional K2K endpoint.
+    pub fn new_with_k2k(
+        id: KernelId,
+        options: LaunchOptions,
+        node_id: u64,
+        k2k_endpoint: Option<K2KEndpoint>,
+    ) -> Self {
         static KERNEL_COUNTER: AtomicU64 = AtomicU64::new(1);
         let id_num = KERNEL_COUNTER.fetch_add(1, Ordering::Relaxed);
 
@@ -74,6 +87,7 @@ impl CpuKernel {
             terminate_notify: Notify::new(),
             launched_at: Instant::now(),
             message_counter: AtomicU64::new(0),
+            k2k_endpoint: Mutex::new(k2k_endpoint),
         }
     }
 
@@ -114,6 +128,38 @@ impl CpuKernel {
             self.id.clone(),
             Arc::clone(self) as Arc<dyn KernelHandleInner>,
         )
+    }
+
+    /// Check if K2K messaging is enabled for this kernel.
+    pub fn is_k2k_enabled(&self) -> bool {
+        self.k2k_endpoint.lock().is_some()
+    }
+
+    /// Send a K2K message to another kernel.
+    pub async fn k2k_send(
+        &self,
+        destination: KernelId,
+        envelope: MessageEnvelope,
+    ) -> Result<DeliveryReceipt> {
+        let mut endpoint_guard = self.k2k_endpoint.lock();
+        let endpoint = endpoint_guard
+            .as_mut()
+            .ok_or_else(|| RingKernelError::K2KError("K2K not enabled for this kernel".to_string()))?;
+        endpoint.send(destination, envelope).await
+    }
+
+    /// Try to receive a K2K message (non-blocking).
+    pub fn k2k_try_recv(&self) -> Option<K2KMessage> {
+        let mut endpoint_guard = self.k2k_endpoint.lock();
+        endpoint_guard.as_mut()?.try_receive()
+    }
+
+    /// Receive a K2K message (blocking).
+    pub async fn k2k_recv(&self) -> Option<K2KMessage> {
+        // We need to take the endpoint out temporarily to use the async receiver
+        let mut endpoint_guard = self.k2k_endpoint.lock();
+        let endpoint = endpoint_guard.as_mut()?;
+        endpoint.receive().await
     }
 }
 

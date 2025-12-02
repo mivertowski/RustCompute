@@ -9,6 +9,7 @@ use parking_lot::RwLock;
 use tracing::{debug, info};
 
 use ringkernel_core::error::{Result, RingKernelError};
+use ringkernel_core::k2k::{K2KBroker, K2KBuilder, K2KConfig};
 use ringkernel_core::runtime::{
     Backend, KernelHandle, KernelHandleInner, KernelId, LaunchOptions, RingKernelRuntime,
     RuntimeMetrics,
@@ -33,6 +34,8 @@ pub struct CpuRuntime {
     messages_received: AtomicU64,
     /// Shutdown flag.
     shutdown: RwLock<bool>,
+    /// K2K broker for kernel-to-kernel messaging.
+    k2k_broker: Option<Arc<K2KBroker>>,
 }
 
 impl CpuRuntime {
@@ -43,7 +46,21 @@ impl CpuRuntime {
 
     /// Create a CPU runtime with specific node ID.
     pub async fn with_node_id(node_id: u64) -> Result<Self> {
-        info!("Initializing CPU runtime (node_id={})", node_id);
+        Self::with_config(node_id, true).await
+    }
+
+    /// Create a CPU runtime with configuration options.
+    pub async fn with_config(node_id: u64, enable_k2k: bool) -> Result<Self> {
+        info!(
+            "Initializing CPU runtime (node_id={}, k2k={})",
+            node_id, enable_k2k
+        );
+
+        let k2k_broker = if enable_k2k {
+            Some(K2KBuilder::new().build())
+        } else {
+            None
+        };
 
         Ok(Self {
             node_id,
@@ -52,6 +69,22 @@ impl CpuRuntime {
             messages_sent: AtomicU64::new(0),
             messages_received: AtomicU64::new(0),
             shutdown: RwLock::new(false),
+            k2k_broker,
+        })
+    }
+
+    /// Create a CPU runtime with custom K2K configuration.
+    pub async fn with_k2k_config(node_id: u64, k2k_config: K2KConfig) -> Result<Self> {
+        info!("Initializing CPU runtime with custom K2K config (node_id={})", node_id);
+
+        Ok(Self {
+            node_id,
+            kernels: RwLock::new(HashMap::new()),
+            total_launched: AtomicU64::new(0),
+            messages_sent: AtomicU64::new(0),
+            messages_received: AtomicU64::new(0),
+            shutdown: RwLock::new(false),
+            k2k_broker: Some(K2KBroker::new(k2k_config)),
         })
     }
 
@@ -63,6 +96,16 @@ impl CpuRuntime {
     /// Check if runtime is shut down.
     pub fn is_shutdown(&self) -> bool {
         *self.shutdown.read()
+    }
+
+    /// Check if K2K messaging is enabled.
+    pub fn is_k2k_enabled(&self) -> bool {
+        self.k2k_broker.is_some()
+    }
+
+    /// Get the K2K broker (if enabled).
+    pub fn k2k_broker(&self) -> Option<&Arc<K2KBroker>> {
+        self.k2k_broker.as_ref()
     }
 }
 
@@ -97,12 +140,23 @@ impl RingKernelRuntime for CpuRuntime {
         }
 
         debug!(
-            "Launching CPU kernel '{}' (grid={}, block={})",
-            kernel_id, options.grid_size, options.block_size
+            "Launching CPU kernel '{}' (grid={}, block={}, k2k={})",
+            kernel_id,
+            options.grid_size,
+            options.block_size,
+            self.is_k2k_enabled()
         );
 
-        // Create kernel
-        let kernel = Arc::new(CpuKernel::new(id.clone(), options.clone(), self.node_id));
+        // Register with K2K broker if enabled
+        let k2k_endpoint = self.k2k_broker.as_ref().map(|broker| broker.register(id.clone()));
+
+        // Create kernel with K2K endpoint
+        let kernel = Arc::new(CpuKernel::new_with_k2k(
+            id.clone(),
+            options.clone(),
+            self.node_id,
+            k2k_endpoint,
+        ));
         kernel.launch();
 
         // Auto-activate if requested
@@ -159,11 +213,15 @@ impl RingKernelRuntime for CpuRuntime {
             kernels.keys().cloned().collect()
         };
 
-        for id in kernel_ids {
-            if let Some(kernel) = self.get_kernel(&id) {
+        for id in kernel_ids.iter() {
+            if let Some(kernel) = self.get_kernel(id) {
                 if let Err(e) = kernel.terminate().await {
                     debug!("Error terminating kernel '{}': {}", id, e);
                 }
+            }
+            // Unregister from K2K broker
+            if let Some(broker) = &self.k2k_broker {
+                broker.unregister(id);
             }
         }
 

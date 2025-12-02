@@ -4,23 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-RingKernel (RustCompute) is a GPU-native persistent actor model framework for Rust - a port of DotCompute's Ring Kernel system. It enables GPU-accelerated actor systems with persistent kernels, lock-free message passing, and hybrid logical clocks (HLC) for causal ordering.
-
-## Current Status
-
-**Working today:**
-- Runtime creation and kernel lifecycle management
-- CPU backend (fully functional)
-- CUDA backend (verified GPU execution, ~75M elements/sec, 7.6 GB/s HtoD)
-- Message passing infrastructure (queues, serialization, HLC timestamps)
-- Pub/Sub messaging with topic wildcards
-- Telemetry and metrics collection
-- 11 working examples demonstrating real-world patterns
-
-**In progress:**
-- Metal and WebGPU backends (scaffolded, API defined)
-- Proc macro code generation for custom kernels
-- K2K (kernel-to-kernel) direct messaging
+RingKernel is a GPU-native persistent actor model framework for Rust. It enables GPU-accelerated actor systems with persistent kernels, lock-free message passing, and hybrid logical clocks (HLC) for causal ordering.
 
 ## Build Commands
 
@@ -28,27 +12,32 @@ RingKernel (RustCompute) is a GPU-native persistent actor model framework for Ru
 # Build entire workspace
 cargo build --workspace
 
-# Build with CUDA backend
+# Build with specific GPU backend
 cargo build --workspace --features cuda
+cargo build --workspace --features wgpu
 
-# Run all tests (no GPU required)
-cargo test --workspace --exclude ringkernel-cuda
+# Run all tests
+cargo test --workspace
 
-# Run CUDA tests (requires NVIDIA GPU)
-cargo test --features cuda -p ringkernel-cuda
+# Run tests for a specific crate
+cargo test -p ringkernel-core
 
-# Verify GPU execution
-cargo test --features cuda -p ringkernel-cuda --test gpu_execution_verify
+# Run a single test
+cargo test -p ringkernel-core test_name
+
+# Run CUDA GPU execution tests (requires NVIDIA GPU)
+cargo test -p ringkernel-cuda --test gpu_execution_verify
+
+# Run WebGPU tests (requires GPU)
+cargo test -p ringkernel-wgpu --features wgpu-tests -- --ignored
 
 # Run benchmarks
 cargo bench --package ringkernel
 
 # Run examples
-cargo run -p ringkernel --example basic_hello_kernel
-cargo run -p ringkernel --example request_response
-cargo run -p ringkernel --example pub_sub
-cargo run -p ringkernel --example batch_processor
-cargo run -p ringkernel --example telemetry
+cargo run -p ringkernel --example hello_kernel
+cargo run -p ringkernel --example kernel_to_kernel
+cargo run -p ringkernel --example wgpu_hello --features wgpu
 ```
 
 ## Architecture
@@ -57,49 +46,121 @@ cargo run -p ringkernel --example telemetry
 
 The project is a Cargo workspace with these crates:
 
-| Crate | Status | Description |
-|-------|--------|-------------|
-| `ringkernel` | Working | Main facade crate (re-exports everything) |
-| `ringkernel-core` | Working | Core types: RingKernel, KernelHandle, HLC, PubSub, Telemetry |
-| `ringkernel-cpu` | Working | CPU backend (always available) |
-| `ringkernel-cuda` | Working | NVIDIA CUDA backend with PTX kernels |
-| `ringkernel-metal` | Scaffolded | Apple Metal backend |
-| `ringkernel-wgpu` | Scaffolded | WebGPU cross-platform backend |
-| `ringkernel-derive` | In Development | Proc macros for message/kernel definitions |
-| `ringkernel-codegen` | In Development | GPU kernel code generation |
-| `ringkernel-ecosystem` | Working | Integration utilities |
-| `ringkernel-audio-fft` | Working | Example: GPU audio FFT processing |
+- **`ringkernel`** - Main facade crate that re-exports everything; entry point for users
+- **`ringkernel-core`** - Core traits and types (RingMessage, MessageQueue, HlcTimestamp, ControlBlock, RingContext, RingKernelRuntime, K2K messaging, PubSub)
+- **`ringkernel-derive`** - Proc macros: `#[derive(RingMessage)]`, `#[ring_kernel]`, `#[derive(GpuType)]`
+- **`ringkernel-cpu`** - CPU backend implementation (always available, used for testing/fallback)
+- **`ringkernel-cuda`** - NVIDIA CUDA backend (feature-gated)
+- **`ringkernel-wgpu`** - WebGPU cross-platform backend (feature-gated)
+- **`ringkernel-metal`** - Apple Metal backend (feature-gated, macOS only, scaffolded)
+- **`ringkernel-codegen`** - GPU kernel code generation
+- **`ringkernel-ecosystem`** - Integration utilities
+- **`ringkernel-audio-fft`** - Example application: GPU-accelerated audio FFT processing
 
-### Core Abstractions (ringkernel-core)
+### Core Abstractions (in ringkernel-core)
 
-- **`RingKernel`** - Runtime builder and manager
-- **`KernelHandle`** - Handle to manage kernel lifecycle
-  - `state()`, `is_active()`, `is_terminated()`
-  - `activate()`, `deactivate()`, `suspend()`, `resume()`, `terminate()`
-- **`LaunchOptions`** - Kernel configuration builder
-  - `with_queue_capacity(n)` - Queue size (must be power of 2)
-  - `with_grid_size(n)`, `with_block_size(n)` - GPU dimensions
-  - `with_priority(p)` - Scheduling hint
-  - `without_auto_activate()` - Manual activation control
+- **`RingMessage`** trait - Messages serializable via rkyv for zero-copy GPU transfer
+- **`MessageQueue`** - Lock-free ring buffer for host↔GPU message passing
+- **`RingKernelRuntime`** trait - Backend-agnostic runtime interface
+- **`KernelHandle`** - Handle to manage kernel lifecycle (launch, activate, terminate)
 - **`HlcTimestamp`/`HlcClock`** - Hybrid logical clocks for causal ordering
-- **`PubSubBroker`** - Topic-based messaging with wildcards (`*`, `#`)
-- **`TelemetryPipeline`/`MetricsCollector`** - Real-time metrics and alerts
-- **`priority`** module - Constants: `LOW`, `NORMAL`, `HIGH`, `CRITICAL`
+- **`ControlBlock`** - 128-byte GPU-resident structure managing kernel state
+- **`RingContext`** - GPU intrinsics facade passed to kernel handlers
+- **`K2KBroker`/`K2KEndpoint`** - Kernel-to-kernel direct messaging
+- **`PubSubBroker`** - Topic-based publish/subscribe with wildcards
 
 ### Backend System
 
-Backends implement the runtime traits. Selection via `Backend` enum:
-- `Backend::Auto` - Tries CUDA → Metal → WebGPU → CPU
-- `Backend::Cpu` - Always available
-- `Backend::Cuda` - Requires NVIDIA GPU + CUDA toolkit
+Backends implement `RingKernelRuntime` trait. Selection via features:
+- `cpu` (default) - Always available
+- `cuda` - Requires NVIDIA GPU + CUDA toolkit
+- `wgpu` - Cross-platform via WebGPU (Vulkan, Metal, DX12)
+- `metal` - macOS/iOS only (scaffolded)
 
-### Important Patterns
+Auto-detection: `Backend::Auto` tries CUDA → Metal → WebGPU → CPU.
+
+### Proc Macros (ringkernel-derive)
+
+```rust
+// Message definition with field annotations
+#[derive(RingMessage)]
+#[message(type_id = 1)]  // optional explicit type ID
+struct MyMessage {
+    #[message(id)]          // MessageId field
+    id: MessageId,
+    #[message(correlation)] // optional correlation tracking
+    correlation: CorrelationId,
+    #[message(priority)]    // optional priority
+    priority: Priority,
+    payload: Vec<f32>,
+}
+
+// Kernel handler definition
+#[ring_kernel(id = "processor", mode = "persistent", block_size = 128)]
+async fn handle(ctx: &mut RingContext, msg: MyMessage) -> MyResponse { ... }
+
+// GPU-compatible types
+#[derive(GpuType)]
+struct Matrix4x4 {
+    data: [f32; 16],
+}
+```
+
+### K2K (Kernel-to-Kernel) Messaging
+
+Direct messaging between kernels without going through the host application:
+
+```rust
+// Runtime with K2K enabled (default)
+let runtime = CpuRuntime::new().await?;
+assert!(runtime.is_k2k_enabled());
+
+// Access the broker
+let broker = runtime.k2k_broker().unwrap();
+
+// Register kernels and send messages
+let endpoint = broker.register(kernel_id);
+endpoint.send(destination_id, envelope).await?;
+```
+
+### Serialization
+
+Uses rkyv for zero-copy serialization. Messages must derive `rkyv::Archive`, `rkyv::Serialize`, `rkyv::Deserialize`. The `RingMessage` derive macro generates serialization methods automatically.
+
+### Feature Flags
+
+Main crate (`ringkernel`) features:
+- `cpu` (default) - CPU backend
+- `cuda` - NVIDIA CUDA backend
+- `wgpu` - WebGPU cross-platform backend
+- `metal` - Apple Metal backend
+- `all-backends` - All GPU backends
+
+## Testing Patterns
+
+- Unit tests in each crate's `src/` using `#[cfg(test)]`
+- Integration tests use `#[tokio::test]` for async runtime
+- GPU tests use `#[ignore]` attribute and feature flags (`wgpu-tests`, `cuda`)
+- Property-based testing via `proptest` for queue/serialization invariants
+- Benchmarks in `crates/ringkernel/benches/` using Criterion
+
+### Test Count Summary
+
+202 tests across the workspace:
+- ringkernel-core: 65 tests
+- ringkernel-cpu: 11 tests
+- ringkernel-cuda: 6 GPU execution tests
+- ringkernel-derive: 14 macro tests
+- k2k_integration: 11 tests
+- control_block: 29 tests
+- hlc: 16 tests
+- ringkernel-audio-fft: 32 tests
+- Plus additional integration and doc tests
+
+## Important Patterns
 
 **Queue capacity must be power of 2:**
 ```rust
-// Wrong - will panic
-let options = LaunchOptions::default().with_queue_capacity(1000);
-
 // Correct
 let options = LaunchOptions::default().with_queue_capacity(1024);
 
@@ -129,28 +190,3 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // ...
 }
 ```
-
-## Examples
-
-11 working examples in `/examples/`:
-
-| Example | Command | Demonstrates |
-|---------|---------|--------------|
-| `basic_hello_kernel` | `cargo run -p ringkernel --example basic_hello_kernel` | Runtime, lifecycle |
-| `kernel_states` | `cargo run -p ringkernel --example kernel_states` | State machine |
-| `request_response` | `cargo run -p ringkernel --example request_response` | Correlation IDs, priorities |
-| `pub_sub` | `cargo run -p ringkernel --example pub_sub` | Topic wildcards, QoS |
-| `axum_api` | `cargo run -p ringkernel --example axum_api` | REST API |
-| `batch_processor` | `cargo run -p ringkernel --example batch_processor` | Data pipelines |
-| `telemetry` | `cargo run -p ringkernel --example telemetry` | Metrics, alerts |
-| `grpc_server` | `cargo run -p ringkernel --example grpc_server` | gRPC patterns |
-| `config_management` | `cargo run -p ringkernel --example config_management` | TOML, env vars |
-| `ml_pipeline` | `cargo run -p ringkernel --example ml_pipeline` | ML inference |
-| `multi_gpu` | `cargo run -p ringkernel --example multi_gpu` | Load balancing |
-
-## Testing Patterns
-
-- Unit tests in each crate's `src/` using `#[cfg(test)]`
-- Integration tests use `#[tokio::test]` for async runtime
-- GPU execution tests in `ringkernel-cuda/tests/gpu_execution_verify.rs`
-- Benchmarks in `crates/ringkernel/benches/` using Criterion

@@ -35,6 +35,9 @@ uuid = { workspace = true }
 cfg-if = { workspace = true }
 pin-project-lite = { workspace = true }
 
+# Proc macro support
+inventory = { workspace = true }
+
 [dev-dependencies]
 proptest = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "macros"] }

@@ -20,3 +20,6 @@ darling = { workspace = true }
 [dev-dependencies]
 ringkernel-core = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+rkyv = { workspace = true }
+bytemuck = { workspace = true }
+inventory = { workspace = true }

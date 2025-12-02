@@ -79,7 +79,7 @@ async fn demonstrate_basic_pubsub(broker: &Arc<PubSubBroker>) {
 
     // Subscribe to specific topics
     let mut sub1 = broker.subscribe(kernel1.clone(), Topic::new("events/user/login"));
-    let mut sub2 = broker.subscribe(kernel2.clone(), Topic::new("events/user/login"));
+    let sub2 = broker.subscribe(kernel2.clone(), Topic::new("events/user/login"));
 
     println!("  Subscription 1 ID: {}", sub1.id);
     println!("  Subscription 2 ID: {}", sub2.id);

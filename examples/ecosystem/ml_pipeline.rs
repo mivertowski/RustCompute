@@ -191,6 +191,7 @@ struct MLPipelineConfig {
     warmup_iterations: usize,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 enum Precision {
     Float16,
@@ -198,6 +199,7 @@ enum Precision {
     BFloat16,
 }
 
+#[allow(dead_code)]
 struct MockModel {
     num_parameters: usize,
     num_layers: usize,
@@ -228,6 +230,7 @@ impl MockModel {
     }
 }
 
+#[allow(dead_code)]
 struct PreprocessConfig {
     target_size: (usize, usize),
     normalize_mean: [f32; 3],
@@ -235,6 +238,7 @@ struct PreprocessConfig {
     color_mode: ColorMode,
 }
 
+#[allow(dead_code)]
 enum ColorMode {
     RGB,
     BGR,
@@ -264,12 +268,14 @@ impl ImagePreprocessor {
     }
 }
 
+#[allow(dead_code)]
 struct MockImage {
     width: usize,
     height: usize,
     channels: usize,
 }
 
+#[allow(dead_code)]
 struct Tensor {
     data: Vec<f32>,
     shape: Vec<usize>,
@@ -382,7 +388,7 @@ fn demonstrate_custom_kernels() {
 }
 
 fn run_performance_benchmarks(
-    config: &MLPipelineConfig,
+    _config: &MLPipelineConfig,
     model: &MockModel,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let batch_sizes = vec![1, 8, 16, 32, 64];

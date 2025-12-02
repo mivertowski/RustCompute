@@ -214,6 +214,7 @@ struct GrpcServerConfig {
     max_concurrent_streams: u32,
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 struct KernelInfo {
     name: String,
@@ -248,6 +249,7 @@ impl KernelRegistry {
     }
 }
 
+#[allow(dead_code)]
 struct GrpcRequest {
     id: String,
     kernel_id: String,
@@ -255,12 +257,14 @@ struct GrpcRequest {
     metadata: HashMap<String, String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 enum ResponseStatus {
     Success,
     Error(String),
 }
 
+#[allow(dead_code)]
 struct GrpcResponse {
     id: String,
     status: ResponseStatus,
@@ -268,6 +272,7 @@ struct GrpcResponse {
     latency: Duration,
 }
 
+#[allow(dead_code)]
 struct HealthStatus {
     status: ServerStatus,
     active_connections: u32,
@@ -275,6 +280,7 @@ struct HealthStatus {
     gpu_memory_mb: u64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 enum ServerStatus {
     Serving,
@@ -291,6 +297,7 @@ struct ServerMetrics {
     bytes_sent: u64,
 }
 
+#[allow(dead_code)]
 struct GpuGrpcServer {
     config: GrpcServerConfig,
     registry: KernelRegistry,
