@@ -295,19 +295,21 @@ jobs:
             let navLinks = '<div class="nav-links">';
             if (index > 0) {
               const prev = guides[index - 1];
-              navLinks += \`<a href="./${prev.file.replace('.md', '.html')}" class="nav-link"><span>Previous</span><strong>${prev.title}</strong></a>\`;
+              const prevHref = './' + prev.file.replace('.md', '.html');
+              navLinks += '<a href="' + prevHref + '" class="nav-link"><span>Previous</span><strong>' + prev.title + '</strong></a>';
             } else {
               navLinks += '<div></div>';
             }
             if (index < guides.length - 1) {
               const next = guides[index + 1];
-              navLinks += \`<a href="./${next.file.replace('.md', '.html')}" class="nav-link"><span>Next</span><strong>${next.title}</strong></a>\`;
+              const nextHref = './' + next.file.replace('.md', '.html');
+              navLinks += '<a href="' + nextHref + '" class="nav-link"><span>Next</span><strong>' + next.title + '</strong></a>';
             }
             navLinks += '</div>';
 
             const outputPath = path.join(outDir, guide.file.replace('.md', '.html'));
             fs.writeFileSync(outputPath, template(guide.title, content, navLinks));
-            console.log(\`Converted: ${guide.file} -> ${guide.file.replace('.md', '.html')}\`);
+            console.log('Converted: ' + guide.file + ' -> ' + guide.file.replace('.md', '.html'));
           });
           SCRIPT
 
