@@ -20,11 +20,15 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+authors = ["Michael Ivertowski <mivertowski@outlook.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/mivertowski/RustCompute"
+homepage = "https://github.com/mivertowski/RustCompute"
+documentation = "https://docs.rs/ringkernel"
 description = "GPU-native persistent actor model framework - Rust port of DotCompute Ring Kernel"
 keywords = ["gpu", "actor", "cuda", "wgpu", "distributed"]
 categories = ["concurrency", "asynchronous", "hardware-support"]
+rust-version = "1.75"
 
 [workspace.dependencies]
 # Core dependencies
@@ -66,17 +70,17 @@ cfg-if = "1.0"
 pin-project-lite = "0.2"
 futures = "0.3"
 
-# Internal crates
-ringkernel-core = { path = "crates/ringkernel-core" }
-ringkernel-derive = { path = "crates/ringkernel-derive" }
-ringkernel-cpu = { path = "crates/ringkernel-cpu" }
-ringkernel-cuda = { path = "crates/ringkernel-cuda" }
-ringkernel-wgpu = { path = "crates/ringkernel-wgpu" }
-ringkernel-metal = { path = "crates/ringkernel-metal" }
-ringkernel-codegen = { path = "crates/ringkernel-codegen" }
-ringkernel-cuda-codegen = { path = "crates/ringkernel-cuda-codegen" }
-ringkernel-wgpu-codegen = { path = "crates/ringkernel-wgpu-codegen" }
-ringkernel-wavesim = { path = "crates/ringkernel-wavesim" }
+# Internal crates - version must match workspace version for publishing
+ringkernel-core = { version = "0.1.0", path = "crates/ringkernel-core" }
+ringkernel-derive = { version = "0.1.0", path = "crates/ringkernel-derive" }
+ringkernel-cpu = { version = "0.1.0", path = "crates/ringkernel-cpu" }
+ringkernel-cuda = { version = "0.1.0", path = "crates/ringkernel-cuda" }
+ringkernel-wgpu = { version = "0.1.0", path = "crates/ringkernel-wgpu" }
+ringkernel-metal = { version = "0.1.0", path = "crates/ringkernel-metal" }
+ringkernel-codegen = { version = "0.1.0", path = "crates/ringkernel-codegen" }
+ringkernel-cuda-codegen = { version = "0.1.0", path = "crates/ringkernel-cuda-codegen" }
+ringkernel-wgpu-codegen = { version = "0.1.0", path = "crates/ringkernel-wgpu-codegen" }
+ringkernel-wavesim = { version = "0.1.0", path = "crates/ringkernel-wavesim" }
 
 [profile.release]
 lto = true

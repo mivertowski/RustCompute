@@ -2,14 +2,21 @@
 name = "ringkernel-wavesim"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "Interactive 2D wave propagation showcase for RingKernel"
+keywords = ["gpu", "simulation", "wave", "physics", "ringkernel"]
+categories = ["simulation", "graphics", "visualization"]
+readme = "README.md"
 
 [dependencies]
-ringkernel = { path = "../ringkernel" }
-ringkernel-core = { path = "../ringkernel-core" }
-ringkernel-derive = { path = "../ringkernel-derive" }
-ringkernel-cuda-codegen = { path = "../ringkernel-cuda-codegen", optional = true }
+ringkernel = { version = "0.1.0", path = "../ringkernel" }
+ringkernel-core = { version = "0.1.0", path = "../ringkernel-core" }
+ringkernel-derive = { version = "0.1.0", path = "../ringkernel-derive" }
+ringkernel-cuda-codegen = { version = "0.1.0", path = "../ringkernel-cuda-codegen", optional = true }
 inventory = { workspace = true }
 
 # GUI
@@ -33,7 +40,7 @@ wgpu = { workspace = true, optional = true }
 bytemuck = { version = "1.24", features = ["derive"], optional = true }
 
 # CUDA compute (optional, for NVIDIA GPU acceleration)
-ringkernel-cuda = { path = "../ringkernel-cuda", optional = true }
+ringkernel-cuda = { version = "0.1.0", path = "../ringkernel-cuda", optional = true }
 cudarc = { workspace = true, optional = true }
 
 # Code generation (optional, for DSL-to-CUDA transpilation)

@@ -2,11 +2,15 @@
 name = "ringkernel-core"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "Core traits and types for RingKernel GPU-native actor system"
 keywords = ["gpu", "actor", "kernel", "core"]
 categories = ["concurrency", "asynchronous"]
+readme = "README.md"
 
 [dependencies]
 # Async runtime

@@ -2,11 +2,15 @@
 name = "ringkernel-audio-fft"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "GPU-accelerated audio FFT processing with direct/ambience separation using RingKernel actors"
 keywords = ["gpu", "audio", "fft", "dsp", "ringkernel"]
 categories = ["multimedia::audio", "concurrency", "hardware-support"]
+readme = "README.md"
 
 [dependencies]
 # Core RingKernel

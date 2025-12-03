@@ -2,11 +2,15 @@
 name = "ringkernel-derive"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "Procedural macros for RingKernel GPU-native actor system"
 keywords = ["gpu", "actor", "macro", "derive"]
 categories = ["development-tools::procedural-macro-helpers"]
+readme = "README.md"
 
 [lib]
 proc-macro = true

@@ -2,11 +2,15 @@
 name = "ringkernel-ecosystem"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "Ecosystem integrations for RingKernel - actors, web frameworks, data processing, ML"
 keywords = ["gpu", "actor", "integration", "axum", "tower"]
 categories = ["concurrency", "asynchronous", "web-programming"]
+readme = "README.md"
 
 [features]
 default = []

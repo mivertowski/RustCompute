@@ -2,8 +2,12 @@
 name = "ringkernel"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
 description = "GPU-native persistent actor model framework - Rust port of DotCompute Ring Kernel"
 keywords = ["gpu", "actor", "cuda", "wgpu", "distributed"]
 categories = ["concurrency", "asynchronous", "hardware-support"]

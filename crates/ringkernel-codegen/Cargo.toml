@@ -2,11 +2,15 @@
 name = "ringkernel-codegen"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "Code generation for RingKernel - generates GPU kernel source code"
 keywords = ["gpu", "codegen", "cuda", "metal", "wgsl"]
 categories = ["development-tools"]
+readme = "README.md"
 
 [dependencies]
 ringkernel-core = { workspace = true }

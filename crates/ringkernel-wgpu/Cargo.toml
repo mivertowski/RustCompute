@@ -2,11 +2,15 @@
 name = "ringkernel-wgpu"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "WebGPU backend for RingKernel - cross-platform GPU support"
 keywords = ["gpu", "actor", "webgpu", "wgpu", "vulkan"]
 categories = ["hardware-support", "web-programming"]
+readme = "README.md"
 
 [dependencies]
 ringkernel-core = { workspace = true }

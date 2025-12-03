@@ -2,11 +2,15 @@
 name = "ringkernel-metal"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "Metal backend for RingKernel - Apple GPU support"
 keywords = ["gpu", "actor", "metal", "apple", "macos"]
 categories = ["hardware-support"]
+readme = "README.md"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = { version = "0.27", optional = true }

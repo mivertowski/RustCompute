@@ -2,11 +2,15 @@
 name = "ringkernel-cuda"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "CUDA backend for RingKernel - NVIDIA GPU support via cudarc"
 keywords = ["gpu", "actor", "cuda", "nvidia"]
 categories = ["hardware-support"]
+readme = "README.md"
 
 [dependencies]
 ringkernel-core = { workspace = true }

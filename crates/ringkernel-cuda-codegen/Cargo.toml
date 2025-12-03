@@ -2,11 +2,15 @@
 name = "ringkernel-cuda-codegen"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "CUDA code generation from Rust DSL for RingKernel stencil kernels"
 keywords = ["gpu", "cuda", "codegen", "stencil", "transpiler"]
 categories = ["development-tools", "compilers"]
+readme = "README.md"
 
 [dependencies]
 syn = { workspace = true, features = ["full", "visit", "extra-traits"] }

@@ -2,11 +2,15 @@
 name = "ringkernel-wgpu-codegen"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "WGSL code generation from Rust DSL for RingKernel"
 keywords = ["gpu", "wgsl", "webgpu", "codegen", "transpiler"]
 categories = ["development-tools", "compilers", "graphics"]
+readme = "README.md"
 
 [dependencies]
 syn = { workspace = true, features = ["full", "visit", "extra-traits", "parsing"] }
