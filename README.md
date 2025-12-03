@@ -1,7 +1,7 @@
 # RingKernel
 
-[![Crates.io](https://img.shields.io/crates/v/ringkernel.svg)](https://crates.io/crates/ringkernel-core)
-[![Documentation](https://docs.rs/ringkernel/badge.svg)](https://docs.rs/ringkernel)
+[![Crates.io](https://img.shields.io/crates/v/ringkernel-core.svg)](https://crates.io/crates/ringkernel-core)
+[![Documentation](https://docs.rs/ringkernel-core/badge.svg)](https://docs.rs/ringkernel-core)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 [![GitHub Pages](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://mivertowski.github.io/RustCompute/)
