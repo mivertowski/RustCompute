@@ -46,7 +46,7 @@ jobs:
           node-version: '20'
 
       - name: Install markdown-it
-        run: npm install -g markdown-it markdown-it-anchor markdown-it-toc-done-right
+        run: npm install markdown-it markdown-it-anchor
 
       - name: Create documentation directory structure
         run: |
