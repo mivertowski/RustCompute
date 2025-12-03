@@ -1,3 +1,9 @@
+---
+layout: default
+title: Crate Structure
+nav_order: 3
+---
+
 # Crate Structure
 
 ## Workspace Organization

@@ -1,3 +1,9 @@
+---
+layout: default
+title: Core Abstractions
+nav_order: 4
+---
+
 # Core Abstractions
 
 ## Mapping DotCompute Types to Rust

@@ -1,3 +1,9 @@
+---
+layout: default
+title: Memory Management
+nav_order: 5
+---
+
 # Memory Management
 
 ## GPU Memory Challenges

@@ -1,3 +1,9 @@
+---
+layout: default
+title: Performance
+nav_order: 11
+---
+
 # Performance Considerations
 
 ## Target Performance Metrics

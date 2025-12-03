@@ -1,3 +1,9 @@
+---
+layout: default
+title: Migration Guide
+nav_order: 13
+---
+
 # Migration Guide
 
 ## Overview

@@ -1,3 +1,9 @@
+---
+layout: default
+title: Serialization
+nav_order: 7
+---
+
 # Serialization Strategy
 
 ## DotCompute Approach: MemoryPack

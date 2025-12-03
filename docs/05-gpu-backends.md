@@ -1,3 +1,9 @@
+---
+layout: default
+title: GPU Backends
+nav_order: 6
+---
+
 # GPU Backends
 
 ## Backend Trait Hierarchy

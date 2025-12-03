@@ -1,3 +1,9 @@
+---
+layout: default
+title: Testing
+nav_order: 10
+---
+
 # Testing Strategy
 
 ## Test Categories

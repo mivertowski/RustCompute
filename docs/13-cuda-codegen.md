@@ -1,3 +1,9 @@
+---
+layout: default
+title: CUDA Codegen
+nav_order: 14
+---
+
 # CUDA Code Generation
 
 The `ringkernel-cuda-codegen` crate provides a Rust-to-CUDA transpiler that lets you write GPU kernels in a Rust DSL and generate equivalent CUDA C code.

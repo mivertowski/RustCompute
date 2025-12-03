@@ -1,3 +1,9 @@
+---
+layout: default
+title: Ecosystem Integration
+nav_order: 12
+---
+
 # Ecosystem Integration
 
 ## Actor Frameworks

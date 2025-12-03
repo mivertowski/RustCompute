@@ -1,3 +1,9 @@
+---
+layout: default
+title: WGSL Codegen
+nav_order: 15
+---
+
 # WGSL Code Generation
 
 The `ringkernel-wgpu-codegen` crate provides a Rust-to-WGSL transpiler that lets you write GPU kernels in a Rust DSL and generate equivalent WGSL (WebGPU Shading Language) code.

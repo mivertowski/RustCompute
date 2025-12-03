@@ -40,6 +40,14 @@ jobs:
           RUSTDOCFLAGS: "--enable-index-page -Zunstable-options"
           RUSTC_BOOTSTRAP: 1
 
+      - name: Setup Node.js for markdown processing
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install markdown-it
+        run: npm install -g markdown-it markdown-it-anchor markdown-it-toc-done-right
+
       - name: Create documentation directory structure
         run: |
           mkdir -p ./docs-output/api
@@ -48,11 +56,262 @@ jobs:
           # Copy API docs
           cp -r ./target/doc/* ./docs-output/api/
 
-          # Copy guide documentation
-          cp -r ./docs/* ./docs-output/guide/
-
           # Disable Jekyll processing
           touch ./docs-output/.nojekyll
+
+      - name: Convert markdown guides to HTML
+        run: |
+          # Create a script to convert markdown to HTML with styling
+          cat > convert-md.js << 'SCRIPT'
+          const fs = require('fs');
+          const path = require('path');
+          const markdownIt = require('markdown-it');
+          const anchor = require('markdown-it-anchor');
+
+          const md = markdownIt({
+            html: true,
+            linkify: true,
+            typographer: true,
+            highlight: function (str, lang) {
+              return '<pre class="hljs"><code>' + md.utils.escapeHtml(str) + '</code></pre>';
+            }
+          }).use(anchor, { permalink: anchor.permalink.headerLink() });
+
+          const template = (title, content, navLinks) => `<!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>${title} - RingKernel Documentation</title>
+              <link rel="preconnect" href="https://fonts.googleapis.com">
+              <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+              <style>
+                  :root {
+                      --primary: #f97316;
+                      --primary-dark: #ea580c;
+                      --bg-dark: #0f172a;
+                      --bg-card: #1e293b;
+                      --bg-code: #0d1117;
+                      --text-primary: #f8fafc;
+                      --text-secondary: #94a3b8;
+                      --border: #334155;
+                      --accent-green: #22c55e;
+                      --accent-blue: #3b82f6;
+                      --accent-purple: #a855f7;
+                  }
+                  * { margin: 0; padding: 0; box-sizing: border-box; }
+                  body {
+                      font-family: 'Inter', -apple-system, sans-serif;
+                      background: var(--bg-dark);
+                      color: var(--text-primary);
+                      line-height: 1.7;
+                  }
+                  .container { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+                  header {
+                      border-bottom: 1px solid var(--border);
+                      padding: 16px 0;
+                      position: sticky;
+                      top: 0;
+                      background: var(--bg-dark);
+                      z-index: 100;
+                  }
+                  .header-content {
+                      display: flex;
+                      justify-content: space-between;
+                      align-items: center;
+                      max-width: 1200px;
+                      margin: 0 auto;
+                      padding: 0 24px;
+                  }
+                  .logo {
+                      font-size: 1.5rem;
+                      font-weight: 700;
+                      color: var(--primary);
+                      text-decoration: none;
+                  }
+                  nav a {
+                      color: var(--text-secondary);
+                      text-decoration: none;
+                      margin-left: 24px;
+                      font-size: 0.95rem;
+                      transition: color 0.2s;
+                  }
+                  nav a:hover { color: var(--text-primary); }
+                  main { padding: 48px 0 80px; }
+                  article { max-width: 800px; margin: 0 auto; }
+                  h1 { font-size: 2.5rem; margin-bottom: 24px; color: var(--text-primary); }
+                  h2 { font-size: 1.75rem; margin: 48px 0 16px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--text-primary); }
+                  h3 { font-size: 1.35rem; margin: 32px 0 12px; color: var(--text-primary); }
+                  h4 { font-size: 1.1rem; margin: 24px 0 8px; color: var(--text-primary); }
+                  p { margin: 16px 0; color: var(--text-secondary); }
+                  a { color: var(--primary); text-decoration: none; }
+                  a:hover { text-decoration: underline; }
+                  ul, ol { margin: 16px 0; padding-left: 24px; color: var(--text-secondary); }
+                  li { margin: 8px 0; }
+                  code {
+                      font-family: 'JetBrains Mono', monospace;
+                      background: var(--bg-code);
+                      padding: 2px 6px;
+                      border-radius: 4px;
+                      font-size: 0.9em;
+                  }
+                  pre {
+                      background: var(--bg-code);
+                      border: 1px solid var(--border);
+                      border-radius: 8px;
+                      padding: 16px;
+                      overflow-x: auto;
+                      margin: 24px 0;
+                  }
+                  pre code {
+                      background: none;
+                      padding: 0;
+                      font-size: 0.875rem;
+                      line-height: 1.6;
+                  }
+                  table {
+                      width: 100%;
+                      border-collapse: collapse;
+                      margin: 24px 0;
+                      background: var(--bg-card);
+                      border-radius: 8px;
+                      overflow: hidden;
+                  }
+                  th, td {
+                      padding: 12px 16px;
+                      text-align: left;
+                      border-bottom: 1px solid var(--border);
+                  }
+                  th { background: rgba(249, 115, 22, 0.1); font-weight: 600; }
+                  blockquote {
+                      border-left: 4px solid var(--primary);
+                      padding-left: 16px;
+                      margin: 24px 0;
+                      color: var(--text-secondary);
+                      font-style: italic;
+                  }
+                  hr { border: none; border-top: 1px solid var(--border); margin: 48px 0; }
+                  .nav-links {
+                      display: flex;
+                      justify-content: space-between;
+                      margin-top: 48px;
+                      padding-top: 24px;
+                      border-top: 1px solid var(--border);
+                  }
+                  .nav-link {
+                      padding: 12px 20px;
+                      background: var(--bg-card);
+                      border: 1px solid var(--border);
+                      border-radius: 8px;
+                      text-decoration: none;
+                      transition: all 0.2s;
+                  }
+                  .nav-link:hover {
+                      border-color: var(--primary);
+                      transform: translateY(-2px);
+                  }
+                  .nav-link span { display: block; font-size: 0.85rem; color: var(--text-secondary); }
+                  .nav-link strong { color: var(--text-primary); }
+                  footer {
+                      border-top: 1px solid var(--border);
+                      padding: 24px 0;
+                      text-align: center;
+                      color: var(--text-secondary);
+                      font-size: 0.9rem;
+                  }
+                  .anchor { color: var(--text-secondary); margin-left: 8px; opacity: 0; transition: opacity 0.2s; }
+                  h2:hover .anchor, h3:hover .anchor { opacity: 1; }
+                  @media (max-width: 768px) {
+                      h1 { font-size: 2rem; }
+                      .header-content { flex-direction: column; gap: 12px; }
+                      nav a { margin: 0 12px; }
+                  }
+              </style>
+          </head>
+          <body>
+              <header>
+                  <div class="header-content">
+                      <a href="../index.html" class="logo">RingKernel</a>
+                      <nav>
+                          <a href="../index.html">Home</a>
+                          <a href="../api/ringkernel/index.html">API Reference</a>
+                          <a href="https://github.com/mivertowski/RustCompute">GitHub</a>
+                      </nav>
+                  </div>
+              </header>
+              <main>
+                  <div class="container">
+                      <article>
+                          ${content}
+                          ${navLinks}
+                      </article>
+                  </div>
+              </main>
+              <footer>
+                  <p>RingKernel Documentation &middot; <a href="https://github.com/mivertowski/RustCompute">GitHub</a></p>
+              </footer>
+          </body>
+          </html>`;
+
+          const guides = [
+            { file: '01-architecture-overview.md', title: 'Architecture Overview' },
+            { file: '02-crate-structure.md', title: 'Crate Structure' },
+            { file: '03-core-abstractions.md', title: 'Core Abstractions' },
+            { file: '04-memory-management.md', title: 'Memory Management' },
+            { file: '05-gpu-backends.md', title: 'GPU Backends' },
+            { file: '06-serialization.md', title: 'Serialization' },
+            { file: '07-proc-macros.md', title: 'Proc Macros' },
+            { file: '08-runtime.md', title: 'Runtime' },
+            { file: '09-testing.md', title: 'Testing' },
+            { file: '10-performance.md', title: 'Performance' },
+            { file: '11-ecosystem.md', title: 'Ecosystem Integration' },
+            { file: '12-migration.md', title: 'Migration Guide' },
+            { file: '13-cuda-codegen.md', title: 'CUDA Codegen' },
+            { file: '14-wgpu-codegen.md', title: 'WGSL Codegen' },
+          ];
+
+          const docsDir = './docs';
+          const outDir = './docs-output/guide';
+
+          guides.forEach((guide, index) => {
+            const inputPath = path.join(docsDir, guide.file);
+            if (!fs.existsSync(inputPath)) {
+              console.log(`Skipping ${guide.file} (not found)`);
+              return;
+            }
+
+            let markdown = fs.readFileSync(inputPath, 'utf8');
+
+            // Remove Jekyll front matter if present
+            markdown = markdown.replace(/^---[\s\S]*?---\n/, '');
+
+            // Convert .md links to .html
+            markdown = markdown.replace(/\]\(\.\/(\d+-[^)]+)\.md\)/g, '](./$1.html)');
+            markdown = markdown.replace(/\]\((\d+-[^)]+)\.md\)/g, '](./$1.html)');
+
+            const content = md.render(markdown);
+
+            // Generate navigation links
+            let navLinks = '<div class="nav-links">';
+            if (index > 0) {
+              const prev = guides[index - 1];
+              navLinks += \`<a href="./${prev.file.replace('.md', '.html')}" class="nav-link"><span>Previous</span><strong>${prev.title}</strong></a>\`;
+            } else {
+              navLinks += '<div></div>';
+            }
+            if (index < guides.length - 1) {
+              const next = guides[index + 1];
+              navLinks += \`<a href="./${next.file.replace('.md', '.html')}" class="nav-link"><span>Next</span><strong>${next.title}</strong></a>\`;
+            }
+            navLinks += '</div>';
+
+            const outputPath = path.join(outDir, guide.file.replace('.md', '.html'));
+            fs.writeFileSync(outputPath, template(guide.title, content, navLinks));
+            console.log(\`Converted: ${guide.file} -> ${guide.file.replace('.md', '.html')}\`);
+          });
+          SCRIPT
+
+          node convert-md.js
 
       - name: Create landing page
         run: |
@@ -400,7 +659,7 @@ jobs:
                           </p>
                           <div class="hero-buttons">
                               <a href="./api/ringkernel/index.html" class="btn btn-primary">API Documentation</a>
-                              <a href="./guide/01-architecture-overview.md" class="btn btn-secondary">Getting Started</a>
+                              <a href="./guide/01-architecture-overview.html" class="btn btn-secondary">Getting Started</a>
                               <a href="https://github.com/mivertowski/RustCompute" class="btn btn-secondary">View on GitHub</a>
                           </div>
                       </div>
@@ -514,53 +773,61 @@ jobs:
 
                           <h3 style="margin-bottom: 16px;">Guide</h3>
                           <div class="docs-grid">
-                              <a href="./guide/01-architecture-overview.md" class="doc-link">
+                              <a href="./guide/01-architecture-overview.html" class="doc-link">
                                   <h4>Architecture Overview</h4>
                                   <p>System design, component mapping, and kernel lifecycle.</p>
                               </a>
-                              <a href="./guide/02-crate-structure.md" class="doc-link">
+                              <a href="./guide/02-crate-structure.html" class="doc-link">
                                   <h4>Crate Structure</h4>
                                   <p>Workspace organization and crate responsibilities.</p>
                               </a>
-                              <a href="./guide/03-core-abstractions.md" class="doc-link">
+                              <a href="./guide/03-core-abstractions.html" class="doc-link">
                                   <h4>Core Abstractions</h4>
                                   <p>Key traits, types, and the message queue system.</p>
                               </a>
-                              <a href="./guide/04-memory-management.md" class="doc-link">
+                              <a href="./guide/04-memory-management.html" class="doc-link">
                                   <h4>Memory Management</h4>
                                   <p>GPU memory allocation and buffer handling.</p>
                               </a>
-                              <a href="./guide/05-gpu-backends.md" class="doc-link">
+                              <a href="./guide/05-gpu-backends.html" class="doc-link">
                                   <h4>GPU Backends</h4>
                                   <p>Backend implementations: CPU, CUDA, WebGPU, Metal.</p>
                               </a>
-                              <a href="./guide/06-serialization.md" class="doc-link">
+                              <a href="./guide/06-serialization.html" class="doc-link">
                                   <h4>Serialization</h4>
                                   <p>Zero-copy serialization with rkyv and zerocopy.</p>
                               </a>
-                              <a href="./guide/07-proc-macros.md" class="doc-link">
+                              <a href="./guide/07-proc-macros.html" class="doc-link">
                                   <h4>Proc Macros</h4>
                                   <p>RingMessage, ring_kernel, and GpuType derive macros.</p>
                               </a>
-                              <a href="./guide/08-runtime.md" class="doc-link">
+                              <a href="./guide/08-runtime.html" class="doc-link">
                                   <h4>Runtime</h4>
                                   <p>Runtime configuration and kernel management.</p>
                               </a>
-                              <a href="./guide/09-testing.md" class="doc-link">
+                              <a href="./guide/09-testing.html" class="doc-link">
                                   <h4>Testing</h4>
                                   <p>Testing strategies and GPU test patterns.</p>
                               </a>
-                              <a href="./guide/10-performance.md" class="doc-link">
+                              <a href="./guide/10-performance.html" class="doc-link">
                                   <h4>Performance</h4>
                                   <p>Benchmarks, optimization, and profiling.</p>
                               </a>
-                              <a href="./guide/11-ecosystem.md" class="doc-link">
+                              <a href="./guide/11-ecosystem.html" class="doc-link">
                                   <h4>Ecosystem</h4>
                                   <p>Integration with other Rust libraries.</p>
                               </a>
-                              <a href="./guide/12-migration.md" class="doc-link">
+                              <a href="./guide/12-migration.html" class="doc-link">
                                   <h4>Migration Guide</h4>
                                   <p>Upgrading between versions.</p>
+                              </a>
+                              <a href="./guide/13-cuda-codegen.html" class="doc-link">
+                                  <h4>CUDA Codegen</h4>
+                                  <p>Rust to CUDA transpiler documentation.</p>
+                              </a>
+                              <a href="./guide/14-wgpu-codegen.html" class="doc-link">
+                                  <h4>WGSL Codegen</h4>
+                                  <p>Rust to WGSL transpiler documentation.</p>
                               </a>
                           </div>
 
