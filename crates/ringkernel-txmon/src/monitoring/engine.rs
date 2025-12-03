@@ -84,14 +84,13 @@ mod tests {
         let engine = MonitoringEngine::default();
 
         let transactions = vec![
-            Transaction::new(1, 1, 15_000_00, 1, 0), // Over threshold
-            Transaction::new(2, 2, 500_00, 1, 0),    // Normal
-            Transaction::new(3, 3, 9_500_00, 1, 0),  // Just under threshold
+            Transaction::new(1, 1, 1_500_000, 1, 0), // Over threshold
+            Transaction::new(2, 2, 50_000, 1, 0),    // Normal
+            Transaction::new(3, 3, 950_000, 1, 0),   // Just under threshold
         ];
 
-        let mut profiles: Vec<CustomerRiskProfile> = (1..=3)
-            .map(|id| CustomerRiskProfile::new(id, 1))
-            .collect();
+        let mut profiles: Vec<CustomerRiskProfile> =
+            (1..=3).map(|id| CustomerRiskProfile::new(id, 1)).collect();
 
         // Set up profile 3 for structuring detection
         profiles[2].velocity_count = 5;
@@ -108,7 +107,7 @@ mod tests {
 
         let initial = engine.alert_count();
 
-        let tx = Transaction::new(1, 1, 15_000_00, 1, 0);
+        let tx = Transaction::new(1, 1, 1_500_000, 1, 0);
         let profile = CustomerRiskProfile::new(1, 1);
         let _ = engine.process_single(&tx, &profile);
 

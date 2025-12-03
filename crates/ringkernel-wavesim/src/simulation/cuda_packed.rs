@@ -136,12 +136,13 @@ impl CudaPackedBackend {
         );
 
         // Calculate tile grid dimensions
-        let tiles_x = (grid_width + tile_size - 1) / tile_size;
-        let tiles_y = (grid_height + tile_size - 1) / tile_size;
+        let tiles_x = grid_width.div_ceil(tile_size);
+        let tiles_y = grid_height.div_ceil(tile_size);
         let buffer_width = tile_size + 2;
         let tile_buffer_size = buffer_width * buffer_width;
         let num_tiles = tiles_x * tiles_y;
-        let total_buffer_size = (num_tiles * tile_buffer_size) as usize * std::mem::size_of::<f32>();
+        let total_buffer_size =
+            (num_tiles * tile_buffer_size) as usize * std::mem::size_of::<f32>();
 
         tracing::info!(
             "Packed layout: {}x{} tiles, {} total floats ({:.1} KB)",
@@ -257,7 +258,7 @@ impl CudaPackedBackend {
                 if ty > 0 {
                     let north_tile_offset = ((ty - 1) * tiles_x + tx) * tile_buffer_size;
                     for x in 0..tile_size {
-                        let src = tile_offset + 1 * buffer_width + (x + 1);
+                        let src = tile_offset + buffer_width + (x + 1);
                         let dst = north_tile_offset + (buffer_width - 1) * buffer_width + (x + 1);
                         copies.push((src, dst));
                     }
@@ -269,7 +270,7 @@ impl CudaPackedBackend {
                     let south_tile_offset = ((ty + 1) * tiles_x + tx) * tile_buffer_size;
                     for x in 0..tile_size {
                         let src = tile_offset + tile_size * buffer_width + (x + 1);
-                        let dst = south_tile_offset + 0 * buffer_width + (x + 1);
+                        let dst = south_tile_offset + (x + 1);
                         copies.push((src, dst));
                     }
                 }
@@ -291,7 +292,7 @@ impl CudaPackedBackend {
                     let east_tile_offset = (ty * tiles_x + (tx + 1)) * tile_buffer_size;
                     for y in 0..tile_size {
                         let src = tile_offset + (y + 1) * buffer_width + tile_size;
-                        let dst = east_tile_offset + (y + 1) * buffer_width + 0;
+                        let dst = east_tile_offset + (y + 1) * buffer_width;
                         copies.push((src, dst));
                     }
                 }
@@ -395,7 +396,7 @@ impl CudaPackedBackend {
                 })?;
 
             let threads_per_block = 256u32;
-            let num_blocks = (self.num_halo_copies + threads_per_block - 1) / threads_per_block;
+            let num_blocks = self.num_halo_copies.div_ceil(threads_per_block);
 
             let cfg = cudarc::driver::LaunchConfig {
                 grid_dim: (num_blocks, 1, 1),
@@ -425,8 +426,7 @@ impl CudaPackedBackend {
                 RingKernelError::BackendError("apply_boundary_conditions not found".into())
             })?;
 
-        let max_edge_threads =
-            std::cmp::max(self.tiles_x, self.tiles_y) as u32 * self.tile_size;
+        let max_edge_threads = std::cmp::max(self.tiles_x, self.tiles_y) as u32 * self.tile_size;
 
         let boundary_cfg = cudarc::driver::LaunchConfig {
             grid_dim: (4, 1, 1), // 4 edges
@@ -566,8 +566,8 @@ impl CudaPackedBackend {
         };
 
         let threads = 16u32;
-        let blocks_x = (self.grid_width + threads - 1) / threads;
-        let blocks_y = (self.grid_height + threads - 1) / threads;
+        let blocks_x = self.grid_width.div_ceil(threads);
+        let blocks_y = self.grid_height.div_ceil(threads);
 
         let cfg = cudarc::driver::LaunchConfig {
             grid_dim: (blocks_x, blocks_y, 1),
@@ -595,7 +595,8 @@ impl CudaPackedBackend {
         // Synchronize and read back
         self.device.synchronize()?;
 
-        let output_size = (self.grid_width * self.grid_height) as usize * std::mem::size_of::<f32>();
+        let output_size =
+            (self.grid_width * self.grid_height) as usize * std::mem::size_of::<f32>();
         let mut output_bytes = vec![0u8; output_size];
         self.output_buffer.copy_to_host(&mut output_bytes)?;
 

@@ -81,7 +81,7 @@ impl AccountGenerator {
         // Custom thresholds (most use defaults, some have custom)
         if self.rng.gen::<f32>() < 0.1 {
             // 10% have custom amount threshold
-            profile.amount_threshold = self.rng.gen_range(5_000_00..50_000_00);
+            profile.amount_threshold = self.rng.gen_range(500_000..5_000_000);
         }
         if self.rng.gen::<f32>() < 0.1 {
             // 10% have custom velocity threshold
@@ -94,7 +94,7 @@ impl AccountGenerator {
         profile.allowed_destinations = !0; // All countries allowed
 
         // Average monthly volume
-        profile.avg_monthly_volume = self.rng.gen_range(1_000_00..500_000_00);
+        profile.avg_monthly_volume = self.rng.gen_range(100_000..50_000_000);
 
         // Created timestamp (random time in past year)
         let now_ms = std::time::SystemTime::now()

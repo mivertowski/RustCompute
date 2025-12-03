@@ -141,11 +141,16 @@ impl CpuKernel {
         destination: KernelId,
         envelope: MessageEnvelope,
     ) -> Result<DeliveryReceipt> {
-        let mut endpoint_guard = self.k2k_endpoint.lock();
-        let endpoint = endpoint_guard
-            .as_mut()
-            .ok_or_else(|| RingKernelError::K2KError("K2K not enabled for this kernel".to_string()))?;
-        endpoint.send(destination, envelope).await
+        let endpoint = {
+            let mut endpoint_guard = self.k2k_endpoint.lock();
+            endpoint_guard.take().ok_or_else(|| {
+                RingKernelError::K2KError("K2K not enabled for this kernel".to_string())
+            })?
+        };
+        let result = endpoint.send(destination, envelope).await;
+        // Put it back
+        *self.k2k_endpoint.lock() = Some(endpoint);
+        result
     }
 
     /// Try to receive a K2K message (non-blocking).
@@ -157,9 +162,14 @@ impl CpuKernel {
     /// Receive a K2K message (blocking).
     pub async fn k2k_recv(&self) -> Option<K2KMessage> {
         // We need to take the endpoint out temporarily to use the async receiver
-        let mut endpoint_guard = self.k2k_endpoint.lock();
-        let endpoint = endpoint_guard.as_mut()?;
-        endpoint.receive().await
+        let mut endpoint = {
+            let mut endpoint_guard = self.k2k_endpoint.lock();
+            endpoint_guard.take()?
+        };
+        let result = endpoint.receive().await;
+        // Put it back
+        *self.k2k_endpoint.lock() = Some(endpoint);
+        result
     }
 }
 

@@ -8,7 +8,7 @@
 //! - Full system startup (runtime + kernel)
 //! - Backend detection time
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::time::Instant;
 use tokio::runtime::Runtime as TokioRuntime;
 
@@ -64,7 +64,10 @@ fn bench_kernel_launch(c: &mut Criterion) {
             counter += 1;
             let kernel_name = format!("bench_kernel_{}", counter);
             rt.block_on(async {
-                let handle = runtime.launch(&kernel_name, LaunchOptions::default()).await.unwrap();
+                let handle = runtime
+                    .launch(&kernel_name, LaunchOptions::default())
+                    .await
+                    .unwrap();
                 black_box(handle);
             });
         });
@@ -113,7 +116,10 @@ fn bench_full_startup(c: &mut Criterion) {
 
             rt.block_on(async {
                 let runtime = CpuRuntime::new().await.unwrap();
-                let handle = runtime.launch(&kernel_name, LaunchOptions::default()).await.unwrap();
+                let handle = runtime
+                    .launch(&kernel_name, LaunchOptions::default())
+                    .await
+                    .unwrap();
                 black_box(handle);
                 runtime.shutdown().await.unwrap();
             });
@@ -135,7 +141,10 @@ fn bench_full_startup(c: &mut Criterion) {
 
                         for i in 0..num {
                             let kernel_name = format!("multi_kernel_{}_{}", counter, i);
-                            let handle = runtime.launch(&kernel_name, LaunchOptions::default()).await.unwrap();
+                            let handle = runtime
+                                .launch(&kernel_name, LaunchOptions::default())
+                                .await
+                                .unwrap();
                             black_box(handle);
                         }
 
@@ -182,7 +191,10 @@ fn bench_shutdown(c: &mut Criterion) {
 
                         for i in 0..num {
                             let kernel_name = format!("shutdown_kernel_{}_{}", counter, i);
-                            runtime.launch(&kernel_name, LaunchOptions::default()).await.unwrap();
+                            runtime
+                                .launch(&kernel_name, LaunchOptions::default())
+                                .await
+                                .unwrap();
                         }
 
                         runtime.shutdown().await.unwrap();
@@ -230,7 +242,10 @@ fn bench_startup_validation(c: &mut Criterion) {
 
                 rt.block_on(async {
                     let runtime = CpuRuntime::new().await.unwrap();
-                    let handle = runtime.launch(&kernel_name, LaunchOptions::default()).await.unwrap();
+                    let handle = runtime
+                        .launch(&kernel_name, LaunchOptions::default())
+                        .await
+                        .unwrap();
                     black_box(handle);
                     runtime.shutdown().await.unwrap();
                 });

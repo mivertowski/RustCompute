@@ -29,9 +29,7 @@ impl LoopPattern {
                 inclusive,
             } => {
                 let op = if *inclusive { "<=" } else { "<" };
-                format!(
-                    "for (var {var}: i32 = {start}; {var} {op} {end}; {var} = {var} + 1)"
-                )
+                format!("for (var {var}: i32 = {start}; {var} {op} {end}; {var} = {var} + 1)")
             }
             LoopPattern::While { condition } => {
                 format!("while ({condition})")
@@ -78,7 +76,10 @@ pub fn range_to_for_loop(var: &str, range: &RangeInfo) -> LoopPattern {
     LoopPattern::ForRange {
         var: var.to_string(),
         start: range.start_or_default(),
-        end: range.end.clone().unwrap_or_else(|| "/* unbounded */".to_string()),
+        end: range
+            .end
+            .clone()
+            .unwrap_or_else(|| "/* unbounded */".to_string()),
         inclusive: range.inclusive,
     }
 }

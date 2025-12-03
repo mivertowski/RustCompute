@@ -2,7 +2,9 @@
 
 use super::canvas::GridCanvas;
 use super::controls;
-use crate::simulation::{AcousticParams, CellType, KernelGrid, SimulationGrid, SimulationMode, EducationalProcessor};
+use crate::simulation::{
+    AcousticParams, CellType, EducationalProcessor, KernelGrid, SimulationGrid, SimulationMode,
+};
 
 #[cfg(feature = "cuda")]
 use crate::simulation::CudaPackedBackend;
@@ -74,7 +76,6 @@ enum SimulationEngine {
     /// Transitioning state (while switching backends).
     Switching,
 }
-
 
 /// The main wave simulation application.
 pub struct WaveSimApp {
@@ -286,11 +287,7 @@ impl WaveSimApp {
                             async move {
                                 let mut g = grid.lock().await;
                                 g.reset();
-                                (
-                                    g.get_pressure_grid(),
-                                    g.max_pressure(),
-                                    g.total_energy(),
-                                )
+                                (g.get_pressure_grid(), g.max_pressure(), g.total_energy())
                             },
                             |(pressure, max_p, energy)| {
                                 Message::GpuStepCompleted(pressure, max_p, energy)
@@ -405,43 +402,41 @@ impl WaveSimApp {
                 if new_backend == self.compute_backend {
                     return Task::none();
                 }
-                tracing::info!("Switching compute backend from {} to {}", self.compute_backend, new_backend);
+                tracing::info!(
+                    "Switching compute backend from {} to {}",
+                    self.compute_backend,
+                    new_backend
+                );
                 self.compute_backend = new_backend;
                 self.reset_performance_stats();
                 return self.switch_backend(new_backend);
             }
 
-            Message::BackendSwitched(result) => {
-                match result {
-                    Ok(kernel_grid) => {
-                        self.engine = SimulationEngine::Gpu(kernel_grid.clone());
-                        return Task::perform(
-                            async move {
-                                let g = kernel_grid.lock().await;
-                                (
-                                    g.get_pressure_grid(),
-                                    g.max_pressure(),
-                                    g.total_energy(),
-                                )
-                            },
-                            |(pressure, max_p, energy)| {
-                                Message::GpuStepCompleted(pressure, max_p, energy)
-                            },
-                        );
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to switch backend: {}", e);
-                        self.compute_backend = ComputeBackend::Cpu;
-                        let params = AcousticParams::new(self.speed_of_sound, self.cell_size);
-                        let grid = SimulationGrid::new(self.grid_width, self.grid_height, params);
-                        self.cell_count = grid.cell_count();
-                        self.courant_number = grid.params.courant_number();
-                        let pressure = grid.get_pressure_grid();
-                        self.engine = SimulationEngine::Cpu(grid);
-                        self.canvas.update_pressure(pressure);
-                    }
+            Message::BackendSwitched(result) => match result {
+                Ok(kernel_grid) => {
+                    self.engine = SimulationEngine::Gpu(kernel_grid.clone());
+                    return Task::perform(
+                        async move {
+                            let g = kernel_grid.lock().await;
+                            (g.get_pressure_grid(), g.max_pressure(), g.total_energy())
+                        },
+                        |(pressure, max_p, energy)| {
+                            Message::GpuStepCompleted(pressure, max_p, energy)
+                        },
+                    );
                 }
-            }
+                Err(e) => {
+                    tracing::error!("Failed to switch backend: {}", e);
+                    self.compute_backend = ComputeBackend::Cpu;
+                    let params = AcousticParams::new(self.speed_of_sound, self.cell_size);
+                    let grid = SimulationGrid::new(self.grid_width, self.grid_height, params);
+                    self.cell_count = grid.cell_count();
+                    self.courant_number = grid.params.courant_number();
+                    let pressure = grid.get_pressure_grid();
+                    self.engine = SimulationEngine::Cpu(grid);
+                    self.canvas.update_pressure(pressure);
+                }
+            },
 
             #[cfg(feature = "cuda")]
             Message::CudaPackedSwitched(result) => {
@@ -451,7 +446,8 @@ impl WaveSimApp {
                         // Read initial state
                         let pressure = {
                             let b = backend.lock().unwrap();
-                            b.read_pressure_grid().unwrap_or_else(|_| vec![0.0; self.cell_count])
+                            b.read_pressure_grid()
+                                .unwrap_or_else(|_| vec![0.0; self.cell_count])
                         };
                         self.update_canvas_from_flat(&pressure);
                     }
@@ -496,11 +492,7 @@ impl WaveSimApp {
                                     async move {
                                         let mut g = grid.lock().await;
                                         g.inject_impulse(gx, gy, amp);
-                                        (
-                                            g.get_pressure_grid(),
-                                            g.max_pressure(),
-                                            g.total_energy(),
-                                        )
+                                        (g.get_pressure_grid(), g.max_pressure(), g.total_energy())
                                     },
                                     |(pressure, max_p, energy)| {
                                         Message::GpuStepCompleted(pressure, max_p, energy)
@@ -639,9 +631,7 @@ impl WaveSimApp {
                 )
             }
             #[cfg(feature = "cuda")]
-            ComputeBackend::CudaPacked => {
-                self.switch_to_cuda_packed()
-            }
+            ComputeBackend::CudaPacked => self.switch_to_cuda_packed(),
         }
     }
 
@@ -764,7 +754,8 @@ impl WaveSimApp {
                     // Check if we're using educational mode
                     if self.simulation_mode != SimulationMode::Standard {
                         // Educational mode: use the educational processor
-                        let (pressure, pressure_prev, width, height, c2, damping) = grid.get_buffers_mut();
+                        let (pressure, pressure_prev, width, height, c2, damping) =
+                            grid.get_buffers_mut();
 
                         let result = self.educational_processor.step_frame(
                             pressure,
@@ -845,7 +836,9 @@ impl WaveSimApp {
                         if let Err(e) = b.step_batch(steps) {
                             tracing::error!("CUDA step error: {:?}", e);
                         }
-                        let pressure = b.read_pressure_grid().unwrap_or_else(|_| vec![0.0; cell_count]);
+                        let pressure = b
+                            .read_pressure_grid()
+                            .unwrap_or_else(|_| vec![0.0; cell_count]);
                         (pressure, steps)
                     },
                     |(pressure, steps)| Message::CudaPackedStepCompleted(pressure, steps),

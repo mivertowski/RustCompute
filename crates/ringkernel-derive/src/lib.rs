@@ -501,15 +501,16 @@ fn stencil_kernel_impl(args: StencilKernelArgs, input: ItemFn) -> TokenStream {
 
     // Parse configuration
     let grid = args.grid.as_deref().unwrap_or("2d");
-    let tile_width = args.tile_width.unwrap_or_else(|| args.tile_size.unwrap_or(16));
-    let tile_height = args.tile_height.unwrap_or_else(|| args.tile_size.unwrap_or(16));
+    let tile_width = args
+        .tile_width
+        .unwrap_or_else(|| args.tile_size.unwrap_or(16));
+    let tile_height = args
+        .tile_height
+        .unwrap_or_else(|| args.tile_size.unwrap_or(16));
     let halo = args.halo.unwrap_or(1);
 
     // Generate CUDA source constant name
-    let cuda_const_name = format_ident!(
-        "{}_CUDA_SOURCE",
-        fn_name.to_string().to_uppercase()
-    );
+    let cuda_const_name = format_ident!("{}_CUDA_SOURCE", fn_name.to_string().to_uppercase());
 
     // Generate registration name
     let registration_name = format_ident!(
@@ -538,8 +539,11 @@ fn stencil_kernel_impl(args: StencilKernelArgs, input: ItemFn) -> TokenStream {
             Ok(cuda) => cuda,
             Err(e) => {
                 return TokenStream::from(
-                    syn::Error::new_spanned(&input.sig.ident, format!("CUDA transpilation failed: {}", e))
-                        .to_compile_error(),
+                    syn::Error::new_spanned(
+                        &input.sig.ident,
+                        format!("CUDA transpilation failed: {}", e),
+                    )
+                    .to_compile_error(),
                 );
             }
         }

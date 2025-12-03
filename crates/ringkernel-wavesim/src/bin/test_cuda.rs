@@ -2,8 +2,8 @@
 //!
 //! Run with: cargo run -p ringkernel-wavesim --bin test_cuda --release --features cuda
 
-use ringkernel_wavesim::simulation::{AcousticParams, TileKernelGrid};
 use ringkernel::prelude::Backend;
+use ringkernel_wavesim::simulation::{AcousticParams, TileKernelGrid};
 
 #[tokio::main]
 async fn main() {
@@ -49,9 +49,7 @@ async fn main() {
 
     for i in 0..steps {
         cpu_grid.step().await.unwrap();
-        cuda_grid
-            .step_cuda_persistent()
-            .expect("CUDA step failed");
+        cuda_grid.step_cuda_persistent().expect("CUDA step failed");
 
         if (i + 1) % 5 == 0 {
             // Compare after every 5 steps
@@ -105,19 +103,40 @@ async fn main() {
     println!("Final Comparison Results");
     println!("═══════════════════════════════════════════════════════════════════════════");
     println!();
-    println!("CPU center pressure:  {:.6}", cpu_pressure[size as usize / 2][size as usize / 2]);
-    println!("CUDA center pressure: {:.6}", cuda_pressure[size as usize / 2][size as usize / 2]);
+    println!(
+        "CPU center pressure:  {:.6}",
+        cpu_pressure[size as usize / 2][size as usize / 2]
+    );
+    println!(
+        "CUDA center pressure: {:.6}",
+        cuda_pressure[size as usize / 2][size as usize / 2]
+    );
     println!();
-    println!("Max difference:       {:.6} at ({}, {})", max_diff, max_diff_pos.0, max_diff_pos.1);
+    println!(
+        "Max difference:       {:.6} at ({}, {})",
+        max_diff, max_diff_pos.0, max_diff_pos.1
+    );
     println!("Avg difference:       {:.6}", total_diff / count as f32);
     println!();
 
     // Energy comparison
-    let cpu_energy: f32 = cpu_pressure.iter().flat_map(|row| row.iter()).map(|&p| p * p).sum();
-    let cuda_energy: f32 = cuda_pressure.iter().flat_map(|row| row.iter()).map(|&p| p * p).sum();
+    let cpu_energy: f32 = cpu_pressure
+        .iter()
+        .flat_map(|row| row.iter())
+        .map(|&p| p * p)
+        .sum();
+    let cuda_energy: f32 = cuda_pressure
+        .iter()
+        .flat_map(|row| row.iter())
+        .map(|&p| p * p)
+        .sum();
     println!("CPU total energy:     {:.6}", cpu_energy);
     println!("CUDA total energy:    {:.6}", cuda_energy);
-    println!("Energy difference:    {:.6} ({:.2}%)", (cpu_energy - cuda_energy).abs(), ((cpu_energy - cuda_energy).abs() / cpu_energy * 100.0));
+    println!(
+        "Energy difference:    {:.6} ({:.2}%)",
+        (cpu_energy - cuda_energy).abs(),
+        ((cpu_energy - cuda_energy).abs() / cpu_energy * 100.0)
+    );
     println!();
 
     if max_diff < 0.01 {

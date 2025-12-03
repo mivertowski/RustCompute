@@ -13,8 +13,8 @@ use parking_lot::RwLock;
 use tokio::sync::mpsc;
 use tracing::{info, trace, warn};
 
-use ringkernel_core::prelude::*;
 use ringkernel_core::k2k::K2KStats;
+use ringkernel_core::prelude::*;
 
 use crate::error::{AudioFftError, Result};
 use crate::messages::{Complex, FrequencyBin, NeighborData, SeparatedBin};
@@ -225,7 +225,8 @@ impl BinActor {
         let (output_tx, output_rx) = mpsc::channel(64);
 
         // Create handle's endpoint separately
-        let handle_endpoint = broker.register(KernelId::new(format!("bin_actor_{}_handle", bin_index)));
+        let handle_endpoint =
+            broker.register(KernelId::new(format!("bin_actor_{}_handle", bin_index)));
 
         let handle = BinActorHandle {
             bin_index,

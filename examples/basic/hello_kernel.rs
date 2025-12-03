@@ -65,7 +65,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // By default, kernels auto-activate. Use without_auto_activate() to launch in Launched state.
     let options = LaunchOptions::default()
         .with_queue_capacity(1024) // Configure input queue size
-        .without_auto_activate();   // Start in Launched state for manual activation
+        .without_auto_activate(); // Start in Launched state for manual activation
 
     let kernel = runtime.launch("hello_processor", options).await?;
 

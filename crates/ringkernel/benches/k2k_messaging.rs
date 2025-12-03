@@ -7,12 +7,12 @@
 //!
 //! These benchmarks measure the performance of kernel-to-kernel communication.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::time::Instant;
 use tokio::runtime::Runtime as TokioRuntime;
 
 use ringkernel_core::hlc::HlcTimestamp;
-use ringkernel_core::k2k::{K2KBuilder, K2KMessage, DeliveryStatus};
+use ringkernel_core::k2k::{DeliveryStatus, K2KBuilder, K2KMessage};
 use ringkernel_core::message::{MessageEnvelope, MessageHeader};
 use ringkernel_core::queue::{MessageQueue, SpscQueue};
 use ringkernel_core::runtime::KernelId;
@@ -20,13 +20,7 @@ use ringkernel_core::runtime::KernelId;
 /// Create a test message envelope
 fn make_envelope(payload_size: usize) -> MessageEnvelope {
     MessageEnvelope {
-        header: MessageHeader::new(
-            1,
-            1,
-            2,
-            payload_size,
-            HlcTimestamp::now(1),
-        ),
+        header: MessageHeader::new(1, 1, 2, payload_size, HlcTimestamp::now(1)),
         payload: vec![0u8; payload_size],
     }
 }
@@ -94,7 +88,7 @@ fn bench_k2k_broker(c: &mut Criterion) {
 
         b.iter(|| {
             counter += 1;
-            let kernel_id = KernelId::new(&format!("kernel_{}", counter));
+            let kernel_id = KernelId::new(format!("kernel_{}", counter));
             let endpoint = broker.register(kernel_id);
             black_box(endpoint);
         });
@@ -112,9 +106,7 @@ fn bench_k2k_endpoint(c: &mut Criterion) {
     let rt = TokioRuntime::new().unwrap();
 
     // Create broker and endpoints
-    let broker = K2KBuilder::new()
-        .max_pending_messages(4096)
-        .build();
+    let broker = K2KBuilder::new().max_pending_messages(4096).build();
 
     let endpoint1 = broker.register(KernelId::new("kernel_1"));
     let mut endpoint2 = broker.register(KernelId::new("kernel_2"));
@@ -131,7 +123,7 @@ fn bench_k2k_endpoint(c: &mut Criterion) {
                     rt.block_on(async {
                         let envelope = make_envelope(size);
                         let receipt = endpoint1.send(KernelId::new("kernel_2"), envelope).await;
-                        black_box(receipt);
+                        let _ = black_box(receipt);
                     });
 
                     // Drain to prevent queue filling up
@@ -152,9 +144,7 @@ fn bench_k2k_throughput(c: &mut Criterion) {
 
     let rt = TokioRuntime::new().unwrap();
 
-    let broker = K2KBuilder::new()
-        .max_pending_messages(8192)
-        .build();
+    let broker = K2KBuilder::new().max_pending_messages(8192).build();
 
     let sender = broker.register(KernelId::new("sender"));
     let mut receiver = broker.register(KernelId::new("receiver"));
@@ -172,7 +162,7 @@ fn bench_k2k_throughput(c: &mut Criterion) {
                         for _ in 0..size {
                             let envelope = make_envelope(256);
                             let receipt = sender.send(KernelId::new("receiver"), envelope).await;
-                            black_box(receipt);
+                            let _ = black_box(receipt);
                         }
                     });
 
@@ -196,16 +186,12 @@ fn bench_lock_free_queue(c: &mut Criterion) {
 
     // Single-threaded operations
     for capacity in [256, 1024, 4096].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("create", capacity),
-            capacity,
-            |b, &cap| {
-                b.iter(|| {
-                    let queue = SpscQueue::new(cap);
-                    black_box(queue);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("create", capacity), capacity, |b, &cap| {
+            b.iter(|| {
+                let queue = SpscQueue::new(cap);
+                black_box(queue);
+            });
+        });
     }
 
     // Enqueue/dequeue patterns
@@ -261,13 +247,11 @@ fn bench_multi_sender(c: &mut Criterion) {
             BenchmarkId::new("senders", num_senders),
             num_senders,
             |b, &n| {
-                let broker = K2KBuilder::new()
-                    .max_pending_messages(2048)
-                    .build();
+                let broker = K2KBuilder::new().max_pending_messages(2048).build();
 
                 let mut receiver = broker.register(KernelId::new("receiver"));
                 let senders: Vec<_> = (0..n)
-                    .map(|i| broker.register(KernelId::new(&format!("sender_{}", i))))
+                    .map(|i| broker.register(KernelId::new(format!("sender_{}", i))))
                     .collect();
 
                 b.iter(|| {
@@ -329,9 +313,7 @@ fn bench_k2k_validation(c: &mut Criterion) {
     // K2K message delivery guarantee
     group.bench_function("delivery_guarantee", |b| {
         let rt = TokioRuntime::new().unwrap();
-        let broker = K2KBuilder::new()
-            .max_pending_messages(1024)
-            .build();
+        let broker = K2KBuilder::new().max_pending_messages(1024).build();
 
         let sender = broker.register(KernelId::new("sender"));
         let mut receiver = broker.register(KernelId::new("receiver"));
@@ -341,9 +323,15 @@ fn bench_k2k_validation(c: &mut Criterion) {
                 let envelope = make_envelope(256);
 
                 // Send must succeed
-                let receipt = sender.send(KernelId::new("receiver"), envelope).await.unwrap();
+                let receipt = sender
+                    .send(KernelId::new("receiver"), envelope)
+                    .await
+                    .unwrap();
                 assert!(
-                    matches!(receipt.status, DeliveryStatus::Delivered | DeliveryStatus::Pending),
+                    matches!(
+                        receipt.status,
+                        DeliveryStatus::Delivered | DeliveryStatus::Pending
+                    ),
                     "Message delivery must succeed"
                 );
             });

@@ -2,8 +2,8 @@
 //!
 //! Run with: cargo run -p ringkernel-wavesim --bin full_benchmark --release --features "cuda,wgpu"
 
-use ringkernel_wavesim::simulation::{AcousticParams, SimulationGrid, TileKernelGrid};
 use ringkernel::prelude::Backend;
+use ringkernel_wavesim::simulation::{AcousticParams, SimulationGrid, TileKernelGrid};
 use std::time::Instant;
 
 #[tokio::main]
@@ -113,8 +113,10 @@ async fn benchmark_simulation_grid() {
 
     println!("Running {} steps per grid size...", steps);
     println!();
-    println!("{:<12} {:>10} {:>12} {:>15} {:>20}",
-             "Grid Size", "Cells", "Time (ms)", "Steps/sec", "Throughput (M cells/s)");
+    println!(
+        "{:<12} {:>10} {:>12} {:>15} {:>20}",
+        "Grid Size", "Cells", "Time (ms)", "Steps/sec", "Throughput (M cells/s)"
+    );
     println!("{}", "-".repeat(75));
 
     for &size in &sizes {
@@ -135,7 +137,8 @@ async fn benchmark_simulation_grid() {
 
         let total_ms = elapsed.as_secs_f64() * 1000.0;
         let steps_per_sec = steps as f64 / elapsed.as_secs_f64();
-        let throughput = (size as f64 * size as f64 * steps as f64) / elapsed.as_secs_f64() / 1_000_000.0;
+        let throughput =
+            (size as f64 * size as f64 * steps as f64) / elapsed.as_secs_f64() / 1_000_000.0;
 
         println!(
             "{:<12} {:>10} {:>12.2} {:>15.0} {:>20.1}",
@@ -156,8 +159,10 @@ async fn benchmark_tile_grid_cpu() {
 
     println!("Running {} steps per grid size (16x16 tiles)...", steps);
     println!();
-    println!("{:<12} {:>8} {:>12} {:>12} {:>15} {:>12}",
-             "Grid Size", "Tiles", "Time (ms)", "Steps/sec", "K2K Msgs", "Msgs/step");
+    println!(
+        "{:<12} {:>8} {:>12} {:>12} {:>15} {:>12}",
+        "Grid Size", "Tiles", "Time (ms)", "Steps/sec", "K2K Msgs", "Msgs/step"
+    );
     println!("{}", "-".repeat(80));
 
     for &size in &sizes {
@@ -211,15 +216,20 @@ async fn benchmark_tile_grid_gpu() {
     let sizes = [32u32, 64, 128];
     let steps = 100u32;
 
-    println!("Running {} steps per grid size (16x16 tiles, GPU FDTD)...", steps);
+    println!(
+        "Running {} steps per grid size (16x16 tiles, GPU FDTD)...",
+        steps
+    );
     println!();
 
     // First check if WGPU is available
     println!("Initializing WGPU...");
 
     println!();
-    println!("{:<12} {:>8} {:>12} {:>12} {:>15} {:>12}",
-             "Grid Size", "Tiles", "Time (ms)", "Steps/sec", "K2K Msgs", "Msgs/step");
+    println!(
+        "{:<12} {:>8} {:>12} {:>12} {:>15} {:>12}",
+        "Grid Size", "Tiles", "Time (ms)", "Steps/sec", "K2K Msgs", "Msgs/step"
+    );
     println!("{}", "-".repeat(80));
 
     for &size in &sizes {
@@ -246,7 +256,8 @@ async fn benchmark_tile_grid_gpu() {
                         let elapsed = start.elapsed();
 
                         let stats_after = grid.k2k_stats();
-                        let k2k_msgs = stats_after.messages_delivered - stats_before.messages_delivered;
+                        let k2k_msgs =
+                            stats_after.messages_delivered - stats_before.messages_delivered;
 
                         let total_ms = elapsed.as_secs_f64() * 1000.0;
                         let steps_per_sec = steps as f64 / elapsed.as_secs_f64();
@@ -263,7 +274,11 @@ async fn benchmark_tile_grid_gpu() {
                         );
                     }
                     Err(e) => {
-                        println!("{:<12} - GPU init error: {}", format!("{}x{}", size, size), e);
+                        println!(
+                            "{:<12} - GPU init error: {}",
+                            format!("{}x{}", size, size),
+                            e
+                        );
                     }
                 }
             }
@@ -290,9 +305,11 @@ async fn benchmark_tile_grid_gpu() {
             let _ = cpu_grid.step().await;
         }
         let cpu_time = start.elapsed();
-        println!("  CPU TileGrid: {:.2} ms ({:.0} steps/sec)",
-                 cpu_time.as_secs_f64() * 1000.0,
-                 steps as f64 / cpu_time.as_secs_f64());
+        println!(
+            "  CPU TileGrid: {:.2} ms ({:.0} steps/sec)",
+            cpu_time.as_secs_f64() * 1000.0,
+            steps as f64 / cpu_time.as_secs_f64()
+        );
     }
 
     // GPU tile grid
@@ -305,9 +322,11 @@ async fn benchmark_tile_grid_gpu() {
                 let _ = gpu_grid.step_gpu().await;
             }
             let gpu_time = start.elapsed();
-            println!("  GPU TileGrid: {:.2} ms ({:.0} steps/sec)",
-                     gpu_time.as_secs_f64() * 1000.0,
-                     steps as f64 / gpu_time.as_secs_f64());
+            println!(
+                "  GPU TileGrid: {:.2} ms ({:.0} steps/sec)",
+                gpu_time.as_secs_f64() * 1000.0,
+                steps as f64 / gpu_time.as_secs_f64()
+            );
         }
     }
     println!();
@@ -318,11 +337,16 @@ async fn benchmark_cuda_persistent() {
     let sizes = [32u32, 64, 128, 256];
     let steps = 1000u32;
 
-    println!("Running {} steps per grid size (16x16 tiles, CUDA GPU-Persistent)...", steps);
+    println!(
+        "Running {} steps per grid size (16x16 tiles, CUDA GPU-Persistent)...",
+        steps
+    );
     println!("State stays GPU-resident, only halos transferred (64 bytes/edge/step)");
     println!();
-    println!("{:<12} {:>8} {:>12} {:>12} {:>18}",
-             "Grid Size", "Tiles", "Time (ms)", "Steps/sec", "Halo Transfer (KB)");
+    println!(
+        "{:<12} {:>8} {:>12} {:>12} {:>18}",
+        "Grid Size", "Tiles", "Time (ms)", "Steps/sec", "Halo Transfer (KB)"
+    );
     println!("{}", "-".repeat(70));
 
     for &size in &sizes {
@@ -364,7 +388,11 @@ async fn benchmark_cuda_persistent() {
                         );
                     }
                     Err(e) => {
-                        println!("{:<12} - CUDA init error: {}", format!("{}x{}", size, size), e);
+                        println!(
+                            "{:<12} - CUDA init error: {}",
+                            format!("{}x{}", size, size),
+                            e
+                        );
                     }
                 }
             }
@@ -381,11 +409,16 @@ async fn benchmark_wgpu_persistent() {
     let sizes = [32u32, 64, 128, 256];
     let steps = 1000u32;
 
-    println!("Running {} steps per grid size (16x16 tiles, WGPU GPU-Persistent)...", steps);
+    println!(
+        "Running {} steps per grid size (16x16 tiles, WGPU GPU-Persistent)...",
+        steps
+    );
     println!("State stays GPU-resident, only halos transferred (64 bytes/edge/step)");
     println!();
-    println!("{:<12} {:>8} {:>12} {:>12} {:>18}",
-             "Grid Size", "Tiles", "Time (ms)", "Steps/sec", "Halo Transfer (KB)");
+    println!(
+        "{:<12} {:>8} {:>12} {:>12} {:>18}",
+        "Grid Size", "Tiles", "Time (ms)", "Steps/sec", "Halo Transfer (KB)"
+    );
     println!("{}", "-".repeat(70));
 
     for &size in &sizes {
@@ -427,7 +460,11 @@ async fn benchmark_wgpu_persistent() {
                         );
                     }
                     Err(e) => {
-                        println!("{:<12} - WGPU init error: {}", format!("{}x{}", size, size), e);
+                        println!(
+                            "{:<12} - WGPU init error: {}",
+                            format!("{}x{}", size, size),
+                            e
+                        );
                     }
                 }
             }
@@ -445,8 +482,10 @@ async fn benchmark_full_comparison() {
 
     println!("Grid: {}x{}, Steps: {}", size, size, steps);
     println!();
-    println!("{:<35} {:>12} {:>15} {:>12}",
-             "Backend", "Time (ms)", "Steps/sec", "Speedup");
+    println!(
+        "{:<35} {:>12} {:>15} {:>12}",
+        "Backend", "Time (ms)", "Steps/sec", "Speedup"
+    );
     println!("{}", "-".repeat(78));
 
     // 1. CPU SimulationGrid (baseline)
@@ -471,17 +510,16 @@ async fn benchmark_full_comparison() {
 
         println!(
             "{:<35} {:>12.2} {:>15.0} {:>12}",
-            "CPU SimulationGrid (SoA+SIMD)",
-            total_ms,
-            steps_per_sec,
-            "1.00x (baseline)"
+            "CPU SimulationGrid (SoA+SIMD)", total_ms, steps_per_sec, "1.00x (baseline)"
         );
 
         steps_per_sec
     };
 
     // 2. TileKernelGrid CPU
-    if let Ok(mut grid) = TileKernelGrid::new(size, size, AcousticParams::new(343.0, 1.0), Backend::Cpu).await {
+    if let Ok(mut grid) =
+        TileKernelGrid::new(size, size, AcousticParams::new(343.0, 1.0), Backend::Cpu).await
+    {
         grid.inject_impulse(size / 2, size / 2, 1.0);
 
         for _ in 0..10 {
@@ -500,16 +538,15 @@ async fn benchmark_full_comparison() {
 
         println!(
             "{:<35} {:>12.2} {:>15.0} {:>12.2}x",
-            "TileKernelGrid CPU (K2K)",
-            total_ms,
-            steps_per_sec,
-            speedup
+            "TileKernelGrid CPU (K2K)", total_ms, steps_per_sec, speedup
         );
     }
 
     // 3. TileKernelGrid WGPU Legacy
     #[cfg(feature = "wgpu")]
-    if let Ok(mut grid) = TileKernelGrid::new(size, size, AcousticParams::new(343.0, 1.0), Backend::Cpu).await {
+    if let Ok(mut grid) =
+        TileKernelGrid::new(size, size, AcousticParams::new(343.0, 1.0), Backend::Cpu).await
+    {
         if grid.enable_gpu_compute().await.is_ok() {
             grid.inject_impulse(size / 2, size / 2, 1.0);
 
@@ -529,17 +566,16 @@ async fn benchmark_full_comparison() {
 
             println!(
                 "{:<35} {:>12.2} {:>15.0} {:>12.2}x",
-                "TileKernelGrid WGPU Legacy",
-                total_ms,
-                steps_per_sec,
-                speedup
+                "TileKernelGrid WGPU Legacy", total_ms, steps_per_sec, speedup
             );
         }
     }
 
     // 4. TileKernelGrid CUDA GPU-Persistent
     #[cfg(feature = "cuda")]
-    if let Ok(mut grid) = TileKernelGrid::new(size, size, AcousticParams::new(343.0, 1.0), Backend::Cpu).await {
+    if let Ok(mut grid) =
+        TileKernelGrid::new(size, size, AcousticParams::new(343.0, 1.0), Backend::Cpu).await
+    {
         if grid.enable_cuda_persistent().is_ok() {
             let _ = grid.inject_impulse_cuda(size / 2, size / 2, 1.0);
 
@@ -559,17 +595,16 @@ async fn benchmark_full_comparison() {
 
             println!(
                 "{:<35} {:>12.2} {:>15.0} {:>12.2}x",
-                "TileKernelGrid CUDA GPU-Persistent",
-                total_ms,
-                steps_per_sec,
-                speedup
+                "TileKernelGrid CUDA GPU-Persistent", total_ms, steps_per_sec, speedup
             );
         }
     }
 
     // 5. TileKernelGrid WGPU GPU-Persistent
     #[cfg(feature = "wgpu")]
-    if let Ok(mut grid) = TileKernelGrid::new(size, size, AcousticParams::new(343.0, 1.0), Backend::Cpu).await {
+    if let Ok(mut grid) =
+        TileKernelGrid::new(size, size, AcousticParams::new(343.0, 1.0), Backend::Cpu).await
+    {
         if grid.enable_wgpu_persistent().await.is_ok() {
             let _ = grid.inject_impulse_wgpu(size / 2, size / 2, 1.0);
 
@@ -589,10 +624,7 @@ async fn benchmark_full_comparison() {
 
             println!(
                 "{:<35} {:>12.2} {:>15.0} {:>12.2}x",
-                "TileKernelGrid WGPU GPU-Persistent",
-                total_ms,
-                steps_per_sec,
-                speedup
+                "TileKernelGrid WGPU GPU-Persistent", total_ms, steps_per_sec, speedup
             );
         }
     }

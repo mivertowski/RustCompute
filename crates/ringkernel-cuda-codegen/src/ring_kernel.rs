@@ -100,7 +100,10 @@ impl RingKernelConfig {
 
     /// Set the queue capacity (must be power of 2).
     pub fn with_queue_capacity(mut self, capacity: u32) -> Self {
-        debug_assert!(capacity.is_power_of_two(), "Queue capacity must be power of 2");
+        debug_assert!(
+            capacity.is_power_of_two(),
+            "Queue capacity must be power of 2"
+        );
         self.queue_capacity = capacity;
         self
     }
@@ -162,16 +165,37 @@ impl RingKernelConfig {
 
         // Thread identification
         writeln!(code, "{}// Thread identification", indent).unwrap();
-        writeln!(code, "{}int tid = threadIdx.x + blockIdx.x * blockDim.x;", indent).unwrap();
+        writeln!(
+            code,
+            "{}int tid = threadIdx.x + blockIdx.x * blockDim.x;",
+            indent
+        )
+        .unwrap();
         writeln!(code, "{}int lane_id = threadIdx.x % 32;", indent).unwrap();
         writeln!(code, "{}int warp_id = threadIdx.x / 32;", indent).unwrap();
         writeln!(code).unwrap();
 
         // Message size constants
         writeln!(code, "{}// Message buffer constants", indent).unwrap();
-        writeln!(code, "{}const unsigned int MSG_SIZE = {};", indent, self.message_size).unwrap();
-        writeln!(code, "{}const unsigned int RESP_SIZE = {};", indent, self.response_size).unwrap();
-        writeln!(code, "{}const unsigned int QUEUE_MASK = {};", indent, self.queue_capacity - 1).unwrap();
+        writeln!(
+            code,
+            "{}const unsigned int MSG_SIZE = {};",
+            indent, self.message_size
+        )
+        .unwrap();
+        writeln!(
+            code,
+            "{}const unsigned int RESP_SIZE = {};",
+            indent, self.response_size
+        )
+        .unwrap();
+        writeln!(
+            code,
+            "{}const unsigned int QUEUE_MASK = {};",
+            indent,
+            self.queue_capacity - 1
+        )
+        .unwrap();
         writeln!(code).unwrap();
 
         // HLC state (if enabled)
@@ -192,16 +216,31 @@ impl RingKernelConfig {
         writeln!(code, "{}// Persistent message processing loop", indent).unwrap();
         writeln!(code, "{}while (true) {{", indent).unwrap();
         writeln!(code, "{}    // Check for termination signal", indent).unwrap();
-        writeln!(code, "{}    if (atomicAdd(&control->should_terminate, 0) != 0) {{", indent).unwrap();
+        writeln!(
+            code,
+            "{}    if (atomicAdd(&control->should_terminate, 0) != 0) {{",
+            indent
+        )
+        .unwrap();
         writeln!(code, "{}        break;", indent).unwrap();
         writeln!(code, "{}    }}", indent).unwrap();
         writeln!(code).unwrap();
 
         // Check if active
         writeln!(code, "{}    // Check if kernel is active", indent).unwrap();
-        writeln!(code, "{}    if (atomicAdd(&control->is_active, 0) == 0) {{", indent).unwrap();
+        writeln!(
+            code,
+            "{}    if (atomicAdd(&control->is_active, 0) == 0) {{",
+            indent
+        )
+        .unwrap();
         if self.idle_sleep_ns > 0 {
-            writeln!(code, "{}        __nanosleep({});", indent, self.idle_sleep_ns).unwrap();
+            writeln!(
+                code,
+                "{}        __nanosleep({});",
+                indent, self.idle_sleep_ns
+            )
+            .unwrap();
         }
         writeln!(code, "{}        continue;", indent).unwrap();
         writeln!(code, "{}    }}", indent).unwrap();
@@ -209,13 +248,28 @@ impl RingKernelConfig {
 
         // Check for messages
         writeln!(code, "{}    // Check input queue for messages", indent).unwrap();
-        writeln!(code, "{}    unsigned long long head = atomicAdd(&control->input_head, 0);", indent).unwrap();
-        writeln!(code, "{}    unsigned long long tail = atomicAdd(&control->input_tail, 0);", indent).unwrap();
+        writeln!(
+            code,
+            "{}    unsigned long long head = atomicAdd(&control->input_head, 0);",
+            indent
+        )
+        .unwrap();
+        writeln!(
+            code,
+            "{}    unsigned long long tail = atomicAdd(&control->input_tail, 0);",
+            indent
+        )
+        .unwrap();
         writeln!(code).unwrap();
         writeln!(code, "{}    if (head == tail) {{", indent).unwrap();
         writeln!(code, "{}        // No messages, yield", indent).unwrap();
         if self.idle_sleep_ns > 0 {
-            writeln!(code, "{}        __nanosleep({});", indent, self.idle_sleep_ns).unwrap();
+            writeln!(
+                code,
+                "{}        __nanosleep({});",
+                indent, self.idle_sleep_ns
+            )
+            .unwrap();
         }
         writeln!(code, "{}        continue;", indent).unwrap();
         writeln!(code, "{}    }}", indent).unwrap();
@@ -223,8 +277,18 @@ impl RingKernelConfig {
 
         // Calculate message pointer
         writeln!(code, "{}    // Get message from queue", indent).unwrap();
-        writeln!(code, "{}    unsigned int msg_idx = (unsigned int)(tail & QUEUE_MASK);", indent).unwrap();
-        writeln!(code, "{}    unsigned char* msg_ptr = &input_buffer[msg_idx * MSG_SIZE];", indent).unwrap();
+        writeln!(
+            code,
+            "{}    unsigned int msg_idx = (unsigned int)(tail & QUEUE_MASK);",
+            indent
+        )
+        .unwrap();
+        writeln!(
+            code,
+            "{}    unsigned char* msg_ptr = &input_buffer[msg_idx * MSG_SIZE];",
+            indent
+        )
+        .unwrap();
         writeln!(code).unwrap();
 
         code
@@ -237,7 +301,12 @@ impl RingKernelConfig {
         writeln!(code).unwrap();
         writeln!(code, "{}    // Mark message as processed", indent).unwrap();
         writeln!(code, "{}    atomicAdd(&control->input_tail, 1);", indent).unwrap();
-        writeln!(code, "{}    atomicAdd(&control->messages_processed, 1);", indent).unwrap();
+        writeln!(
+            code,
+            "{}    atomicAdd(&control->messages_processed, 1);",
+            indent
+        )
+        .unwrap();
 
         if self.enable_hlc {
             writeln!(code).unwrap();
@@ -268,11 +337,26 @@ impl RingKernelConfig {
 
         if self.enable_hlc {
             writeln!(code, "{}    // Store final HLC state", indent).unwrap();
-            writeln!(code, "{}    control->hlc_state.physical = hlc_physical;", indent).unwrap();
-            writeln!(code, "{}    control->hlc_state.logical = hlc_logical;", indent).unwrap();
+            writeln!(
+                code,
+                "{}    control->hlc_state.physical = hlc_physical;",
+                indent
+            )
+            .unwrap();
+            writeln!(
+                code,
+                "{}    control->hlc_state.logical = hlc_logical;",
+                indent
+            )
+            .unwrap();
         }
 
-        writeln!(code, "{}    atomicExch(&control->has_terminated, 1);", indent).unwrap();
+        writeln!(
+            code,
+            "{}    atomicExch(&control->has_terminated, 1);",
+            indent
+        )
+        .unwrap();
         writeln!(code, "{}}}", indent).unwrap();
 
         code
@@ -367,7 +451,8 @@ struct __align__(128) ControlBlock {
     // Reserved padding
     unsigned char _reserved[24];
 };
-"#.to_string()
+"#
+    .to_string()
 }
 
 /// Generate CUDA HLC helper struct.
@@ -377,7 +462,8 @@ struct HlcState {
     unsigned long long physical;
     unsigned long long logical;
 };
-"#.to_string()
+"#
+    .to_string()
 }
 
 /// Generate CUDA K2K routing structs and helper functions.
@@ -490,7 +576,8 @@ __device__ inline unsigned int k2k_pending_count(unsigned char* k2k_inbox) {
     unsigned long long tail = atomicAdd(&header->tail, 0);
     return (unsigned int)(head - tail);
 }
-"#.to_string()
+"#
+    .to_string()
 }
 
 /// Intrinsic functions available in ring kernel handlers.
@@ -532,19 +619,23 @@ impl RingKernelIntrinsic {
             Self::GetMessagesProcessed => "atomicAdd(&control->messages_processed, 0)".to_string(),
 
             Self::InputQueueSize => {
-                "(atomicAdd(&control->input_head, 0) - atomicAdd(&control->input_tail, 0))".to_string()
+                "(atomicAdd(&control->input_head, 0) - atomicAdd(&control->input_tail, 0))"
+                    .to_string()
             }
             Self::OutputQueueSize => {
-                "(atomicAdd(&control->output_head, 0) - atomicAdd(&control->output_tail, 0))".to_string()
+                "(atomicAdd(&control->output_head, 0) - atomicAdd(&control->output_tail, 0))"
+                    .to_string()
             }
             Self::InputQueueEmpty => {
-                "(atomicAdd(&control->input_head, 0) == atomicAdd(&control->input_tail, 0))".to_string()
+                "(atomicAdd(&control->input_head, 0) == atomicAdd(&control->input_tail, 0))"
+                    .to_string()
             }
             Self::OutputQueueEmpty => {
-                "(atomicAdd(&control->output_head, 0) == atomicAdd(&control->output_tail, 0))".to_string()
+                "(atomicAdd(&control->output_head, 0) == atomicAdd(&control->output_tail, 0))"
+                    .to_string()
             }
             Self::EnqueueResponse => {
-                if args.len() >= 1 {
+                if !args.is_empty() {
                     format!(
                         "{{ unsigned long long _out_idx = atomicAdd(&control->output_head, 1) & control->output_mask; \
                          memcpy(&output_buffer[_out_idx * RESP_SIZE], {}, RESP_SIZE); }}",
@@ -557,7 +648,7 @@ impl RingKernelIntrinsic {
 
             Self::HlcTick => "hlc_logical++".to_string(),
             Self::HlcUpdate => {
-                if args.len() >= 1 {
+                if !args.is_empty() {
                     format!(
                         "{{ if ({} > hlc_physical) {{ hlc_physical = {}; hlc_logical = 0; }} else {{ hlc_logical++; }} }}",
                         args[0], args[0]
@@ -571,7 +662,10 @@ impl RingKernelIntrinsic {
             Self::K2kSend => {
                 if args.len() >= 2 {
                     // k2k_send(target_id, msg_ptr) -> k2k_send(k2k_routes, target_id, msg_ptr, sizeof(*msg_ptr))
-                    format!("k2k_send(k2k_routes, {}, {}, sizeof(*{}))", args[0], args[1], args[1])
+                    format!(
+                        "k2k_send(k2k_routes, {}, {}, sizeof(*{}))",
+                        args[0], args[1], args[1]
+                    )
                 } else {
                     "/* k2k_send requires target_id and msg_ptr */".to_string()
                 }
@@ -782,9 +876,15 @@ mod tests {
 
     #[test]
     fn test_intrinsic_cuda_output() {
-        assert!(RingKernelIntrinsic::IsActive.to_cuda(&[]).contains("is_active"));
-        assert!(RingKernelIntrinsic::ShouldTerminate.to_cuda(&[]).contains("should_terminate"));
-        assert!(RingKernelIntrinsic::HlcTick.to_cuda(&[]).contains("hlc_logical++"));
+        assert!(RingKernelIntrinsic::IsActive
+            .to_cuda(&[])
+            .contains("is_active"));
+        assert!(RingKernelIntrinsic::ShouldTerminate
+            .to_cuda(&[])
+            .contains("should_terminate"));
+        assert!(RingKernelIntrinsic::HlcTick
+            .to_cuda(&[])
+            .contains("hlc_logical++"));
     }
 
     #[test]
@@ -792,16 +892,40 @@ mod tests {
         let k2k_code = generate_k2k_structs();
 
         // Check struct definitions
-        assert!(k2k_code.contains("struct K2KRoute"), "Should have K2KRoute struct");
-        assert!(k2k_code.contains("struct K2KRoutingTable"), "Should have K2KRoutingTable struct");
-        assert!(k2k_code.contains("struct K2KInboxHeader"), "Should have K2KInboxHeader struct");
+        assert!(
+            k2k_code.contains("struct K2KRoute"),
+            "Should have K2KRoute struct"
+        );
+        assert!(
+            k2k_code.contains("struct K2KRoutingTable"),
+            "Should have K2KRoutingTable struct"
+        );
+        assert!(
+            k2k_code.contains("struct K2KInboxHeader"),
+            "Should have K2KInboxHeader struct"
+        );
 
         // Check helper functions
-        assert!(k2k_code.contains("__device__ inline int k2k_send"), "Should have k2k_send function");
-        assert!(k2k_code.contains("__device__ inline int k2k_has_message"), "Should have k2k_has_message function");
-        assert!(k2k_code.contains("__device__ inline void* k2k_try_recv"), "Should have k2k_try_recv function");
-        assert!(k2k_code.contains("__device__ inline void* k2k_peek"), "Should have k2k_peek function");
-        assert!(k2k_code.contains("__device__ inline unsigned int k2k_pending_count"), "Should have k2k_pending_count function");
+        assert!(
+            k2k_code.contains("__device__ inline int k2k_send"),
+            "Should have k2k_send function"
+        );
+        assert!(
+            k2k_code.contains("__device__ inline int k2k_has_message"),
+            "Should have k2k_has_message function"
+        );
+        assert!(
+            k2k_code.contains("__device__ inline void* k2k_try_recv"),
+            "Should have k2k_try_recv function"
+        );
+        assert!(
+            k2k_code.contains("__device__ inline void* k2k_peek"),
+            "Should have k2k_peek function"
+        );
+        assert!(
+            k2k_code.contains("__device__ inline unsigned int k2k_pending_count"),
+            "Should have k2k_pending_count function"
+        );
 
         println!("K2K code:\n{}", k2k_code);
     }
@@ -816,14 +940,29 @@ mod tests {
         let kernel = config.generate_kernel_wrapper("// K2K handler code");
 
         // Check K2K-specific components
-        assert!(kernel.contains("K2KRoutingTable"), "Should have K2KRoutingTable");
+        assert!(
+            kernel.contains("K2KRoutingTable"),
+            "Should have K2KRoutingTable"
+        );
         assert!(kernel.contains("K2KRoute"), "Should have K2KRoute struct");
-        assert!(kernel.contains("K2KInboxHeader"), "Should have K2KInboxHeader");
-        assert!(kernel.contains("k2k_routes"), "Should have k2k_routes param");
+        assert!(
+            kernel.contains("K2KInboxHeader"),
+            "Should have K2KInboxHeader"
+        );
+        assert!(
+            kernel.contains("k2k_routes"),
+            "Should have k2k_routes param"
+        );
         assert!(kernel.contains("k2k_inbox"), "Should have k2k_inbox param");
-        assert!(kernel.contains("k2k_outbox"), "Should have k2k_outbox param");
+        assert!(
+            kernel.contains("k2k_outbox"),
+            "Should have k2k_outbox param"
+        );
         assert!(kernel.contains("k2k_send"), "Should have k2k_send function");
-        assert!(kernel.contains("k2k_try_recv"), "Should have k2k_try_recv function");
+        assert!(
+            kernel.contains("k2k_try_recv"),
+            "Should have k2k_try_recv function"
+        );
 
         println!("Full K2K kernel:\n{}", kernel);
     }

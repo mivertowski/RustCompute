@@ -40,14 +40,14 @@ impl TransactionPattern {
         match self {
             TransactionPattern::NormalRetail => {
                 // Small retail transaction: $10 - $500
-                tx.amount_cents = rng.gen_range(10_00..500_00);
+                tx.amount_cents = rng.gen_range(1000..50_000);
                 tx.tx_type = TransactionType::Card as u8;
                 tx.country_code = customer.country_code; // Local
             }
 
             TransactionPattern::HighValueWire => {
                 // Large legitimate wire: $15,000 - $100,000
-                tx.amount_cents = rng.gen_range(15_000_00..100_000_00);
+                tx.amount_cents = rng.gen_range(1_500_000..10_000_000);
                 tx.tx_type = TransactionType::Wire as u8;
                 // Mix of domestic and international
                 if rng.gen::<f32>() < 0.3 {
@@ -57,14 +57,14 @@ impl TransactionPattern {
 
             TransactionPattern::VelocityBurst => {
                 // Small amounts, meant to be sent in quick succession
-                tx.amount_cents = rng.gen_range(50_00..500_00);
+                tx.amount_cents = rng.gen_range(5000..50_000);
                 tx.tx_type = TransactionType::ACH as u8;
                 tx.country_code = customer.country_code;
             }
 
             TransactionPattern::Smurfing => {
                 // Just under $10,000 threshold (90-99% of threshold)
-                let threshold = 10_000_00u64; // $10,000
+                let threshold = 1_000_000u64; // $10,000 in cents
                 let percentage = rng.gen_range(90..99) as u64;
                 tx.amount_cents = (threshold * percentage) / 100;
                 tx.tx_type = TransactionType::Cash as u8;
@@ -73,7 +73,7 @@ impl TransactionPattern {
 
             TransactionPattern::GeographicAnomaly => {
                 // Transaction to unusual/high-risk country
-                tx.amount_cents = rng.gen_range(1_000_00..20_000_00);
+                tx.amount_cents = rng.gen_range(100_000..2_000_000);
                 tx.tx_type = TransactionType::Wire as u8;
                 // Pick a country different from customer's home country
                 loop {
@@ -90,7 +90,7 @@ impl TransactionPattern {
 
             TransactionPattern::RoundTrip => {
                 // Round-trip transaction (money comes back)
-                tx.amount_cents = rng.gen_range(5_000_00..50_000_00);
+                tx.amount_cents = rng.gen_range(500_000..5_000_000);
                 tx.tx_type = TransactionType::Internal as u8;
                 tx.destination_id = customer.customer_id; // Same customer
                 tx.flags |= 0x01; // Mark as round-trip
@@ -156,8 +156,8 @@ mod tests {
         for _ in 0..100 {
             let tx = TransactionPattern::Smurfing.generate(1, &customer, 0, &mut rng);
             // Should always be under $10,000 but above 90%
-            assert!(tx.amount_cents < 10_000_00);
-            assert!(tx.amount_cents >= 9_000_00);
+            assert!(tx.amount_cents < 1_000_000);
+            assert!(tx.amount_cents >= 900_000);
         }
     }
 

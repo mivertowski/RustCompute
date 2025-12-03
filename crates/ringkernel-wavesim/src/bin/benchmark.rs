@@ -2,8 +2,8 @@
 //!
 //! Run with: cargo run -p ringkernel-wavesim --bin benchmark --release
 
-use ringkernel_wavesim::simulation::{AcousticParams, SimulationGrid, TileKernelGrid};
 use ringkernel::prelude::Backend;
+use ringkernel_wavesim::simulation::{AcousticParams, SimulationGrid, TileKernelGrid};
 use std::time::Instant;
 
 #[tokio::main]
@@ -24,16 +24,17 @@ async fn main() {
     let sizes = [8, 16, 32, 64, 128, 256, 512, 1024];
     let mut max_working = 8u32;
 
-    println!("{:<12} {:>10} {:>12} {:>15}", "Grid Size", "Cells", "Init (ms)", "10 steps (ms)");
+    println!(
+        "{:<12} {:>10} {:>12} {:>15}",
+        "Grid Size", "Cells", "Init (ms)", "10 steps (ms)"
+    );
     println!("{}", "-".repeat(52));
 
     for &size in &sizes {
         let params = AcousticParams::new(343.0, 1.0);
 
         let init_start = Instant::now();
-        let result = std::panic::catch_unwind(|| {
-            SimulationGrid::new(size, size, params)
-        });
+        let result = std::panic::catch_unwind(|| SimulationGrid::new(size, size, params));
         let init_time = init_start.elapsed();
 
         match result {
@@ -68,7 +69,12 @@ async fn main() {
         }
     }
     println!();
-    println!("Maximum stable grid: {}x{} ({} cells)", max_working, max_working, max_working * max_working);
+    println!(
+        "Maximum stable grid: {}x{} ({} cells)",
+        max_working,
+        max_working,
+        max_working * max_working
+    );
     println!();
 
     // =========================================================================
@@ -81,7 +87,10 @@ async fn main() {
 
     let bench_sizes = [32, 64, 128, 256];
 
-    println!("{:<12} {:>10} {:>12} {:>12} {:>15}", "Grid Size", "Cells", "Total (ms)", "Steps/sec", "Cells*Steps/sec");
+    println!(
+        "{:<12} {:>10} {:>12} {:>12} {:>15}",
+        "Grid Size", "Cells", "Total (ms)", "Steps/sec", "Cells*Steps/sec"
+    );
     println!("{}", "-".repeat(65));
 
     for &size in &bench_sizes {
@@ -127,7 +136,10 @@ async fn main() {
     let grid_size = 64u32;
     let target_sim_time = 0.01; // 10ms of simulation per frame
 
-    println!("{:<12} {:>12} {:>15} {:>12} {:>10}", "Cell Size", "Time Step", "Steps/Frame", "Est. FPS", "Status");
+    println!(
+        "{:<12} {:>12} {:>15} {:>12} {:>10}",
+        "Cell Size", "Time Step", "Steps/Frame", "Est. FPS", "Status"
+    );
     println!("{}", "-".repeat(65));
 
     for &cell_size in &cell_sizes {
@@ -164,11 +176,7 @@ async fn main() {
 
         println!(
             "{:<12.4} {:>12.6} {:>15} {:>12.1} {:>10}",
-            cell_size,
-            dt,
-            steps_per_frame,
-            actual_fps,
-            status
+            cell_size, dt, steps_per_frame, actual_fps, status
         );
     }
     println!();
@@ -242,8 +250,10 @@ async fn main() {
     let tile_sizes = [32, 64, 128];
     let tile_steps = 100;
 
-    println!("{:<12} {:>10} {:>12} {:>12} {:>15} {:>15}",
-             "Grid Size", "Tiles", "Total (ms)", "Steps/sec", "K2K Messages", "Msg/step");
+    println!(
+        "{:<12} {:>10} {:>12} {:>12} {:>15} {:>15}",
+        "Grid Size", "Tiles", "Total (ms)", "Steps/sec", "K2K Messages", "Msg/step"
+    );
     println!("{}", "-".repeat(85));
 
     for &size in &tile_sizes {

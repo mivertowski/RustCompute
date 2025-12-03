@@ -225,11 +225,14 @@ impl AudioFftProcessor {
         let mut output = ProcessingOutput::new(sample_rate, channels);
         let mut fft_processor =
             FftProcessor::with_window(self.fft_size, self.hop_size, sample_rate, self.window)?;
-        let mut ifft_processor = IfftProcessor::with_window(self.fft_size, self.hop_size, self.window)?;
+        let mut ifft_processor =
+            IfftProcessor::with_window(self.fft_size, self.hop_size, self.window)?;
 
         let mut frame_mixer = FrameMixer::new(self.mixer_config.clone());
 
-        let bin_network = self.bin_network.as_mut()
+        let bin_network = self
+            .bin_network
+            .as_mut()
             .ok_or_else(|| AudioFftError::kernel("Bin network not initialized"))?;
 
         // Process mono for now (extract first channel if stereo)
@@ -278,9 +281,15 @@ impl AudioFftProcessor {
                 .await?;
             let mixed = frame_mixer.process(&separated);
 
-            output.direct.append(&ifft_processor.process_frame(&mixed.direct_bins));
-            output.ambience.append(&ifft_processor.process_frame(&mixed.ambience_bins));
-            output.mixed.append(&ifft_processor.process_frame(&mixed.bins));
+            output
+                .direct
+                .append(&ifft_processor.process_frame(&mixed.direct_bins));
+            output
+                .ambience
+                .append(&ifft_processor.process_frame(&mixed.ambience_bins));
+            output
+                .mixed
+                .append(&ifft_processor.process_frame(&mixed.bins));
         }
 
         // Flush IFFT
@@ -320,10 +329,7 @@ impl AudioFftProcessor {
     }
 
     /// Process with streaming output (for real-time use).
-    pub fn process_streaming(
-        &mut self,
-        input: AudioInput,
-    ) -> Result<StreamingProcessor> {
+    pub fn process_streaming(&mut self, input: AudioInput) -> Result<StreamingProcessor> {
         let sample_rate = input.sample_rate();
 
         Ok(StreamingProcessor {
@@ -505,9 +511,15 @@ pub async fn process_file(
         .and_then(|s| s.to_str())
         .unwrap_or("output");
 
-    output.direct.write_to_file(format!("{}/{}_direct.wav", output_dir, base_name))?;
-    output.ambience.write_to_file(format!("{}/{}_ambience.wav", output_dir, base_name))?;
-    output.mixed.write_to_file(format!("{}/{}_mixed.wav", output_dir, base_name))?;
+    output
+        .direct
+        .write_to_file(format!("{}/{}_direct.wav", output_dir, base_name))?;
+    output
+        .ambience
+        .write_to_file(format!("{}/{}_ambience.wav", output_dir, base_name))?;
+    output
+        .mixed
+        .write_to_file(format!("{}/{}_mixed.wav", output_dir, base_name))?;
 
     processor.shutdown().await?;
 
@@ -557,12 +569,13 @@ mod tests {
         let output = processor.process(input).await.unwrap();
 
         // Verify output lengths are reasonable
-        assert!(output.direct.samples.len() > 0);
-        assert!(output.ambience.samples.len() > 0);
-        assert!(output.mixed.samples.len() > 0);
+        assert!(!output.direct.samples.is_empty());
+        assert!(!output.ambience.samples.is_empty());
+        assert!(!output.mixed.samples.is_empty());
 
         // All outputs should have similar length
-        let len_diff = (output.direct.samples.len() as i64 - output.ambience.samples.len() as i64).abs();
+        let len_diff =
+            (output.direct.samples.len() as i64 - output.ambience.samples.len() as i64).abs();
         assert!(len_diff < 1000);
 
         processor.shutdown().await.unwrap();

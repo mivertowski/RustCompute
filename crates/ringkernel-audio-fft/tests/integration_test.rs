@@ -88,7 +88,7 @@ async fn test_bin_network_k2k() {
     // Each separated bin should have valid data
     for (i, bin) in separated.iter().enumerate() {
         assert_eq!(bin.bin_index, i as u32);
-        assert!(bin.coherence >= 0.0 && bin.coherence <= 1.0);
+        assert!((0.0..=1.0).contains(&bin.coherence));
     }
 
     // Check K2K stats
@@ -204,8 +204,8 @@ fn test_coherence_analyzer() {
 
     // Without neighbors
     let (coherence, transient) = analyzer.analyze(&value, None, None, 0.0, 0.0);
-    assert!(coherence >= 0.0 && coherence <= 1.0);
-    assert!(transient >= 0.0 && transient <= 1.0);
+    assert!((0.0..=1.0).contains(&coherence));
+    assert!((0.0..=1.0).contains(&transient));
 
     // With coherent neighbors (same phase)
     let left = NeighborData {

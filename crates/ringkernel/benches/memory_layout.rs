@@ -8,11 +8,10 @@
 //! These benchmarks verify that memory operations are efficient and
 //! the claimed memory layouts are correct and performant.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
-use std::time::Instant;
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
 use ringkernel_core::control::ControlBlock;
-use ringkernel_core::hlc::{HlcTimestamp, HlcState};
+use ringkernel_core::hlc::{HlcState, HlcTimestamp};
 use ringkernel_core::message::MessageHeader;
 use zerocopy::AsBytes;
 
@@ -128,13 +127,7 @@ fn bench_message_header(c: &mut Criterion) {
     // Creation benchmarks
     group.bench_function("create_new", |b| {
         b.iter(|| {
-            let header = MessageHeader::new(
-                42,
-                0,
-                1,
-                1024,
-                HlcTimestamp::now(1),
-            );
+            let header = MessageHeader::new(42, 0, 1, 1024, HlcTimestamp::now(1));
             black_box(header);
         });
     });
@@ -270,8 +263,8 @@ fn bench_cache_efficiency(c: &mut Criterion) {
 
         b.iter(|| {
             let mut sum: u64 = 0;
-            for i in 0..blocks.len() {
-                sum = sum.wrapping_add(blocks[i].messages_processed);
+            for block in &blocks {
+                sum = sum.wrapping_add(block.messages_processed);
             }
             black_box(sum);
         });

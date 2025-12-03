@@ -4,8 +4,8 @@
 //! the host and GPU bin actors, as well as between neighboring bin actors.
 
 use bytemuck::{Pod, Zeroable};
-use rkyv::{Archive, Deserialize, Serialize};
 use ringkernel_core::prelude::*;
+use rkyv::{Archive, Deserialize, Serialize};
 
 /// Message type IDs for audio FFT messages.
 pub mod message_types {

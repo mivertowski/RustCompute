@@ -8,14 +8,13 @@
 //! - Message envelope creation latency
 //! - Serialization + queue round-trip latency
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::time::Instant;
 use tokio::runtime::Runtime as TokioRuntime;
 
 use ringkernel_core::hlc::HlcTimestamp;
-use ringkernel_core::message::{MessageEnvelope, MessageHeader, MessageId, CorrelationId, Priority};
+use ringkernel_core::message::{CorrelationId, MessageEnvelope, MessageHeader, Priority};
 use ringkernel_core::queue::{MessageQueue, SpscQueue};
-use ringkernel_core::runtime::{LaunchOptions, RingKernelRuntime};
 use ringkernel_cpu::CpuRuntime;
 
 /// Benchmark message envelope creation
@@ -24,13 +23,7 @@ fn bench_envelope_creation(c: &mut Criterion) {
 
     group.bench_function("header_only", |b| {
         b.iter(|| {
-            let header = MessageHeader::new(
-                1,
-                0,
-                1,
-                256,
-                HlcTimestamp::now(1),
-            );
+            let header = MessageHeader::new(1, 0, 1, 256, HlcTimestamp::now(1));
             black_box(header);
         });
     });
@@ -45,13 +38,7 @@ fn bench_envelope_creation(c: &mut Criterion) {
                 let payload = vec![0u8; size];
 
                 b.iter(|| {
-                    let header = MessageHeader::new(
-                        1,
-                        0,
-                        1,
-                        size,
-                        HlcTimestamp::now(1),
-                    );
+                    let header = MessageHeader::new(1, 0, 1, size, HlcTimestamp::now(1));
                     let envelope = MessageEnvelope {
                         header,
                         payload: payload.clone(),
@@ -229,12 +216,12 @@ fn bench_latency_validation(c: &mut Criterion) {
     // Full kernel message simulation
     group.bench_function("target_500us_simulated_kernel_message", |b| {
         let rt = TokioRuntime::new().unwrap();
-        let runtime = rt.block_on(CpuRuntime::new()).unwrap();
+        let _runtime = rt.block_on(CpuRuntime::new()).unwrap();
         let queue = SpscQueue::new(1024);
 
         b.iter_custom(|iters| {
             let start = Instant::now();
-            for i in 0..iters {
+            for _i in 0..iters {
                 // Create timestamp (HLC)
                 let timestamp = HlcTimestamp::now(1);
 
@@ -267,13 +254,7 @@ fn bench_header_operations(c: &mut Criterion) {
 
     group.bench_function("create_header", |b| {
         b.iter(|| {
-            let header = MessageHeader::new(
-                42,
-                0,
-                1,
-                1024,
-                HlcTimestamp::now(1),
-            );
+            let header = MessageHeader::new(42, 0, 1, 1024, HlcTimestamp::now(1));
             black_box(header);
         });
     });

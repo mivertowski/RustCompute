@@ -120,7 +120,7 @@ fn main() {
     // Create messages
     let request = AddRequest {
         id: MessageId::generate(),
-        a: 3.14,
+        a: 3.125,
         b: 2.71,
     };
 
@@ -164,7 +164,10 @@ fn main() {
     };
 
     println!("AutoTypedMessage:");
-    println!("  Message Type ID: {} (auto-generated hash)", AutoTypedMessage::message_type());
+    println!(
+        "  Message Type ID: {} (auto-generated hash)",
+        AutoTypedMessage::message_type()
+    );
     println!("  Content: {}", auto_msg.content);
 
     let bytes = auto_msg.serialize();

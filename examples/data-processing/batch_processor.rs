@@ -154,12 +154,7 @@ struct DataPipeline {
 
 impl DataPipeline {
     async fn new(config: PipelineConfig) -> std::result::Result<Self, Box<dyn std::error::Error>> {
-        let runtime = Arc::new(
-            RingKernel::builder()
-                .backend(Backend::Cpu)
-                .build()
-                .await?,
-        );
+        let runtime = Arc::new(RingKernel::builder().backend(Backend::Cpu).build().await?);
 
         // Queue capacity must be a power of 2
         let queue_capacity = (config.max_batch_size * 2).next_power_of_two();
@@ -179,7 +174,10 @@ impl DataPipeline {
     }
 
     /// Process a single batch
-    async fn process_batch(&mut self, batch: DataBatch) -> std::result::Result<ProcessedResult, Box<dyn std::error::Error>> {
+    async fn process_batch(
+        &mut self,
+        batch: DataBatch,
+    ) -> std::result::Result<ProcessedResult, Box<dyn std::error::Error>> {
         let start = Instant::now();
 
         // Step 1: Preprocess on CPU
@@ -229,7 +227,10 @@ impl DataPipeline {
     }
 
     /// Preprocess data on CPU
-    fn preprocess(&self, batch: &DataBatch) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error>> {
+    fn preprocess(
+        &self,
+        batch: &DataBatch,
+    ) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error>> {
         let flat = batch.flatten();
 
         // Normalize features (z-score normalization)
@@ -249,10 +250,7 @@ impl DataPipeline {
         let predictions: Vec<f32> = data.iter().map(|x| 1.0 / (1.0 + (-x).exp())).collect();
 
         // Simulate confidence scores
-        let confidence: Vec<f32> = predictions
-            .iter()
-            .map(|p| (p - 0.5).abs() * 2.0)
-            .collect();
+        let confidence: Vec<f32> = predictions.iter().map(|p| (p - 0.5).abs() * 2.0).collect();
 
         (predictions, confidence)
     }
@@ -296,7 +294,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("Generating sample data...");
     let batches = generate_sample_batches(10, 1000, 16);
     println!("  Generated {} batches", batches.len());
-    println!("  Total rows: {}", batches.iter().map(|b| b.row_count()).sum::<usize>());
+    println!(
+        "  Total rows: {}",
+        batches.iter().map(|b| b.row_count()).sum::<usize>()
+    );
     println!();
 
     // Process batches
@@ -326,8 +327,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("  Total rows: {}", stats.total_rows);
     println!("  Total time: {:.2} ms", stats.total_time_ms);
     println!("  GPU time: {:.2} ms", stats.gpu_time_ms);
-    println!("  Preprocessing time: {:.2} ms", stats.preprocessing_time_ms);
-    println!("  Throughput: {:.0} rows/sec", stats.throughput_rows_per_sec());
+    println!(
+        "  Preprocessing time: {:.2} ms",
+        stats.preprocessing_time_ms
+    );
+    println!(
+        "  Throughput: {:.0} rows/sec",
+        stats.throughput_rows_per_sec()
+    );
     println!("  GPU utilization: {:.1}%", stats.gpu_utilization());
 
     println!("\nOverall processing time: {:?}", total_time);
@@ -340,15 +347,15 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Generate sample data batches for testing
-fn generate_sample_batches(num_batches: usize, rows_per_batch: usize, features: usize) -> Vec<DataBatch> {
+fn generate_sample_batches(
+    num_batches: usize,
+    rows_per_batch: usize,
+    features: usize,
+) -> Vec<DataBatch> {
     (0..num_batches)
         .map(|id| {
             let features: Vec<Vec<f32>> = (0..rows_per_batch)
-                .map(|_| {
-                    (0..features)
-                        .map(|_| rand_f32() * 10.0 - 5.0)
-                        .collect()
-                })
+                .map(|_| (0..features).map(|_| rand_f32() * 10.0 - 5.0).collect())
                 .collect();
 
             DataBatch::new(id as u64, features)

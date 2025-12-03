@@ -44,15 +44,9 @@ impl RangeInfo {
     where
         F: Fn(&Expr) -> Result<String, crate::TranspileError>,
     {
-        let start = range
-            .start
-            .as_ref()
-            .and_then(|e| transpile_expr(e).ok());
+        let start = range.start.as_ref().and_then(|e| transpile_expr(e).ok());
 
-        let end = range
-            .end
-            .as_ref()
-            .and_then(|e| transpile_expr(e).ok());
+        let end = range.end.as_ref().and_then(|e| transpile_expr(e).ok());
 
         let inclusive = matches!(range.limits, RangeLimits::Closed(_));
 
@@ -87,9 +81,7 @@ impl RangeInfo {
         let end = self.end.as_deref().unwrap_or("/* end */");
         let op = self.comparison_op();
 
-        format!(
-            "for ({var_type} {var_name} = {start}; {var_name} {op} {end}; {var_name}++)"
-        )
+        format!("for ({var_type} {var_name} = {start}; {var_name} {op} {end}; {var_name}++)")
     }
 }
 
@@ -97,19 +89,11 @@ impl RangeInfo {
 #[derive(Debug, Clone)]
 pub enum LoopPattern {
     /// A for loop over a range: `for i in start..end`
-    ForRange {
-        var_name: String,
-        range: RangeInfo,
-    },
+    ForRange { var_name: String, range: RangeInfo },
     /// A for loop over an iterator (not fully supported yet)
-    ForIterator {
-        var_name: String,
-        iterator: String,
-    },
+    ForIterator { var_name: String, iterator: String },
     /// A while loop: `while condition { ... }`
-    While {
-        condition: String,
-    },
+    While { condition: String },
     /// An infinite loop: `loop { ... }`
     Infinite,
 }

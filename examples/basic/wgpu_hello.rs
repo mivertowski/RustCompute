@@ -79,7 +79,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Show metrics
     let metrics = kernel.metrics();
     println!("\nKernel Metrics:");
-    println!("  Messages processed: {}", metrics.telemetry.messages_processed);
+    println!(
+        "  Messages processed: {}",
+        metrics.telemetry.messages_processed
+    );
     println!("  Messages dropped: {}", metrics.telemetry.messages_dropped);
     println!("  Uptime: {:?}", metrics.uptime);
 

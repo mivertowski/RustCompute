@@ -273,12 +273,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // Initialize RingKernel runtime
     println!("Initializing RingKernel runtime...");
-    let runtime = Arc::new(
-        RingKernel::builder()
-            .backend(Backend::Cpu)
-            .build()
-            .await?,
-    );
+    let runtime = Arc::new(RingKernel::builder().backend(Backend::Cpu).build().await?);
 
     // Launch compute kernels
     println!("Launching compute kernels...");
@@ -308,7 +303,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Build router
     let app = Router::new()
         .route("/api/compute/vector-add", post(vector_add_handler))
-        .route("/api/compute/matrix-multiply", post(matrix_multiply_handler))
+        .route(
+            "/api/compute/matrix-multiply",
+            post(matrix_multiply_handler),
+        )
         .route("/api/health", get(health_handler))
         .route("/api/metrics", get(metrics_handler))
         .with_state(state);
@@ -323,13 +321,15 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("  GET  /api/metrics");
 
     println!("\nExample requests:");
-    println!(r#"
+    println!(
+        r#"
   curl -X POST http://localhost:3000/api/compute/vector-add \
     -H "Content-Type: application/json" \
     -d '{{"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]}}'
 
   curl http://localhost:3000/api/health
-"#);
+"#
+    );
 
     let listener = TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

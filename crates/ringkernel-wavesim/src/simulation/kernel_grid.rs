@@ -82,8 +82,7 @@ impl KernelGrid {
                 let mut cell = CellState::new(x, y);
 
                 // Mark boundary cells
-                let is_boundary =
-                    x == 0 || y == 0 || x == self.width - 1 || y == self.height - 1;
+                let is_boundary = x == 0 || y == 0 || x == self.width - 1 || y == self.height - 1;
                 cell.is_boundary = is_boundary;
                 cell.reflection_coeff = if is_boundary { 0.95 } else { 1.0 };
 

@@ -131,9 +131,15 @@ fn test_gpu_increment_kernel_execution() {
 
     // Verify: each element should be incremented by 1
     let expected: Vec<u32> = (1..=n).collect();
-    assert_eq!(result, expected, "GPU increment kernel did not execute correctly!");
+    assert_eq!(
+        result, expected,
+        "GPU increment kernel did not execute correctly!"
+    );
 
-    println!("✓ GPU kernel executed correctly - all {} elements verified!", n);
+    println!(
+        "✓ GPU kernel executed correctly - all {} elements verified!",
+        n
+    );
 }
 
 #[test]
@@ -191,7 +197,10 @@ fn test_gpu_multiply_kernel_execution() {
 
     // Verify: each element should be multiplied by 2
     let expected: Vec<u32> = (1..=n).map(|x| x * 2).collect();
-    assert_eq!(result, expected, "GPU multiply kernel did not execute correctly!");
+    assert_eq!(
+        result, expected,
+        "GPU multiply kernel did not execute correctly!"
+    );
 
     println!("✓ GPU multiply kernel executed correctly!");
 }
@@ -232,7 +241,7 @@ fn test_gpu_vector_addition() {
     let device_c = device.htod_sync_copy(&c).expect("Failed to copy C");
 
     let config = LaunchConfig {
-        grid_dim: ((n + 255) / 256, 1, 1),
+        grid_dim: (n.div_ceil(256), 1, 1),
         block_dim: (256.min(n), 1, 1),
         shared_mem_bytes: 0,
     };
@@ -264,7 +273,10 @@ fn test_gpu_vector_addition() {
         );
     }
 
-    println!("✓ GPU vector addition executed correctly on {} elements!", n);
+    println!(
+        "✓ GPU vector addition executed correctly on {} elements!",
+        n
+    );
 }
 
 #[test]
@@ -382,7 +394,7 @@ fn test_large_scale_gpu_computation() {
 
     // Use multiple blocks for large computation
     let threads_per_block = 256u32;
-    let blocks = (n + threads_per_block - 1) / threads_per_block;
+    let blocks = n.div_ceil(threads_per_block);
 
     let config = LaunchConfig {
         grid_dim: (blocks, 1, 1),
@@ -460,18 +472,22 @@ fn test_gpu_sum_reduction() {
 
     println!("Computing sum of {} ones...", n);
 
-    let device_input = device.htod_sync_copy(&host_data).expect("Failed to copy input");
+    let device_input = device
+        .htod_sync_copy(&host_data)
+        .expect("Failed to copy input");
 
     // Output: one partial sum per block
     let threads_per_block = 256u32;
-    let blocks = (n + threads_per_block - 1) / threads_per_block;
+    let blocks = n.div_ceil(threads_per_block);
     let partial_sums: Vec<f32> = vec![0.0; blocks as usize];
-    let device_output = device.htod_sync_copy(&partial_sums).expect("Failed to copy output");
+    let device_output = device
+        .htod_sync_copy(&partial_sums)
+        .expect("Failed to copy output");
 
     let config = LaunchConfig {
         grid_dim: (blocks, 1, 1),
         block_dim: (threads_per_block, 1, 1),
-        shared_mem_bytes: threads_per_block as u32 * std::mem::size_of::<f32>() as u32,
+        shared_mem_bytes: threads_per_block * std::mem::size_of::<f32>() as u32,
     };
 
     unsafe {
@@ -482,7 +498,9 @@ fn test_gpu_sum_reduction() {
     }
     device.synchronize().expect("Synchronize failed");
 
-    let result = device.dtoh_sync_copy(&device_output).expect("Failed to copy result");
+    let result = device
+        .dtoh_sync_copy(&device_output)
+        .expect("Failed to copy result");
 
     // Sum the partial results on CPU
     let total_sum: f32 = result.iter().sum();

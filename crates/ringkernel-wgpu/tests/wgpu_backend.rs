@@ -22,10 +22,7 @@ async fn test_wgpu_runtime_creation() {
     }
 
     let runtime = WgpuRuntime::new().await.expect("Failed to create runtime");
-    assert_eq!(
-        runtime.backend(),
-        ringkernel_core::runtime::Backend::Wgpu
-    );
+    assert_eq!(runtime.backend(), ringkernel_core::runtime::Backend::Wgpu);
 }
 
 #[tokio::test]

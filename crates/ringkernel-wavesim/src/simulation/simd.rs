@@ -6,7 +6,7 @@
 //! The main SIMD implementation is now inlined in grid.rs
 //! (fdtd_row_simd_inline) for better integration with rayon parallel processing.
 
-#![cfg(feature = "simd")]
+// Feature cfg is already applied in mod.rs, don't duplicate it here.
 
 #[cfg(test)]
 mod tests {
@@ -78,7 +78,7 @@ mod tests {
         pressure[width + 8] = 0.5; // Center cell
         pressure[width + 7] = 0.3; // West
         pressure[width + 9] = 0.3; // East
-        pressure[8] = 0.2;         // North (row 0)
+        pressure[8] = 0.2; // North (row 0)
         pressure[2 * width + 8] = 0.2; // South (row 2)
 
         let c2 = 0.5f32;
@@ -86,7 +86,10 @@ mod tests {
 
         fdtd_row_simd_test(&pressure, &mut pressure_prev, width, 1, c2, damping);
 
-        assert!(pressure_prev[width + 8].is_finite(), "Result should be finite");
+        assert!(
+            pressure_prev[width + 8].is_finite(),
+            "Result should be finite"
+        );
 
         // Manual calculation:
         // laplacian = 0.2 + 0.2 + 0.3 + 0.3 - 4*0.5 = 1.0 - 2.0 = -1.0
@@ -94,7 +97,12 @@ mod tests {
         // p_damped = 0.5 * 0.99 = 0.495
         let expected = 0.495f32;
         let diff = (pressure_prev[width + 8] - expected).abs();
-        assert!(diff < 1e-5, "Expected ~{}, got {}", expected, pressure_prev[width + 8]);
+        assert!(
+            diff < 1e-5,
+            "Expected ~{}, got {}",
+            expected,
+            pressure_prev[width + 8]
+        );
     }
 
     #[test]

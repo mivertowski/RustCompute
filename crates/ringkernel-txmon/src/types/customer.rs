@@ -53,49 +53,49 @@ impl std::fmt::Display for CustomerRiskLevel {
 #[repr(C, align(128))]
 pub struct CustomerRiskProfile {
     /// Unique customer identifier.
-    pub customer_id: u64,          // 8 bytes, offset 0
+    pub customer_id: u64, // 8 bytes, offset 0
     /// Overall risk level (cast to CustomerRiskLevel).
-    pub risk_level: u8,            // 1 byte, offset 8
+    pub risk_level: u8, // 1 byte, offset 8
     /// Numeric risk score (0-100).
-    pub risk_score: u8,            // 1 byte, offset 9
+    pub risk_score: u8, // 1 byte, offset 9
     /// Country code (ISO 3166-1 numeric).
-    pub country_code: u16,         // 2 bytes, offset 10
+    pub country_code: u16, // 2 bytes, offset 10
     /// Is Politically Exposed Person.
-    pub is_pep: u8,                // 1 byte, offset 12
+    pub is_pep: u8, // 1 byte, offset 12
     /// Requires Enhanced Due Diligence.
-    pub requires_edd: u8,          // 1 byte, offset 13
+    pub requires_edd: u8, // 1 byte, offset 13
     /// Has adverse media mentions.
-    pub has_adverse_media: u8,     // 1 byte, offset 14
+    pub has_adverse_media: u8, // 1 byte, offset 14
     /// Geographic risk component (0-100).
-    pub geographic_risk: u8,       // 1 byte, offset 15
+    pub geographic_risk: u8, // 1 byte, offset 15
     /// Business/industry risk component (0-100).
-    pub business_risk: u8,         // 1 byte, offset 16
+    pub business_risk: u8, // 1 byte, offset 16
     /// Behavioral risk component (0-100).
-    pub behavioral_risk: u8,       // 1 byte, offset 17
+    pub behavioral_risk: u8, // 1 byte, offset 17
     /// Padding for alignment.
-    _padding1: [u8; 2],            // 2 bytes, offset 18-19
+    _padding1: [u8; 2], // 2 bytes, offset 18-19
     /// Total transaction count (lifetime).
-    pub transaction_count: u32,    // 4 bytes, offset 20
+    pub transaction_count: u32, // 4 bytes, offset 20
     /// Total alert count (lifetime).
-    pub alert_count: u32,          // 4 bytes, offset 24
+    pub alert_count: u32, // 4 bytes, offset 24
     /// Velocity window transaction count (current window).
-    pub velocity_count: u32,       // 4 bytes, offset 28
+    pub velocity_count: u32, // 4 bytes, offset 28
     /// Custom amount threshold for this customer (cents, 0 = use default).
-    pub amount_threshold: u64,     // 8 bytes, offset 32
+    pub amount_threshold: u64, // 8 bytes, offset 32
     /// Custom velocity threshold (0 = use default).
-    pub velocity_threshold: u32,   // 4 bytes, offset 40
+    pub velocity_threshold: u32, // 4 bytes, offset 40
     /// Padding for alignment.
-    _padding2: u32,                // 4 bytes, offset 44
+    _padding2: u32, // 4 bytes, offset 44
     /// Allowed destination countries (bitmask, bit N = country code N allowed).
     pub allowed_destinations: u64, // 8 bytes, offset 48
     /// Average monthly transaction volume (cents).
-    pub avg_monthly_volume: u64,   // 8 bytes, offset 56
+    pub avg_monthly_volume: u64, // 8 bytes, offset 56
     /// Last transaction timestamp (Unix epoch ms).
-    pub last_transaction_ts: u64,  // 8 bytes, offset 64
+    pub last_transaction_ts: u64, // 8 bytes, offset 64
     /// Account creation timestamp (Unix epoch ms).
-    pub created_ts: u64,           // 8 bytes, offset 72
+    pub created_ts: u64, // 8 bytes, offset 72
     /// Reserved for future use.
-    _reserved: [u8; 48],           // 48 bytes, offset 80-127
+    _reserved: [u8; 48], // 48 bytes, offset 80-127
 }
 
 // Manual implementations since derive(Pod) is strict about padding

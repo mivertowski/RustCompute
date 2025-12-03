@@ -3,7 +3,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use ringkernel_core::hlc::HlcTimestamp;
 use ringkernel_core::message::MessageHeader;
-use zerocopy::AsBytes;
 
 fn bench_header_serialization(c: &mut Criterion) {
     let mut group = c.benchmark_group("serialization");
@@ -52,8 +51,6 @@ fn bench_timestamp(c: &mut Criterion) {
 
     group.finish();
 }
-
-use zerocopy::FromBytes;
 
 criterion_group!(benches, bench_header_serialization, bench_timestamp);
 criterion_main!(benches);

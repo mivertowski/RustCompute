@@ -308,8 +308,8 @@ impl RingKernelConfig {
 
     /// Create from environment variables only.
     pub fn from_env() -> Result<Self, ConfigError> {
-        let builder = Config::builder()
-            .add_source(Environment::with_prefix("RINGKERNEL").separator("__"));
+        let builder =
+            Config::builder().add_source(Environment::with_prefix("RINGKERNEL").separator("__"));
 
         builder.build()?.try_deserialize()
     }

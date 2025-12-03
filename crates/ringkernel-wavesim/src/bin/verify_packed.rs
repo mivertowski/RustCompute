@@ -2,8 +2,8 @@
 //!
 //! Run with: cargo run -p ringkernel-wavesim --bin verify_packed --release --features cuda
 
-use ringkernel_wavesim::simulation::{AcousticParams, CudaPackedBackend, TileKernelGrid};
 use ringkernel::prelude::Backend;
+use ringkernel_wavesim::simulation::{AcousticParams, CudaPackedBackend, TileKernelGrid};
 
 #[tokio::main]
 async fn main() {
@@ -20,7 +20,10 @@ async fn main() {
     let c2 = params.courant_number().powi(2);
     let damping = 1.0 - params.damping;
 
-    println!("Grid: {}x{}, Tile size: {}x{}, Steps: {}", size, size, tile_size, tile_size, steps);
+    println!(
+        "Grid: {}x{}, Tile size: {}x{}, Steps: {}",
+        size, size, tile_size, tile_size, steps
+    );
     println!("c2 = {:.6}, damping = {:.6}", c2, damping);
     println!();
 
@@ -30,13 +33,15 @@ async fn main() {
         .expect("Failed to create CPU grid");
 
     // Create CUDA Packed backend
-    let mut cuda_backend = CudaPackedBackend::new(size, size, tile_size)
-        .expect("Failed to create CUDA backend");
+    let mut cuda_backend =
+        CudaPackedBackend::new(size, size, tile_size).expect("Failed to create CUDA backend");
     cuda_backend.set_params(c2, damping);
 
     // Inject same impulse
     cpu_grid.inject_impulse(size / 2, size / 2, 1.0);
-    cuda_backend.inject_impulse(size / 2, size / 2, 1.0).unwrap();
+    cuda_backend
+        .inject_impulse(size / 2, size / 2, 1.0)
+        .unwrap();
 
     println!("Running {} steps and comparing...", steps);
     println!();
@@ -71,10 +76,13 @@ async fn main() {
 
             let _avg_diff = total_diff / (size * size) as f32;
             let cpu_center = cpu_pressure[(size / 2) as usize][(size / 2) as usize];
-            let cuda_center = cuda_pressure[(size / 2) as usize * size as usize + (size / 2) as usize];
+            let cuda_center =
+                cuda_pressure[(size / 2) as usize * size as usize + (size / 2) as usize];
 
-            println!("Step {:>3}: CPU center={:>10.6}, CUDA center={:>10.6}, max_diff={:.6} at ({},{})",
-                     step, cpu_center, cuda_center, max_diff, max_diff_pos.0, max_diff_pos.1);
+            println!(
+                "Step {:>3}: CPU center={:>10.6}, CUDA center={:>10.6}, max_diff={:.6} at ({},{})",
+                step, cpu_center, cuda_center, max_diff, max_diff_pos.0, max_diff_pos.1
+            );
         }
     }
 
@@ -101,7 +109,8 @@ async fn main() {
     let avg_diff = total_diff / (size * size) as f32;
 
     // Energy comparison
-    let cpu_energy: f32 = cpu_pressure.iter()
+    let cpu_energy: f32 = cpu_pressure
+        .iter()
         .flat_map(|row| row.iter())
         .map(|&p| p * p)
         .sum();
@@ -115,9 +124,11 @@ async fn main() {
     println!("Avg difference:    {:.6}", avg_diff);
     println!("CPU total energy:  {:.6}", cpu_energy);
     println!("CUDA total energy: {:.6}", cuda_energy);
-    println!("Energy diff:       {:.6} ({:.2}%)",
-             (cpu_energy - cuda_energy).abs(),
-             ((cpu_energy - cuda_energy).abs() / cpu_energy.max(0.0001) * 100.0));
+    println!(
+        "Energy diff:       {:.6} ({:.2}%)",
+        (cpu_energy - cuda_energy).abs(),
+        ((cpu_energy - cuda_energy).abs() / cpu_energy.max(0.0001) * 100.0)
+    );
     println!();
 
     if max_diff < 0.01 {

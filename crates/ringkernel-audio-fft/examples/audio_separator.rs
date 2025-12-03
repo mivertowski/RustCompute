@@ -135,9 +135,15 @@ async fn main() -> Result<()> {
             .unwrap_or("output");
 
         println!("Writing output files...");
-        output.direct.write_to_file(format!("{}_direct.wav", base_name))?;
-        output.ambience.write_to_file(format!("{}_ambience.wav", base_name))?;
-        output.mixed.write_to_file(format!("{}_mixed.wav", base_name))?;
+        output
+            .direct
+            .write_to_file(format!("{}_direct.wav", base_name))?;
+        output
+            .ambience
+            .write_to_file(format!("{}_ambience.wav", base_name))?;
+        output
+            .mixed
+            .write_to_file(format!("{}_mixed.wav", base_name))?;
         println!("  Written: {}_direct.wav", base_name);
         println!("  Written: {}_ambience.wav", base_name);
         println!("  Written: {}_mixed.wav", base_name);

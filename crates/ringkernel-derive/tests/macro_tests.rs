@@ -24,7 +24,7 @@ struct BasicMessage {
 fn test_basic_ring_message_derive() {
     let msg = BasicMessage {
         value: 42,
-        data: 3.14,
+        data: 3.125, // Avoid using PI approximation
     };
 
     // message_type() should return a hash of the struct name
@@ -68,7 +68,10 @@ fn test_auto_type_id_hash_differs() {
     assert_eq!(explicit_id, 12345);
 
     // BasicMessage should have a hashed type_id
-    assert_ne!(basic_id, explicit_id, "different structs should have different type IDs");
+    assert_ne!(
+        basic_id, explicit_id,
+        "different structs should have different type IDs"
+    );
 }
 
 /// Struct with all field attributes
@@ -94,13 +97,21 @@ fn test_field_attributes() {
         data: "test".to_string(),
     };
 
-    assert_eq!(msg.message_id().0, 999, "message_id should use annotated field");
+    assert_eq!(
+        msg.message_id().0,
+        999,
+        "message_id should use annotated field"
+    );
     assert_eq!(
         msg.correlation_id().0,
         888,
         "correlation_id should use annotated field"
     );
-    assert_eq!(msg.priority(), Priority::High, "priority should use annotated field");
+    assert_eq!(
+        msg.priority(),
+        Priority::High,
+        "priority should use annotated field"
+    );
 }
 
 #[test]
@@ -117,7 +128,8 @@ fn test_serialization_roundtrip() {
     assert!(!bytes.is_empty(), "serialized bytes should not be empty");
 
     // Deserialize
-    let restored = FullyAnnotatedMessage::deserialize(&bytes).expect("deserialization should succeed");
+    let restored =
+        FullyAnnotatedMessage::deserialize(&bytes).expect("deserialization should succeed");
 
     assert_eq!(restored.id.0, 123);
     assert_eq!(restored.correlation.0, 456);
@@ -146,9 +158,13 @@ fn test_large_payload_serialization() {
 
     // This should work even with payloads larger than 256 bytes
     let bytes = original.serialize();
-    assert!(!bytes.is_empty(), "serialization of large payload should succeed");
+    assert!(
+        !bytes.is_empty(),
+        "serialization of large payload should succeed"
+    );
 
-    let restored = LargePayloadMessage::deserialize(&bytes).expect("deserialization should succeed");
+    let restored =
+        LargePayloadMessage::deserialize(&bytes).expect("deserialization should succeed");
 
     assert_eq!(restored.id.0, 42);
     assert_eq!(restored.data.len(), 1024);

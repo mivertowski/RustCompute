@@ -308,7 +308,10 @@ pub fn ring_kernel_type_mapper() -> TypeMapper {
     mapper.register_type("HlcState", CudaType::Struct("HlcState".to_string()));
 
     // Register K2K types
-    mapper.register_type("K2KRoutingTable", CudaType::Struct("K2KRoutingTable".to_string()));
+    mapper.register_type(
+        "K2KRoutingTable",
+        CudaType::Struct("K2KRoutingTable".to_string()),
+    );
     mapper.register_type("K2KRoute", CudaType::Struct("K2KRoute".to_string()));
 
     // RingContext is a marker type (removed in transpilation)
@@ -327,10 +330,7 @@ mod tests {
         let mapper = TypeMapper::new();
 
         let f32_ty: Type = parse_quote!(f32);
-        assert_eq!(
-            mapper.map_type(&f32_ty).unwrap().to_cuda_string(),
-            "float"
-        );
+        assert_eq!(mapper.map_type(&f32_ty).unwrap().to_cuda_string(), "float");
 
         let i32_ty: Type = parse_quote!(i32);
         assert_eq!(mapper.map_type(&i32_ty).unwrap().to_cuda_string(), "int");
@@ -373,10 +373,7 @@ mod tests {
         mapper.register_type("WaveParams", CudaType::Struct("WaveParams".to_string()));
 
         let ty: Type = parse_quote!(WaveParams);
-        assert_eq!(
-            mapper.map_type(&ty).unwrap().to_cuda_string(),
-            "WaveParams"
-        );
+        assert_eq!(mapper.map_type(&ty).unwrap().to_cuda_string(), "WaveParams");
     }
 
     #[test]
@@ -456,9 +453,6 @@ mod tests {
         );
 
         let ctx_ty: Type = parse_quote!(RingContext);
-        assert_eq!(
-            mapper.map_type(&ctx_ty).unwrap().to_cuda_string(),
-            "void"
-        );
+        assert_eq!(mapper.map_type(&ctx_ty).unwrap().to_cuda_string(), "void");
     }
 }

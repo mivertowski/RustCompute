@@ -19,7 +19,7 @@ use std::time::Duration;
 /// Helper function to safely check if CUDA is available.
 /// This catches panics from cudarc when no CUDA device is present.
 fn cuda_is_available_safe() -> bool {
-    std::panic::catch_unwind(|| is_cuda_available()).unwrap_or(false)
+    std::panic::catch_unwind(is_cuda_available).unwrap_or(false)
 }
 
 /// Helper macro to skip tests when CUDA is not available.
@@ -122,7 +122,11 @@ fn test_cuda_buffer_allocation() {
         assert_eq!(buffer.size(), size);
         assert!(buffer.device_ptr() > 0, "Device pointer should be non-zero");
 
-        println!("Allocated {} bytes at device ptr 0x{:x}", size, buffer.device_ptr());
+        println!(
+            "Allocated {} bytes at device ptr 0x{:x}",
+            size,
+            buffer.device_ptr()
+        );
     }
 }
 
@@ -136,10 +140,10 @@ fn test_cuda_buffer_htod_dtoh_transfer() {
 
     // Test with different data patterns
     let test_cases: Vec<Vec<u8>> = vec![
-        vec![0u8; 1024],                                   // All zeros
-        vec![0xFFu8; 1024],                                // All ones
-        (0u8..=255).cycle().take(1024).collect(),          // Repeating pattern
-        (0..1024).map(|i| (i % 256) as u8).collect(),      // Sequential
+        vec![0u8; 1024],                              // All zeros
+        vec![0xFFu8; 1024],                           // All ones
+        (0u8..=255).cycle().take(1024).collect(),     // Repeating pattern
+        (0..1024).map(|i| (i % 256) as u8).collect(), // Sequential
     ];
 
     for (i, original) in test_cases.iter().enumerate() {
@@ -152,11 +156,7 @@ fn test_cuda_buffer_htod_dtoh_transfer() {
         let mut result = vec![0u8; original.len()];
         buffer.copy_to_host(&mut result).unwrap();
 
-        assert_eq!(
-            original, &result,
-            "Data mismatch in test case {}",
-            i
-        );
+        assert_eq!(original, &result, "Data mismatch in test case {}", i);
     }
 
     println!("All HtoD/DtoH transfer patterns verified");

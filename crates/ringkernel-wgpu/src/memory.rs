@@ -309,7 +309,8 @@ impl WgpuMessageQueue {
 
         // Update tail index
         let new_tail = ((tail + 1) % self.capacity) as u32;
-        self.tail.store(new_tail, std::sync::atomic::Ordering::Release);
+        self.tail
+            .store(new_tail, std::sync::atomic::Ordering::Release);
 
         Ok(())
     }
@@ -329,9 +330,11 @@ impl WgpuMessageQueue {
         let mut all_headers = vec![0u8; self.headers.size()];
         self.headers.copy_to_host(&mut all_headers)?;
 
-        let header_bytes = &all_headers[header_offset..header_offset + std::mem::size_of::<MessageHeader>()];
-        let header = MessageHeader::read_from(header_bytes)
-            .ok_or_else(|| RingKernelError::DeserializationError("Failed to read header".to_string()))?;
+        let header_bytes =
+            &all_headers[header_offset..header_offset + std::mem::size_of::<MessageHeader>()];
+        let header = MessageHeader::read_from(header_bytes).ok_or_else(|| {
+            RingKernelError::DeserializationError("Failed to read header".to_string())
+        })?;
 
         // Read payload
         let payload_offset = head * self.max_payload_size;
@@ -347,7 +350,8 @@ impl WgpuMessageQueue {
 
         // Update head index
         let new_head = ((head + 1) % self.capacity) as u32;
-        self.head.store(new_head, std::sync::atomic::Ordering::Release);
+        self.head
+            .store(new_head, std::sync::atomic::Ordering::Release);
 
         Ok(ringkernel_core::message::MessageEnvelope { header, payload })
     }

@@ -101,7 +101,7 @@ async fn main() -> Result<()> {
         frame_count += 1;
 
         // Print status every 10 frames
-        if frame_count % 10 == 0 {
+        if frame_count.is_multiple_of(10) {
             let (direct_peak, amb_peak, _) = mixer.peak_levels_db();
             let k2k_stats = bin_network.k2k_stats();
 

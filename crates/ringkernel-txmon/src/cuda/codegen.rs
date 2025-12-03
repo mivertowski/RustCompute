@@ -520,10 +520,7 @@ mod tests {
 
     #[test]
     fn test_kernel_types() {
-        assert_eq!(
-            std::mem::size_of::<KernelType>(),
-            std::mem::size_of::<u8>()
-        );
+        assert_eq!(std::mem::size_of::<KernelType>(), std::mem::size_of::<u8>());
     }
 
     #[cfg(feature = "cuda-codegen")]
@@ -552,7 +549,10 @@ mod tests {
         let result = generate_velocity_stencil_kernel();
         match result {
             Ok(kernel) => {
-                println!("Generated velocity stencil ({} bytes):", kernel.source.len());
+                println!(
+                    "Generated velocity stencil ({} bytes):",
+                    kernel.source.len()
+                );
                 println!("{}", kernel.source);
                 assert!(kernel.source.contains("__global__"));
                 assert!(kernel.source.contains("detect_velocity_anomaly"));

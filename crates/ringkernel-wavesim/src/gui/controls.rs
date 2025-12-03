@@ -2,7 +2,9 @@
 
 use super::app::{ComputeBackend, DrawMode, Message};
 use crate::simulation::SimulationMode;
-use iced::widget::{button, column, container, pick_list, row, slider, text, text_input, vertical_space};
+use iced::widget::{
+    button, column, container, pick_list, row, slider, text, text_input, vertical_space,
+};
 use iced::{Alignment, Element, Length};
 
 /// Build the controls panel.
@@ -87,7 +89,12 @@ pub fn view_controls(
     // Impulse amplitude slider
     let impulse_section = column![
         text(format!("Impulse Amplitude: {:.2}", impulse_amplitude)).size(14),
-        slider(0.1..=5.0, impulse_amplitude, Message::ImpulseAmplitudeChanged).width(Length::Fill),
+        slider(
+            0.1..=5.0,
+            impulse_amplitude,
+            Message::ImpulseAmplitudeChanged
+        )
+        .width(Length::Fill),
         text("(click on grid to inject)").size(11),
     ]
     .spacing(5);
@@ -100,14 +107,16 @@ pub fn view_controls(
         ComputeBackend::CudaPacked,
     ];
     #[cfg(not(feature = "cuda"))]
-    let backend_options: Vec<ComputeBackend> = vec![
-        ComputeBackend::Cpu,
-        ComputeBackend::GpuActor,
-    ];
+    let backend_options: Vec<ComputeBackend> = vec![ComputeBackend::Cpu, ComputeBackend::GpuActor];
 
     let backend_section = column![
         text("Compute Backend").size(14),
-        pick_list(backend_options, Some(compute_backend), Message::ComputeBackendChanged).width(Length::Fill),
+        pick_list(
+            backend_options,
+            Some(compute_backend),
+            Message::ComputeBackendChanged
+        )
+        .width(Length::Fill),
         text("(CPU, GPU Actor, or CUDA Packed)").size(11),
     ]
     .spacing(5);
@@ -127,15 +136,18 @@ pub fn view_controls(
     let draw_mode_section = column![
         text("Draw Mode").size(14),
         row![
-            pick_list(draw_mode_options, Some(draw_mode), Message::DrawModeChanged).width(Length::FillPortion(2)),
+            pick_list(draw_mode_options, Some(draw_mode), Message::DrawModeChanged)
+                .width(Length::FillPortion(2)),
             clear_btn,
-        ].spacing(5),
+        ]
+        .spacing(5),
         text(match draw_mode {
             DrawMode::Impulse => "(Click to inject wave)",
             DrawMode::Absorber => "(Click to place absorber)",
             DrawMode::Reflector => "(Click to place reflector)",
             DrawMode::Erase => "(Click to remove cell type)",
-        }).size(11),
+        })
+        .size(11),
     ]
     .spacing(5);
 
@@ -144,15 +156,27 @@ pub fn view_controls(
 
     let sim_mode_section = column![
         text("Simulation Mode").size(14),
-        pick_list(sim_mode_options, Some(simulation_mode), Message::SimulationModeChanged).width(Length::Fill),
+        pick_list(
+            sim_mode_options,
+            Some(simulation_mode),
+            Message::SimulationModeChanged
+        )
+        .width(Length::Fill),
         text(simulation_mode.description()).size(11),
     ]
     .spacing(5);
 
     // Stats toggle button
-    let stats_btn = button(text(if show_stats { "Hide Stats" } else { "Show Stats" }).size(14))
-        .on_press(Message::ToggleStats)
-        .width(Length::Fill);
+    let stats_btn = button(
+        text(if show_stats {
+            "Hide Stats"
+        } else {
+            "Show Stats"
+        })
+        .size(14),
+    )
+    .on_press(Message::ToggleStats)
+    .width(Length::Fill);
 
     // Format throughput nicely
     let throughput_str = if throughput >= 1_000_000_000.0 {

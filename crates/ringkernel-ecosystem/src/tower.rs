@@ -206,16 +206,12 @@ where
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<()>> {
         let state = *self.state.read();
         match state {
-            ServiceState::ShuttingDown => {
-                Poll::Ready(Err(EcosystemError::ServiceUnavailable(
-                    "Service is shutting down".to_string(),
-                )))
-            }
-            ServiceState::Overloaded => {
-                Poll::Ready(Err(EcosystemError::ServiceUnavailable(
-                    "Service is overloaded".to_string(),
-                )))
-            }
+            ServiceState::ShuttingDown => Poll::Ready(Err(EcosystemError::ServiceUnavailable(
+                "Service is shutting down".to_string(),
+            ))),
+            ServiceState::Overloaded => Poll::Ready(Err(EcosystemError::ServiceUnavailable(
+                "Service is overloaded".to_string(),
+            ))),
             ServiceState::Ready => {
                 if self.runtime.is_ready(self.kernel_id.as_str()) {
                     Poll::Ready(Ok(()))

@@ -34,7 +34,10 @@ impl GridPos {
     /// * `index` - Current cell's linear index
     /// * `buffer_width` - Width of the buffer including halos
     pub fn new(index: usize, buffer_width: usize) -> Self {
-        Self { index, buffer_width }
+        Self {
+            index,
+            buffer_width,
+        }
     }
 
     /// Create a GridPos from 2D coordinates within the interior.
@@ -47,7 +50,10 @@ impl GridPos {
     pub fn from_local(lx: usize, ly: usize, tile_size: usize, halo: usize) -> Self {
         let buffer_width = tile_size + 2 * halo;
         let index = (ly + halo) * buffer_width + (lx + halo);
-        Self { index, buffer_width }
+        Self {
+            index,
+            buffer_width,
+        }
     }
 
     /// Get the current cell's linear index.
@@ -158,11 +164,9 @@ pub fn fdtd_wave_step_dsl(
 ) {
     let p = pressure[pos.idx()];
     let p_prev = pressure_prev[pos.idx()];
-    let laplacian = pos.north(pressure)
-        + pos.south(pressure)
-        + pos.east(pressure)
-        + pos.west(pressure)
-        - 4.0 * p;
+    let laplacian =
+        pos.north(pressure) + pos.south(pressure) + pos.east(pressure) + pos.west(pressure)
+            - 4.0 * p;
     let p_new = 2.0 * p - p_prev + c2 * laplacian;
     pressure_prev[pos.idx()] = p_new * damping;
 }
@@ -268,10 +272,16 @@ mod tests {
         let source = generate_fdtd_cuda();
 
         // Check that it looks like valid CUDA
-        assert!(source.contains("extern \"C\" __global__"), "Should have CUDA kernel declaration");
+        assert!(
+            source.contains("extern \"C\" __global__"),
+            "Should have CUDA kernel declaration"
+        );
         assert!(source.contains("threadIdx.x"), "Should use thread index X");
         assert!(source.contains("threadIdx.y"), "Should use thread index Y");
-        assert!(source.contains("buffer_width = 18"), "Should have correct buffer width (16 + 2*1)");
+        assert!(
+            source.contains("buffer_width = 18"),
+            "Should have correct buffer width (16 + 2*1)"
+        );
 
         println!("Generated CUDA:\n{}", source);
     }
@@ -282,12 +292,24 @@ mod tests {
         let source = generate_fdtd_cuda();
 
         // Verify key structural elements
-        assert!(source.contains("if (lx >= 16 || ly >= 16) return;"), "Should have bounds check");
-        assert!(source.contains("float p ="), "Should have pressure variable");
+        assert!(
+            source.contains("if (lx >= 16 || ly >= 16) return;"),
+            "Should have bounds check"
+        );
+        assert!(
+            source.contains("float p ="),
+            "Should have pressure variable"
+        );
 
         // Verify stencil access pattern (using buffer_width constant)
-        assert!(source.contains("- 18") || source.contains("- buffer_width"), "Should access north neighbor");
-        assert!(source.contains("+ 18") || source.contains("+ buffer_width"), "Should access south neighbor");
+        assert!(
+            source.contains("- 18") || source.contains("- buffer_width"),
+            "Should access north neighbor"
+        );
+        assert!(
+            source.contains("+ 18") || source.contains("+ buffer_width"),
+            "Should access south neighbor"
+        );
     }
 
     #[test]
@@ -306,10 +328,10 @@ mod tests {
         let pos = GridPos::new(14, 6); // Center at (2,2)
 
         assert_eq!(pos.idx(), 14);
-        assert_eq!(pos.north(&buffer), 8.0);  // 14 - 6 = 8
+        assert_eq!(pos.north(&buffer), 8.0); // 14 - 6 = 8
         assert_eq!(pos.south(&buffer), 20.0); // 14 + 6 = 20
-        assert_eq!(pos.east(&buffer), 15.0);  // 14 + 1 = 15
-        assert_eq!(pos.west(&buffer), 13.0);  // 14 - 1 = 13
+        assert_eq!(pos.east(&buffer), 15.0); // 14 + 1 = 15
+        assert_eq!(pos.west(&buffer), 13.0); // 14 - 1 = 13
     }
 
     #[test]
@@ -374,19 +396,35 @@ mod tests {
         for ly in 0..tile_size {
             for lx in 0..tile_size {
                 let idx = (ly + halo) * buffer_width + (lx + halo);
-                fdtd_wave_step_cpu(&pressure1, &mut pressure1_prev, c2, damping, idx, buffer_width);
+                fdtd_wave_step_cpu(
+                    &pressure1,
+                    &mut pressure1_prev,
+                    c2,
+                    damping,
+                    idx,
+                    buffer_width,
+                );
             }
         }
 
         // Run DSL version
-        fdtd_tile_step_dsl(&pressure2, &mut pressure2_prev, c2, damping, tile_size, halo);
+        fdtd_tile_step_dsl(
+            &pressure2,
+            &mut pressure2_prev,
+            c2,
+            damping,
+            tile_size,
+            halo,
+        );
 
         // Compare results
         for i in 0..36 {
             assert!(
                 (pressure1_prev[i] - pressure2_prev[i]).abs() < 1e-6,
                 "Mismatch at index {}: CPU={}, DSL={}",
-                i, pressure1_prev[i], pressure2_prev[i]
+                i,
+                pressure1_prev[i],
+                pressure2_prev[i]
             );
         }
     }

@@ -53,8 +53,7 @@ impl Default for GrpcConfig {
 #[async_trait::async_trait]
 pub trait RuntimeHandle: Send + Sync + 'static {
     /// Process a request through a kernel.
-    async fn process(&self, kernel_id: &str, data: Vec<u8>, timeout: Duration)
-        -> Result<Vec<u8>>;
+    async fn process(&self, kernel_id: &str, data: Vec<u8>, timeout: Duration) -> Result<Vec<u8>>;
 
     /// List available kernels.
     fn available_kernels(&self) -> Vec<String>;
@@ -104,8 +103,10 @@ impl ServerStats {
     pub fn record_success(&self, bytes_in: usize, bytes_out: usize) {
         self.total_requests.fetch_add(1, Ordering::Relaxed);
         self.successful_requests.fetch_add(1, Ordering::Relaxed);
-        self.bytes_received.fetch_add(bytes_in as u64, Ordering::Relaxed);
-        self.bytes_sent.fetch_add(bytes_out as u64, Ordering::Relaxed);
+        self.bytes_received
+            .fetch_add(bytes_in as u64, Ordering::Relaxed);
+        self.bytes_sent
+            .fetch_add(bytes_out as u64, Ordering::Relaxed);
     }
 
     /// Record a failed request.
@@ -262,10 +263,7 @@ impl<R: RuntimeHandle> RingKernelGrpcServer<R> {
             vec![KernelInfo {
                 id: kernel_id.to_string(),
                 healthy: self.runtime.is_kernel_healthy(kernel_id),
-                messages_processed: metrics
-                    .as_ref()
-                    .map(|m| m.messages_processed)
-                    .unwrap_or(0),
+                messages_processed: metrics.as_ref().map(|m| m.messages_processed).unwrap_or(0),
                 avg_latency_us: metrics.as_ref().map(|m| m.avg_latency_us).unwrap_or(0),
             }]
         };

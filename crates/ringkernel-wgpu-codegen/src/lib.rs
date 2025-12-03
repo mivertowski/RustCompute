@@ -59,7 +59,7 @@ pub mod types;
 pub mod u64_workarounds;
 pub mod validation;
 
-pub use bindings::{AccessMode, BindingLayout, generate_bindings};
+pub use bindings::{generate_bindings, AccessMode, BindingLayout};
 pub use dsl::*;
 pub use handler::{
     HandlerCodegenConfig, HandlerParam, HandlerParamKind, HandlerReturnType, HandlerSignature,
@@ -213,16 +213,14 @@ pub fn transpile_global_kernel(func: &syn::ItemFn) -> Result<String> {
 /// - **No K2K**: Kernel-to-kernel messaging is not supported
 /// - **No persistent loop**: Host must re-dispatch until termination
 /// - **No 64-bit atomics**: Counters use lo/hi u32 pair emulation
-pub fn transpile_ring_kernel(
-    handler: &syn::ItemFn,
-    config: &RingKernelConfig,
-) -> Result<String> {
+pub fn transpile_ring_kernel(handler: &syn::ItemFn, config: &RingKernelConfig) -> Result<String> {
     // K2K is not supported in WGPU
     if config.enable_k2k {
         return Err(TranspileError::WgslLimitation(
             "Kernel-to-kernel (K2K) messaging is not supported in WGPU. \
              WebGPU does not allow GPU-direct communication between compute dispatches. \
-             Use host-mediated messaging instead.".to_string()
+             Use host-mediated messaging instead."
+                .to_string(),
         ));
     }
 
@@ -264,6 +262,9 @@ mod tests {
 
         let result = transpile_ring_kernel(&handler, &config);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), TranspileError::WgslLimitation(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            TranspileError::WgslLimitation(_)
+        ));
     }
 }

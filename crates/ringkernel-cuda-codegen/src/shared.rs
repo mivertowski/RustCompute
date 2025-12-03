@@ -230,11 +230,7 @@ impl SharedMemoryDecl {
     ///
     /// A string like `__shared__ float tile[16][16];`
     pub fn to_cuda_decl(&self) -> String {
-        let dims: String = self
-            .dimensions
-            .iter()
-            .map(|d| format!("[{}]", d))
-            .collect();
+        let dims: String = self.dimensions.iter().map(|d| format!("[{}]", d)).collect();
 
         format!("__shared__ {} {}{};", self.element_type, self.name, dims)
     }

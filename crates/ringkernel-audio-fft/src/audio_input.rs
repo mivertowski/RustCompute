@@ -8,9 +8,9 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
-use crossbeam::channel::{Receiver, Sender};
 #[cfg(feature = "device-input")]
 use crossbeam::channel::bounded;
+use crossbeam::channel::{Receiver, Sender};
 #[cfg(feature = "device-input")]
 use tracing::{debug, error, info, warn};
 #[cfg(not(feature = "device-input"))]
@@ -84,7 +84,8 @@ impl FileSource {
             }
         };
 
-        info!("Loaded {} samples ({:.2} seconds)",
+        info!(
+            "Loaded {} samples ({:.2} seconds)",
             samples.len(),
             samples.len() as f64 / channels as f64 / sample_rate as f64
         );
@@ -128,8 +129,8 @@ impl AudioSource for FileSource {
             return Ok(None);
         }
 
-        let samples_to_read = (frame_size * self.channels as usize)
-            .min(self.samples.len() - self.position);
+        let samples_to_read =
+            (frame_size * self.channels as usize).min(self.samples.len() - self.position);
 
         let frame_samples = self.samples[self.position..self.position + samples_to_read].to_vec();
         let timestamp = self.position as u64 / self.channels as u64;
@@ -219,7 +220,9 @@ impl DeviceStream {
             .default_input_config()
             .map_err(|e| AudioFftError::device(format!("Failed to get device config: {}", e)))?;
 
-        let sample_rate = config.sample_rate.unwrap_or(supported_config.sample_rate().0);
+        let sample_rate = config
+            .sample_rate
+            .unwrap_or(supported_config.sample_rate().0);
         let channels = config.channels.unwrap_or(supported_config.channels() as u8);
 
         debug!("Stream config: {} Hz, {} channels", sample_rate, channels);
@@ -281,7 +284,12 @@ impl DeviceStream {
 
     /// Create a mock stream for testing.
     #[cfg(feature = "device-input")]
-    pub fn mock(sample_rate: u32, channels: u8, _sender: Sender<Vec<f32>>, receiver: Receiver<Vec<f32>>) -> Self {
+    pub fn mock(
+        sample_rate: u32,
+        channels: u8,
+        _sender: Sender<Vec<f32>>,
+        receiver: Receiver<Vec<f32>>,
+    ) -> Self {
         Self {
             sample_rate,
             channels,
@@ -295,7 +303,12 @@ impl DeviceStream {
 
     /// Create a mock stream for testing.
     #[cfg(not(feature = "device-input"))]
-    pub fn mock(sample_rate: u32, channels: u8, _sender: Sender<Vec<f32>>, receiver: Receiver<Vec<f32>>) -> Self {
+    pub fn mock(
+        sample_rate: u32,
+        channels: u8,
+        _sender: Sender<Vec<f32>>,
+        receiver: Receiver<Vec<f32>>,
+    ) -> Self {
         Self {
             sample_rate,
             channels,
@@ -347,7 +360,10 @@ impl AudioSource for DeviceStream {
                         break;
                     }
                     // Wait for more data
-                    match self.receiver.recv_timeout(std::time::Duration::from_millis(100)) {
+                    match self
+                        .receiver
+                        .recv_timeout(std::time::Duration::from_millis(100))
+                    {
                         Ok(samples) => self.buffer.extend(samples),
                         Err(_) => {
                             if !self.is_running() {
@@ -551,11 +567,7 @@ impl AudioOutput {
 
     /// Normalize the audio to peak at 1.0.
     pub fn normalize(&mut self) {
-        let max = self
-            .samples
-            .iter()
-            .map(|s| s.abs())
-            .fold(0.0f32, f32::max);
+        let max = self.samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
 
         if max > 1e-6 {
             let scale = 1.0 / max;

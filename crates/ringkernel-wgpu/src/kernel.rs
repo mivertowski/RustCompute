@@ -316,7 +316,9 @@ impl KernelHandleInner for WgpuKernel {
 
     fn try_receive(&self) -> Result<MessageEnvelope> {
         // Non-blocking read from output queue
-        self.output_queue.try_dequeue().ok_or(RingKernelError::QueueEmpty)
+        self.output_queue
+            .try_dequeue()
+            .ok_or(RingKernelError::QueueEmpty)
     }
 
     async fn receive_correlated(

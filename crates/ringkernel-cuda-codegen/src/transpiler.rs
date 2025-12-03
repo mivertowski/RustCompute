@@ -14,7 +14,8 @@ use quote::ToTokens;
 use syn::{
     BinOp, Expr, ExprAssign, ExprBinary, ExprBreak, ExprCall, ExprCast, ExprContinue, ExprForLoop,
     ExprIf, ExprIndex, ExprLet, ExprLit, ExprLoop, ExprMatch, ExprMethodCall, ExprParen, ExprPath,
-    ExprReference, ExprReturn, ExprStruct, ExprUnary, ExprWhile, FnArg, ItemFn, Lit, Pat, ReturnType, Stmt, UnOp,
+    ExprReference, ExprReturn, ExprStruct, ExprUnary, ExprWhile, FnArg, ItemFn, Lit, Pat,
+    ReturnType, Stmt, UnOp,
 };
 
 /// CUDA code transpiler.
@@ -237,7 +238,8 @@ impl CudaTranspiler {
         // Generate message/response struct definitions if needed
         if let Some(ref msg_param) = handler_sig.message_param {
             // Extract type name from the parameter
-            let type_name = msg_param.rust_type
+            let type_name = msg_param
+                .rust_type
                 .trim_start_matches('&')
                 .trim_start_matches("mut ")
                 .trim();
@@ -264,14 +266,19 @@ impl CudaTranspiler {
 
         // Generate message deserialization if handler has message param
         if let Some(ref msg_param) = handler_sig.message_param {
-            let type_name = msg_param.rust_type
+            let type_name = msg_param
+                .rust_type
                 .trim_start_matches('&')
                 .trim_start_matches("mut ")
                 .trim();
             if !type_name.is_empty() {
                 writeln!(output, "        // Message deserialization").unwrap();
-                writeln!(output, "        // {}* {} = ({}*)msg_ptr;",
-                    type_name, msg_param.name, type_name).unwrap();
+                writeln!(
+                    output,
+                    "        // {}* {} = ({}*)msg_ptr;",
+                    type_name, msg_param.name, type_name
+                )
+                .unwrap();
                 output.push('\n');
             }
         }
@@ -409,12 +416,15 @@ impl CudaTranspiler {
                 // Check for SharedTile or SharedArray type annotation
                 if let Some(shared_decl) = self.try_parse_shared_declaration(local, &var_name)? {
                     // Register the shared variable
-                    self.shared_vars.insert(var_name.clone(), SharedVarInfo {
-                        name: var_name.clone(),
-                        is_tile: shared_decl.dimensions.len() == 2,
-                        dimensions: shared_decl.dimensions.clone(),
-                        element_type: shared_decl.element_type.clone(),
-                    });
+                    self.shared_vars.insert(
+                        var_name.clone(),
+                        SharedVarInfo {
+                            name: var_name.clone(),
+                            is_tile: shared_decl.dimensions.len() == 2,
+                            dimensions: shared_decl.dimensions.clone(),
+                            element_type: shared_decl.element_type.clone(),
+                        },
+                    );
 
                     // Add to shared memory config
                     self.shared_memory.add(shared_decl.clone());
@@ -448,7 +458,8 @@ impl CudaTranspiler {
                 // Check if this is an if statement with early return (shouldn't wrap in return)
                 if let Expr::If(if_expr) = expr {
                     // Check if the body contains only a return statement
-                    if let Some(Stmt::Expr(Expr::Return(_), _)) = if_expr.then_branch.stmts.first() {
+                    if let Some(Stmt::Expr(Expr::Return(_), _)) = if_expr.then_branch.stmts.first()
+                    {
                         if if_expr.then_branch.stmts.len() == 1 && if_expr.else_branch.is_none() {
                             let expr_str = self.transpile_expr(expr)?;
                             return Ok(format!("{indent}{expr_str};\n"));
@@ -463,7 +474,10 @@ impl CudaTranspiler {
                 } else {
                     // Expression without semicolon (implicit return)
                     // But check if it's already a return or an if with return
-                    if matches!(expr, Expr::Return(_)) || expr_str.starts_with("return") || expr_str.starts_with("if (") {
+                    if matches!(expr, Expr::Return(_))
+                        || expr_str.starts_with("return")
+                        || expr_str.starts_with("if (")
+                    {
                         Ok(format!("{indent}{expr_str};\n"))
                     } else {
                         Ok(format!("{indent}return {expr_str};\n"))
@@ -498,7 +512,9 @@ impl CudaTranspiler {
                 if let Some(Stmt::Expr(expr, None)) = block.block.stmts.last() {
                     self.transpile_expr(expr)
                 } else {
-                    Err(TranspileError::Unsupported("Complex block expression".into()))
+                    Err(TranspileError::Unsupported(
+                        "Complex block expression".into(),
+                    ))
                 }
             }
             Expr::Field(field) => {
@@ -528,7 +544,9 @@ impl CudaTranspiler {
             Expr::Let(let_expr) => self.transpile_let_expr(let_expr),
             Expr::Tuple(tuple) => {
                 // Transpile tuple as a comma-separated list (for multi-value returns, etc.)
-                let elements: Vec<String> = tuple.elems.iter()
+                let elements: Vec<String> = tuple
+                    .elems
+                    .iter()
                     .map(|e| self.transpile_expr(e))
                     .collect::<Result<_>>()?;
                 Ok(format!("({})", elements.join(", ")))
@@ -691,7 +709,11 @@ impl CudaTranspiler {
                 .map(|a| self.transpile_expr(a))
                 .collect::<Result<_>>()?;
 
-            return Ok(format!("{}({})", cuda_name.trim_end_matches("()"), args.join(", ")));
+            return Ok(format!(
+                "{}({})",
+                cuda_name.trim_end_matches("()"),
+                args.join(", ")
+            ));
         }
 
         // Regular function call
@@ -710,7 +732,9 @@ impl CudaTranspiler {
         let method_name = method.method.to_string();
 
         // Check if this is a SharedTile/SharedArray method call
-        if let Some(result) = self.try_transpile_shared_method_call(&receiver, &method_name, &method.args) {
+        if let Some(result) =
+            self.try_transpile_shared_method_call(&receiver, &method_name, &method.args)
+        {
             return result;
         }
 
@@ -727,7 +751,9 @@ impl CudaTranspiler {
         // Check for ring kernel intrinsics (like is_active(), should_terminate())
         if self.ring_kernel_mode {
             if let Some(intrinsic) = RingKernelIntrinsic::from_name(&method_name) {
-                let args: Vec<String> = method.args.iter()
+                let args: Vec<String> = method
+                    .args
+                    .iter()
                     .map(|a| self.transpile_expr(a).unwrap_or_default())
                     .collect();
                 return Ok(intrinsic.to_cuda(&args));
@@ -738,7 +764,12 @@ impl CudaTranspiler {
         if let Some(intrinsic) = self.intrinsics.lookup(&method_name) {
             let cuda_name = intrinsic.to_cuda_string();
             let args: Vec<String> = std::iter::once(receiver)
-                .chain(method.args.iter().map(|a| self.transpile_expr(a).unwrap_or_default()))
+                .chain(
+                    method
+                        .args
+                        .iter()
+                        .map(|a| self.transpile_expr(a).unwrap_or_default()),
+                )
                 .collect();
 
             return Ok(format!("{}({})", cuda_name, args.join(", ")));
@@ -764,7 +795,8 @@ impl CudaTranspiler {
             TranspileError::Unsupported(format!("Unknown context method: {}", method))
         })?;
 
-        let cuda_args: Vec<String> = args.iter()
+        let cuda_args: Vec<String> = args
+            .iter()
             .map(|a| self.transpile_expr(a).unwrap_or_default())
             .collect();
 
@@ -783,10 +815,9 @@ impl CudaTranspiler {
 
         let buffer_width = config.buffer_width().to_string();
 
-        let intrinsic =
-            StencilIntrinsic::from_method_name(method).ok_or_else(|| {
-                TranspileError::Unsupported(format!("Unknown stencil intrinsic: {method}"))
-            })?;
+        let intrinsic = StencilIntrinsic::from_method_name(method).ok_or_else(|| {
+            TranspileError::Unsupported(format!("Unknown stencil intrinsic: {method}"))
+        })?;
 
         match intrinsic {
             StencilIntrinsic::Index => {
@@ -816,9 +847,7 @@ impl CudaTranspiler {
                 let buffer = self.transpile_expr(&args[0])?;
                 let dx = self.transpile_expr(&args[1])?;
                 let dy = self.transpile_expr(&args[2])?;
-                Ok(format!(
-                    "{buffer}[idx + ({dy}) * {buffer_width} + ({dx})]"
-                ))
+                Ok(format!("{buffer}[idx + ({dy}) * {buffer_width} + ({dx})]"))
             }
             StencilIntrinsic::Up | StencilIntrinsic::Down => {
                 // 3D intrinsics
@@ -991,7 +1020,8 @@ impl CudaTranspiler {
         let _ = let_expr; // Silence unused warning
         Err(TranspileError::Unsupported(
             "let expressions (if-let patterns) are not directly supported in CUDA. \
-             Use explicit comparisons instead.".into()
+             Use explicit comparisons instead."
+                .into(),
         ))
     }
 
@@ -1023,9 +1053,8 @@ impl CudaTranspiler {
         }
 
         // Extract loop variable name
-        let var_name = extract_loop_var(&for_loop.pat).ok_or_else(|| {
-            TranspileError::Unsupported("Complex pattern in for loop".into())
-        })?;
+        let var_name = extract_loop_var(&for_loop.pat)
+            .ok_or_else(|| TranspileError::Unsupported("Complex pattern in for loop".into()))?;
 
         // The iterator expression should be a range
         let header = match for_loop.expr.as_ref() {
@@ -1170,7 +1199,9 @@ impl CudaTranspiler {
                     if let Some(init) = &local.init {
                         let expr_str = self.transpile_expr(&init.expr)?;
                         let type_str = self.infer_cuda_type(&init.expr);
-                        output.push_str(&format!("{inner_indent}{type_str} {var_name} = {expr_str};\n"));
+                        output.push_str(&format!(
+                            "{inner_indent}{type_str} {var_name} = {expr_str};\n"
+                        ));
                     } else {
                         output.push_str(&format!("{inner_indent}float {var_name};\n"));
                     }
@@ -1232,9 +1263,16 @@ impl CudaTranspiler {
     }
 
     /// Parse a type string to extract shared memory info.
-    fn parse_shared_type(&self, type_str: &str, var_name: &str) -> Result<Option<SharedMemoryDecl>> {
+    fn parse_shared_type(
+        &self,
+        type_str: &str,
+        var_name: &str,
+    ) -> Result<Option<SharedMemoryDecl>> {
         // Clean up the type string (remove spaces around ::)
-        let type_str = type_str.replace(" :: ", "::").replace(" ::", "::").replace(":: ", "::");
+        let type_str = type_str
+            .replace(" :: ", "::")
+            .replace(" ::", "::")
+            .replace(":: ", "::");
 
         // Check for SharedTile<T, W, H> or SharedTile::<T, W, H>::new
         if type_str.contains("SharedTile") {
@@ -1255,10 +1293,7 @@ impl CudaTranspiler {
 
                         let cuda_type = rust_to_cuda_element_type(rust_type);
                         return Ok(Some(SharedMemoryDecl::tile(
-                            var_name,
-                            cuda_type,
-                            width,
-                            height,
+                            var_name, cuda_type, width, height,
                         )));
                     }
                 }
@@ -1313,7 +1348,7 @@ impl CudaTranspiler {
                     }
                 } else {
                     // 1D array
-                    if args.len() >= 1 {
+                    if !args.is_empty() {
                         let idx = self.transpile_expr(&args[0]).ok()?;
                         Some(Ok(format!("{}[{}]", receiver, idx)))
                     } else {
@@ -1485,7 +1520,9 @@ impl CudaTranspiler {
                     Ok(format!("return {expr_str};"))
                 }
             }
-            _ => Err(TranspileError::Unsupported("Unsupported statement in match arm".into())),
+            _ => Err(TranspileError::Unsupported(
+                "Unsupported statement in match arm".into(),
+            )),
         }
     }
 
@@ -1540,7 +1577,10 @@ impl CudaTranspiler {
                     Expr::Index(idx_expr) => {
                         // &arr[idx] - get the base array name and look it up
                         if let Expr::Path(path) = &*idx_expr.expr {
-                            let name = path.path.segments.iter()
+                            let name = path
+                                .path
+                                .segments
+                                .iter()
                                 .map(|s| s.ident.to_string())
                                 .collect::<Vec<_>>()
                                 .join("::");
@@ -1557,7 +1597,7 @@ impl CudaTranspiler {
                         }
                         "float*" // Default element pointer
                     }
-                    _ => "void*"
+                    _ => "void*",
                 }
             }
             Expr::MethodCall(_) => "float",
@@ -1581,11 +1621,18 @@ impl CudaTranspiler {
             }
             Expr::Path(path) => {
                 // Variable access - check if it's a known variable
-                let name = path.path.segments.iter()
+                let name = path
+                    .path
+                    .segments
+                    .iter()
                     .map(|s| s.ident.to_string())
                     .collect::<Vec<_>>()
                     .join("::");
-                if name.contains("threshold") || name.contains("count") || name == "idx" || name == "n" {
+                if name.contains("threshold")
+                    || name.contains("count")
+                    || name == "idx"
+                    || name == "n"
+                {
                     return "int";
                 }
                 "float"
@@ -1767,10 +1814,18 @@ mod tests {
         };
 
         let result = transpiler.transpile_expr(&expr).unwrap();
-        assert!(result.contains("switch (edge)"), "Should generate switch: {}", result);
+        assert!(
+            result.contains("switch (edge)"),
+            "Should generate switch: {}",
+            result
+        );
         assert!(result.contains("case 0:"), "Should have case 0: {}", result);
         assert!(result.contains("case 1:"), "Should have case 1: {}", result);
-        assert!(result.contains("default:"), "Should have default: {}", result);
+        assert!(
+            result.contains("default:"),
+            "Should have default: {}",
+            result
+        );
         assert!(result.contains("break;"), "Should have break: {}", result);
 
         println!("Generated switch:\n{}", result);
@@ -1823,8 +1878,16 @@ mod tests {
         };
 
         let result = transpiler.transpile_expr(&expr).unwrap();
-        assert!(result.contains("for (int i = 0; i < n; i++)"), "Should generate for loop header: {}", result);
-        assert!(result.contains("data[i] = 0.0f"), "Should contain loop body: {}", result);
+        assert!(
+            result.contains("for (int i = 0; i < n; i++)"),
+            "Should generate for loop header: {}",
+            result
+        );
+        assert!(
+            result.contains("data[i] = 0.0f"),
+            "Should contain loop body: {}",
+            result
+        );
 
         println!("Generated for loop:\n{}", result);
     }
@@ -1840,7 +1903,11 @@ mod tests {
         };
 
         let result = transpiler.transpile_expr(&expr).unwrap();
-        assert!(result.contains("for (int i = 1; i <= 10; i++)"), "Should generate inclusive range: {}", result);
+        assert!(
+            result.contains("for (int i = 1; i <= 10; i++)"),
+            "Should generate inclusive range: {}",
+            result
+        );
 
         println!("Generated inclusive for loop:\n{}", result);
     }
@@ -1856,8 +1923,16 @@ mod tests {
         };
 
         let result = transpiler.transpile_expr(&expr).unwrap();
-        assert!(result.contains("while (i < 10)"), "Should generate while loop: {}", result);
-        assert!(result.contains("i += 1"), "Should contain loop body: {}", result);
+        assert!(
+            result.contains("while (i < 10)"),
+            "Should generate while loop: {}",
+            result
+        );
+        assert!(
+            result.contains("i += 1"),
+            "Should contain loop body: {}",
+            result
+        );
 
         println!("Generated while loop:\n{}", result);
     }
@@ -1873,7 +1948,11 @@ mod tests {
         };
 
         let result = transpiler.transpile_expr(&expr).unwrap();
-        assert!(result.contains("while (!(done))"), "Should negate condition: {}", result);
+        assert!(
+            result.contains("while (!(done))"),
+            "Should negate condition: {}",
+            result
+        );
 
         println!("Generated while loop with negation:\n{}", result);
     }
@@ -1889,8 +1968,16 @@ mod tests {
         };
 
         let result = transpiler.transpile_expr(&expr).unwrap();
-        assert!(result.contains("while (true)"), "Should generate infinite loop: {}", result);
-        assert!(result.contains("process()"), "Should contain loop body: {}", result);
+        assert!(
+            result.contains("while (true)"),
+            "Should generate infinite loop: {}",
+            result
+        );
+        assert!(
+            result.contains("process()"),
+            "Should contain loop body: {}",
+            result
+        );
 
         println!("Generated infinite loop:\n{}", result);
     }
@@ -1926,7 +2013,11 @@ mod tests {
         };
 
         let result = transpiler.transpile_expr(&expr).unwrap();
-        assert!(result.contains("while (true)"), "Should generate infinite loop: {}", result);
+        assert!(
+            result.contains("while (true)"),
+            "Should generate infinite loop: {}",
+            result
+        );
         assert!(result.contains("break"), "Should contain break: {}", result);
 
         println!("Generated loop with break:\n{}", result);
@@ -1945,15 +2036,25 @@ mod tests {
         };
 
         let result = transpiler.transpile_expr(&expr).unwrap();
-        assert!(result.contains("for (int i = 0; i < m; i++)"), "Should have outer loop: {}", result);
-        assert!(result.contains("for (int j = 0; j < n; j++)"), "Should have inner loop: {}", result);
+        assert!(
+            result.contains("for (int i = 0; i < m; i++)"),
+            "Should have outer loop: {}",
+            result
+        );
+        assert!(
+            result.contains("for (int j = 0; j < n; j++)"),
+            "Should have inner loop: {}",
+            result
+        );
 
         println!("Generated nested loops:\n{}", result);
     }
 
     #[test]
     fn test_stencil_mode_rejects_loops() {
-        let config = StencilConfig::new("test").with_tile_size(16, 16).with_halo(1);
+        let config = StencilConfig::new("test")
+            .with_tile_size(16, 16)
+            .with_halo(1);
         let transpiler = CudaTranspiler::new(config);
 
         let expr: Expr = parse_quote! {
@@ -1996,8 +2097,16 @@ mod tests {
         let mut transpiler = CudaTranspiler::new_generic();
         let cuda = transpiler.transpile_generic_kernel(&func).unwrap();
 
-        assert!(cuda.contains("extern \"C\" __global__"), "Should be global kernel: {}", cuda);
-        assert!(cuda.contains("for (int i = 0; i < n; i++)"), "Should have for loop: {}", cuda);
+        assert!(
+            cuda.contains("extern \"C\" __global__"),
+            "Should be global kernel: {}",
+            cuda
+        );
+        assert!(
+            cuda.contains("for (int i = 0; i < n; i++)"),
+            "Should have for loop: {}",
+            cuda
+        );
 
         println!("Generated kernel with loop:\n{}", cuda);
     }
@@ -2016,8 +2125,16 @@ mod tests {
         };
 
         let result = transpiler.transpile_expr(&expr).unwrap();
-        assert!(result.contains("while (!(should_terminate))"), "Should have persistent loop: {}", result);
-        assert!(result.contains("if (has_message)"), "Should have message check: {}", result);
+        assert!(
+            result.contains("while (!(should_terminate))"),
+            "Should have persistent loop: {}",
+            result
+        );
+        assert!(
+            result.contains("if (has_message)"),
+            "Should have message check: {}",
+            result
+        );
 
         println!("Generated persistent kernel pattern:\n{}", result);
     }
@@ -2026,7 +2143,7 @@ mod tests {
 
     #[test]
     fn test_shared_tile_declaration() {
-        use crate::shared::{SharedMemoryDecl, SharedMemoryConfig};
+        use crate::shared::{SharedMemoryConfig, SharedMemoryDecl};
 
         let decl = SharedMemoryDecl::tile("tile", "float", 16, 16);
         assert_eq!(decl.to_cuda_decl(), "__shared__ float tile[16][16];");
@@ -2041,7 +2158,7 @@ mod tests {
 
     #[test]
     fn test_shared_array_declaration() {
-        use crate::shared::{SharedMemoryDecl, SharedMemoryConfig};
+        use crate::shared::{SharedMemoryConfig, SharedMemoryDecl};
 
         let decl = SharedMemoryDecl::array("buffer", "float", 256);
         assert_eq!(decl.to_cuda_decl(), "__shared__ float buffer[256];");
@@ -2062,10 +2179,7 @@ mod tests {
         );
 
         let arr = SharedMemoryDecl::array("buf", "int", 128);
-        assert_eq!(
-            arr.to_cuda_access(&["i".to_string()]),
-            "buf[i]"
-        );
+        assert_eq!(arr.to_cuda_access(&["i".to_string()]), "buf[i]");
     }
 
     #[test]
@@ -2114,9 +2228,9 @@ mod tests {
         use crate::shared::SharedMemoryConfig;
 
         let mut config = SharedMemoryConfig::new();
-        config.add_tile("tile1", "float", 16, 16);  // 16*16*4 = 1024
-        config.add_tile("tile2", "double", 8, 8);   // 8*8*8 = 512
-        config.add_array("temp", "int", 64);        // 64*4 = 256
+        config.add_tile("tile1", "float", 16, 16); // 16*16*4 = 1024
+        config.add_tile("tile2", "double", 8, 8); // 8*8*8 = 512
+        config.add_array("temp", "int", 64); // 64*4 = 256
 
         assert_eq!(config.total_bytes(), 1024 + 512 + 256);
     }
@@ -2126,12 +2240,15 @@ mod tests {
         let mut transpiler = CudaTranspiler::new_generic();
 
         // Manually register a shared variable
-        transpiler.shared_vars.insert("tile".to_string(), SharedVarInfo {
-            name: "tile".to_string(),
-            is_tile: true,
-            dimensions: vec![16, 16],
-            element_type: "float".to_string(),
-        });
+        transpiler.shared_vars.insert(
+            "tile".to_string(),
+            SharedVarInfo {
+                name: "tile".to_string(),
+                is_tile: true,
+                dimensions: vec![16, 16],
+                element_type: "float".to_string(),
+            },
+        );
 
         // Test that transpiler tracks it
         assert!(transpiler.shared_vars.contains_key("tile"));
@@ -2143,18 +2260,21 @@ mod tests {
         let mut transpiler = CudaTranspiler::new_generic();
 
         // Register a shared tile
-        transpiler.shared_vars.insert("tile".to_string(), SharedVarInfo {
-            name: "tile".to_string(),
-            is_tile: true,
-            dimensions: vec![16, 16],
-            element_type: "float".to_string(),
-        });
+        transpiler.shared_vars.insert(
+            "tile".to_string(),
+            SharedVarInfo {
+                name: "tile".to_string(),
+                is_tile: true,
+                dimensions: vec![16, 16],
+                element_type: "float".to_string(),
+            },
+        );
 
         // Test method call transpilation
         let result = transpiler.try_transpile_shared_method_call(
             "tile",
             "get",
-            &syn::punctuated::Punctuated::new()
+            &syn::punctuated::Punctuated::new(),
         );
 
         // With no args, it should return None (args required)
@@ -2166,15 +2286,21 @@ mod tests {
         let mut transpiler = CudaTranspiler::new_generic();
 
         // Register a shared array
-        transpiler.shared_vars.insert("buffer".to_string(), SharedVarInfo {
-            name: "buffer".to_string(),
-            is_tile: false,
-            dimensions: vec![256],
-            element_type: "float".to_string(),
-        });
+        transpiler.shared_vars.insert(
+            "buffer".to_string(),
+            SharedVarInfo {
+                name: "buffer".to_string(),
+                is_tile: false,
+                dimensions: vec![256],
+                element_type: "float".to_string(),
+            },
+        );
 
         assert!(!transpiler.shared_vars.get("buffer").unwrap().is_tile);
-        assert_eq!(transpiler.shared_vars.get("buffer").unwrap().dimensions, vec![256]);
+        assert_eq!(
+            transpiler.shared_vars.get("buffer").unwrap().dimensions,
+            vec![256]
+        );
     }
 
     #[test]
@@ -2201,11 +2327,23 @@ mod tests {
         };
 
         let result = transpiler.transpile_expr(&expr).unwrap();
-        assert!(result.contains("Point"), "Should contain struct name: {}", result);
+        assert!(
+            result.contains("Point"),
+            "Should contain struct name: {}",
+            result
+        );
         assert!(result.contains(".x ="), "Should have field x: {}", result);
         assert!(result.contains(".y ="), "Should have field y: {}", result);
-        assert!(result.contains("1.0f"), "Should have value 1.0f: {}", result);
-        assert!(result.contains("2.0f"), "Should have value 2.0f: {}", result);
+        assert!(
+            result.contains("1.0f"),
+            "Should have value 1.0f: {}",
+            result
+        );
+        assert!(
+            result.contains("2.0f"),
+            "Should have value 2.0f: {}",
+            result
+        );
 
         println!("Generated struct literal: {}", result);
     }
@@ -2219,8 +2357,16 @@ mod tests {
         };
 
         let result = transpiler.transpile_expr(&expr).unwrap();
-        assert!(result.contains("Response"), "Should contain struct name: {}", result);
-        assert!(result.contains(".value = x * 2.0f"), "Should have computed value: {}", result);
+        assert!(
+            result.contains("Response"),
+            "Should contain struct name: {}",
+            result
+        );
+        assert!(
+            result.contains(".value = x * 2.0f"),
+            "Should have computed value: {}",
+            result
+        );
         assert!(result.contains(".id ="), "Should have id field: {}", result);
 
         println!("Generated struct with expressions: {}", result);
@@ -2236,7 +2382,11 @@ mod tests {
 
         let result = transpiler.transpile_stmt(&stmt).unwrap();
         assert!(result.contains("return"), "Should have return: {}", result);
-        assert!(result.contains("MyStruct"), "Should contain struct name: {}", result);
+        assert!(
+            result.contains("MyStruct"),
+            "Should contain struct name: {}",
+            result
+        );
 
         println!("Generated return with struct: {}", result);
     }
@@ -2251,8 +2401,16 @@ mod tests {
 
         let result = transpiler.transpile_expr(&expr).unwrap();
         // Check for C compound literal format: (Type){ .field = val, ... }
-        assert!(result.starts_with("(Vec3){"), "Should use compound literal format: {}", result);
-        assert!(result.ends_with("}"), "Should end with closing brace: {}", result);
+        assert!(
+            result.starts_with("(Vec3){"),
+            "Should use compound literal format: {}",
+            result
+        );
+        assert!(
+            result.ends_with("}"),
+            "Should end with closing brace: {}",
+            result
+        );
 
         println!("Generated compound literal: {}", result);
     }
@@ -2268,7 +2426,10 @@ mod tests {
         };
 
         let result = transpiler.transpile_expr(&expr).unwrap();
-        assert_eq!(result, "&arr[idx]", "Should produce address-of array element");
+        assert_eq!(
+            result, "&arr[idx]",
+            "Should produce address-of array element"
+        );
     }
 
     #[test]
@@ -2280,8 +2441,16 @@ mod tests {
         };
 
         let result = transpiler.transpile_expr(&expr).unwrap();
-        assert!(result.contains("&arr["), "Should produce address-of: {}", result);
-        assert!(result.contains("idx * 4"), "Should have index expression: {}", result);
+        assert!(
+            result.contains("&arr["),
+            "Should produce address-of: {}",
+            result
+        );
+        assert!(
+            result.contains("idx * 4"),
+            "Should have index expression: {}",
+            result
+        );
     }
 
     #[test]
@@ -2305,7 +2474,11 @@ mod tests {
         };
 
         let result = transpiler.transpile_expr(&expr).unwrap();
-        assert!(result.starts_with("&alerts["), "Should have address-of array: {}", result);
+        assert!(
+            result.starts_with("&alerts["),
+            "Should have address-of array: {}",
+            result
+        );
 
         println!("Generated reference: {}", result);
     }
@@ -2320,8 +2493,16 @@ mod tests {
         };
 
         let result = transpiler.transpile_stmt(&stmt).unwrap();
-        assert!(result.contains("alert ="), "Should have variable assignment: {}", result);
-        assert!(result.contains("&alerts["), "Should have reference to array: {}", result);
+        assert!(
+            result.contains("alert ="),
+            "Should have variable assignment: {}",
+            result
+        );
+        assert!(
+            result.contains("&alerts["),
+            "Should have reference to array: {}",
+            result
+        );
 
         println!("Generated statement: {}", result);
     }

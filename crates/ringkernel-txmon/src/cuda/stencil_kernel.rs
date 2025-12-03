@@ -296,7 +296,8 @@ pub fn detect_circular_patterns_cpu(
             };
 
             // Combined pattern score
-            let score = (symmetry * 0.3) + (concentration * 0.3) + (velocity * 0.2) + (coordination * 0.2);
+            let score =
+                (symmetry * 0.3) + (concentration * 0.3) + (velocity * 0.2) + (coordination * 0.2);
 
             if score > threshold {
                 patterns.push(AnomalyScore {
@@ -326,8 +327,10 @@ pub struct StencilPatternBackend {
 impl StencilPatternBackend {
     /// Create a new stencil pattern backend.
     pub fn new(config: StencilPatternConfig) -> Self {
-        let velocity_current = VelocityGrid::new(config.grid_width, config.grid_height, config.time_bucket_ms);
-        let velocity_previous = VelocityGrid::new(config.grid_width, config.grid_height, config.time_bucket_ms);
+        let velocity_current =
+            VelocityGrid::new(config.grid_width, config.grid_height, config.time_bucket_ms);
+        let velocity_previous =
+            VelocityGrid::new(config.grid_width, config.grid_height, config.time_bucket_ms);
         let network_current = NetworkGrid::new(config.grid_width, config.grid_height);
         let network_previous = NetworkGrid::new(config.grid_width, config.grid_height);
         let scores_size = config.grid_width * config.grid_height;
@@ -496,7 +499,9 @@ mod tests {
         let anomalies = detect_velocity_anomalies_cpu(&current, &previous, 10.0);
 
         assert!(!anomalies.is_empty());
-        assert!(anomalies.iter().any(|a| a.customer_bucket == 4 && a.time_bucket == 4));
+        assert!(anomalies
+            .iter()
+            .any(|a| a.customer_bucket == 4 && a.time_bucket == 4));
     }
 
     #[test]

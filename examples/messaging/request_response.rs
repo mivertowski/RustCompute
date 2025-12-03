@@ -128,10 +128,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     println!("=== Request-Response Pattern Example ===\n");
 
-    let runtime = RingKernel::builder()
-        .backend(Backend::Cpu)
-        .build()
-        .await?;
+    let runtime = RingKernel::builder().backend(Backend::Cpu).build().await?;
 
     // Launch compute kernels
     let vector_kernel = runtime
@@ -215,10 +212,7 @@ async fn demonstrate_correlation() {
     let requests: Vec<_> = (0..3)
         .map(|i| {
             let req = VectorAddRequest::new(vec![i as f32; 4], vec![(i + 1) as f32; 4]);
-            println!(
-                "  Request {}: correlation_id = {:?}",
-                i, req.correlation_id
-            );
+            println!("  Request {}: correlation_id = {:?}", i, req.correlation_id);
             req
         })
         .collect();

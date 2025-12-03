@@ -111,9 +111,9 @@ impl AlertSeverity {
     /// Get color for GUI display.
     pub fn color(&self) -> Color {
         match self {
-            AlertSeverity::Low => Color::from_rgb(0.4, 0.7, 0.4),      // Green
-            AlertSeverity::Medium => Color::from_rgb(0.9, 0.8, 0.2),   // Yellow
-            AlertSeverity::High => Color::from_rgb(0.9, 0.5, 0.1),     // Orange
+            AlertSeverity::Low => Color::from_rgb(0.4, 0.7, 0.4), // Green
+            AlertSeverity::Medium => Color::from_rgb(0.9, 0.8, 0.2), // Yellow
+            AlertSeverity::High => Color::from_rgb(0.9, 0.5, 0.1), // Orange
             AlertSeverity::Critical => Color::from_rgb(0.9, 0.2, 0.2), // Red
         }
     }
@@ -184,35 +184,35 @@ impl AlertStatus {
 #[repr(C, align(128))]
 pub struct MonitoringAlert {
     /// Unique alert identifier.
-    pub alert_id: u64,            // 8 bytes, offset 0
+    pub alert_id: u64, // 8 bytes, offset 0
     /// Related transaction identifier.
-    pub transaction_id: u64,      // 8 bytes, offset 8
+    pub transaction_id: u64, // 8 bytes, offset 8
     /// Customer identifier who triggered the alert.
-    pub customer_id: u64,         // 8 bytes, offset 16
+    pub customer_id: u64, // 8 bytes, offset 16
     /// Alert type (cast to AlertType).
-    pub alert_type: u8,           // 1 byte, offset 24
+    pub alert_type: u8, // 1 byte, offset 24
     /// Alert severity (cast to AlertSeverity).
-    pub severity: u8,             // 1 byte, offset 25
+    pub severity: u8, // 1 byte, offset 25
     /// Alert status (cast to AlertStatus).
-    pub status: u8,               // 1 byte, offset 26
+    pub status: u8, // 1 byte, offset 26
     /// Padding bytes.
-    _padding1: [u8; 5],           // 5 bytes, offset 27-31
+    _padding1: [u8; 5], // 5 bytes, offset 27-31
     /// Transaction amount that triggered alert (cents).
-    pub amount_cents: u64,        // 8 bytes, offset 32
+    pub amount_cents: u64, // 8 bytes, offset 32
     /// Computed risk score for this alert (0-100).
-    pub risk_score: u32,          // 4 bytes, offset 40
+    pub risk_score: u32, // 4 bytes, offset 40
     /// Velocity count at time of alert.
-    pub velocity_count: u32,      // 4 bytes, offset 44
+    pub velocity_count: u32, // 4 bytes, offset 44
     /// Timestamp when alert was raised (Unix epoch ms).
-    pub timestamp: u64,           // 8 bytes, offset 48
+    pub timestamp: u64, // 8 bytes, offset 48
     /// Destination country code (if relevant).
-    pub country_code: u16,        // 2 bytes, offset 56
+    pub country_code: u16, // 2 bytes, offset 56
     /// Additional flags (bitmask).
-    pub flags: u16,               // 2 bytes, offset 58
+    pub flags: u16, // 2 bytes, offset 58
     /// Padding for alignment.
-    _padding2: [u8; 4],           // 4 bytes, offset 60-63
+    _padding2: [u8; 4], // 4 bytes, offset 60-63
     /// Reserved for future use.
-    _reserved: [u8; 64],          // 64 bytes, offset 64-127
+    _reserved: [u8; 64], // 64 bytes, offset 64-127
 }
 
 // Manual implementations since we can't derive Pod due to padding sensitivity

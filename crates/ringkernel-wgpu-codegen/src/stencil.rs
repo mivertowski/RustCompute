@@ -120,8 +120,8 @@ impl Grid {
 
     /// Calculate number of workgroups needed for this grid.
     pub fn workgroups(&self, tile_width: u32, tile_height: u32) -> (u32, u32, u32) {
-        let x = (self.width + tile_width - 1) / tile_width;
-        let y = (self.height + tile_height - 1) / tile_height;
+        let x = self.width.div_ceil(tile_width);
+        let y = self.height.div_ceil(tile_height);
         (x, y, self.depth)
     }
 }
@@ -235,6 +235,9 @@ mod tests {
     #[test]
     fn test_workgroup_size_annotation() {
         let config = StencilConfig::new("test").with_tile_size(8, 8);
-        assert_eq!(config.workgroup_size_annotation(), "@workgroup_size(8, 8, 1)");
+        assert_eq!(
+            config.workgroup_size_annotation(),
+            "@workgroup_size(8, 8, 1)"
+        );
     }
 }

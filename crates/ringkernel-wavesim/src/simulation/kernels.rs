@@ -7,7 +7,9 @@
 //! `shaders/fdtd_tile.cu` and `shaders/fdtd_packed.cu` exactly.
 
 #[cfg(feature = "cuda-codegen")]
-use ringkernel_cuda_codegen::{transpile_global_kernel, transpile_stencil_kernel, Grid, StencilConfig};
+use ringkernel_cuda_codegen::{
+    transpile_global_kernel, transpile_stencil_kernel, Grid, StencilConfig,
+};
 
 // ============================================================================
 // Tile-Based Kernels (fdtd_tile.cu equivalent)
@@ -200,7 +202,10 @@ fn generate_read_interior() -> String {
     };
 
     match transpile_global_kernel(&kernel_fn) {
-        Ok(cuda) => format!("// Read Interior - reads interior pressure to linear buffer for visualization\n{}", cuda),
+        Ok(cuda) => format!(
+            "// Read Interior - reads interior pressure to linear buffer for visualization\n{}",
+            cuda
+        ),
         Err(e) => format!("// Transpilation error: {}\n", e),
     }
 }
@@ -325,7 +330,10 @@ fn generate_exchange_all_halos() -> String {
     };
 
     match transpile_global_kernel(&kernel_fn) {
-        Ok(cuda) => format!("// Halo Exchange Kernel - copies all halo edges between adjacent tiles\n{}", cuda),
+        Ok(cuda) => format!(
+            "// Halo Exchange Kernel - copies all halo edges between adjacent tiles\n{}",
+            cuda
+        ),
         Err(e) => format!("// Transpilation error: {}\n", e),
     }
 }
@@ -380,7 +388,10 @@ fn generate_fdtd_all_tiles() -> String {
     };
 
     match transpile_global_kernel(&kernel_fn) {
-        Ok(cuda) => format!("// Batched FDTD Kernel - computes FDTD for ALL tiles in single launch\n{}", cuda),
+        Ok(cuda) => format!(
+            "// Batched FDTD Kernel - computes FDTD for ALL tiles in single launch\n{}",
+            cuda
+        ),
         Err(e) => format!("// Transpilation error: {}\n", e),
     }
 }
@@ -418,7 +429,10 @@ fn generate_upload_tile_data() -> String {
     };
 
     match transpile_global_kernel(&kernel_fn) {
-        Ok(cuda) => format!("// Upload Initial State - copies initial data to packed buffer\n{}", cuda),
+        Ok(cuda) => format!(
+            "// Upload Initial State - copies initial data to packed buffer\n{}",
+            cuda
+        ),
         Err(e) => format!("// Transpilation error: {}\n", e),
     }
 }
@@ -464,7 +478,10 @@ fn generate_read_all_interiors() -> String {
     };
 
     match transpile_global_kernel(&kernel_fn) {
-        Ok(cuda) => format!("// Read All Interiors - extracts all tile interiors for visualization\n{}", cuda),
+        Ok(cuda) => format!(
+            "// Read All Interiors - extracts all tile interiors for visualization\n{}",
+            cuda
+        ),
         Err(e) => format!("// Transpilation error: {}\n", e),
     }
 }
@@ -576,7 +593,10 @@ fn generate_apply_boundary_conditions() -> String {
     };
 
     match transpile_global_kernel(&kernel_fn) {
-        Ok(cuda) => format!("// Apply Boundary Conditions - handles domain edges for packed tiles\n{}", cuda),
+        Ok(cuda) => format!(
+            "// Apply Boundary Conditions - handles domain edges for packed tiles\n{}",
+            cuda
+        ),
         Err(e) => format!("// Transpilation error: {}\n", e),
     }
 }
@@ -614,7 +634,10 @@ mod tests {
         assert!(source.contains("extract_halo"), "Missing extract_halo");
         assert!(source.contains("inject_halo"), "Missing inject_halo");
         assert!(source.contains("read_interior"), "Missing read_interior");
-        assert!(source.contains("apply_boundary_reflection"), "Missing apply_boundary_reflection");
+        assert!(
+            source.contains("apply_boundary_reflection"),
+            "Missing apply_boundary_reflection"
+        );
 
         // Check extern "C" wrapper
         assert!(source.contains("extern \"C\""), "Missing extern C");
@@ -632,12 +655,24 @@ mod tests {
         let source = generate_packed_kernels();
 
         // Check all kernels are present
-        assert!(source.contains("exchange_all_halos"), "Missing exchange_all_halos");
+        assert!(
+            source.contains("exchange_all_halos"),
+            "Missing exchange_all_halos"
+        );
         assert!(source.contains("fdtd_all_tiles"), "Missing fdtd_all_tiles");
-        assert!(source.contains("upload_tile_data"), "Missing upload_tile_data");
-        assert!(source.contains("read_all_interiors"), "Missing read_all_interiors");
+        assert!(
+            source.contains("upload_tile_data"),
+            "Missing upload_tile_data"
+        );
+        assert!(
+            source.contains("read_all_interiors"),
+            "Missing read_all_interiors"
+        );
         assert!(source.contains("inject_impulse"), "Missing inject_impulse");
-        assert!(source.contains("apply_boundary_conditions"), "Missing apply_boundary_conditions");
+        assert!(
+            source.contains("apply_boundary_conditions"),
+            "Missing apply_boundary_conditions"
+        );
 
         // Check batched FDTD uses blockIdx
         assert!(source.contains("blockIdx.x"), "Missing blockIdx usage");
@@ -655,8 +690,10 @@ mod tests {
         assert!(generated.contains("float c2"));
         assert!(generated.contains("float damping"));
         assert!(generated.contains("if (lx >= 16 || ly >= 16) return;"));
-        assert!(generated.contains("idx = (ly + 1) * buffer_width + (lx + 1)")
-            || generated.contains("(ly + 1) * 18 + (lx + 1)"));
+        assert!(
+            generated.contains("idx = (ly + 1) * buffer_width + (lx + 1)")
+                || generated.contains("(ly + 1) * 18 + (lx + 1)")
+        );
         assert!(generated.contains("laplacian"));
         assert!(generated.contains("* damping"));
 
@@ -673,9 +710,11 @@ mod tests {
         let gen_kernel_count = generated.matches("__global__").count();
         let hw_kernel_count = handwritten.matches("__global__").count();
 
-        assert_eq!(gen_kernel_count, hw_kernel_count,
+        assert_eq!(
+            gen_kernel_count, hw_kernel_count,
             "Kernel count mismatch: generated={}, handwritten={}",
-            gen_kernel_count, hw_kernel_count);
+            gen_kernel_count, hw_kernel_count
+        );
     }
 
     #[test]
@@ -688,9 +727,11 @@ mod tests {
         let gen_kernel_count = generated.matches("__global__").count();
         let hw_kernel_count = handwritten.matches("__global__").count();
 
-        assert_eq!(gen_kernel_count, hw_kernel_count,
+        assert_eq!(
+            gen_kernel_count, hw_kernel_count,
             "Kernel count mismatch: generated={}, handwritten={}",
-            gen_kernel_count, hw_kernel_count);
+            gen_kernel_count, hw_kernel_count
+        );
     }
 
     #[test]
@@ -698,19 +739,43 @@ mod tests {
     fn test_match_expression_transpiles_to_switch() {
         // Test extract_halo uses switch for edge selection
         let extract = generate_extract_halo();
-        assert!(extract.contains("switch (edge)"), "extract_halo should use switch: {}", extract);
-        assert!(extract.contains("case 0:"), "extract_halo should have case 0");
-        assert!(extract.contains("case 1:"), "extract_halo should have case 1");
-        assert!(extract.contains("case 2:"), "extract_halo should have case 2");
-        assert!(extract.contains("default:"), "extract_halo should have default");
+        assert!(
+            extract.contains("switch (edge)"),
+            "extract_halo should use switch: {}",
+            extract
+        );
+        assert!(
+            extract.contains("case 0:"),
+            "extract_halo should have case 0"
+        );
+        assert!(
+            extract.contains("case 1:"),
+            "extract_halo should have case 1"
+        );
+        assert!(
+            extract.contains("case 2:"),
+            "extract_halo should have case 2"
+        );
+        assert!(
+            extract.contains("default:"),
+            "extract_halo should have default"
+        );
 
         // Test inject_halo uses switch for edge selection
         let inject = generate_inject_halo();
-        assert!(inject.contains("switch (edge)"), "inject_halo should use switch: {}", inject);
+        assert!(
+            inject.contains("switch (edge)"),
+            "inject_halo should use switch: {}",
+            inject
+        );
 
         // Test apply_boundary_reflection uses switch
         let boundary = generate_apply_boundary_reflection();
-        assert!(boundary.contains("switch (edge)"), "apply_boundary_reflection should use switch: {}", boundary);
+        assert!(
+            boundary.contains("switch (edge)"),
+            "apply_boundary_reflection should use switch: {}",
+            boundary
+        );
 
         println!("Generated extract_halo:\n{}", extract);
     }
@@ -720,19 +785,34 @@ mod tests {
     fn test_all_kernels_transpile_successfully() {
         // Verify all tile kernels transpile without errors
         let tile_source = generate_tile_kernels();
-        assert!(!tile_source.contains("Transpilation error"), "Tile kernels had transpilation errors:\n{}", tile_source);
+        assert!(
+            !tile_source.contains("Transpilation error"),
+            "Tile kernels had transpilation errors:\n{}",
+            tile_source
+        );
 
         // Verify all packed kernels transpile without errors
         let packed_source = generate_packed_kernels();
-        assert!(!packed_source.contains("Transpilation error"), "Packed kernels had transpilation errors:\n{}", packed_source);
+        assert!(
+            !packed_source.contains("Transpilation error"),
+            "Packed kernels had transpilation errors:\n{}",
+            packed_source
+        );
 
         // Count __global__ functions to ensure all generated
         let tile_count = tile_source.matches("__global__").count();
         let packed_count = packed_source.matches("__global__").count();
 
         assert_eq!(tile_count, 5, "Expected 5 tile kernels, got {}", tile_count);
-        assert_eq!(packed_count, 6, "Expected 6 packed kernels, got {}", packed_count);
+        assert_eq!(
+            packed_count, 6,
+            "Expected 6 packed kernels, got {}",
+            packed_count
+        );
 
-        println!("Successfully generated {} tile kernels and {} packed kernels", tile_count, packed_count);
+        println!(
+            "Successfully generated {} tile kernels and {} packed kernels",
+            tile_count, packed_count
+        );
     }
 }

@@ -114,7 +114,10 @@ mod tests {
         let mut params = AcousticParams::new(343.0, 1.0);
         params.set_speed_of_sound(1000.0);
         assert_eq!(params.speed_of_sound, 1000.0);
-        assert!(params.is_stable(), "Should remain stable after speed change");
+        assert!(
+            params.is_stable(),
+            "Should remain stable after speed change"
+        );
     }
 
     #[test]

@@ -390,9 +390,9 @@ impl SimulationGrid {
         let height = self.height as usize;
         let mut grid = vec![vec![0.0; width]; height];
 
-        for y in 0..height {
-            for x in 0..width {
-                grid[y][x] = self.pressure[y * width + x];
+        for (y, row) in grid.iter_mut().enumerate().take(height) {
+            for (x, cell) in row.iter_mut().enumerate().take(width) {
+                *cell = self.pressure[y * width + x];
             }
         }
         grid
@@ -408,10 +408,7 @@ impl SimulationGrid {
 
     /// Get the maximum absolute pressure in the grid.
     pub fn max_pressure(&self) -> f32 {
-        self.pressure
-            .iter()
-            .map(|p| p.abs())
-            .fold(0.0, f32::max)
+        self.pressure.iter().map(|p| p.abs()).fold(0.0, f32::max)
     }
 
     /// Get total energy in the system (sum of squared pressures).
@@ -491,7 +488,11 @@ impl SimulationGrid {
             self.reflection_coeff[idx] = match cell_type {
                 CellType::Normal => {
                     // Normal cells at boundary get slight absorption, interior gets full reflection
-                    if self.is_boundary[idx] { 0.95 } else { 1.0 }
+                    if self.is_boundary[idx] {
+                        0.95
+                    } else {
+                        1.0
+                    }
                 }
                 CellType::Absorber => 0.0,  // Full absorption
                 CellType::Reflector => 1.0, // Full reflection
@@ -542,7 +543,14 @@ impl SimulationGrid {
         let height = self.height as usize;
         let c2 = self.params.courant_number().powi(2);
         let damping = 1.0 - self.params.damping;
-        (&mut self.pressure, &mut self.pressure_prev, width, height, c2, damping)
+        (
+            &mut self.pressure,
+            &mut self.pressure_prev,
+            width,
+            height,
+            c2,
+            damping,
+        )
     }
 
     /// Swap the pressure buffers (called when educational step completes).

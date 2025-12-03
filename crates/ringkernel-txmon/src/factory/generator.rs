@@ -188,8 +188,10 @@ impl TransactionGenerator {
 
     /// Get statistics about the customer base.
     pub fn customer_stats(&self) -> CustomerStats {
-        let mut stats = CustomerStats::default();
-        stats.total = self.customers.len();
+        let mut stats = CustomerStats {
+            total: self.customers.len(),
+            ..Default::default()
+        };
 
         for c in &self.customers {
             match c.risk_level() {
@@ -266,7 +268,7 @@ mod tests {
         // Count transactions with amounts near threshold (smurfing indicator)
         let near_threshold = transactions
             .iter()
-            .filter(|tx| tx.amount_cents >= 9_000_00 && tx.amount_cents < 10_000_00)
+            .filter(|tx| tx.amount_cents >= 900_000 && tx.amount_cents < 1_000_000)
             .count();
 
         // Should have some suspicious transactions

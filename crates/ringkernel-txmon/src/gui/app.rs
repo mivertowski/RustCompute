@@ -169,7 +169,10 @@ impl TxMonApp {
         for alert in &alerts {
             flagged_tx_ids.insert(alert.transaction_id);
             // Track alerts per customer
-            *self.customer_alert_counts.entry(alert.customer_id).or_insert(0) += 1;
+            *self
+                .customer_alert_counts
+                .entry(alert.customer_id)
+                .or_insert(0) += 1;
         }
         let flagged_count = flagged_tx_ids.len() as u64;
 
@@ -216,11 +219,7 @@ impl TxMonApp {
         let content = column![
             self.view_header(),
             horizontal_rule(1),
-            row![
-                self.view_left_panel(),
-                self.view_right_panel(),
-            ]
-            .spacing(20),
+            row![self.view_left_panel(), self.view_right_panel(),].spacing(20),
         ]
         .padding(20)
         .spacing(15);
@@ -320,8 +319,12 @@ impl TxMonApp {
 
         let rate_slider = row![
             text("Rate:").size(14).color(colors::TEXT_SECONDARY),
-            slider(10..=5000, self.transactions_per_second_slider, Message::SetTransactionRate)
-                .width(150),
+            slider(
+                10..=5000,
+                self.transactions_per_second_slider,
+                Message::SetTransactionRate
+            )
+            .width(150),
             text(format!("{} tx/s", self.transactions_per_second_slider))
                 .size(14)
                 .color(colors::TEXT_PRIMARY),
@@ -331,8 +334,12 @@ impl TxMonApp {
 
         let suspicious_slider = row![
             text("Suspicious:").size(14).color(colors::TEXT_SECONDARY),
-            slider(0..=50, self.suspicious_rate_slider, Message::SetSuspiciousRate)
-                .width(150),
+            slider(
+                0..=50,
+                self.suspicious_rate_slider,
+                Message::SetSuspiciousRate
+            )
+            .width(150),
             text(format!("{}%", self.suspicious_rate_slider))
                 .size(14)
                 .color(colors::TEXT_PRIMARY),
@@ -358,9 +365,17 @@ impl TxMonApp {
             ]
             .spacing(20),
             row![
-                self.stat_item_colored("High Risk", format!("{}", stats.high_risk), colors::ALERT_HIGH),
+                self.stat_item_colored(
+                    "High Risk",
+                    format!("{}", stats.high_risk),
+                    colors::ALERT_HIGH
+                ),
                 self.stat_item_colored("PEP", format!("{}", stats.pep), colors::ALERT_MEDIUM),
-                self.stat_item_colored("EDD Req.", format!("{}", stats.edd_required), colors::ALERT_LOW),
+                self.stat_item_colored(
+                    "EDD Req.",
+                    format!("{}", stats.edd_required),
+                    colors::ALERT_LOW
+                ),
             ]
             .spacing(20),
         ]
@@ -393,16 +408,13 @@ impl TxMonApp {
             Column::with_children(transactions).spacing(4)
         };
 
-        self.panel(
-            "Live Transaction Feed",
-            scrollable(feed).height(200),
-        )
+        self.panel("Live Transaction Feed", scrollable(feed).height(200))
     }
 
     /// View: Single transaction row (static version for use in closures).
     fn view_transaction_row_static(tx: Transaction) -> Element<'static, Message> {
         let time_str = format_timestamp(tx.timestamp);
-        let amount_color = if tx.amount_cents >= 10_000_00 {
+        let amount_color = if tx.amount_cents >= 1_000_000 {
             colors::ALERT_HIGH
         } else {
             colors::TEXT_PRIMARY
@@ -464,9 +476,18 @@ impl TxMonApp {
     /// View: Alert types legend.
     fn view_alert_legend(&self) -> Element<'_, Message> {
         let alert_types = [
-            (AlertType::VelocityBreach, "Too many transactions in time window"),
-            (AlertType::AmountThreshold, "Transaction exceeds $ threshold"),
-            (AlertType::StructuredTransaction, "Smurfing: amounts just under threshold"),
+            (
+                AlertType::VelocityBreach,
+                "Too many transactions in time window",
+            ),
+            (
+                AlertType::AmountThreshold,
+                "Transaction exceeds $ threshold",
+            ),
+            (
+                AlertType::StructuredTransaction,
+                "Smurfing: amounts just under threshold",
+            ),
             (AlertType::GeographicAnomaly, "Unusual destination country"),
         ];
 
@@ -474,9 +495,7 @@ impl TxMonApp {
             .iter()
             .map(|(alert_type, description)| {
                 row![
-                    text(alert_type.code())
-                        .size(11)
-                        .color(colors::ACCENT_BLUE),
+                    text(alert_type.code()).size(11).color(colors::ACCENT_BLUE),
                     text(format!(" - {}", description))
                         .size(11)
                         .color(colors::TEXT_SECONDARY),
@@ -485,7 +504,10 @@ impl TxMonApp {
             })
             .collect();
 
-        self.panel("Alert Types", Column::with_children(legend_items).spacing(4))
+        self.panel(
+            "Alert Types",
+            Column::with_children(legend_items).spacing(4),
+        )
     }
 
     /// View: Top 5 high-risk accounts.
@@ -556,16 +578,18 @@ impl TxMonApp {
             .collect();
 
         let alerts_list = if alerts.is_empty() {
-            column![text("No alerts")
-                .size(14)
-                .color(colors::TEXT_DISABLED)]
+            column![text("No alerts").size(14).color(colors::TEXT_DISABLED)]
         } else {
             Column::with_children(alerts).spacing(8)
         };
 
         container(
-            column![header, vertical_space().height(10), scrollable(alerts_list).height(200),]
-                .spacing(5),
+            column![
+                header,
+                vertical_space().height(10),
+                scrollable(alerts_list).height(200),
+            ]
+            .spacing(5),
         )
         .padding(15)
         .width(Length::Fill)
@@ -587,9 +611,7 @@ impl TxMonApp {
         let alert_type = alert.alert_type();
         let color = severity_color(severity);
 
-        let indicator = text(severity.indicator().to_string())
-            .size(16)
-            .color(color);
+        let indicator = text(severity.indicator().to_string()).size(16).color(color);
 
         let is_selected = self.selected_alert == Some(idx);
         let bg_color = if is_selected {
@@ -609,9 +631,7 @@ impl TxMonApp {
             ]
             .spacing(8)
             .align_y(Alignment::Center),
-            text(alert_type.name())
-                .size(14)
-                .color(colors::TEXT_PRIMARY),
+            text(alert_type.name()).size(14).color(colors::TEXT_PRIMARY),
             row![
                 text(format!("Cust: {}", alert.customer_id))
                     .size(11)

@@ -32,7 +32,9 @@ async fn main() -> Result<()> {
     println!("Runtime created with K2K messaging enabled\n");
 
     // Get the K2K broker
-    let broker = runtime.k2k_broker().expect("K2K broker should be available");
+    let broker = runtime
+        .k2k_broker()
+        .expect("K2K broker should be available");
     println!("K2K broker obtained");
 
     // Register ping and pong endpoints
@@ -58,14 +60,12 @@ async fn main() -> Result<()> {
         // PING sends to PONG
         let timestamp = HlcTimestamp::now(round);
         let envelope = MessageEnvelope::empty(
-            round as u64,      // source_id (simulated)
-            round as u64 + 1,  // dest_id (simulated)
+            round,     // source_id (simulated)
+            round + 1, // dest_id (simulated)
             timestamp,
         );
 
-        let receipt = ping_endpoint
-            .send(pong_id.clone(), envelope)
-            .await?;
+        let receipt = ping_endpoint.send(pong_id.clone(), envelope).await?;
 
         match receipt.status {
             DeliveryStatus::Delivered => {
@@ -91,9 +91,7 @@ async fn main() -> Result<()> {
                 response_timestamp,
             );
 
-            let _response_receipt = pong_endpoint
-                .send(ping_id.clone(), response)
-                .await?;
+            let _response_receipt = pong_endpoint.send(ping_id.clone(), response).await?;
 
             println!("         PONG -> PING [responded]\n");
         }
@@ -111,10 +109,7 @@ async fn main() -> Result<()> {
             .send_priority(pong_id.clone(), envelope, priority)
             .await?;
 
-        println!(
-            "Sent priority {} message: {:?}",
-            priority, receipt.status
-        );
+        println!("Sent priority {} message: {:?}", priority, receipt.status);
     }
 
     // Receive all messages
@@ -126,7 +121,10 @@ async fn main() -> Result<()> {
     // ========== Final Stats ==========
     let final_stats = broker.stats();
     println!("\n--- Final Broker Stats ---");
-    println!("  Registered endpoints: {}", final_stats.registered_endpoints);
+    println!(
+        "  Registered endpoints: {}",
+        final_stats.registered_endpoints
+    );
     println!("  Messages delivered: {}", final_stats.messages_delivered);
     println!("  Routes configured: {}", final_stats.routes_configured);
 

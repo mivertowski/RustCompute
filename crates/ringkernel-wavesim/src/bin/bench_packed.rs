@@ -21,7 +21,10 @@ fn main() {
     let c2 = params.courant_number().powi(2);
     let damping = 1.0 - params.damping;
 
-    println!("Running {} steps per grid size (tile size: {}x{})", steps, tile_size, tile_size);
+    println!(
+        "Running {} steps per grid size (tile size: {}x{})",
+        steps, tile_size, tile_size
+    );
     println!("GPU-only halo exchange: ZERO host transfers during simulation");
     println!();
 
@@ -30,8 +33,10 @@ fn main() {
     println!("CUDA Packed Backend (GPU-Only Halo Exchange)");
     println!("═══════════════════════════════════════════════════════════════════════════");
     println!();
-    println!("{:<12} {:>8} {:>12} {:>12} {:>15} {:>12}",
-             "Grid Size", "Tiles", "Halo Copies", "Time (ms)", "Steps/sec", "M cells/s");
+    println!(
+        "{:<12} {:>8} {:>12} {:>12} {:>15} {:>12}",
+        "Grid Size", "Tiles", "Halo Copies", "Time (ms)", "Steps/sec", "M cells/s"
+    );
     println!("{}", "-".repeat(80));
 
     for &size in &sizes {
@@ -80,8 +85,10 @@ fn main() {
     println!("CPU SimulationGrid (Baseline - SoA + SIMD + Rayon)");
     println!("═══════════════════════════════════════════════════════════════════════════");
     println!();
-    println!("{:<12} {:>10} {:>12} {:>15} {:>12}",
-             "Grid Size", "Cells", "Time (ms)", "Steps/sec", "M cells/s");
+    println!(
+        "{:<12} {:>10} {:>12} {:>15} {:>12}",
+        "Grid Size", "Cells", "Time (ms)", "Steps/sec", "M cells/s"
+    );
     println!("{}", "-".repeat(65));
 
     for &size in &sizes {
@@ -118,7 +125,10 @@ fn main() {
 
     // Section 3: Direct Comparison
     println!("═══════════════════════════════════════════════════════════════════════════");
-    println!("Direct Comparison: CPU vs CUDA Packed (256x256 grid, {} steps)", steps);
+    println!(
+        "Direct Comparison: CPU vs CUDA Packed (256x256 grid, {} steps)",
+        steps
+    );
     println!("═══════════════════════════════════════════════════════════════════════════");
     println!();
 
@@ -127,7 +137,9 @@ fn main() {
     // CPU
     let mut cpu_grid = SimulationGrid::new(size, size, params.clone());
     cpu_grid.inject_impulse(size / 2, size / 2, 1.0);
-    for _ in 0..10 { cpu_grid.step(); }
+    for _ in 0..10 {
+        cpu_grid.step();
+    }
 
     let cpu_start = Instant::now();
     for _ in 0..steps {
@@ -136,14 +148,21 @@ fn main() {
     let cpu_elapsed = cpu_start.elapsed();
     let cpu_steps_per_sec = steps as f64 / cpu_elapsed.as_secs_f64();
 
-    println!("CPU SimulationGrid:    {:>12.2} ms  ({:>10.0} steps/sec)",
-             cpu_elapsed.as_secs_f64() * 1000.0, cpu_steps_per_sec);
+    println!(
+        "CPU SimulationGrid:    {:>12.2} ms  ({:>10.0} steps/sec)",
+        cpu_elapsed.as_secs_f64() * 1000.0,
+        cpu_steps_per_sec
+    );
 
     // CUDA Packed
     if let Ok(mut cuda_backend) = CudaPackedBackend::new(size, size, tile_size) {
         cuda_backend.set_params(c2, damping);
-        cuda_backend.inject_impulse(size / 2, size / 2, 1.0).unwrap();
-        for _ in 0..10 { cuda_backend.step().unwrap(); }
+        cuda_backend
+            .inject_impulse(size / 2, size / 2, 1.0)
+            .unwrap();
+        for _ in 0..10 {
+            cuda_backend.step().unwrap();
+        }
         cuda_backend.synchronize().unwrap();
 
         let cuda_start = Instant::now();
@@ -151,8 +170,11 @@ fn main() {
         let cuda_elapsed = cuda_start.elapsed();
         let cuda_steps_per_sec = steps as f64 / cuda_elapsed.as_secs_f64();
 
-        println!("CUDA Packed Backend:   {:>12.2} ms  ({:>10.0} steps/sec)",
-                 cuda_elapsed.as_secs_f64() * 1000.0, cuda_steps_per_sec);
+        println!(
+            "CUDA Packed Backend:   {:>12.2} ms  ({:>10.0} steps/sec)",
+            cuda_elapsed.as_secs_f64() * 1000.0,
+            cuda_steps_per_sec
+        );
 
         let speedup = cuda_steps_per_sec / cpu_steps_per_sec;
         if speedup >= 1.0 {
@@ -177,7 +199,9 @@ fn main() {
 
     if let Ok(mut cuda_backend) = CudaPackedBackend::new(size, size, tile_size) {
         cuda_backend.set_params(c2, damping);
-        cuda_backend.inject_impulse(size / 2, size / 2, 1.0).unwrap();
+        cuda_backend
+            .inject_impulse(size / 2, size / 2, 1.0)
+            .unwrap();
 
         // Run steps
         for _ in 0..verify_steps {

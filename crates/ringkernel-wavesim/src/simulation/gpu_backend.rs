@@ -71,7 +71,11 @@ pub struct FdtdParams {
 impl FdtdParams {
     /// Create new FDTD parameters.
     pub fn new(tile_size: u32, c2: f32, damping: f32) -> Self {
-        Self { tile_size, c2, damping }
+        Self {
+            tile_size,
+            c2,
+            damping,
+        }
     }
 }
 
@@ -104,20 +108,12 @@ pub trait TileGpuBackend: Send + Sync {
     /// Execute FDTD step entirely on GPU (no host transfer).
     ///
     /// Reads from current buffer, writes to previous buffer (ping-pong).
-    fn fdtd_step(
-        &self,
-        buffers: &TileGpuBuffers<Self::Buffer>,
-        params: &FdtdParams,
-    ) -> Result<()>;
+    fn fdtd_step(&self, buffers: &TileGpuBuffers<Self::Buffer>, params: &FdtdParams) -> Result<()>;
 
     /// Extract halo from GPU to host (small transfer for K2K).
     ///
     /// Returns 16 f32 values for the specified edge.
-    fn extract_halo(
-        &self,
-        buffers: &TileGpuBuffers<Self::Buffer>,
-        edge: Edge,
-    ) -> Result<Vec<f32>>;
+    fn extract_halo(&self, buffers: &TileGpuBuffers<Self::Buffer>, edge: Edge) -> Result<Vec<f32>>;
 
     /// Inject neighbor halo from K2K message into GPU buffer.
     ///
@@ -136,10 +132,7 @@ pub trait TileGpuBackend: Send + Sync {
     ///
     /// Only called when GUI needs to render (once per frame).
     /// Returns 16x16 interior values (not the full 18x18 buffer).
-    fn read_interior_pressure(
-        &self,
-        buffers: &TileGpuBuffers<Self::Buffer>,
-    ) -> Result<Vec<f32>>;
+    fn read_interior_pressure(&self, buffers: &TileGpuBuffers<Self::Buffer>) -> Result<Vec<f32>>;
 
     /// Synchronize GPU operations.
     fn synchronize(&self) -> Result<()>;
@@ -209,7 +202,7 @@ pub fn buffer_index(local_x: usize, local_y: usize, buffer_width: usize) -> usiz
 #[inline(always)]
 pub fn halo_row_start(edge: Edge, buffer_width: usize) -> usize {
     match edge {
-        Edge::North => 1,                           // Row 0, cols 1..tile_size+1
+        Edge::North => 1,                                     // Row 0, cols 1..tile_size+1
         Edge::South => (buffer_width - 1) * buffer_width + 1, // Last row, cols 1..tile_size+1
         Edge::West | Edge::East => unreachable!(),
     }
@@ -219,7 +212,7 @@ pub fn halo_row_start(edge: Edge, buffer_width: usize) -> usize {
 #[inline(always)]
 pub fn halo_col_index(edge: Edge, y: usize, buffer_width: usize) -> usize {
     match edge {
-        Edge::West => (y + 1) * buffer_width,       // Col 0
+        Edge::West => (y + 1) * buffer_width, // Col 0
         Edge::East => (y + 1) * buffer_width + buffer_width - 1, // Last col
         Edge::North | Edge::South => unreachable!(),
     }
@@ -243,7 +236,7 @@ mod tests {
         let bw = 18;
 
         // Interior (0,0) should be at buffer position (1,1) = row 1, col 1
-        assert_eq!(buffer_index(0, 0, bw), 1 * 18 + 1);
+        assert_eq!(buffer_index(0, 0, bw), 18 + 1);
         assert_eq!(buffer_index(0, 0, bw), 19);
 
         // Interior (15,15) should be at buffer position (16,16)

@@ -55,7 +55,9 @@ fn main() {
     println!("   Era: Cray-1, early vector supercomputers");
     println!("   Pattern: Process entire rows at once");
     println!("   Visual: Yellow highlight sweeping down row by row");
-    println!("   Lesson: \"Vector processors and SIMD - process multiple data with one instruction\"");
+    println!(
+        "   Lesson: \"Vector processors and SIMD - process multiple data with one instruction\""
+    );
     println!();
 
     println!("3. CHAOTIC PARALLEL (1990s Naive Parallelism)");

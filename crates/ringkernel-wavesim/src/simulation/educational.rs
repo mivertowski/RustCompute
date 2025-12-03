@@ -77,18 +77,14 @@ impl SimulationMode {
     /// Get a description of the mode for educational purposes.
     pub fn description(&self) -> &'static str {
         match self {
-            SimulationMode::Standard =>
-                "Full-speed parallel simulation",
-            SimulationMode::CellByCell =>
-                "1950s: Sequential processing, one cell at a time",
-            SimulationMode::RowByRow =>
-                "1970s: Vector processing, entire rows at once (Cray-style)",
-            SimulationMode::ChaoticParallel =>
-                "1990s: Parallel without sync - watch for glitches!",
-            SimulationMode::SynchronizedParallel =>
-                "2000s: Parallel with barriers - safe but slow",
-            SimulationMode::ActorBased =>
-                "Modern: Actor model with HLC for causal ordering",
+            SimulationMode::Standard => "Full-speed parallel simulation",
+            SimulationMode::CellByCell => "1950s: Sequential processing, one cell at a time",
+            SimulationMode::RowByRow => {
+                "1970s: Vector processing, entire rows at once (Cray-style)"
+            }
+            SimulationMode::ChaoticParallel => "1990s: Parallel without sync - watch for glitches!",
+            SimulationMode::SynchronizedParallel => "2000s: Parallel with barriers - safe but slow",
+            SimulationMode::ActorBased => "Modern: Actor model with HLC for causal ordering",
         }
     }
 
@@ -475,7 +471,7 @@ impl EducationalProcessor {
 
             // Sometimes write to wrong buffer too!
             if self.rng.gen_bool(0.3) {
-                pressure[idx] = p_new * damping;  // Wrong buffer!
+                pressure[idx] = p_new * damping; // Wrong buffer!
             } else {
                 pressure_prev[idx] = p_new * damping;
             }
@@ -541,7 +537,7 @@ impl EducationalProcessor {
         }
 
         self.state.just_processed = self.state.active_cells.clone();
-        self.cell_y += 1;  // Move to next wavefront
+        self.cell_y += 1; // Move to next wavefront
         StepResult::in_progress()
     }
 
@@ -564,8 +560,8 @@ impl EducationalProcessor {
         let interior_width = width - 2;
         let interior_height = height - 2;
         // Use ceiling division to ensure all cells are covered
-        let tiles_x = (interior_width + tile_size - 1) / tile_size;
-        let tiles_y = (interior_height + tile_size - 1) / tile_size;
+        let tiles_x = interior_width.div_ceil(tile_size);
+        let tiles_y = interior_height.div_ceil(tile_size);
 
         let current_tile = self.cell_y as usize;
         let total_tiles = tiles_x * tiles_y;
@@ -636,9 +632,18 @@ mod tests {
 
     #[test]
     fn test_mode_display() {
-        assert_eq!(format!("{}", SimulationMode::CellByCell), "Cell-by-Cell (1950s)");
-        assert_eq!(format!("{}", SimulationMode::RowByRow), "Row-by-Row (1970s)");
-        assert_eq!(format!("{}", SimulationMode::ChaoticParallel), "Chaotic (1990s)");
+        assert_eq!(
+            format!("{}", SimulationMode::CellByCell),
+            "Cell-by-Cell (1950s)"
+        );
+        assert_eq!(
+            format!("{}", SimulationMode::RowByRow),
+            "Row-by-Row (1970s)"
+        );
+        assert_eq!(
+            format!("{}", SimulationMode::ChaoticParallel),
+            "Chaotic (1990s)"
+        );
     }
 
     #[test]
@@ -649,9 +654,11 @@ mod tests {
 
     #[test]
     fn test_processing_state_reset() {
-        let mut state = ProcessingState::default();
-        state.current_cell = Some((5, 5));
-        state.step_complete = false;
+        let mut state = ProcessingState {
+            current_cell: Some((5, 5)),
+            step_complete: false,
+            ..Default::default()
+        };
         state.begin_step();
         assert!(state.current_cell.is_none());
         assert!(!state.step_complete);
@@ -674,7 +681,14 @@ mod tests {
         // Run until step completes
         let mut iterations = 0;
         loop {
-            let result = processor.step_frame(&mut pressure, &mut pressure_prev, width, height, c2, damping);
+            let result = processor.step_frame(
+                &mut pressure,
+                &mut pressure_prev,
+                width,
+                height,
+                c2,
+                damping,
+            );
             if result.step_complete {
                 if result.should_swap {
                     std::mem::swap(&mut pressure, &mut pressure_prev);
@@ -682,7 +696,10 @@ mod tests {
                 break;
             }
             iterations += 1;
-            assert!(iterations < 100, "Should complete within reasonable iterations");
+            assert!(
+                iterations < 100,
+                "Should complete within reasonable iterations"
+            );
         }
 
         // Should have processed all interior cells
@@ -703,14 +720,28 @@ mod tests {
         let damping = 0.99;
 
         // First frame should process row 1
-        let result = processor.step_frame(&mut pressure, &mut pressure_prev, width, height, c2, damping);
+        let result = processor.step_frame(
+            &mut pressure,
+            &mut pressure_prev,
+            width,
+            height,
+            c2,
+            damping,
+        );
         assert!(!result.step_complete);
         assert_eq!(processor.state.current_row, Some(1));
 
         // Continue until complete
         let mut iterations = 0;
         loop {
-            let result = processor.step_frame(&mut pressure, &mut pressure_prev, width, height, c2, damping);
+            let result = processor.step_frame(
+                &mut pressure,
+                &mut pressure_prev,
+                width,
+                height,
+                c2,
+                damping,
+            );
             if result.step_complete {
                 break;
             }
@@ -735,14 +766,28 @@ mod tests {
         let damping = 0.99;
 
         // First frame should process first tile
-        let result = processor.step_frame(&mut pressure, &mut pressure_prev, width, height, c2, damping);
+        let result = processor.step_frame(
+            &mut pressure,
+            &mut pressure_prev,
+            width,
+            height,
+            c2,
+            damping,
+        );
         assert!(!result.step_complete);
         assert!(!processor.state.active_tiles.is_empty());
 
         // Continue until complete
         let mut iterations = 0;
         loop {
-            let result = processor.step_frame(&mut pressure, &mut pressure_prev, width, height, c2, damping);
+            let result = processor.step_frame(
+                &mut pressure,
+                &mut pressure_prev,
+                width,
+                height,
+                c2,
+                damping,
+            );
             if result.step_complete {
                 break;
             }

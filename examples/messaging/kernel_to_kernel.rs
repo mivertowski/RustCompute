@@ -27,7 +27,9 @@ async fn main() -> Result<()> {
     println!("Created CPU runtime with K2K messaging enabled");
 
     // Get the K2K broker
-    let broker = runtime.k2k_broker().expect("K2K broker should be available");
+    let broker = runtime
+        .k2k_broker()
+        .expect("K2K broker should be available");
     println!("K2K broker created with default configuration\n");
 
     // ========== Direct Broker Usage ==========
@@ -89,10 +91,7 @@ async fn main() -> Result<()> {
             .send_priority(consumer_id.clone(), envelope, priority)
             .await?;
 
-        println!(
-            "Sent priority {} message: {:?}",
-            priority, receipt.status
-        );
+        println!("Sent priority {} message: {:?}", priority, receipt.status);
     }
 
     // Receive all messages

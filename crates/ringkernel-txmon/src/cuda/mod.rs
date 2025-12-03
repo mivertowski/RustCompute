@@ -14,12 +14,12 @@
 //!    spatial patterns in transaction networks (e.g., circular trading, layering).
 //!    Best for: Network-based anomaly detection.
 
-mod types;
 mod codegen;
+mod types;
 
-pub mod ring_kernel;
 pub mod batch_kernel;
+pub mod ring_kernel;
 pub mod stencil_kernel;
 
-pub use types::*;
 pub use codegen::*;
+pub use types::*;

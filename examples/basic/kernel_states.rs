@@ -42,10 +42,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     println!("=== Kernel Lifecycle Example ===\n");
 
-    let runtime = RingKernel::builder()
-        .backend(Backend::Cpu)
-        .build()
-        .await?;
+    let runtime = RingKernel::builder().backend(Backend::Cpu).build().await?;
 
     // Create multiple kernels to demonstrate different states
     println!("Creating kernels...\n");
@@ -140,7 +137,9 @@ fn print_states(kernels: &[&KernelHandle]) {
 }
 
 /// Demonstrates orchestrating multiple kernels in a pipeline
-async fn demonstrate_orchestration(runtime: &RingKernel) -> std::result::Result<(), Box<dyn std::error::Error>> {
+async fn demonstrate_orchestration(
+    runtime: &RingKernel,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("\nLaunching pipeline: ingress -> processor -> egress");
 
     // Create a processing pipeline
@@ -148,7 +147,10 @@ async fn demonstrate_orchestration(runtime: &RingKernel) -> std::result::Result<
         .launch("ingress", LaunchOptions::default().without_auto_activate())
         .await?;
     let processor = runtime
-        .launch("processor", LaunchOptions::default().without_auto_activate())
+        .launch(
+            "processor",
+            LaunchOptions::default().without_auto_activate(),
+        )
         .await?;
     let egress = runtime
         .launch("egress", LaunchOptions::default().without_auto_activate())
@@ -161,8 +163,10 @@ async fn demonstrate_orchestration(runtime: &RingKernel) -> std::result::Result<
     ingress.activate().await?;
 
     println!("Pipeline active. Processing would happen here...");
-    println!("  All active: {}",
-        ingress.is_active() && processor.is_active() && egress.is_active());
+    println!(
+        "  All active: {}",
+        ingress.is_active() && processor.is_active() && egress.is_active()
+    );
 
     // Graceful shutdown (upstream first)
     println!("Shutting down pipeline (upstream first)...");

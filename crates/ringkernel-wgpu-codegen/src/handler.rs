@@ -161,7 +161,10 @@ mod tests {
 
     #[test]
     fn test_context_method_wgsl() {
-        assert_eq!(WgslContextMethod::LocalId.to_wgsl(), "local_invocation_id.x");
+        assert_eq!(
+            WgslContextMethod::LocalId.to_wgsl(),
+            "local_invocation_id.x"
+        );
         assert_eq!(
             WgslContextMethod::WorkgroupBarrier.to_wgsl(),
             "workgroupBarrier()"

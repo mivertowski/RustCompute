@@ -42,13 +42,8 @@ impl Default for PolarsConfig {
 #[async_trait::async_trait]
 pub trait RuntimeHandle: Send + Sync + 'static {
     /// Send data to a kernel for binary operation.
-    async fn send_binary_op(
-        &self,
-        kernel_id: &str,
-        a: Vec<u8>,
-        b: Vec<u8>,
-        op: &str,
-    ) -> Result<()>;
+    async fn send_binary_op(&self, kernel_id: &str, a: Vec<u8>, b: Vec<u8>, op: &str)
+        -> Result<()>;
 
     /// Receive result from a kernel.
     async fn receive_result(&self, kernel_id: &str, timeout: Duration) -> Result<Vec<u8>>;
@@ -128,7 +123,9 @@ async fn gpu_binary_op<R: RuntimeHandle>(
     let a_bytes = series_to_bytes(a)?;
     let b_bytes = series_to_bytes(b)?;
 
-    runtime.send_binary_op("binary_op", a_bytes, b_bytes, op).await?;
+    runtime
+        .send_binary_op("binary_op", a_bytes, b_bytes, op)
+        .await?;
 
     let result_bytes = runtime
         .receive_result("binary_op", Duration::from_secs(30))
@@ -141,22 +138,30 @@ async fn gpu_binary_op<R: RuntimeHandle>(
 fn series_to_bytes(series: &Series) -> Result<Vec<u8>> {
     match series.dtype() {
         DataType::Float32 => {
-            let ca = series.f32().map_err(|e| EcosystemError::Polars(e.to_string()))?;
+            let ca = series
+                .f32()
+                .map_err(|e| EcosystemError::Polars(e.to_string()))?;
             let values: Vec<f32> = ca.into_iter().map(|v| v.unwrap_or(0.0)).collect();
             Ok(values.iter().flat_map(|v| v.to_le_bytes()).collect())
         }
         DataType::Float64 => {
-            let ca = series.f64().map_err(|e| EcosystemError::Polars(e.to_string()))?;
+            let ca = series
+                .f64()
+                .map_err(|e| EcosystemError::Polars(e.to_string()))?;
             let values: Vec<f64> = ca.into_iter().map(|v| v.unwrap_or(0.0)).collect();
             Ok(values.iter().flat_map(|v| v.to_le_bytes()).collect())
         }
         DataType::Int32 => {
-            let ca = series.i32().map_err(|e| EcosystemError::Polars(e.to_string()))?;
+            let ca = series
+                .i32()
+                .map_err(|e| EcosystemError::Polars(e.to_string()))?;
             let values: Vec<i32> = ca.into_iter().map(|v| v.unwrap_or(0)).collect();
             Ok(values.iter().flat_map(|v| v.to_le_bytes()).collect())
         }
         DataType::Int64 => {
-            let ca = series.i64().map_err(|e| EcosystemError::Polars(e.to_string()))?;
+            let ca = series
+                .i64()
+                .map_err(|e| EcosystemError::Polars(e.to_string()))?;
             let values: Vec<i64> = ca.into_iter().map(|v| v.unwrap_or(0)).collect();
             Ok(values.iter().flat_map(|v| v.to_le_bytes()).collect())
         }
@@ -182,8 +187,8 @@ fn bytes_to_series(bytes: &[u8], name: &PlSmallStr, dtype: &DataType) -> Result<
                 .chunks_exact(8)
                 .map(|chunk| {
                     f64::from_le_bytes([
-                        chunk[0], chunk[1], chunk[2], chunk[3],
-                        chunk[4], chunk[5], chunk[6], chunk[7],
+                        chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6],
+                        chunk[7],
                     ])
                 })
                 .collect();
@@ -201,8 +206,8 @@ fn bytes_to_series(bytes: &[u8], name: &PlSmallStr, dtype: &DataType) -> Result<
                 .chunks_exact(8)
                 .map(|chunk| {
                     i64::from_le_bytes([
-                        chunk[0], chunk[1], chunk[2], chunk[3],
-                        chunk[4], chunk[5], chunk[6], chunk[7],
+                        chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6],
+                        chunk[7],
                     ])
                 })
                 .collect();
@@ -283,13 +288,17 @@ impl<R: RuntimeHandle> GpuAggregator<R> {
 
         if result_bytes.len() >= 8 {
             Ok(f64::from_le_bytes([
-                result_bytes[0], result_bytes[1], result_bytes[2], result_bytes[3],
-                result_bytes[4], result_bytes[5], result_bytes[6], result_bytes[7],
+                result_bytes[0],
+                result_bytes[1],
+                result_bytes[2],
+                result_bytes[3],
+                result_bytes[4],
+                result_bytes[5],
+                result_bytes[6],
+                result_bytes[7],
             ]))
         } else {
-            Err(EcosystemError::DataConversion(
-                "Invalid result size".into(),
-            ))
+            Err(EcosystemError::DataConversion("Invalid result size".into()))
         }
     }
 
@@ -305,13 +314,17 @@ impl<R: RuntimeHandle> GpuAggregator<R> {
 
         if result_bytes.len() >= 8 {
             Ok(f64::from_le_bytes([
-                result_bytes[0], result_bytes[1], result_bytes[2], result_bytes[3],
-                result_bytes[4], result_bytes[5], result_bytes[6], result_bytes[7],
+                result_bytes[0],
+                result_bytes[1],
+                result_bytes[2],
+                result_bytes[3],
+                result_bytes[4],
+                result_bytes[5],
+                result_bytes[6],
+                result_bytes[7],
             ]))
         } else {
-            Err(EcosystemError::DataConversion(
-                "Invalid result size".into(),
-            ))
+            Err(EcosystemError::DataConversion("Invalid result size".into()))
         }
     }
 }

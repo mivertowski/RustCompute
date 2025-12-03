@@ -155,14 +155,16 @@ structured = true
     let validation_tests = vec![
         ("Valid config", RingKernelConfig::default()),
         ("Zero queue capacity", {
-            let mut c = RingKernelConfig::default();
-            c.queue_capacity = 0;
-            c
+            RingKernelConfig {
+                queue_capacity: 0,
+                ..Default::default()
+            }
         }),
         ("Invalid backend", {
-            let mut c = RingKernelConfig::default();
-            c.backend = "invalid".to_string();
-            c
+            RingKernelConfig {
+                backend: "invalid".to_string(),
+                ..Default::default()
+            }
         }),
         ("Pool < max allocation", {
             let mut c = RingKernelConfig::default();
@@ -192,7 +194,10 @@ structured = true
         println!("{}:", env_name.to_uppercase());
         println!("  Backend: {}", config.backend);
         println!("  Queue capacity: {}", config.queue_capacity);
-        println!("  Memory pool: {} MB", config.memory.pool_size / (1024 * 1024));
+        println!(
+            "  Memory pool: {} MB",
+            config.memory.pool_size / (1024 * 1024)
+        );
         println!("  Telemetry: {}", config.telemetry_enabled);
         println!("  Log level: {}", config.logging.level);
         println!();
@@ -515,10 +520,12 @@ struct ProductionConfig;
 
 impl DevelopmentConfig {
     fn generate() -> RingKernelConfig {
-        let mut config = RingKernelConfig::default();
-        config.backend = "cpu".to_string();
-        config.queue_capacity = 256;
-        config.telemetry_enabled = true;
+        let mut config = RingKernelConfig {
+            backend: "cpu".to_string(),
+            queue_capacity: 256,
+            telemetry_enabled: true,
+            ..Default::default()
+        };
         config.logging.level = "debug".to_string();
         config.logging.format = "pretty".to_string();
         config
@@ -527,11 +534,13 @@ impl DevelopmentConfig {
 
 impl StagingConfig {
     fn generate() -> RingKernelConfig {
-        let mut config = RingKernelConfig::default();
-        config.backend = "cuda".to_string();
-        config.queue_capacity = 1024;
+        let mut config = RingKernelConfig {
+            backend: "cuda".to_string(),
+            queue_capacity: 1024,
+            telemetry_enabled: true,
+            ..Default::default()
+        };
         config.memory.pool_size = 512 * 1024 * 1024;
-        config.telemetry_enabled = true;
         config.logging.level = "info".to_string();
         config.logging.format = "json".to_string();
         config
@@ -540,13 +549,15 @@ impl StagingConfig {
 
 impl ProductionConfig {
     fn generate() -> RingKernelConfig {
-        let mut config = RingKernelConfig::default();
-        config.backend = "cuda".to_string();
-        config.queue_capacity = 4096;
+        let mut config = RingKernelConfig {
+            backend: "cuda".to_string(),
+            queue_capacity: 4096,
+            telemetry_enabled: true,
+            ..Default::default()
+        };
         config.memory.pool_size = 1024 * 1024 * 1024;
         config.memory.preallocate = true;
         config.kernel.auto_restart = true;
-        config.telemetry_enabled = true;
         config.logging.level = "warn".to_string();
         config.logging.format = "json".to_string();
         config.logging.structured = true;
@@ -568,7 +579,10 @@ fn print_config(title: &str, config: &RingKernelConfig) {
     println!("    Max kernels: {}", config.kernel.max_kernels);
     println!("    Timeout: {} ms", config.kernel.timeout_ms);
     println!("  Memory:");
-    println!("    Pool size: {} MB", config.memory.pool_size / (1024 * 1024));
+    println!(
+        "    Pool size: {} MB",
+        config.memory.pool_size / (1024 * 1024)
+    );
     println!("    Pooling: {}", config.memory.enable_pooling);
     println!("  Logging:");
     println!("    Level: {}", config.logging.level);

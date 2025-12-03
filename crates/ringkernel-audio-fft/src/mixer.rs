@@ -205,12 +205,14 @@ impl DryWetMixer {
 
     /// Get only the direct component (with gain).
     pub fn direct_only(&self, bin: &SeparatedBin) -> Complex {
-        bin.direct.scale(self.config.direct_gain * self.config.output_gain)
+        bin.direct
+            .scale(self.config.direct_gain * self.config.output_gain)
     }
 
     /// Get only the ambience component (with gain).
     pub fn ambience_only(&self, bin: &SeparatedBin) -> Complex {
-        bin.ambience.scale(self.config.ambience_gain * self.config.output_gain)
+        bin.ambience
+            .scale(self.config.ambience_gain * self.config.output_gain)
     }
 
     /// Extract direct bins from separated data.
@@ -294,7 +296,12 @@ pub struct MixedFrame {
 
 impl MixedFrame {
     /// Create a new mixed frame.
-    pub fn new(bins: Vec<Complex>, direct: Vec<Complex>, ambience: Vec<Complex>, frame_id: u64) -> Self {
+    pub fn new(
+        bins: Vec<Complex>,
+        direct: Vec<Complex>,
+        ambience: Vec<Complex>,
+        frame_id: u64,
+    ) -> Self {
         Self {
             bins,
             direct_bins: direct,
@@ -373,8 +380,8 @@ mod tests {
         let bin = SeparatedBin::new(
             0,
             0,
-            Complex::new(1.0, 0.0),  // Direct
-            Complex::new(0.5, 0.0),  // Ambience
+            Complex::new(1.0, 0.0), // Direct
+            Complex::new(0.5, 0.0), // Ambience
             0.6,
             0.0,
         );

@@ -79,13 +79,21 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let work_items: Vec<WorkItem> = (0..100)
         .map(|i| WorkItem {
             id: format!("work-{:03}", i),
-            priority: if i % 10 == 0 { Priority::High } else { Priority::Normal },
+            priority: if i % 10 == 0 {
+                Priority::High
+            } else {
+                Priority::Normal
+            },
             data_size_mb: 10 + (i % 50) as u64,
             estimated_time_ms: 100 + (i % 200) as u64,
         })
         .collect();
 
-    println!("Distributing {} work items across {} GPUs", work_items.len(), devices.len());
+    println!(
+        "Distributing {} work items across {} GPUs",
+        work_items.len(),
+        devices.len()
+    );
 
     let distribution = coordinator.distribute_work(&work_items);
 
@@ -263,10 +271,7 @@ impl GpuCoordinator {
 
             gpu_loads[min_load_gpu] += item.estimated_time_ms;
 
-            distribution
-                .entry(min_load_gpu)
-                .or_default()
-                .push(item);
+            distribution.entry(min_load_gpu).or_default().push(item);
         }
 
         distribution
@@ -288,10 +293,9 @@ impl GpuCoordinator {
                     // Simulate processing
                     tokio::time::sleep(Duration::from_micros(item.estimated_time_ms * 10)).await;
                     stats.items_processed.fetch_add(1, Ordering::Relaxed);
-                    stats.total_latency_us.fetch_add(
-                        item.estimated_time_ms * 1000,
-                        Ordering::Relaxed,
-                    );
+                    stats
+                        .total_latency_us
+                        .fetch_add(item.estimated_time_ms * 1000, Ordering::Relaxed);
                 }
                 gpu_id
             });
@@ -383,7 +387,10 @@ async fn demonstrate_data_parallelism(coordinator: &GpuCoordinator) {
     let elapsed = start.elapsed();
 
     println!("Training step completed in {:?}", elapsed);
-    println!("Effective throughput: {} samples/sec", batch_size * 1000 / elapsed.as_millis() as usize);
+    println!(
+        "Effective throughput: {} samples/sec",
+        batch_size * 1000 / elapsed.as_millis() as usize
+    );
 }
 
 async fn demonstrate_model_parallelism(_coordinator: &GpuCoordinator) {
@@ -418,7 +425,10 @@ async fn demonstrate_model_parallelism(_coordinator: &GpuCoordinator) {
     }
 
     let elapsed = start.elapsed();
-    println!("\nPipeline throughput: {} micro-batches in {:?}", micro_batches, elapsed);
+    println!(
+        "\nPipeline throughput: {} micro-batches in {:?}",
+        micro_batches, elapsed
+    );
 }
 
 async fn demonstrate_fault_tolerance(_coordinator: &GpuCoordinator) {
@@ -458,7 +468,11 @@ fn demonstrate_memory_management(coordinator: &GpuCoordinator) {
 
         println!("GPU {}:", device.id);
         println!("  Total: {} GB", device.memory_gb);
-        println!("  Used:  {} GB ({:.0}%)", used, used as f64 / device.memory_gb as f64 * 100.0);
+        println!(
+            "  Used:  {} GB ({:.0}%)",
+            used,
+            used as f64 / device.memory_gb as f64 * 100.0
+        );
         println!("  Free:  {} GB", free);
         println!();
     }
@@ -485,7 +499,10 @@ async fn demonstrate_scaling(coordinator: &GpuCoordinator) {
     ];
 
     println!("Theoretical throughput with {} GPUs:", num_gpus);
-    println!("  Single GPU baseline: {:.0} items/sec\n", single_gpu_throughput);
+    println!(
+        "  Single GPU baseline: {:.0} items/sec\n",
+        single_gpu_throughput
+    );
 
     for (scenario, efficiency) in scaling_scenarios {
         let multi_gpu_throughput = single_gpu_throughput * num_gpus as f64 * efficiency;

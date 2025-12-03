@@ -7,12 +7,12 @@
 //!
 //! These benchmarks measure HLC performance critical for message ordering.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 
-use ringkernel_core::hlc::{HlcClock, HlcTimestamp, HlcState};
+use ringkernel_core::hlc::{HlcClock, HlcState, HlcTimestamp};
 
 /// Benchmark timestamp creation
 fn bench_timestamp_creation(c: &mut Criterion) {
@@ -78,7 +78,7 @@ fn bench_clock_operations(c: &mut Criterion) {
 
         b.iter(|| {
             let result = clock.update(&received);
-            black_box(result);
+            let _ = black_box(result);
         });
     });
 
@@ -205,9 +205,8 @@ fn bench_concurrent_hlc(c: &mut Criterion) {
 
                 b.iter(|| {
                     // Each node generates a timestamp
-                    let timestamps: Vec<HlcTimestamp> = clocks.iter()
-                        .map(|clock| clock.tick())
-                        .collect();
+                    let timestamps: Vec<HlcTimestamp> =
+                        clocks.iter().map(|clock| clock.tick()).collect();
 
                     // Simulate message exchange - each node updates from others
                     for (i, clock) in clocks.iter().enumerate() {
@@ -252,15 +251,13 @@ fn bench_causality(c: &mut Criterion) {
 
     // Verify happens-before relationship
     group.bench_function("happens_before_chain", |b| {
-        let clocks: Vec<HlcClock> = (0..5)
-            .map(|i| HlcClock::new(i as u64))
-            .collect();
+        let clocks: Vec<HlcClock> = (0..5).map(|i| HlcClock::new(i as u64)).collect();
 
         b.iter(|| {
             let mut prev_ts = clocks[0].tick();
 
-            for i in 1..clocks.len() {
-                let new_ts = clocks[i].update(&prev_ts).unwrap();
+            for clock in clocks.iter().skip(1) {
+                let new_ts = clock.update(&prev_ts).unwrap();
                 assert!(prev_ts < new_ts, "Happens-before must be maintained");
                 prev_ts = new_ts;
             }

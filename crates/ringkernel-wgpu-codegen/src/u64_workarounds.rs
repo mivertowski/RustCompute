@@ -143,10 +143,7 @@ mod tests {
     fn test_u64_to_vec2_literal() {
         assert_eq!(u64_to_vec2_literal(0), "vec2<u32>(0u, 0u)");
         assert_eq!(u64_to_vec2_literal(1), "vec2<u32>(1u, 0u)");
-        assert_eq!(
-            u64_to_vec2_literal(0x1_0000_0000),
-            "vec2<u32>(0u, 1u)"
-        );
+        assert_eq!(u64_to_vec2_literal(0x1_0000_0000), "vec2<u32>(0u, 1u)");
         assert_eq!(
             u64_to_vec2_literal(0xFFFF_FFFF_FFFF_FFFF),
             "vec2<u32>(4294967295u, 4294967295u)"

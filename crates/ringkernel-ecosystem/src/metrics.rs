@@ -249,7 +249,10 @@ impl MetricsRegistry {
 
         let state = IntGauge::new(
             format!("{}_kernel_{}_state", prefix, kernel_id),
-            format!("State of kernel {} (0=inactive, 1=active, 2=suspended, 3=error)", kernel_id),
+            format!(
+                "State of kernel {} (0=inactive, 1=active, 2=suspended, 3=error)",
+                kernel_id
+            ),
         )
         .map_err(|e| EcosystemError::Internal(e.to_string()))?;
 

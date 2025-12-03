@@ -75,10 +75,7 @@ impl ArrowKernelOps for Float32Array {
     ) -> Result<ArrayRef> {
         // Extract values as bytes
         let values = self.values();
-        let bytes: Vec<u8> = values
-            .iter()
-            .flat_map(|v| v.to_le_bytes())
-            .collect();
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
 
         // Send to kernel
         runtime.send_array(kernel_id, bytes).await?;
@@ -105,10 +102,7 @@ impl ArrowKernelOps for Float64Array {
         config: &ArrowConfig,
     ) -> Result<ArrayRef> {
         let values = self.values();
-        let bytes: Vec<u8> = values
-            .iter()
-            .flat_map(|v| v.to_le_bytes())
-            .collect();
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
 
         runtime.send_array(kernel_id, bytes).await?;
         let result_bytes = runtime.receive_array(kernel_id, config.timeout).await?;
@@ -117,8 +111,7 @@ impl ArrowKernelOps for Float64Array {
             .chunks_exact(8)
             .map(|chunk| {
                 f64::from_le_bytes([
-                    chunk[0], chunk[1], chunk[2], chunk[3],
-                    chunk[4], chunk[5], chunk[6], chunk[7],
+                    chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
                 ])
             })
             .collect();
@@ -206,10 +199,7 @@ async fn process_int32_array<R: RuntimeHandle>(
     config: &ArrowConfig,
 ) -> Result<ArrayRef> {
     let values = array.values();
-    let bytes: Vec<u8> = values
-        .iter()
-        .flat_map(|v| v.to_le_bytes())
-        .collect();
+    let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
 
     runtime.send_array(kernel_id, bytes).await?;
     let result_bytes = runtime.receive_array(kernel_id, config.timeout).await?;
@@ -229,10 +219,7 @@ async fn process_int64_array<R: RuntimeHandle>(
     config: &ArrowConfig,
 ) -> Result<ArrayRef> {
     let values = array.values();
-    let bytes: Vec<u8> = values
-        .iter()
-        .flat_map(|v| v.to_le_bytes())
-        .collect();
+    let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
 
     runtime.send_array(kernel_id, bytes).await?;
     let result_bytes = runtime.receive_array(kernel_id, config.timeout).await?;
@@ -241,8 +228,7 @@ async fn process_int64_array<R: RuntimeHandle>(
         .chunks_exact(8)
         .map(|chunk| {
             i64::from_le_bytes([
-                chunk[0], chunk[1], chunk[2], chunk[3],
-                chunk[4], chunk[5], chunk[6], chunk[7],
+                chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
             ])
         })
         .collect();
@@ -273,25 +259,23 @@ pub fn chunk_record_batch(batch: &RecordBatch, chunk_size: usize) -> Vec<RecordB
 /// Concatenate multiple RecordBatches into one.
 pub fn concat_record_batches(batches: &[RecordBatch]) -> Result<RecordBatch> {
     if batches.is_empty() {
-        return Err(EcosystemError::DataConversion("No batches to concatenate".into()));
+        return Err(EcosystemError::DataConversion(
+            "No batches to concatenate".into(),
+        ));
     }
 
     let schema = batches[0].schema();
     let mut columns: Vec<ArrayRef> = Vec::with_capacity(schema.fields().len());
 
     for i in 0..schema.fields().len() {
-        let arrays: Vec<&dyn Array> = batches
-            .iter()
-            .map(|b| b.column(i).as_ref())
-            .collect();
+        let arrays: Vec<&dyn Array> = batches.iter().map(|b| b.column(i).as_ref()).collect();
 
-        let concatenated = arrow::compute::concat(&arrays)
-            .map_err(|e| EcosystemError::Arrow(e.to_string()))?;
+        let concatenated =
+            arrow::compute::concat(&arrays).map_err(|e| EcosystemError::Arrow(e.to_string()))?;
         columns.push(concatenated);
     }
 
-    RecordBatch::try_new(schema, columns)
-        .map_err(|e| EcosystemError::Arrow(e.to_string()))
+    RecordBatch::try_new(schema, columns).map_err(|e| EcosystemError::Arrow(e.to_string()))
 }
 
 /// Builder for GPU-accelerated Arrow processing pipelines.
@@ -328,7 +312,8 @@ impl<R: RuntimeHandle> ArrowPipelineBuilder<R> {
         let mut current = batch;
 
         for kernel_id in &self.operations {
-            current = process_record_batch(&*self.runtime, kernel_id, &current, &self.config).await?;
+            current =
+                process_record_batch(&*self.runtime, kernel_id, &current, &self.config).await?;
         }
 
         Ok(current)

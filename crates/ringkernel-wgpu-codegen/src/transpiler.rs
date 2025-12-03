@@ -9,7 +9,9 @@ use crate::loops::RangeInfo;
 use crate::ring_kernel::RingKernelConfig;
 use crate::shared::{SharedMemoryConfig, SharedMemoryDecl};
 use crate::stencil::StencilConfig;
-use crate::types::{is_grid_pos_type, is_mutable_reference, is_ring_context_type, TypeMapper, WgslType};
+use crate::types::{
+    is_grid_pos_type, is_mutable_reference, is_ring_context_type, TypeMapper, WgslType,
+};
 use crate::u64_workarounds::U64Helpers;
 use crate::validation::ValidationMode;
 use crate::{Result, TranspileError};
@@ -185,7 +187,7 @@ impl WgslTranspiler {
         // Generate kernel signature with builtins
         output.push_str("@compute ");
         output.push_str(&config.workgroup_size_annotation());
-        output.push_str("\n");
+        output.push('\n');
         output.push_str(&format!("fn {}(\n", func.sig.ident));
         output.push_str("    @builtin(local_invocation_id) local_id: vec3<u32>,\n");
         output.push_str("    @builtin(workgroup_id) workgroup_id: vec3<u32>,\n");
@@ -212,11 +214,8 @@ impl WgslTranspiler {
         preamble.push_str("    // Thread indices\n");
         preamble.push_str("    let lx = local_id.x;\n");
         preamble.push_str("    let ly = local_id.y;\n");
-        preamble.push_str(&format!(
-            "    let buffer_width = {}u;\n",
-            buffer_width
-        ));
-        preamble.push_str("\n");
+        preamble.push_str(&format!("    let buffer_width = {}u;\n", buffer_width));
+        preamble.push('\n');
 
         // Bounds check
         preamble.push_str(&format!(
@@ -314,7 +313,7 @@ impl WgslTranspiler {
         // Generate kernel
         output.push_str("@compute ");
         output.push_str(&config.workgroup_size_annotation());
-        output.push_str("\n");
+        output.push('\n');
         output.push_str(&format!("fn ring_kernel_{}(\n", config.name));
         output.push_str("    @builtin(local_invocation_id) local_invocation_id: vec3<u32>,\n");
         output.push_str("    @builtin(workgroup_id) workgroup_id: vec3<u32>,\n");
@@ -334,7 +333,9 @@ impl WgslTranspiler {
 
         // Update message counter
         output.push_str("    // Update message counter\n");
-        output.push_str("    atomic_inc_u64(&control.messages_processed_lo, &control.messages_processed_hi);\n");
+        output.push_str(
+            "    atomic_inc_u64(&control.messages_processed_lo, &control.messages_processed_hi);\n",
+        );
 
         output.push_str("}\n");
 
@@ -357,8 +358,10 @@ impl WgslTranspiler {
                     _ => continue,
                 };
 
-                let wgsl_type = self.type_mapper.map_type(&pat_type.ty)
-                    .map_err(|e| TranspileError::Type(e))?;
+                let wgsl_type = self
+                    .type_mapper
+                    .map_type(&pat_type.ty)
+                    .map_err(TranspileError::Type)?;
                 let is_mutable = is_mutable_reference(&pat_type.ty);
 
                 // Determine if this is a buffer or scalar
@@ -467,7 +470,10 @@ impl WgslTranspiler {
                         },
                     );
                     self.shared_memory.add(shared_decl.clone());
-                    return Ok(format!("{indent}// shared memory: {} declared at module scope\n", var_name));
+                    return Ok(format!(
+                        "{indent}// shared memory: {} declared at module scope\n",
+                        var_name
+                    ));
                 }
 
                 // Get initializer
@@ -475,7 +481,9 @@ impl WgslTranspiler {
                     let expr_str = self.transpile_expr(&init.expr)?;
                     let type_str = self.infer_wgsl_type(&init.expr);
 
-                    Ok(format!("{indent}var {var_name}: {type_str} = {expr_str};\n"))
+                    Ok(format!(
+                        "{indent}var {var_name}: {type_str} = {expr_str};\n"
+                    ))
                 } else {
                     Ok(format!("{indent}var {var_name}: f32;\n"))
                 }
@@ -485,7 +493,8 @@ impl WgslTranspiler {
 
                 // Handle early return pattern in if statements
                 if let Expr::If(if_expr) = expr {
-                    if let Some(Stmt::Expr(Expr::Return(_), _)) = if_expr.then_branch.stmts.first() {
+                    if let Some(Stmt::Expr(Expr::Return(_), _)) = if_expr.then_branch.stmts.first()
+                    {
                         if if_expr.then_branch.stmts.len() == 1 && if_expr.else_branch.is_none() {
                             let expr_str = self.transpile_expr(expr)?;
                             return Ok(format!("{indent}{expr_str}\n"));
@@ -495,17 +504,14 @@ impl WgslTranspiler {
 
                 let expr_str = self.transpile_expr(expr)?;
 
-                if semi.is_some() {
+                if semi.is_some()
+                    || matches!(expr, Expr::Return(_))
+                    || expr_str.starts_with("return")
+                    || expr_str.starts_with("if (")
+                {
                     Ok(format!("{indent}{expr_str};\n"))
                 } else {
-                    if matches!(expr, Expr::Return(_))
-                        || expr_str.starts_with("return")
-                        || expr_str.starts_with("if (")
-                    {
-                        Ok(format!("{indent}{expr_str};\n"))
-                    } else {
-                        Ok(format!("{indent}return {expr_str};\n"))
-                    }
+                    Ok(format!("{indent}return {expr_str};\n"))
                 }
             }
             Stmt::Item(_) => Err(TranspileError::Unsupported("Item in function body".into())),
@@ -532,7 +538,9 @@ impl WgslTranspiler {
                 if let Some(Stmt::Expr(expr, None)) = block.block.stmts.last() {
                     self.transpile_expr(expr)
                 } else {
-                    Err(TranspileError::Unsupported("Complex block expression".into()))
+                    Err(TranspileError::Unsupported(
+                        "Complex block expression".into(),
+                    ))
                 }
             }
             Expr::Field(field) => {
@@ -580,9 +588,15 @@ impl WgslTranspiler {
                 let s = i.to_string();
                 // Check for unsigned suffix
                 if s.ends_with("u32") || s.ends_with("usize") {
-                    Ok(format!("{}u", s.trim_end_matches("u32").trim_end_matches("usize")))
+                    Ok(format!(
+                        "{}u",
+                        s.trim_end_matches("u32").trim_end_matches("usize")
+                    ))
                 } else if s.ends_with("i32") || s.ends_with("isize") {
-                    Ok(format!("{}i", s.trim_end_matches("i32").trim_end_matches("isize")))
+                    Ok(format!(
+                        "{}i",
+                        s.trim_end_matches("i32").trim_end_matches("isize")
+                    ))
                 } else {
                     // Default to signed int
                     Ok(s)
@@ -827,9 +841,11 @@ impl WgslTranspiler {
         match ctx_method {
             WgslContextMethod::AtomicAdd
             | WgslContextMethod::AtomicLoad
-            | WgslContextMethod::AtomicStore => {
-                Ok(format!("{}({})", ctx_method.to_wgsl(), wgsl_args.join(", ")))
-            }
+            | WgslContextMethod::AtomicStore => Ok(format!(
+                "{}({})",
+                ctx_method.to_wgsl(),
+                wgsl_args.join(", ")
+            )),
             _ => Ok(ctx_method.to_wgsl().to_string()),
         }
     }
@@ -987,8 +1003,10 @@ impl WgslTranspiler {
     /// Transpile a cast expression.
     fn transpile_cast(&self, cast: &ExprCast) -> Result<String> {
         let expr = self.transpile_expr(&cast.expr)?;
-        let wgsl_type = self.type_mapper.map_type(&cast.ty)
-            .map_err(|e| TranspileError::Type(e))?;
+        let wgsl_type = self
+            .type_mapper
+            .map_type(&cast.ty)
+            .map_err(TranspileError::Type)?;
         Ok(format!("{}({})", wgsl_type.to_wgsl(), expr))
     }
 
@@ -1041,9 +1059,8 @@ impl WgslTranspiler {
             ));
         }
 
-        let var_name = extract_loop_var(&for_loop.pat).ok_or_else(|| {
-            TranspileError::Unsupported("Complex pattern in for loop".into())
-        })?;
+        let var_name = extract_loop_var(&for_loop.pat)
+            .ok_or_else(|| TranspileError::Unsupported("Complex pattern in for loop".into()))?;
 
         let header = match for_loop.expr.as_ref() {
             Expr::Range(range) => {
@@ -1147,13 +1164,9 @@ impl WgslTranspiler {
                         output.push_str(&format!("{inner_indent}var {var_name}: f32;\n"));
                     }
                 }
-                Stmt::Expr(expr, semi) => {
+                Stmt::Expr(expr, _semi) => {
                     let expr_str = self.transpile_expr(expr)?;
-                    if semi.is_some() {
-                        output.push_str(&format!("{inner_indent}{expr_str};\n"));
-                    } else {
-                        output.push_str(&format!("{inner_indent}{expr_str};\n"));
-                    }
+                    output.push_str(&format!("{inner_indent}{expr_str};\n"));
                 }
                 _ => {
                     return Err(TranspileError::Unsupported(
@@ -1199,7 +1212,7 @@ impl WgslTranspiler {
             output.push_str("    }\n");
         }
 
-        output.push_str("}");
+        output.push('}');
         Ok(output)
     }
 
@@ -1299,7 +1312,11 @@ impl WgslTranspiler {
     }
 
     /// Parse a type string for shared memory info.
-    fn parse_shared_type(&self, type_str: &str, var_name: &str) -> Result<Option<SharedMemoryDecl>> {
+    fn parse_shared_type(
+        &self,
+        type_str: &str,
+        var_name: &str,
+    ) -> Result<Option<SharedMemoryDecl>> {
         let type_str = type_str
             .replace(" :: ", "::")
             .replace(" ::", "::")
@@ -1313,15 +1330,17 @@ impl WgslTranspiler {
 
                     if parts.len() >= 3 {
                         let rust_type = parts[0];
-                        let width: u32 = parts[1]
-                            .parse()
-                            .map_err(|_| TranspileError::Unsupported("Invalid SharedTile width".into()))?;
-                        let height: u32 = parts[2]
-                            .parse()
-                            .map_err(|_| TranspileError::Unsupported("Invalid SharedTile height".into()))?;
+                        let width: u32 = parts[1].parse().map_err(|_| {
+                            TranspileError::Unsupported("Invalid SharedTile width".into())
+                        })?;
+                        let height: u32 = parts[2].parse().map_err(|_| {
+                            TranspileError::Unsupported("Invalid SharedTile height".into())
+                        })?;
 
                         let wgsl_type = rust_type_to_wgsl(rust_type);
-                        return Ok(Some(SharedMemoryDecl::new_2d(var_name, wgsl_type, width, height)));
+                        return Ok(Some(SharedMemoryDecl::new_2d(
+                            var_name, wgsl_type, width, height,
+                        )));
                     }
                 }
             }
@@ -1335,9 +1354,9 @@ impl WgslTranspiler {
 
                     if parts.len() >= 2 {
                         let rust_type = parts[0];
-                        let size: u32 = parts[1]
-                            .parse()
-                            .map_err(|_| TranspileError::Unsupported("Invalid SharedArray size".into()))?;
+                        let size: u32 = parts[1].parse().map_err(|_| {
+                            TranspileError::Unsupported("Invalid SharedArray size".into())
+                        })?;
 
                         let wgsl_type = rust_type_to_wgsl(rust_type);
                         return Ok(Some(SharedMemoryDecl::new_1d(var_name, wgsl_type, size)));
@@ -1440,13 +1459,13 @@ impl WgslTranspiler {
             }
             Expr::Call(call) => {
                 if let Ok(func) = self.transpile_expr(&call.func) {
-                    if let Some(intrinsic) = self.intrinsics.lookup(&func) {
-                        match intrinsic {
-                            WgslIntrinsic::LocalInvocationIdX
-                            | WgslIntrinsic::WorkgroupIdX
-                            | WgslIntrinsic::GlobalInvocationIdX => return "i32",
-                            _ => {}
-                        }
+                    if let Some(
+                        WgslIntrinsic::LocalInvocationIdX
+                        | WgslIntrinsic::WorkgroupIdX
+                        | WgslIntrinsic::GlobalInvocationIdX,
+                    ) = self.intrinsics.lookup(&func)
+                    {
+                        return "i32";
                     }
                 }
                 "f32"
@@ -1502,8 +1521,10 @@ pub fn transpile_function(func: &ItemFn) -> Result<String> {
                 _ => continue,
             };
 
-            let wgsl_type = transpiler.type_mapper.map_type(&pat_type.ty)
-                .map_err(|e| TranspileError::Type(e))?;
+            let wgsl_type = transpiler
+                .type_mapper
+                .map_type(&pat_type.ty)
+                .map_err(TranspileError::Type)?;
             params.push(format!("{}: {}", param_name, wgsl_type.to_wgsl()));
         }
     }
@@ -1511,8 +1532,10 @@ pub fn transpile_function(func: &ItemFn) -> Result<String> {
     let return_type = match &func.sig.output {
         ReturnType::Default => "".to_string(),
         ReturnType::Type(_, ty) => {
-            let wgsl_type = transpiler.type_mapper.map_type(ty)
-                .map_err(|e| TranspileError::Type(e))?;
+            let wgsl_type = transpiler
+                .type_mapper
+                .map_type(ty)
+                .map_err(TranspileError::Type)?;
             format!(" -> {}", wgsl_type.to_wgsl())
         }
     };

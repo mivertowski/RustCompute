@@ -79,18 +79,23 @@ impl CudaTileBackend {
             RingKernelError::BackendError(format!("NVRTC compilation failed: {}", e))
         })?;
 
-        device.inner().load_ptx(
-            ptx,
-            MODULE_NAME,
-            &[FN_FDTD_STEP, FN_EXTRACT_HALO, FN_INJECT_HALO, FN_READ_INTERIOR],
-        ).map_err(|e| {
-            RingKernelError::BackendError(format!("Failed to load PTX module: {}", e))
-        })?;
+        device
+            .inner()
+            .load_ptx(
+                ptx,
+                MODULE_NAME,
+                &[
+                    FN_FDTD_STEP,
+                    FN_EXTRACT_HALO,
+                    FN_INJECT_HALO,
+                    FN_READ_INTERIOR,
+                ],
+            )
+            .map_err(|e| {
+                RingKernelError::BackendError(format!("Failed to load PTX module: {}", e))
+            })?;
 
-        Ok(Self {
-            device,
-            tile_size,
-        })
+        Ok(Self { device, tile_size })
     }
 
     /// Get buffer width (tile_size + 2 for halos).
@@ -178,11 +183,7 @@ impl TileGpuBackend for CudaTileBackend {
         Ok(())
     }
 
-    fn fdtd_step(
-        &self,
-        buffers: &TileGpuBuffers<Self::Buffer>,
-        params: &FdtdParams,
-    ) -> Result<()> {
+    fn fdtd_step(&self, buffers: &TileGpuBuffers<Self::Buffer>, params: &FdtdParams) -> Result<()> {
         use cudarc::driver::LaunchAsync;
 
         // Ping-pong: read from current, write to previous
@@ -193,7 +194,9 @@ impl TileGpuBackend for CudaTileBackend {
         };
 
         // Get kernel function
-        let kernel_fn = self.device.inner()
+        let kernel_fn = self
+            .device
+            .inner()
             .get_func(MODULE_NAME, FN_FDTD_STEP)
             .ok_or_else(|| RingKernelError::BackendError("FDTD kernel not found".to_string()))?;
 
@@ -208,25 +211,15 @@ impl TileGpuBackend for CudaTileBackend {
         let prev_ptr = prev.device_ptr();
 
         // Launch kernel
-        unsafe {
-            kernel_fn.launch(cfg, (
-                current_ptr,
-                prev_ptr,
-                params.c2,
-                params.damping,
-            ))
-        }.map_err(|e| {
-            RingKernelError::BackendError(format!("FDTD kernel launch failed: {}", e))
-        })?;
+        unsafe { kernel_fn.launch(cfg, (current_ptr, prev_ptr, params.c2, params.damping)) }
+            .map_err(|e| {
+                RingKernelError::BackendError(format!("FDTD kernel launch failed: {}", e))
+            })?;
 
         Ok(())
     }
 
-    fn extract_halo(
-        &self,
-        buffers: &TileGpuBuffers<Self::Buffer>,
-        edge: Edge,
-    ) -> Result<Vec<f32>> {
+    fn extract_halo(&self, buffers: &TileGpuBuffers<Self::Buffer>, edge: Edge) -> Result<Vec<f32>> {
         use cudarc::driver::LaunchAsync;
 
         // Get current pressure buffer
@@ -240,9 +233,13 @@ impl TileGpuBackend for CudaTileBackend {
         let staging = buffers.halo_buffer(edge);
 
         // Get kernel function
-        let kernel_fn = self.device.inner()
+        let kernel_fn = self
+            .device
+            .inner()
             .get_func(MODULE_NAME, FN_EXTRACT_HALO)
-            .ok_or_else(|| RingKernelError::BackendError("Extract halo kernel not found".to_string()))?;
+            .ok_or_else(|| {
+                RingKernelError::BackendError("Extract halo kernel not found".to_string())
+            })?;
 
         let cfg = cudarc::driver::LaunchConfig {
             grid_dim: (1, 1, 1),
@@ -255,9 +252,7 @@ impl TileGpuBackend for CudaTileBackend {
         let edge_val = edge as i32;
 
         // Launch kernel
-        unsafe {
-            kernel_fn.launch(cfg, (current_ptr, staging_ptr, edge_val))
-        }.map_err(|e| {
+        unsafe { kernel_fn.launch(cfg, (current_ptr, staging_ptr, edge_val)) }.map_err(|e| {
             RingKernelError::BackendError(format!("Extract halo kernel launch failed: {}", e))
         })?;
 
@@ -294,9 +289,13 @@ impl TileGpuBackend for CudaTileBackend {
         staging.copy_from_host(data_bytes)?;
 
         // Get kernel function
-        let kernel_fn = self.device.inner()
+        let kernel_fn = self
+            .device
+            .inner()
             .get_func(MODULE_NAME, FN_INJECT_HALO)
-            .ok_or_else(|| RingKernelError::BackendError("Inject halo kernel not found".to_string()))?;
+            .ok_or_else(|| {
+                RingKernelError::BackendError("Inject halo kernel not found".to_string())
+            })?;
 
         let cfg = cudarc::driver::LaunchConfig {
             grid_dim: (1, 1, 1),
@@ -309,9 +308,7 @@ impl TileGpuBackend for CudaTileBackend {
         let edge_val = edge as i32;
 
         // Launch kernel
-        unsafe {
-            kernel_fn.launch(cfg, (current_ptr, staging_ptr, edge_val))
-        }.map_err(|e| {
+        unsafe { kernel_fn.launch(cfg, (current_ptr, staging_ptr, edge_val)) }.map_err(|e| {
             RingKernelError::BackendError(format!("Inject halo kernel launch failed: {}", e))
         })?;
 
@@ -322,10 +319,7 @@ impl TileGpuBackend for CudaTileBackend {
         buffers.current_is_a = !buffers.current_is_a;
     }
 
-    fn read_interior_pressure(
-        &self,
-        buffers: &TileGpuBuffers<Self::Buffer>,
-    ) -> Result<Vec<f32>> {
+    fn read_interior_pressure(&self, buffers: &TileGpuBuffers<Self::Buffer>) -> Result<Vec<f32>> {
         use cudarc::driver::LaunchAsync;
 
         // Get current pressure buffer
@@ -339,9 +333,13 @@ impl TileGpuBackend for CudaTileBackend {
         let output_buffer = CudaBuffer::new(&self.device, self.interior_size_bytes())?;
 
         // Get kernel function
-        let kernel_fn = self.device.inner()
+        let kernel_fn = self
+            .device
+            .inner()
             .get_func(MODULE_NAME, FN_READ_INTERIOR)
-            .ok_or_else(|| RingKernelError::BackendError("Read interior kernel not found".to_string()))?;
+            .ok_or_else(|| {
+                RingKernelError::BackendError("Read interior kernel not found".to_string())
+            })?;
 
         let cfg = cudarc::driver::LaunchConfig {
             grid_dim: (1, 1, 1),
@@ -353,9 +351,7 @@ impl TileGpuBackend for CudaTileBackend {
         let output_ptr = output_buffer.device_ptr();
 
         // Launch kernel
-        unsafe {
-            kernel_fn.launch(cfg, (current_ptr, output_ptr))
-        }.map_err(|e| {
+        unsafe { kernel_fn.launch(cfg, (current_ptr, output_ptr)) }.map_err(|e| {
             RingKernelError::BackendError(format!("Read interior kernel launch failed: {}", e))
         })?;
 
@@ -413,7 +409,9 @@ mod tests {
         pressure[center_idx] = 1.0;
 
         // Upload initial state
-        backend.upload_initial_state(&buffers, &pressure, &pressure_prev).unwrap();
+        backend
+            .upload_initial_state(&buffers, &pressure, &pressure_prev)
+            .unwrap();
 
         // Run FDTD step
         let params = FdtdParams::new(16, 0.25, 0.99);
@@ -425,7 +423,10 @@ mod tests {
 
         // Center should have decreased, neighbors should have increased
         let center_interior = 8 * 16 + 8; // Interior center
-        assert!(result[center_interior].abs() < 1.0, "Center should have decreased");
+        assert!(
+            result[center_interior].abs() < 1.0,
+            "Center should have decreased"
+        );
     }
 
     #[test]
@@ -440,12 +441,14 @@ mod tests {
 
         // Fill first interior row with values 1..16
         for x in 0..16 {
-            let idx = 1 * 18 + (x + 1);
+            let idx = 18 + (x + 1);
             pressure[idx] = (x + 1) as f32;
         }
 
         // Upload
-        backend.upload_initial_state(&buffers, &pressure, &vec![0.0f32; buffer_size]).unwrap();
+        backend
+            .upload_initial_state(&buffers, &pressure, &vec![0.0f32; buffer_size])
+            .unwrap();
 
         // Extract north edge
         let halo = backend.extract_halo(&buffers, Edge::North).unwrap();

@@ -312,16 +312,20 @@ impl RingKernelIntrinsic {
             Self::GetMessagesProcessed => "atomicAdd(&control->messages_processed, 0)".to_string(),
 
             Self::InputQueueSize => {
-                "(atomicAdd(&control->input_head, 0) - atomicAdd(&control->input_tail, 0))".to_string()
+                "(atomicAdd(&control->input_head, 0) - atomicAdd(&control->input_tail, 0))"
+                    .to_string()
             }
             Self::OutputQueueSize => {
-                "(atomicAdd(&control->output_head, 0) - atomicAdd(&control->output_tail, 0))".to_string()
+                "(atomicAdd(&control->output_head, 0) - atomicAdd(&control->output_tail, 0))"
+                    .to_string()
             }
             Self::InputQueueEmpty => {
-                "(atomicAdd(&control->input_head, 0) == atomicAdd(&control->input_tail, 0))".to_string()
+                "(atomicAdd(&control->input_head, 0) == atomicAdd(&control->input_tail, 0))"
+                    .to_string()
             }
             Self::OutputQueueEmpty => {
-                "(atomicAdd(&control->output_head, 0) == atomicAdd(&control->output_tail, 0))".to_string()
+                "(atomicAdd(&control->output_head, 0) == atomicAdd(&control->output_tail, 0))"
+                    .to_string()
             }
             Self::EnqueueResponse => {
                 if !args.is_empty() {
@@ -351,7 +355,10 @@ impl RingKernelIntrinsic {
             Self::K2kSend => {
                 if args.len() >= 2 {
                     // k2k_send(target_id, msg_ptr) -> k2k_send(k2k_routes, target_id, msg_ptr, sizeof(*msg_ptr))
-                    format!("k2k_send(k2k_routes, {}, {}, sizeof(*{}))", args[0], args[1], args[1])
+                    format!(
+                        "k2k_send(k2k_routes, {}, {}, sizeof(*{}))",
+                        args[0], args[1], args[1]
+                    )
                 } else {
                     "/* k2k_send requires target_id and msg_ptr */".to_string()
                 }
@@ -496,7 +503,10 @@ mod tests {
 
     #[test]
     fn test_intrinsic_cuda_output() {
-        assert_eq!(GpuIntrinsic::SyncThreads.to_cuda_string(), "__syncthreads()");
+        assert_eq!(
+            GpuIntrinsic::SyncThreads.to_cuda_string(),
+            "__syncthreads()"
+        );
         assert_eq!(GpuIntrinsic::AtomicAdd.to_cuda_string(), "atomicAdd");
         assert_eq!(GpuIntrinsic::Sqrt.to_cuda_string(), "sqrtf");
     }
@@ -556,10 +566,18 @@ mod tests {
 
     #[test]
     fn test_ring_kernel_intrinsic_cuda_output() {
-        assert!(RingKernelIntrinsic::IsActive.to_cuda(&[]).contains("is_active"));
-        assert!(RingKernelIntrinsic::ShouldTerminate.to_cuda(&[]).contains("should_terminate"));
-        assert!(RingKernelIntrinsic::HlcTick.to_cuda(&[]).contains("hlc_logical"));
-        assert!(RingKernelIntrinsic::InputQueueEmpty.to_cuda(&[]).contains("input_head"));
+        assert!(RingKernelIntrinsic::IsActive
+            .to_cuda(&[])
+            .contains("is_active"));
+        assert!(RingKernelIntrinsic::ShouldTerminate
+            .to_cuda(&[])
+            .contains("should_terminate"));
+        assert!(RingKernelIntrinsic::HlcTick
+            .to_cuda(&[])
+            .contains("hlc_logical"));
+        assert!(RingKernelIntrinsic::InputQueueEmpty
+            .to_cuda(&[])
+            .contains("input_head"));
     }
 
     #[test]

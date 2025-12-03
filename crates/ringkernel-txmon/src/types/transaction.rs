@@ -178,14 +178,14 @@ mod tests {
 
     #[test]
     fn test_format_amount() {
-        let tx = Transaction::new(1, 1, 1234_56, 1, 0);
+        let tx = Transaction::new(1, 1, 123_456, 1, 0);
         assert_eq!(tx.format_amount(), "$1234.56");
     }
 
     #[test]
     fn test_high_value() {
-        let low = Transaction::new(1, 1, 500_00, 1, 0);
-        let high = Transaction::new(2, 1, 15000_00, 1, 0);
+        let low = Transaction::new(1, 1, 50_000, 1, 0);
+        let high = Transaction::new(2, 1, 1_500_000, 1, 0);
 
         assert!(!low.is_high_value());
         assert!(high.is_high_value());

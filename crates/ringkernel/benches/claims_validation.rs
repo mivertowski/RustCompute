@@ -16,13 +16,13 @@
 //! - Lock-free message passing
 //! - Zero-copy serialization
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime as TokioRuntime;
 
 use ringkernel_core::control::ControlBlock;
-use ringkernel_core::hlc::{HlcClock, HlcTimestamp, HlcState};
-use ringkernel_core::message::{MessageHeader, MessageEnvelope};
+use ringkernel_core::hlc::{HlcClock, HlcState, HlcTimestamp};
+use ringkernel_core::message::{MessageEnvelope, MessageHeader};
 use ringkernel_core::queue::{MessageQueue, SpscQueue};
 use ringkernel_core::runtime::{LaunchOptions, RingKernelRuntime};
 use ringkernel_cpu::CpuRuntime;
@@ -141,23 +141,19 @@ fn validate_message_latency_claim(c: &mut Criterion) {
 
     // Various payload sizes
     for size in [64, 256, 1024, 4096].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("payload_bytes", size),
-            size,
-            |b, &sz| {
-                let queue = SpscQueue::new(1024);
-                let envelope = MessageEnvelope {
-                    header: MessageHeader::new(1, 0, 1, sz, HlcTimestamp::now(1)),
-                    payload: vec![0u8; sz],
-                };
+        group.bench_with_input(BenchmarkId::new("payload_bytes", size), size, |b, &sz| {
+            let queue = SpscQueue::new(1024);
+            let envelope = MessageEnvelope {
+                header: MessageHeader::new(1, 0, 1, sz, HlcTimestamp::now(1)),
+                payload: vec![0u8; sz],
+            };
 
-                b.iter(|| {
-                    queue.try_enqueue(envelope.clone()).unwrap();
-                    let msg = queue.try_dequeue().unwrap();
-                    black_box(msg);
-                });
-            },
-        );
+            b.iter(|| {
+                queue.try_enqueue(envelope.clone()).unwrap();
+                let msg = queue.try_dequeue().unwrap();
+                black_box(msg);
+            });
+        });
     }
 
     group.finish();
@@ -200,7 +196,10 @@ fn validate_startup_time_claim(c: &mut Criterion) {
                 counter += 1;
                 let name = format!("startup_kernel_{}", counter);
                 rt.block_on(async {
-                    let handle = runtime.launch(&name, LaunchOptions::default()).await.unwrap();
+                    let handle = runtime
+                        .launch(&name, LaunchOptions::default())
+                        .await
+                        .unwrap();
                     black_box(handle);
                 });
             }
@@ -220,7 +219,10 @@ fn validate_startup_time_claim(c: &mut Criterion) {
 
                 rt.block_on(async {
                     let runtime = CpuRuntime::new().await.unwrap();
-                    let handle = runtime.launch(&name, LaunchOptions::default()).await.unwrap();
+                    let handle = runtime
+                        .launch(&name, LaunchOptions::default())
+                        .await
+                        .unwrap();
                     black_box(&handle);
                     runtime.shutdown().await.unwrap();
                 });
@@ -336,13 +338,13 @@ fn validate_hlc_ordering_claim(c: &mut Criterion) {
     // Distributed causal chain
     group.bench_function("distributed_causal_chain", |b| {
         b.iter(|| {
-            let clocks: Vec<HlcClock> = (0..5).map(|i| HlcClock::new(i)).collect();
+            let clocks: Vec<HlcClock> = (0..5).map(HlcClock::new).collect();
 
             // Create a causal chain: 0 -> 1 -> 2 -> 3 -> 4
             let mut prev_ts = clocks[0].tick();
 
-            for i in 1..5 {
-                let new_ts = clocks[i].update(&prev_ts).unwrap();
+            for (i, clock) in clocks.iter().enumerate().skip(1) {
+                let new_ts = clock.update(&prev_ts).unwrap();
                 assert!(prev_ts < new_ts, "Chain causality broken at node {}", i);
                 prev_ts = new_ts;
             }
@@ -473,7 +475,7 @@ fn validation_summary(c: &mut Criterion) {
 
     // All-in-one validation that touches all claims
     group.bench_function("all_claims_combined", |b| {
-        let rt = TokioRuntime::new().unwrap();
+        let _rt = TokioRuntime::new().unwrap();
 
         b.iter(|| {
             // Claim 1: Serialization

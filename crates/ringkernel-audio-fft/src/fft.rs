@@ -38,9 +38,7 @@ impl WindowFunction {
                 match self {
                     Self::Rectangular => 1.0,
                     Self::Hann => 0.5 * (1.0 - (2.0 * std::f32::consts::PI * x / n).cos()),
-                    Self::Hamming => {
-                        0.54 - 0.46 * (2.0 * std::f32::consts::PI * x / n).cos()
-                    }
+                    Self::Hamming => 0.54 - 0.46 * (2.0 * std::f32::consts::PI * x / n).cos(),
                     Self::Blackman => {
                         let a0 = 0.42;
                         let a1 = 0.5;
@@ -204,7 +202,8 @@ impl FftProcessor {
             .collect();
 
         // Perform FFT
-        self.fft.process_with_scratch(&mut buffer, &mut self.scratch);
+        self.fft
+            .process_with_scratch(&mut buffer, &mut self.scratch);
 
         // Remove processed samples (hop)
         self.input_buffer.drain(..self.hop_size);
@@ -231,7 +230,8 @@ impl FftProcessor {
                 .collect();
 
             // Perform FFT
-            self.fft.process_with_scratch(&mut buffer, &mut self.scratch);
+            self.fft
+                .process_with_scratch(&mut buffer, &mut self.scratch);
 
             // Remove processed samples (hop)
             self.input_buffer.drain(..self.hop_size);
@@ -257,13 +257,15 @@ impl FftProcessor {
         // Zero-pad to FFT size
         self.input_buffer.resize(self.fft_size, 0.0);
 
-        let mut buffer: Vec<NumComplex<f32>> = self.input_buffer
+        let mut buffer: Vec<NumComplex<f32>> = self
+            .input_buffer
             .iter()
             .enumerate()
             .map(|(i, &s)| NumComplex::new(s * self.window_coeffs[i], 0.0))
             .collect();
 
-        self.fft.process_with_scratch(&mut buffer, &mut self.scratch);
+        self.fft
+            .process_with_scratch(&mut buffer, &mut self.scratch);
         self.input_buffer.clear();
 
         Some(
@@ -371,7 +373,8 @@ impl IfftProcessor {
         }
 
         // Perform IFFT
-        self.ifft.process_with_scratch(&mut buffer, &mut self.scratch);
+        self.ifft
+            .process_with_scratch(&mut buffer, &mut self.scratch);
 
         // Apply synthesis window and add to output buffer
         for (i, c) in buffer.iter().enumerate() {
@@ -513,7 +516,7 @@ mod tests {
         });
 
         // Check that output length is reasonable
-        assert!(output.len() > 0);
+        assert!(!output.is_empty());
 
         // The output should be similar to input (with some latency)
         // Due to windowing/overlap-add, there's some distortion at edges

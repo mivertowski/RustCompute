@@ -75,7 +75,10 @@ impl CpuRuntime {
 
     /// Create a CPU runtime with custom K2K configuration.
     pub async fn with_k2k_config(node_id: u64, k2k_config: K2KConfig) -> Result<Self> {
-        info!("Initializing CPU runtime with custom K2K config (node_id={})", node_id);
+        info!(
+            "Initializing CPU runtime with custom K2K config (node_id={})",
+            node_id
+        );
 
         Ok(Self {
             node_id,
@@ -148,7 +151,10 @@ impl RingKernelRuntime for CpuRuntime {
         );
 
         // Register with K2K broker if enabled
-        let k2k_endpoint = self.k2k_broker.as_ref().map(|broker| broker.register(id.clone()));
+        let k2k_endpoint = self
+            .k2k_broker
+            .as_ref()
+            .map(|broker| broker.register(id.clone()));
 
         // Create kernel with K2K endpoint
         let kernel = Arc::new(CpuKernel::new_with_k2k(

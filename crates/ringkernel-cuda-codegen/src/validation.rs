@@ -54,7 +54,9 @@ impl ValidationMode {
 #[derive(Error, Debug, Clone)]
 pub enum ValidationError {
     /// Loops are not supported (use parallel threads instead).
-    #[error("Loops are not supported in stencil kernels. Use parallel threads instead. Found: {0}")]
+    #[error(
+        "Loops are not supported in stencil kernels. Use parallel threads instead. Found: {0}"
+    )]
     LoopNotAllowed(String),
 
     /// Closures are not supported.
@@ -132,8 +134,9 @@ impl DslValidator {
         if let Expr::Macro(mac) = expr {
             let macro_name = mac.mac.path.segments.last().map(|s| s.ident.to_string());
             if macro_name == Some("vec".to_string()) {
-                self.errors
-                    .push(ValidationError::HeapAllocationNotAllowed("vec!".to_string()));
+                self.errors.push(ValidationError::HeapAllocationNotAllowed(
+                    "vec!".to_string(),
+                ));
             }
         }
     }
@@ -155,9 +158,8 @@ impl DslValidator {
 impl<'ast> Visit<'ast> for DslValidator {
     fn visit_expr_for_loop(&mut self, node: &'ast ExprForLoop) {
         if !self.mode.allows_loops() {
-            self.errors.push(ValidationError::LoopNotAllowed(
-                "for loop".to_string(),
-            ));
+            self.errors
+                .push(ValidationError::LoopNotAllowed("for loop".to_string()));
         }
         self.loop_count += 1;
         // Still visit children to find more errors
@@ -166,9 +168,8 @@ impl<'ast> Visit<'ast> for DslValidator {
 
     fn visit_expr_while(&mut self, node: &'ast ExprWhile) {
         if !self.mode.allows_loops() {
-            self.errors.push(ValidationError::LoopNotAllowed(
-                "while loop".to_string(),
-            ));
+            self.errors
+                .push(ValidationError::LoopNotAllowed("while loop".to_string()));
         }
         self.loop_count += 1;
         syn::visit::visit_expr_while(self, node);
@@ -176,9 +177,8 @@ impl<'ast> Visit<'ast> for DslValidator {
 
     fn visit_expr_loop(&mut self, node: &'ast ExprLoop) {
         if !self.mode.allows_loops() {
-            self.errors.push(ValidationError::LoopNotAllowed(
-                "loop".to_string(),
-            ));
+            self.errors
+                .push(ValidationError::LoopNotAllowed("loop".to_string()));
         }
         self.loop_count += 1;
         syn::visit::visit_expr_loop(self, node);
@@ -283,7 +283,10 @@ pub fn validate_function_with_mode(
             Stmt::Expr(expr, _) => {
                 validator.visit_expr(expr);
             }
-            Stmt::Local(syn::Local { init: Some(syn::LocalInit { expr, .. }), .. }) => {
+            Stmt::Local(syn::Local {
+                init: Some(syn::LocalInit { expr, .. }),
+                ..
+            }) => {
                 validator.visit_expr(expr);
             }
             _ => {}

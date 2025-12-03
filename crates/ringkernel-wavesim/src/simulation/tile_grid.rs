@@ -37,24 +37,24 @@
 
 use super::AcousticParams;
 use ringkernel::prelude::*;
-use ringkernel_core::k2k::{K2KBroker, K2KBuilder, K2KEndpoint, DeliveryStatus};
-use ringkernel_core::message::{MessageEnvelope, MessageHeader};
 use ringkernel_core::hlc::HlcTimestamp;
+use ringkernel_core::k2k::{DeliveryStatus, K2KBroker, K2KBuilder, K2KEndpoint};
+use ringkernel_core::message::{MessageEnvelope, MessageHeader};
 use ringkernel_core::runtime::KernelId;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 // Legacy GPU compute (upload/download per step)
 #[cfg(feature = "wgpu")]
-use super::gpu_compute::{TileGpuComputePool, TileBuffers, init_wgpu};
+use super::gpu_compute::{init_wgpu, TileBuffers, TileGpuComputePool};
 
 // New GPU-persistent backends using unified trait
-#[cfg(feature = "wgpu")]
-use super::wgpu_compute::{WgpuTileBackend, WgpuBuffer};
 #[cfg(feature = "cuda")]
 use super::cuda_compute::CudaTileBackend;
 #[cfg(any(feature = "wgpu", feature = "cuda"))]
-use super::gpu_backend::{TileGpuBackend, TileGpuBuffers, FdtdParams, Edge};
+use super::gpu_backend::{Edge, FdtdParams, TileGpuBackend, TileGpuBuffers};
+#[cfg(feature = "wgpu")]
+use super::wgpu_compute::{WgpuBuffer, WgpuTileBackend};
 
 /// Default tile size (16x16 cells per tile).
 pub const DEFAULT_TILE_SIZE: u32 = 16;
@@ -209,7 +209,7 @@ impl TileActor {
 
     /// Generate kernel ID for a tile.
     pub fn tile_kernel_id(tile_x: u32, tile_y: u32) -> KernelId {
-        KernelId::new(&format!("tile_{}_{}", tile_x, tile_y))
+        KernelId::new(format!("tile_{}_{}", tile_x, tile_y))
     }
 
     /// Convert local tile coordinates to buffer index.
@@ -238,26 +238,26 @@ impl TileActor {
         match direction {
             HaloDirection::North => {
                 // First interior row (y = 0)
-                for x in 0..size {
-                    edge[x] = self.pressure[self.buffer_idx(x, 0)];
+                for (x, cell) in edge.iter_mut().enumerate().take(size) {
+                    *cell = self.pressure[self.buffer_idx(x, 0)];
                 }
             }
             HaloDirection::South => {
                 // Last interior row (y = size - 1)
-                for x in 0..size {
-                    edge[x] = self.pressure[self.buffer_idx(x, size - 1)];
+                for (x, cell) in edge.iter_mut().enumerate().take(size) {
+                    *cell = self.pressure[self.buffer_idx(x, size - 1)];
                 }
             }
             HaloDirection::West => {
                 // First interior column (x = 0)
-                for y in 0..size {
-                    edge[y] = self.pressure[self.buffer_idx(0, y)];
+                for (y, cell) in edge.iter_mut().enumerate().take(size) {
+                    *cell = self.pressure[self.buffer_idx(0, y)];
                 }
             }
             HaloDirection::East => {
                 // Last interior column (x = size - 1)
-                for y in 0..size {
-                    edge[y] = self.pressure[self.buffer_idx(size - 1, y)];
+                for (y, cell) in edge.iter_mut().enumerate().take(size) {
+                    *cell = self.pressure[self.buffer_idx(size - 1, y)];
                 }
             }
         }
@@ -273,26 +273,24 @@ impl TileActor {
         match direction {
             HaloDirection::North => {
                 // Top halo row (y = -1 in local coords, index row 0 in buffer)
-                for x in 0..size {
-                    self.pressure[x + 1] = data[x]; // Row 0, columns 1..size+1
-                }
+                self.pressure[1..(size + 1)].copy_from_slice(&data[..size]);
             }
             HaloDirection::South => {
                 // Bottom halo row (y = size in local coords)
-                for x in 0..size {
-                    self.pressure[(size + 1) * bw + (x + 1)] = data[x];
+                for (x, &val) in data.iter().enumerate().take(size) {
+                    self.pressure[(size + 1) * bw + (x + 1)] = val;
                 }
             }
             HaloDirection::West => {
                 // Left halo column (x = -1 in local coords, index col 0 in buffer)
-                for y in 0..size {
-                    self.pressure[(y + 1) * bw] = data[y];
+                for (y, &val) in data.iter().enumerate().take(size) {
+                    self.pressure[(y + 1) * bw] = val;
                 }
             }
             HaloDirection::East => {
                 // Right halo column (x = size in local coords)
-                for y in 0..size {
-                    self.pressure[(y + 1) * bw + (size + 1)] = data[y];
+                for (y, &val) in data.iter().enumerate().take(size) {
+                    self.pressure[(y + 1) * bw + (size + 1)] = val;
                 }
             }
         }
@@ -357,7 +355,10 @@ impl TileActor {
                 if receipt.status != DeliveryStatus::Delivered {
                     tracing::warn!(
                         "Halo send failed: tile ({},{}) -> {:?}, status: {:?}",
-                        self.tile_x, self.tile_y, neighbor_id, receipt.status
+                        self.tile_x,
+                        self.tile_y,
+                        neighbor_id,
+                        receipt.status
                     );
                 }
             }
@@ -621,8 +622,8 @@ impl TileKernelGrid {
         let runtime = Arc::new(RingKernel::with_backend(backend).await?);
 
         // Calculate tile grid dimensions
-        let tiles_x = (width + tile_size - 1) / tile_size;
-        let tiles_y = (height + tile_size - 1) / tile_size;
+        let tiles_x = width.div_ceil(tile_size);
+        let tiles_y = height.div_ceil(tile_size);
 
         // Create K2K broker
         let broker = K2KBuilder::new()
@@ -774,7 +775,9 @@ impl TileKernelGrid {
                 let pressure_prev = &tile.pressure_prev;
 
                 // Dispatch GPU compute
-                let result = gpu.pool.compute_fdtd(buffers, pressure, pressure_prev, c2, damping);
+                let result = gpu
+                    .pool
+                    .compute_fdtd(buffers, pressure, pressure_prev, c2, damping);
 
                 // Copy results back to tile's pressure_prev buffer
                 tile.pressure_prev.copy_from_slice(&result);
@@ -888,7 +891,8 @@ impl TileKernelGrid {
     pub fn step_wgpu_persistent(&mut self) -> Result<()> {
         let state = self.wgpu_persistent.as_ref().ok_or_else(|| {
             ringkernel_core::error::RingKernelError::BackendError(
-                "WGPU persistent compute not enabled. Call enable_wgpu_persistent() first.".to_string(),
+                "WGPU persistent compute not enabled. Call enable_wgpu_persistent() first."
+                    .to_string(),
             )
         })?;
 
@@ -907,19 +911,35 @@ impl TileKernelGrid {
 
                 if tile.neighbor_north.is_some() {
                     let halo = state.backend.extract_halo(buffers, Edge::North)?;
-                    halo_messages.push((tile.neighbor_north.clone().unwrap(), HaloDirection::South, halo));
+                    halo_messages.push((
+                        tile.neighbor_north.clone().unwrap(),
+                        HaloDirection::South,
+                        halo,
+                    ));
                 }
                 if tile.neighbor_south.is_some() {
                     let halo = state.backend.extract_halo(buffers, Edge::South)?;
-                    halo_messages.push((tile.neighbor_south.clone().unwrap(), HaloDirection::North, halo));
+                    halo_messages.push((
+                        tile.neighbor_south.clone().unwrap(),
+                        HaloDirection::North,
+                        halo,
+                    ));
                 }
                 if tile.neighbor_west.is_some() {
                     let halo = state.backend.extract_halo(buffers, Edge::West)?;
-                    halo_messages.push((tile.neighbor_west.clone().unwrap(), HaloDirection::East, halo));
+                    halo_messages.push((
+                        tile.neighbor_west.clone().unwrap(),
+                        HaloDirection::East,
+                        halo,
+                    ));
                 }
                 if tile.neighbor_east.is_some() {
                     let halo = state.backend.extract_halo(buffers, Edge::East)?;
-                    halo_messages.push((tile.neighbor_east.clone().unwrap(), HaloDirection::West, halo));
+                    halo_messages.push((
+                        tile.neighbor_east.clone().unwrap(),
+                        HaloDirection::West,
+                        halo,
+                    ));
                 }
             }
         }
@@ -928,7 +948,7 @@ impl TileKernelGrid {
         // Group messages by destination tile
         for (dest_id, direction, halo_data) in halo_messages {
             // Find the tile coords from kernel ID
-            for ((tx, ty), _tile) in &self.tiles {
+            for (tx, ty) in self.tiles.keys() {
                 if TileActor::tile_kernel_id(*tx, *ty) == dest_id {
                     if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
                         let edge = match direction {
@@ -975,7 +995,8 @@ impl TileKernelGrid {
     pub fn step_cuda_persistent(&mut self) -> Result<()> {
         let state = self.cuda_persistent.as_ref().ok_or_else(|| {
             ringkernel_core::error::RingKernelError::BackendError(
-                "CUDA persistent compute not enabled. Call enable_cuda_persistent() first.".to_string(),
+                "CUDA persistent compute not enabled. Call enable_cuda_persistent() first."
+                    .to_string(),
             )
         })?;
 
@@ -986,32 +1007,48 @@ impl TileKernelGrid {
         // Phase 1: Extract halos from GPU and build messages
         let mut halo_messages: Vec<(KernelId, HaloDirection, Vec<f32>)> = Vec::new();
 
-        for ((tx, ty), _tile) in &self.tiles {
+        for (tx, ty) in self.tiles.keys() {
             if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
                 let tile = self.tiles.get(&(*tx, *ty)).unwrap();
 
                 if tile.neighbor_north.is_some() {
                     let halo = state.backend.extract_halo(buffers, Edge::North)?;
-                    halo_messages.push((tile.neighbor_north.clone().unwrap(), HaloDirection::South, halo));
+                    halo_messages.push((
+                        tile.neighbor_north.clone().unwrap(),
+                        HaloDirection::South,
+                        halo,
+                    ));
                 }
                 if tile.neighbor_south.is_some() {
                     let halo = state.backend.extract_halo(buffers, Edge::South)?;
-                    halo_messages.push((tile.neighbor_south.clone().unwrap(), HaloDirection::North, halo));
+                    halo_messages.push((
+                        tile.neighbor_south.clone().unwrap(),
+                        HaloDirection::North,
+                        halo,
+                    ));
                 }
                 if tile.neighbor_west.is_some() {
                     let halo = state.backend.extract_halo(buffers, Edge::West)?;
-                    halo_messages.push((tile.neighbor_west.clone().unwrap(), HaloDirection::East, halo));
+                    halo_messages.push((
+                        tile.neighbor_west.clone().unwrap(),
+                        HaloDirection::East,
+                        halo,
+                    ));
                 }
                 if tile.neighbor_east.is_some() {
                     let halo = state.backend.extract_halo(buffers, Edge::East)?;
-                    halo_messages.push((tile.neighbor_east.clone().unwrap(), HaloDirection::West, halo));
+                    halo_messages.push((
+                        tile.neighbor_east.clone().unwrap(),
+                        HaloDirection::West,
+                        halo,
+                    ));
                 }
             }
         }
 
         // Phase 2: Inject halos into GPU buffers
         for (dest_id, direction, halo_data) in halo_messages {
-            for ((tx, ty), _tile) in &self.tiles {
+            for (tx, ty) in self.tiles.keys() {
                 if TileActor::tile_kernel_id(*tx, *ty) == dest_id {
                     if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
                         let edge = match direction {
@@ -1028,7 +1065,7 @@ impl TileKernelGrid {
         }
 
         // Phase 3: Compute FDTD on GPU for all tiles
-        for ((tx, ty), _tile) in &self.tiles {
+        for (tx, ty) in self.tiles.keys() {
             if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
                 state.backend.fdtd_step(buffers, &fdtd_params)?;
             }
@@ -1072,7 +1109,8 @@ impl TileKernelGrid {
                     let gx = tile_start_x + lx;
                     let gy = tile_start_y + ly;
                     if gx < self.width && gy < self.height {
-                        grid[gy as usize][gx as usize] = interior[(ly * self.tile_size + lx) as usize];
+                        grid[gy as usize][gx as usize] =
+                            interior[(ly * self.tile_size + lx) as usize];
                     }
                 }
             }
@@ -1103,7 +1141,8 @@ impl TileKernelGrid {
                     let gx = tile_start_x + lx;
                     let gy = tile_start_y + ly;
                     if gx < self.width && gy < self.height {
-                        grid[gy as usize][gx as usize] = interior[(ly * self.tile_size + lx) as usize];
+                        grid[gy as usize][gx as usize] =
+                            interior[(ly * self.tile_size + lx) as usize];
                     }
                 }
             }
@@ -1131,7 +1170,11 @@ impl TileKernelGrid {
             // Then upload to GPU
             if let Some(state) = &self.wgpu_persistent {
                 if let Some(buffers) = state.tile_buffers.get(&(tile_x, tile_y)) {
-                    state.backend.upload_initial_state(buffers, &tile.pressure, &tile.pressure_prev)?;
+                    state.backend.upload_initial_state(
+                        buffers,
+                        &tile.pressure,
+                        &tile.pressure_prev,
+                    )?;
                 }
             }
         }
@@ -1154,7 +1197,11 @@ impl TileKernelGrid {
 
             if let Some(state) = &self.cuda_persistent {
                 if let Some(buffers) = state.tile_buffers.get(&(tile_x, tile_y)) {
-                    state.backend.upload_initial_state(buffers, &tile.pressure, &tile.pressure_prev)?;
+                    state.backend.upload_initial_state(
+                        buffers,
+                        &tile.pressure,
+                        &tile.pressure_prev,
+                    )?;
                 }
             }
         }
@@ -1266,8 +1313,8 @@ impl TileKernelGrid {
         self.height = new_height;
 
         // Recalculate tile grid dimensions
-        self.tiles_x = (new_width + self.tile_size - 1) / self.tile_size;
-        self.tiles_y = (new_height + self.tile_size - 1) / self.tile_size;
+        self.tiles_x = new_width.div_ceil(self.tile_size);
+        self.tiles_y = new_height.div_ceil(self.tile_size);
 
         // Create new K2K broker
         self.broker = K2KBuilder::new()
@@ -1375,7 +1422,10 @@ mod tests {
         grid.step().await.unwrap();
 
         let stats = grid.k2k_stats();
-        assert!(stats.messages_delivered > 0, "K2K messages should have been exchanged");
+        assert!(
+            stats.messages_delivered > 0,
+            "K2K messages should have been exchanged"
+        );
     }
 
     #[tokio::test]
@@ -1484,7 +1534,11 @@ mod tests {
                 assert!(
                     diff < 1e-4,
                     "CPU/GPU mismatch at ({},{}): cpu={}, gpu={}, diff={}",
-                    x, y, cpu_grid[y][x], gpu_grid[y][x], diff
+                    x,
+                    y,
+                    cpu_grid[y][x],
+                    gpu_grid[y][x],
+                    diff
                 );
             }
         }

@@ -37,6 +37,6 @@ pub mod cuda;
 pub use factory::{FactoryState, GeneratorConfig, TransactionGenerator};
 pub use monitoring::{MonitoringConfig, MonitoringEngine};
 pub use types::{
-    AlertSeverity, AlertStatus, AlertType, CustomerRiskLevel, CustomerRiskProfile,
-    MonitoringAlert, Transaction, TransactionType,
+    AlertSeverity, AlertStatus, AlertType, CustomerRiskLevel, CustomerRiskProfile, MonitoringAlert,
+    Transaction, TransactionType,
 };

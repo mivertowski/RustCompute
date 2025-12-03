@@ -81,10 +81,7 @@ pub fn generate_control_block_struct(config: &RingKernelConfig) -> String {
         fields.push("    hlc_logical: atomic<u32>,".to_string());
     }
 
-    format!(
-        "struct ControlBlock {{\n{}\n}}",
-        fields.join("\n")
-    )
+    format!("struct ControlBlock {{\n{}\n}}", fields.join("\n"))
 }
 
 /// Generate the 64-bit helper functions.
@@ -171,6 +168,9 @@ mod tests {
     #[test]
     fn test_workgroup_size_annotation() {
         let config = RingKernelConfig::new("test").with_workgroup_size(64);
-        assert_eq!(config.workgroup_size_annotation(), "@workgroup_size(64, 1, 1)");
+        assert_eq!(
+            config.workgroup_size_annotation(),
+            "@workgroup_size(64, 1, 1)"
+        );
     }
 }

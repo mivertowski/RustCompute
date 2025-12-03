@@ -70,7 +70,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("Model loaded successfully:");
     println!("  Parameters: {} M", model.num_parameters / 1_000_000);
     println!("  Layers: {}", model.num_layers);
-    println!("  FLOPs per inference: {} G", model.flops_per_inference / 1_000_000_000);
+    println!(
+        "  FLOPs per inference: {} G",
+        model.flops_per_inference / 1_000_000_000
+    );
 
     // ====== Preprocessing Pipeline ======
     println!("\n=== Preprocessing Pipeline ===\n");
@@ -93,14 +96,21 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let tensors = preprocessor.preprocess_batch(&images)?;
     let preprocess_time = start.elapsed();
 
-    println!("\nPreprocessed {} images in {:?}", images.len(), preprocess_time);
+    println!(
+        "\nPreprocessed {} images in {:?}",
+        images.len(),
+        preprocess_time
+    );
     println!("  Tensor shape: {:?}", tensors.shape);
 
     // ====== GPU Inference ======
     println!("\n=== GPU Inference ===\n");
 
     // Warmup
-    println!("Warming up GPU ({} iterations)...", config.warmup_iterations);
+    println!(
+        "Warming up GPU ({} iterations)...",
+        config.warmup_iterations
+    );
     for i in 0..config.warmup_iterations {
         let _ = model.forward(&tensors);
         println!("  Warmup iteration {} complete", i + 1);
@@ -131,12 +141,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     for (i, pred) in predictions.iter().take(3).enumerate() {
         println!("\n  Image {}:", i + 1);
         for (j, (label, confidence)) in pred.top_k.iter().take(3).enumerate() {
-            println!(
-                "    {}. {} ({:.1}%)",
-                j + 1,
-                label,
-                confidence * 100.0
-            );
+            println!("    {}. {} ({:.1}%)", j + 1, label, confidence * 100.0);
         }
     }
 
@@ -238,7 +243,7 @@ struct PreprocessConfig {
     color_mode: ColorMode,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, clippy::upper_case_acronyms)]
 enum ColorMode {
     RGB,
     BGR,

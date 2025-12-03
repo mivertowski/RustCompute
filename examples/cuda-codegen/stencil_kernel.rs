@@ -78,7 +78,9 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let cuda = transpile_stencil_kernel(&heat, &config)?;
 
     println!("Rust DSL:\n");
-    println!("  fn heat_diffusion(temp: &[f32], temp_new: &mut [f32], alpha: f32, pos: GridPos) {{");
+    println!(
+        "  fn heat_diffusion(temp: &[f32], temp_new: &mut [f32], alpha: f32, pos: GridPos) {{"
+    );
     println!("      let t = temp[pos.idx()];");
     println!("      let neighbors = pos.north(temp) + pos.south(temp) + pos.east(temp) + pos.west(temp);");
     println!("      temp_new[pos.idx()] = t + alpha * (neighbors - 4.0 * t);");

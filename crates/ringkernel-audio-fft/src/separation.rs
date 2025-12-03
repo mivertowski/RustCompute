@@ -187,7 +187,8 @@ impl CoherenceAnalyzer {
 
         // 4. Update running averages (for adaptive thresholds)
         let alpha = 0.99;
-        self.phase_coherence_avg = self.phase_coherence_avg * alpha + phase_coherence * (1.0 - alpha);
+        self.phase_coherence_avg =
+            self.phase_coherence_avg * alpha + phase_coherence * (1.0 - alpha);
         self.magnitude_avg = self.magnitude_avg * alpha + current.magnitude() * (1.0 - alpha);
         self.flux_avg = self.flux_avg * alpha + spectral_flux * (1.0 - alpha);
 
@@ -460,18 +461,24 @@ impl StereoSeparator {
         let cross_coherence = self.compute_cross_channel_coherence(left_bin, right_bin);
 
         // Combine with cross-channel information
-        let combined_left_coherence =
-            left_coherence * (1.0 - self.cross_channel_weight) + cross_coherence * self.cross_channel_weight;
-        let combined_right_coherence =
-            right_coherence * (1.0 - self.cross_channel_weight) + cross_coherence * self.cross_channel_weight;
+        let combined_left_coherence = left_coherence * (1.0 - self.cross_channel_weight)
+            + cross_coherence * self.cross_channel_weight;
+        let combined_right_coherence = right_coherence * (1.0 - self.cross_channel_weight)
+            + cross_coherence * self.cross_channel_weight;
 
         // Separate each channel
-        let left_separated = self
-            .separator
-            .separate_with_frequency(*left_bin, combined_left_coherence, bin_index, total_bins);
-        let right_separated = self
-            .separator
-            .separate_with_frequency(*right_bin, combined_right_coherence, bin_index, total_bins);
+        let left_separated = self.separator.separate_with_frequency(
+            *left_bin,
+            combined_left_coherence,
+            bin_index,
+            total_bins,
+        );
+        let right_separated = self.separator.separate_with_frequency(
+            *right_bin,
+            combined_right_coherence,
+            bin_index,
+            total_bins,
+        );
 
         (left_separated, right_separated)
     }
@@ -541,8 +548,8 @@ mod tests {
         let value = Complex::new(1.0, 0.0);
         let (coherence, transient) = analyzer.analyze(&value, None, None, 0.0, 0.0);
 
-        assert!(coherence >= 0.0 && coherence <= 1.0);
-        assert!(transient >= 0.0 && transient <= 1.0);
+        assert!((0.0..=1.0).contains(&coherence));
+        assert!((0.0..=1.0).contains(&transient));
     }
 
     #[test]

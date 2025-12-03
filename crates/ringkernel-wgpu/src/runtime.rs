@@ -131,7 +131,10 @@ impl RingKernelRuntime for WgpuRuntime {
 
         // Register with K2K broker if enabled
         // Note: WebGPU K2K is host-mediated - messages go through host, not GPU-direct
-        let _k2k_endpoint = self.k2k_broker.as_ref().map(|broker| broker.register(id.clone()));
+        let _k2k_endpoint = self
+            .k2k_broker
+            .as_ref()
+            .map(|broker| broker.register(id.clone()));
 
         // Create kernel
         let mut kernel = WgpuKernel::new(kernel_id, id_num, Arc::clone(&self.adapter), options)?;

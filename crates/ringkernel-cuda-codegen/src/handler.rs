@@ -40,8 +40,8 @@
 
 use crate::types::{is_ring_context_type, CudaType, TypeMapper};
 use crate::Result;
-use syn::{FnArg, ItemFn, Pat, ReturnType, Type};
 use std::fmt::Write;
+use syn::{FnArg, ItemFn, Pat, ReturnType, Type};
 
 /// Information about a handler function parameter.
 #[derive(Debug, Clone)]
@@ -190,7 +190,10 @@ impl HandlerSignature {
 
             // Generic reference - treat as message if it's a struct
             if let Type::Path(path) = reference.elem.as_ref() {
-                let type_name = path.path.segments.last()
+                let type_name = path
+                    .path
+                    .segments
+                    .last()
                     .map(|s| s.ident.to_string())
                     .unwrap_or_default();
 
@@ -224,14 +227,12 @@ impl HandlerSignature {
                 }
 
                 let rust_type = quote::quote!(#ty).to_string();
-                let cuda_type = type_mapper.map_type(ty)
+                let cuda_type = type_mapper
+                    .map_type(ty)
                     .map(|ct| ct.to_cuda_string())
                     .unwrap_or_else(|_| rust_type.clone());
 
-                let is_struct = matches!(
-                    type_mapper.map_type(ty),
-                    Ok(CudaType::Struct(_))
-                );
+                let is_struct = matches!(type_mapper.map_type(ty), Ok(CudaType::Struct(_)));
 
                 Ok(Some(HandlerReturnType {
                     rust_type,
@@ -249,11 +250,12 @@ impl HandlerSignature {
 
     /// Get non-context, non-message parameters (additional kernel params).
     pub fn extra_params(&self) -> Vec<&HandlerParam> {
-        self.params.iter()
+        self.params
+            .iter()
             .filter(|p| {
-                p.kind != HandlerParamKind::Context &&
-                p.kind != HandlerParamKind::Message &&
-                p.kind != HandlerParamKind::MessageMut
+                p.kind != HandlerParamKind::Context
+                    && p.kind != HandlerParamKind::Message
+                    && p.kind != HandlerParamKind::MessageMut
             })
             .collect()
     }
@@ -289,10 +291,7 @@ impl Default for HandlerCodegenConfig {
 /// Generate message deserialization code.
 ///
 /// This generates code to cast the input buffer pointer to the message type.
-pub fn generate_message_deser(
-    message_type: &str,
-    config: &HandlerCodegenConfig,
-) -> String {
+pub fn generate_message_deser(message_type: &str, config: &HandlerCodegenConfig) -> String {
     let mut code = String::new();
     let indent = &config.indent;
 
@@ -301,7 +300,8 @@ pub fn generate_message_deser(
         code,
         "{}{}* {} = ({}*)msg_ptr;",
         indent, message_type, config.message_var, message_type
-    ).unwrap();
+    )
+    .unwrap();
 
     code
 }
@@ -309,10 +309,7 @@ pub fn generate_message_deser(
 /// Generate response serialization code.
 ///
 /// This generates code to copy the response to the output buffer.
-pub fn generate_response_ser(
-    response_type: &str,
-    config: &HandlerCodegenConfig,
-) -> String {
+pub fn generate_response_ser(response_type: &str, config: &HandlerCodegenConfig) -> String {
     let mut code = String::new();
     let indent = &config.indent;
 
@@ -327,7 +324,8 @@ pub fn generate_response_ser(
         code,
         "{}memcpy(&output_buffer[_out_idx * RESP_SIZE], &{}, sizeof({}));",
         indent, config.response_var, response_type
-    ).unwrap();
+    )
+    .unwrap();
 
     code
 }

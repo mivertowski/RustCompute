@@ -23,8 +23,8 @@ pub struct MonitoringConfig {
 impl Default for MonitoringConfig {
     fn default() -> Self {
         Self {
-            amount_threshold: 10_000_00, // $10,000 in cents
-            velocity_threshold: 10,       // 10 transactions per window
+            amount_threshold: 1_000_000, // $10,000 in cents
+            velocity_threshold: 10,      // 10 transactions per window
             structuring_threshold_pct: 90,
             structuring_min_velocity: 3,
         }
@@ -97,8 +97,7 @@ pub fn monitor_transaction(
 
     // 3. Structured transaction (smurfing) check
     // Amount > 90% of threshold AND velocity >= 3
-    let structuring_threshold =
-        (amount_threshold * config.structuring_threshold_pct as u64) / 100;
+    let structuring_threshold = (amount_threshold * config.structuring_threshold_pct as u64) / 100;
 
     if tx.amount_cents > structuring_threshold
         && tx.amount_cents <= amount_threshold
@@ -146,7 +145,7 @@ pub fn monitor_transaction(
     }
 
     // 5. PEP-related check (any transaction from PEP gets flagged)
-    if profile.is_pep() && tx.amount_cents > 5_000_00 {
+    if profile.is_pep() && tx.amount_cents > 500_000 {
         // Flag PEP transactions over $5,000
         let mut alert = MonitoringAlert::new(
             alert_id,
@@ -245,56 +244,66 @@ mod tests {
     fn test_velocity_breach() {
         let config = MonitoringConfig::default();
         let customer = make_customer(15, 1); // 15 transactions, threshold is 10
-        let tx = make_transaction(100_00, 1);
+        let tx = make_transaction(10_000, 1);
 
         let alerts = monitor_transaction(&tx, &customer, &config, 1);
 
-        assert!(alerts.iter().any(|a| a.alert_type() == AlertType::VelocityBreach));
+        assert!(alerts
+            .iter()
+            .any(|a| a.alert_type() == AlertType::VelocityBreach));
     }
 
     #[test]
     fn test_no_velocity_breach() {
         let config = MonitoringConfig::default();
         let customer = make_customer(5, 1); // 5 transactions, under threshold
-        let tx = make_transaction(100_00, 1);
+        let tx = make_transaction(10_000, 1);
 
         let alerts = monitor_transaction(&tx, &customer, &config, 1);
 
-        assert!(!alerts.iter().any(|a| a.alert_type() == AlertType::VelocityBreach));
+        assert!(!alerts
+            .iter()
+            .any(|a| a.alert_type() == AlertType::VelocityBreach));
     }
 
     #[test]
     fn test_amount_threshold() {
         let config = MonitoringConfig::default();
         let customer = make_customer(0, 1);
-        let tx = make_transaction(15_000_00, 1); // $15,000, over threshold
+        let tx = make_transaction(1_500_000, 1); // $15,000, over threshold
 
         let alerts = monitor_transaction(&tx, &customer, &config, 1);
 
-        assert!(alerts.iter().any(|a| a.alert_type() == AlertType::AmountThreshold));
+        assert!(alerts
+            .iter()
+            .any(|a| a.alert_type() == AlertType::AmountThreshold));
     }
 
     #[test]
     fn test_structured_transaction() {
         let config = MonitoringConfig::default();
         let customer = make_customer(5, 1); // 5 transactions (>= min_velocity of 3)
-        let tx = make_transaction(9_500_00, 1); // $9,500 (95% of threshold)
+        let tx = make_transaction(950_000, 1); // $9,500 (95% of threshold)
 
         let alerts = monitor_transaction(&tx, &customer, &config, 1);
 
-        assert!(alerts.iter().any(|a| a.alert_type() == AlertType::StructuredTransaction));
+        assert!(alerts
+            .iter()
+            .any(|a| a.alert_type() == AlertType::StructuredTransaction));
     }
 
     #[test]
     fn test_no_structured_without_velocity() {
         let config = MonitoringConfig::default();
         let customer = make_customer(1, 1); // Only 1 transaction
-        let tx = make_transaction(9_500_00, 1); // $9,500
+        let tx = make_transaction(950_000, 1); // $9,500
 
         let alerts = monitor_transaction(&tx, &customer, &config, 1);
 
         // Should not trigger structuring because velocity is too low
-        assert!(!alerts.iter().any(|a| a.alert_type() == AlertType::StructuredTransaction));
+        assert!(!alerts
+            .iter()
+            .any(|a| a.alert_type() == AlertType::StructuredTransaction));
     }
 
     #[test]
@@ -302,19 +311,18 @@ mod tests {
         let config = MonitoringConfig::default();
         let mut customer = make_customer(0, 1); // US customer
         customer.allowed_destinations = 0b11; // Only countries 0 and 1 allowed
-        let tx = make_transaction(5_000_00, 7); // Transaction to country 7 (not allowed)
+        let tx = make_transaction(500_000, 7); // Transaction to country 7 (not allowed)
 
         let alerts = monitor_transaction(&tx, &customer, &config, 1);
 
-        assert!(alerts.iter().any(|a| a.alert_type() == AlertType::GeographicAnomaly));
+        assert!(alerts
+            .iter()
+            .any(|a| a.alert_type() == AlertType::GeographicAnomaly));
     }
 
     #[test]
     fn test_severity_calculation() {
-        assert_eq!(
-            calculate_velocity_severity(30, 10),
-            AlertSeverity::Critical
-        ); // 3x
+        assert_eq!(calculate_velocity_severity(30, 10), AlertSeverity::Critical); // 3x
         assert_eq!(calculate_velocity_severity(20, 10), AlertSeverity::High); // 2x
         assert_eq!(calculate_velocity_severity(15, 10), AlertSeverity::Medium); // 1.5x
     }

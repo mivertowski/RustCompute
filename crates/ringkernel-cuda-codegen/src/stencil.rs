@@ -16,7 +16,7 @@ pub enum Grid {
 
 impl Grid {
     /// Parse from string representation.
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "1d" | "grid1d" => Some(Grid::Grid1D),
             "2d" | "grid2d" => Some(Grid::Grid2D),
@@ -263,13 +263,9 @@ pub struct StencilLaunchConfig {
 
 impl StencilLaunchConfig {
     /// Create launch config for a 2D stencil.
-    pub fn for_2d_grid(
-        grid_width: usize,
-        grid_height: usize,
-        tile_size: (usize, usize),
-    ) -> Self {
-        let tiles_x = (grid_width + tile_size.0 - 1) / tile_size.0;
-        let tiles_y = (grid_height + tile_size.1 - 1) / tile_size.1;
+    pub fn for_2d_grid(grid_width: usize, grid_height: usize, tile_size: (usize, usize)) -> Self {
+        let tiles_x = grid_width.div_ceil(tile_size.0);
+        let tiles_y = grid_height.div_ceil(tile_size.1);
 
         Self {
             block_dim: (tile_size.0 as u32, tile_size.1 as u32, 1),
@@ -294,10 +290,10 @@ mod tests {
 
     #[test]
     fn test_grid_parsing() {
-        assert_eq!(Grid::from_str("2d"), Some(Grid::Grid2D));
-        assert_eq!(Grid::from_str("Grid3D"), Some(Grid::Grid3D));
-        assert_eq!(Grid::from_str("1D"), Some(Grid::Grid1D));
-        assert_eq!(Grid::from_str("invalid"), None);
+        assert_eq!(Grid::parse("2d"), Some(Grid::Grid2D));
+        assert_eq!(Grid::parse("Grid3D"), Some(Grid::Grid3D));
+        assert_eq!(Grid::parse("1D"), Some(Grid::Grid1D));
+        assert_eq!(Grid::parse("invalid"), None);
     }
 
     #[test]

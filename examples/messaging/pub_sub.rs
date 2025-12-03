@@ -153,7 +153,11 @@ fn demonstrate_qos() {
     println!("Quality of Service levels:\n");
 
     let qos_levels = [
-        (QoS::AtMostOnce, "At Most Once", "Fire and forget - fastest, no guarantee"),
+        (
+            QoS::AtMostOnce,
+            "At Most Once",
+            "Fire and forget - fastest, no guarantee",
+        ),
         (
             QoS::AtLeastOnce,
             "At Least Once",
@@ -190,7 +194,8 @@ async fn demonstrate_iot_scenario(broker: &Arc<PubSubBroker>) {
     println!("  Dashboard subscribed to: sensors/#");
 
     // Alerting only wants temperature anomalies
-    let _sub_alerting = broker.subscribe(alerting.clone(), Topic::new("sensors/*/temperature/alert"));
+    let _sub_alerting =
+        broker.subscribe(alerting.clone(), Topic::new("sensors/*/temperature/alert"));
     println!("  Alerting subscribed to: sensors/*/temperature/alert");
 
     // Storage wants everything for archival

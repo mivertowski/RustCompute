@@ -87,7 +87,8 @@ impl RequestStats {
     pub fn record_success(&self, latency_us: u64) {
         self.total_requests.fetch_add(1, Ordering::Relaxed);
         self.successful_requests.fetch_add(1, Ordering::Relaxed);
-        self.total_latency_us.fetch_add(latency_us, Ordering::Relaxed);
+        self.total_latency_us
+            .fetch_add(latency_us, Ordering::Relaxed);
     }
 
     /// Record a failed request.

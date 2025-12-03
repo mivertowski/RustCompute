@@ -264,9 +264,15 @@ impl TileGpuCompute {
             c2,
             damping,
         };
-        self.queue.write_buffer(&self.params_buffer, 0, bytemuck::bytes_of(&params));
-        self.queue.write_buffer(&self.pressure_buffer, 0, bytemuck::cast_slice(pressure));
-        self.queue.write_buffer(&self.pressure_prev_buffer, 0, bytemuck::cast_slice(pressure_prev));
+        self.queue
+            .write_buffer(&self.params_buffer, 0, bytemuck::bytes_of(&params));
+        self.queue
+            .write_buffer(&self.pressure_buffer, 0, bytemuck::cast_slice(pressure));
+        self.queue.write_buffer(
+            &self.pressure_prev_buffer,
+            0,
+            bytemuck::cast_slice(pressure_prev),
+        );
 
         // Create bind group
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -293,9 +299,11 @@ impl TileGpuCompute {
         });
 
         // Create command encoder
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Tile FDTD Encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Tile FDTD Encoder"),
+            });
 
         // Dispatch compute
         {
@@ -462,7 +470,8 @@ impl TileGpuComputePool {
 
     /// Create buffers for a single tile.
     pub fn create_tile_buffers(&self) -> TileBuffers {
-        let buffer_size = (self.buffer_width * self.buffer_width) as usize * std::mem::size_of::<f32>();
+        let buffer_size =
+            (self.buffer_width * self.buffer_width) as usize * std::mem::size_of::<f32>();
 
         let pressure_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Tile Pressure Buffer"),
@@ -518,9 +527,15 @@ impl TileGpuComputePool {
             c2,
             damping,
         };
-        self.queue.write_buffer(&self.params_buffer, 0, bytemuck::bytes_of(&params));
-        self.queue.write_buffer(&tile_buffers.pressure, 0, bytemuck::cast_slice(pressure));
-        self.queue.write_buffer(&tile_buffers.pressure_prev, 0, bytemuck::cast_slice(pressure_prev));
+        self.queue
+            .write_buffer(&self.params_buffer, 0, bytemuck::bytes_of(&params));
+        self.queue
+            .write_buffer(&tile_buffers.pressure, 0, bytemuck::cast_slice(pressure));
+        self.queue.write_buffer(
+            &tile_buffers.pressure_prev,
+            0,
+            bytemuck::cast_slice(pressure_prev),
+        );
 
         // Create bind group
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -547,9 +562,11 @@ impl TileGpuComputePool {
         });
 
         // Create command encoder
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Tile FDTD Encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Tile FDTD Encoder"),
+            });
 
         // Dispatch compute
         {
@@ -631,7 +648,9 @@ pub async fn init_wgpu() -> Result<(Arc<wgpu::Device>, Arc<wgpu::Queue>)> {
             force_fallback_adapter: false,
         })
         .await
-        .ok_or_else(|| RingKernelError::BackendUnavailable("No WebGPU adapter found".to_string()))?;
+        .ok_or_else(|| {
+            RingKernelError::BackendUnavailable("No WebGPU adapter found".to_string())
+        })?;
 
     let info = adapter.get_info();
     tracing::info!("Tile GPU Compute: {} ({:?})", info.name, info.backend);
@@ -674,8 +693,14 @@ mod tests {
         let result = pool.compute_fdtd(&buffers, &pressure, &pressure_prev, 0.25, 0.99);
 
         // Result should show pressure spreading
-        assert!(result[center_idx].abs() < 1.0, "Center should have decreased");
-        assert!(result[center_idx - 18].abs() > 0.0, "North should have increased");
+        assert!(
+            result[center_idx].abs() < 1.0,
+            "Center should have decreased"
+        );
+        assert!(
+            result[center_idx - 18].abs() > 0.0,
+            "North should have increased"
+        );
     }
 
     #[tokio::test]

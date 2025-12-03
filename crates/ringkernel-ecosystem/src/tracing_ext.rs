@@ -269,11 +269,7 @@ pub mod instrument {
 
     /// Create a span for kernel launch.
     pub fn kernel_launch_span(kernel_id: &str) -> Span {
-        span!(
-            Level::INFO,
-            "ringkernel.launch",
-            kernel_id = kernel_id
-        )
+        span!(Level::INFO, "ringkernel.launch", kernel_id = kernel_id)
     }
 
     /// Create a span for message processing.

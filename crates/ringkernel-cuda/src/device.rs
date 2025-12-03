@@ -40,9 +40,11 @@ impl CudaDevice {
             .map_err(|e| RingKernelError::BackendError(format!("Failed to get compute capability: {}", e)))? as u32;
 
         // Get total memory via device attribute (memory_total not directly available in newer cudarc)
-        let total_memory_attr = inner.attribute(
-            cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_TOTAL_CONSTANT_MEMORY
-        ).unwrap_or(0) as usize;
+        let total_memory_attr = inner
+            .attribute(
+                cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_TOTAL_CONSTANT_MEMORY,
+            )
+            .unwrap_or(0) as usize;
         // Use a reasonable fallback - actual memory queries work differently in newer cudarc
         let total_memory = if total_memory_attr > 0 {
             total_memory_attr

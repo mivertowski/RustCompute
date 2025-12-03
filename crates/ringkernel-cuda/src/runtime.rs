@@ -178,7 +178,10 @@ impl RingKernelRuntime for CudaRuntime {
 
         // Register with K2K broker if enabled
         // Note: CUDA K2K is host-mediated - messages go through host, not GPU-direct
-        let _k2k_endpoint = self.k2k_broker.as_ref().map(|broker| broker.register(id.clone()));
+        let _k2k_endpoint = self
+            .k2k_broker
+            .as_ref()
+            .map(|broker| broker.register(id.clone()));
 
         // Create kernel
         let mut kernel = CudaKernel::new(kernel_id, id_num, self.device.clone(), options)?;

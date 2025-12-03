@@ -57,11 +57,17 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     println!("Server Configuration:");
     println!("  Address: {}", config.address);
-    println!("  Max message size: {} MB", config.max_message_size / (1024 * 1024));
+    println!(
+        "  Max message size: {} MB",
+        config.max_message_size / (1024 * 1024)
+    );
     println!("  Timeout: {:?}", config.timeout);
     println!("  Reflection enabled: {}", config.enable_reflection);
     println!("  Health checks: {}", config.enable_health_check);
-    println!("  Max concurrent streams: {}", config.max_concurrent_streams);
+    println!(
+        "  Max concurrent streams: {}",
+        config.max_concurrent_streams
+    );
 
     // ====== Kernel Registry ======
     println!("\n=== Kernel Registry ===\n");
@@ -69,26 +75,35 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let registry = KernelRegistry::new();
 
     // Register available kernels
-    registry.register("vector_add", KernelInfo {
-        name: "Vector Addition".to_string(),
-        description: "Add two vectors element-wise on GPU".to_string(),
-        input_format: "float32[]".to_string(),
-        output_format: "float32[]".to_string(),
-    });
+    registry.register(
+        "vector_add",
+        KernelInfo {
+            name: "Vector Addition".to_string(),
+            description: "Add two vectors element-wise on GPU".to_string(),
+            input_format: "float32[]".to_string(),
+            output_format: "float32[]".to_string(),
+        },
+    );
 
-    registry.register("matrix_multiply", KernelInfo {
-        name: "Matrix Multiplication".to_string(),
-        description: "Multiply two matrices on GPU".to_string(),
-        input_format: "float32[], dims".to_string(),
-        output_format: "float32[]".to_string(),
-    });
+    registry.register(
+        "matrix_multiply",
+        KernelInfo {
+            name: "Matrix Multiplication".to_string(),
+            description: "Multiply two matrices on GPU".to_string(),
+            input_format: "float32[], dims".to_string(),
+            output_format: "float32[]".to_string(),
+        },
+    );
 
-    registry.register("neural_inference", KernelInfo {
-        name: "Neural Network Inference".to_string(),
-        description: "Run neural network forward pass on GPU".to_string(),
-        input_format: "float32[], model_id".to_string(),
-        output_format: "float32[]".to_string(),
-    });
+    registry.register(
+        "neural_inference",
+        KernelInfo {
+            name: "Neural Network Inference".to_string(),
+            description: "Run neural network forward pass on GPU".to_string(),
+            input_format: "float32[], model_id".to_string(),
+            output_format: "float32[]".to_string(),
+        },
+    );
 
     println!("Registered kernels:");
     for (id, info) in registry.list_kernels() {
@@ -116,17 +131,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             id: "req-002".to_string(),
             kernel_id: "matrix_multiply".to_string(),
             payload: encode_matrix(&[1.0, 2.0, 3.0, 4.0], 2, 2),
-            metadata: HashMap::from([
-                ("client".to_string(), "go-sdk".to_string()),
-            ]),
+            metadata: HashMap::from([("client".to_string(), "go-sdk".to_string())]),
         },
         GrpcRequest {
             id: "req-003".to_string(),
             kernel_id: "neural_inference".to_string(),
             payload: encode_vector(&[0.5; 784]),
-            metadata: HashMap::from([
-                ("model_id".to_string(), "mnist-v1".to_string()),
-            ]),
+            metadata: HashMap::from([("model_id".to_string(), "mnist-v1".to_string())]),
         },
     ];
 
@@ -329,11 +340,16 @@ impl GpuGrpcServer {
         }
     }
 
-    async fn process(&self, request: GrpcRequest) -> std::result::Result<GrpcResponse, Box<dyn std::error::Error>> {
+    async fn process(
+        &self,
+        request: GrpcRequest,
+    ) -> std::result::Result<GrpcResponse, Box<dyn std::error::Error>> {
         let start = Instant::now();
 
         self.stats.total.fetch_add(1, Ordering::Relaxed);
-        self.stats.bytes_in.fetch_add(request.payload.len() as u64, Ordering::Relaxed);
+        self.stats
+            .bytes_in
+            .fetch_add(request.payload.len() as u64, Ordering::Relaxed);
 
         // Simulate GPU processing
         tokio::time::sleep(Duration::from_micros(100)).await;
@@ -358,8 +374,12 @@ impl GpuGrpcServer {
 
         let latency = start.elapsed();
         self.stats.success.fetch_add(1, Ordering::Relaxed);
-        self.stats.total_latency_us.fetch_add(latency.as_micros() as u64, Ordering::Relaxed);
-        self.stats.bytes_out.fetch_add(result.len() as u64, Ordering::Relaxed);
+        self.stats
+            .total_latency_us
+            .fetch_add(latency.as_micros() as u64, Ordering::Relaxed);
+        self.stats
+            .bytes_out
+            .fetch_add(result.len() as u64, Ordering::Relaxed);
 
         Ok(GrpcResponse {
             id: request.id,
@@ -405,7 +425,9 @@ async fn demonstrate_streaming(server: &GpuGrpcServer) {
     let batch_size = 1000;
 
     for i in 0..batch_count {
-        let batch: Vec<f32> = (0..batch_size).map(|x| x as f32 + i as f32 * batch_size as f32).collect();
+        let batch: Vec<f32> = (0..batch_size)
+            .map(|x| x as f32 + i as f32 * batch_size as f32)
+            .collect();
 
         let request = GrpcRequest {
             id: format!("stream-batch-{}", i),
@@ -424,15 +446,17 @@ async fn demonstrate_streaming(server: &GpuGrpcServer) {
         );
     }
 
-    println!("\nTotal: {} elements processed across {} batches", batch_count * batch_size, batch_count);
+    println!(
+        "\nTotal: {} elements processed across {} batches",
+        batch_count * batch_size,
+        batch_count
+    );
 }
 
 // ============ Encoding Helpers ============
 
 fn encode_vector(data: &[f32]) -> Vec<u8> {
-    data.iter()
-        .flat_map(|f| f.to_le_bytes())
-        .collect()
+    data.iter().flat_map(|f| f.to_le_bytes()).collect()
 }
 
 fn decode_vector(data: &[u8]) -> Vec<f32> {

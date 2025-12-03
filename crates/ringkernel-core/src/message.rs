@@ -100,7 +100,16 @@ impl CorrelationId {
 
 /// Message priority levels.
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Default,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 #[archive(compare(PartialEq))]
 #[repr(u8)]

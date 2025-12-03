@@ -137,7 +137,10 @@ async fn main() -> Result<()> {
         b: b.clone(),
     };
 
-    println!("Message type ID: 0x{:04X}", DerivedVectorAddRequest::message_type());
+    println!(
+        "Message type ID: 0x{:04X}",
+        DerivedVectorAddRequest::message_type()
+    );
     println!("Message ID: {}", derived_request.message_id());
     println!("Correlation ID: {:?}", derived_request.correlation_id());
 
@@ -159,7 +162,10 @@ async fn main() -> Result<()> {
         b: b.clone(),
     };
 
-    println!("Message type ID: 0x{:04X}", ManualVectorAddRequest::message_type());
+    println!(
+        "Message type ID: 0x{:04X}",
+        ManualVectorAddRequest::message_type()
+    );
 
     let bytes = RingMessage::serialize(&manual_request);
     println!("Serialized size: {} bytes", bytes.len());

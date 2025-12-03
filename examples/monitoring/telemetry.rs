@@ -58,10 +58,22 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     };
 
     println!("Telemetry configuration:");
-    println!("  Collection interval: {} ms", telemetry_config.collection_interval_ms);
-    println!("  History samples: {}", telemetry_config.max_history_samples);
-    println!("  Alert threshold (drop rate): {:.1}%", telemetry_config.drop_rate_alert_threshold * 100.0);
-    println!("  Alert threshold (latency): {} µs\n", telemetry_config.latency_alert_threshold_us);
+    println!(
+        "  Collection interval: {} ms",
+        telemetry_config.collection_interval_ms
+    );
+    println!(
+        "  History samples: {}",
+        telemetry_config.max_history_samples
+    );
+    println!(
+        "  Alert threshold (drop rate): {:.1}%",
+        telemetry_config.drop_rate_alert_threshold * 100.0
+    );
+    println!(
+        "  Alert threshold (latency): {} µs\n",
+        telemetry_config.latency_alert_threshold_us
+    );
 
     // Create telemetry pipeline
     let pipeline = TelemetryPipeline::new(telemetry_config);
@@ -75,11 +87,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // ====== Metrics Collection ======
     println!("\n=== Metrics Collection Demo ===\n");
-    demonstrate_metrics_collection(&*collector);
+    demonstrate_metrics_collection(&collector);
 
     // ====== Latency Histograms ======
     println!("\n=== Latency Histogram Demo ===\n");
-    demonstrate_histograms(&*collector);
+    demonstrate_histograms(&collector);
 
     // ====== Alert System ======
     println!("\n=== Alert System Demo ===\n");
@@ -99,7 +111,10 @@ fn demonstrate_telemetry_buffer() {
 
     println!("TelemetryBuffer (64 bytes, cache-aligned):");
     println!("  Size: {} bytes", std::mem::size_of::<TelemetryBuffer>());
-    println!("  Alignment: {} bytes\n", std::mem::align_of::<TelemetryBuffer>());
+    println!(
+        "  Alignment: {} bytes\n",
+        std::mem::align_of::<TelemetryBuffer>()
+    );
 
     // Simulate kernel telemetry updates
     for i in 1..=100 {
@@ -164,13 +179,10 @@ fn demonstrate_histograms(collector: &MetricsCollector) {
     // Generate realistic latency distribution (log-normal like)
     let latencies = [
         // Most messages fast (100-200µs)
-        100, 120, 110, 150, 130, 140, 180, 160, 190, 200,
-        105, 115, 125, 135, 145, 155, 165, 175, 185, 195,
-        // Some medium (200-500µs)
-        250, 300, 350, 400, 450, 280, 320, 380,
-        // Few slow (500-1000µs)
-        600, 750, 900,
-        // Rare outliers
+        100, 120, 110, 150, 130, 140, 180, 160, 190, 200, 105, 115, 125, 135, 145, 155, 165, 175,
+        185, 195, // Some medium (200-500µs)
+        250, 300, 350, 400, 450, 280, 320, 380, // Few slow (500-1000µs)
+        600, 750, 900, // Rare outliers
         1500, 2000,
     ];
 
@@ -203,27 +215,32 @@ async fn demonstrate_alerts(pipeline: &TelemetryPipeline) {
         let mut count = 0;
         while count < 3 {
             match tokio::time::timeout(Duration::from_millis(500), alert_receiver.recv()).await {
-                Ok(Ok(event)) => {
-                    match event {
-                        TelemetryEvent::MetricsSnapshot(snapshot) => {
-                            println!("Received metrics snapshot:");
-                            println!("  Active kernels: {}", snapshot.aggregate.active_kernels);
-                            println!("  Total messages: {}", snapshot.aggregate.total_messages_processed);
-                        }
-                        TelemetryEvent::Alert(alert) => {
-                            println!("ALERT: {:?}", alert.alert_type);
-                            println!("  Severity: {:?}", alert.severity);
-                            println!("  Message: {}", alert.message);
-                            if let Some(kernel) = &alert.kernel_id {
-                                println!("  Kernel: {}", kernel);
-                            }
-                            count += 1;
-                        }
-                        TelemetryEvent::KernelStateChange { kernel_id, previous, new } => {
-                            println!("State change: {} {} -> {}", kernel_id, previous, new);
-                        }
+                Ok(Ok(event)) => match event {
+                    TelemetryEvent::MetricsSnapshot(snapshot) => {
+                        println!("Received metrics snapshot:");
+                        println!("  Active kernels: {}", snapshot.aggregate.active_kernels);
+                        println!(
+                            "  Total messages: {}",
+                            snapshot.aggregate.total_messages_processed
+                        );
                     }
-                }
+                    TelemetryEvent::Alert(alert) => {
+                        println!("ALERT: {:?}", alert.alert_type);
+                        println!("  Severity: {:?}", alert.severity);
+                        println!("  Message: {}", alert.message);
+                        if let Some(kernel) = &alert.kernel_id {
+                            println!("  Kernel: {}", kernel);
+                        }
+                        count += 1;
+                    }
+                    TelemetryEvent::KernelStateChange {
+                        kernel_id,
+                        previous,
+                        new,
+                    } => {
+                        println!("State change: {} {} -> {}", kernel_id, previous, new);
+                    }
+                },
                 Ok(Err(_)) => break,
                 Err(_) => {
                     // Timeout - simulate generating an alert
@@ -261,10 +278,7 @@ async fn demonstrate_monitoring_loop(collector: Arc<MetricsCollector>) {
         let mut count = 0u64;
         loop {
             for kernel_id in &kernel_ids_sim {
-                collector_sim.record_message_processed(
-                    kernel_id,
-                    100 + (count % 50) * 10,
-                );
+                collector_sim.record_message_processed(kernel_id, 100 + (count % 50) * 10);
             }
             count += 1;
             tokio::time::sleep(Duration::from_millis(10)).await;

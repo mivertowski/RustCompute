@@ -156,9 +156,14 @@ impl<R: RuntimeHandle> Handler<GpuRequest> for GpuActorBridge<R> {
     fn handle(&mut self, msg: GpuRequest, _ctx: &mut Self::Context) -> Self::Result {
         // Check capacity
         if !self.can_accept() {
-            return Box::pin(async { Err(EcosystemError::ServiceUnavailable(
-                "Too many in-flight messages".to_string(),
-            ))}.into_actor(self));
+            return Box::pin(
+                async {
+                    Err(EcosystemError::ServiceUnavailable(
+                        "Too many in-flight messages".to_string(),
+                    ))
+                }
+                .into_actor(self),
+            );
         }
 
         // Increment in-flight counter

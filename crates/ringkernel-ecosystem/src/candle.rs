@@ -279,12 +279,7 @@ fn tensor_to_bytes(tensor: &Tensor) -> Result<(Vec<u8>, String)> {
 }
 
 /// Convert bytes to tensor.
-fn bytes_to_tensor(
-    bytes: &[u8],
-    shape: &[usize],
-    dtype: DType,
-    device: &Device,
-) -> Result<Tensor> {
+fn bytes_to_tensor(bytes: &[u8], shape: &[usize], dtype: DType, device: &Device) -> Result<Tensor> {
     let tensor_shape = Shape::from_dims(shape);
 
     match dtype {
@@ -301,8 +296,8 @@ fn bytes_to_tensor(
                 .chunks_exact(8)
                 .map(|chunk| {
                     f64::from_le_bytes([
-                        chunk[0], chunk[1], chunk[2], chunk[3],
-                        chunk[4], chunk[5], chunk[6], chunk[7],
+                        chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6],
+                        chunk[7],
                     ])
                 })
                 .collect();
@@ -314,8 +309,8 @@ fn bytes_to_tensor(
                 .chunks_exact(8)
                 .map(|chunk| {
                     i64::from_le_bytes([
-                        chunk[0], chunk[1], chunk[2], chunk[3],
-                        chunk[4], chunk[5], chunk[6], chunk[7],
+                        chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6],
+                        chunk[7],
                     ])
                 })
                 .collect();
@@ -330,10 +325,8 @@ fn bytes_to_tensor(
             Tensor::from_vec(values, tensor_shape, device)
                 .map_err(|e| EcosystemError::Candle(e.to_string()))
         }
-        DType::U8 => {
-            Tensor::from_vec(bytes.to_vec(), tensor_shape, device)
-                .map_err(|e| EcosystemError::Candle(e.to_string()))
-        }
+        DType::U8 => Tensor::from_vec(bytes.to_vec(), tensor_shape, device)
+            .map_err(|e| EcosystemError::Candle(e.to_string())),
         dt => Err(EcosystemError::DataConversion(format!(
             "Unsupported dtype: {:?}",
             dt

@@ -131,13 +131,15 @@ impl WgslType {
             WgslType::Mat2x2(inner) => format!("mat2x2<{}>", inner.to_wgsl()),
             WgslType::Mat3x3(inner) => format!("mat3x3<{}>", inner.to_wgsl()),
             WgslType::Mat4x4(inner) => format!("mat4x4<{}>", inner.to_wgsl()),
-            WgslType::Array { element, size } => {
-                match size {
-                    Some(n) => format!("array<{}, {}>", element.to_wgsl(), n),
-                    None => format!("array<{}>", element.to_wgsl()),
-                }
-            }
-            WgslType::Ptr { address_space, inner, access } => {
+            WgslType::Array { element, size } => match size {
+                Some(n) => format!("array<{}, {}>", element.to_wgsl(), n),
+                None => format!("array<{}>", element.to_wgsl()),
+            },
+            WgslType::Ptr {
+                address_space,
+                inner,
+                access,
+            } => {
                 format!(
                     "ptr<{}, {}, {}>",
                     address_space.to_wgsl(),
@@ -159,12 +161,18 @@ impl WgslType {
 
     /// Check if this type is a scalar.
     pub fn is_scalar(&self) -> bool {
-        matches!(self, WgslType::F32 | WgslType::I32 | WgslType::U32 | WgslType::Bool)
+        matches!(
+            self,
+            WgslType::F32 | WgslType::I32 | WgslType::U32 | WgslType::Bool
+        )
     }
 
     /// Check if this type is a vector.
     pub fn is_vector(&self) -> bool {
-        matches!(self, WgslType::Vec2(_) | WgslType::Vec3(_) | WgslType::Vec4(_))
+        matches!(
+            self,
+            WgslType::Vec2(_) | WgslType::Vec3(_) | WgslType::Vec4(_)
+        )
     }
 
     /// Get the element type for arrays and vectors.
@@ -228,7 +236,9 @@ impl TypeMapper {
         let path = &type_path.path;
 
         // Get the last segment (e.g., "f32" from "std::f32")
-        let segment = path.segments.last()
+        let segment = path
+            .segments
+            .last()
             .ok_or_else(|| "Empty type path".to_string())?;
 
         let ident = segment.ident.to_string();
@@ -319,9 +329,10 @@ impl TypeMapper {
 
         // Extract the array length
         let size = match &type_array.len {
-            syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(lit), .. }) => {
-                lit.base10_parse::<usize>().map_err(|e| e.to_string())?
-            }
+            syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Int(lit),
+                ..
+            }) => lit.base10_parse::<usize>().map_err(|e| e.to_string())?,
             _ => return Err("Array length must be a literal integer".to_string()),
         };
 
@@ -431,27 +442,53 @@ mod tests {
 
         let ty: syn::Type = parse_quote!(&[f32]);
         let result = mapper.map_type(&ty).unwrap();
-        assert!(matches!(result, WgslType::Ptr { access: AccessMode::Read, .. }));
+        assert!(matches!(
+            result,
+            WgslType::Ptr {
+                access: AccessMode::Read,
+                ..
+            }
+        ));
 
         let ty: syn::Type = parse_quote!(&mut [f32]);
         let result = mapper.map_type(&ty).unwrap();
-        assert!(matches!(result, WgslType::Ptr { access: AccessMode::ReadWrite, .. }));
+        assert!(matches!(
+            result,
+            WgslType::Ptr {
+                access: AccessMode::ReadWrite,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn test_wgsl_output() {
         assert_eq!(WgslType::F32.to_wgsl(), "f32");
-        assert_eq!(WgslType::Vec2(Box::new(WgslType::F32)).to_wgsl(), "vec2<f32>");
+        assert_eq!(
+            WgslType::Vec2(Box::new(WgslType::F32)).to_wgsl(),
+            "vec2<f32>"
+        );
         assert_eq!(WgslType::U64Pair.to_wgsl(), "vec2<u32>");
         assert_eq!(
-            WgslType::Array { element: Box::new(WgslType::F32), size: Some(16) }.to_wgsl(),
+            WgslType::Array {
+                element: Box::new(WgslType::F32),
+                size: Some(16)
+            }
+            .to_wgsl(),
             "array<f32, 16>"
         );
         assert_eq!(
-            WgslType::Array { element: Box::new(WgslType::F32), size: None }.to_wgsl(),
+            WgslType::Array {
+                element: Box::new(WgslType::F32),
+                size: None
+            }
+            .to_wgsl(),
             "array<f32>"
         );
-        assert_eq!(WgslType::Atomic(Box::new(WgslType::U32)).to_wgsl(), "atomic<u32>");
+        assert_eq!(
+            WgslType::Atomic(Box::new(WgslType::U32)).to_wgsl(),
+            "atomic<u32>"
+        );
     }
 
     #[test]
@@ -460,7 +497,10 @@ mod tests {
         mapper.register_type("MyStruct", WgslType::Struct("MyStruct".to_string()));
 
         let ty: syn::Type = parse_quote!(MyStruct);
-        assert_eq!(mapper.map_type(&ty).unwrap(), WgslType::Struct("MyStruct".to_string()));
+        assert_eq!(
+            mapper.map_type(&ty).unwrap(),
+            WgslType::Struct("MyStruct".to_string())
+        );
     }
 
     #[test]

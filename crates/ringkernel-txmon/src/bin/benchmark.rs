@@ -8,9 +8,7 @@
 //!
 //! Run with: `cargo run -p ringkernel-txmon --bin txmon-benchmark --release --features cuda-codegen`
 
-use ringkernel_txmon::{
-    GeneratorConfig, MonitoringConfig, MonitoringEngine, TransactionGenerator,
-};
+use ringkernel_txmon::{GeneratorConfig, MonitoringConfig, MonitoringEngine, TransactionGenerator};
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "cuda")]
@@ -23,11 +21,12 @@ use ringkernel_cuda_codegen::transpile_global_kernel;
 use ringkernel_txmon::cuda::{
     batch_kernel::BatchKernelCpuFallback,
     stencil_kernel::{StencilPatternBackend, StencilPatternConfig},
-    GpuMonitoringConfig, GpuTransaction, GpuCustomerProfile,
+    GpuCustomerProfile, GpuMonitoringConfig, GpuTransaction,
 };
 
 /// Benchmark results for a single approach.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct BenchmarkResult {
     name: String,
     total_transactions: u64,
@@ -138,7 +137,8 @@ fn main() {
     // Sort by TPS
     results.sort_by(|a, b| b.tps.partial_cmp(&a.tps).unwrap());
 
-    let baseline_tps = results.iter()
+    let baseline_tps = results
+        .iter()
         .find(|r| r.name.contains("CPU"))
         .map(|r| r.tps)
         .unwrap_or(1.0);
@@ -185,7 +185,14 @@ fn print_gpu_info() {
         Ok(device) => {
             let (major, minor) = device.compute_capability();
             println!("GPU Device: {} (SM {}.{})", device.name(), major, minor);
-            println!("Persistent kernels: {}", if major >= 7 { "supported" } else { "not supported" });
+            println!(
+                "Persistent kernels: {}",
+                if major >= 7 {
+                    "supported"
+                } else {
+                    "not supported"
+                }
+            );
             println!();
         }
         Err(e) => {
@@ -246,8 +253,10 @@ fn benchmark_batch_kernel(gen_config: &GeneratorConfig, duration: Duration) -> B
     // Warmup
     for _ in 0..10 {
         let (transactions, profiles) = generator.generate_batch();
-        let gpu_txs: Vec<GpuTransaction> = transactions.iter().map(|t| convert_to_gpu_tx(t)).collect();
-        let gpu_profiles: Vec<GpuCustomerProfile> = profiles.iter().map(|p| convert_to_gpu_profile(p)).collect();
+        let gpu_txs: Vec<GpuTransaction> =
+            transactions.iter().map(|t| convert_to_gpu_tx(t)).collect();
+        let gpu_profiles: Vec<GpuCustomerProfile> =
+            profiles.iter().map(|p| convert_to_gpu_profile(p)).collect();
         let _ = backend.process_batch(&gpu_txs, &gpu_profiles);
     }
 
@@ -259,8 +268,10 @@ fn benchmark_batch_kernel(gen_config: &GeneratorConfig, duration: Duration) -> B
 
     while start.elapsed() < duration {
         let (transactions, profiles) = generator.generate_batch();
-        let gpu_txs: Vec<GpuTransaction> = transactions.iter().map(|t| convert_to_gpu_tx(t)).collect();
-        let gpu_profiles: Vec<GpuCustomerProfile> = profiles.iter().map(|p| convert_to_gpu_profile(p)).collect();
+        let gpu_txs: Vec<GpuTransaction> =
+            transactions.iter().map(|t| convert_to_gpu_tx(t)).collect();
+        let gpu_profiles: Vec<GpuCustomerProfile> =
+            profiles.iter().map(|p| convert_to_gpu_profile(p)).collect();
         let alerts = backend.process_batch(&gpu_txs, &gpu_profiles);
 
         total_transactions += transactions.len() as u64;
@@ -301,7 +312,8 @@ fn benchmark_stencil_kernel(gen_config: &GeneratorConfig, duration: Duration) ->
     // Warmup
     for _ in 0..10 {
         let (transactions, _profiles) = generator.generate_batch();
-        let gpu_txs: Vec<GpuTransaction> = transactions.iter().map(|t| convert_to_gpu_tx(t)).collect();
+        let gpu_txs: Vec<GpuTransaction> =
+            transactions.iter().map(|t| convert_to_gpu_tx(t)).collect();
         backend.add_transactions(&gpu_txs);
         let _ = backend.detect_all();
     }
@@ -314,7 +326,8 @@ fn benchmark_stencil_kernel(gen_config: &GeneratorConfig, duration: Duration) ->
 
     while start.elapsed() < duration {
         let (transactions, _profiles) = generator.generate_batch();
-        let gpu_txs: Vec<GpuTransaction> = transactions.iter().map(|t| convert_to_gpu_tx(t)).collect();
+        let gpu_txs: Vec<GpuTransaction> =
+            transactions.iter().map(|t| convert_to_gpu_tx(t)).collect();
 
         backend.add_transactions(&gpu_txs);
         let result = backend.detect_all();
@@ -399,10 +412,12 @@ EXIT:
 
     // Load PTX
     let ptx = cudarc::nvrtc::Ptx::from_src(ptx_source);
-    cuda_dev.load_ptx(ptx, "saxpy_mod", &["saxpy"])
+    cuda_dev
+        .load_ptx(ptx, "saxpy_mod", &["saxpy"])
         .map_err(|e| format!("Failed to load PTX: {}", e))?;
 
-    let func = cuda_dev.get_func("saxpy_mod", "saxpy")
+    let func = cuda_dev
+        .get_func("saxpy_mod", "saxpy")
         .ok_or("Failed to get SAXPY function")?;
 
     let n = 1_000_000usize;
@@ -412,9 +427,11 @@ EXIT:
     let x: Vec<f32> = (0..n).map(|i| i as f32).collect();
     let y: Vec<f32> = (0..n).map(|i| i as f32 * 0.5).collect();
 
-    let x_dev = cuda_dev.htod_copy(x.clone())
+    let x_dev = cuda_dev
+        .htod_copy(x.clone())
         .map_err(|e| format!("Failed to copy x: {}", e))?;
-    let mut y_dev = cuda_dev.htod_copy(y)
+    let mut y_dev = cuda_dev
+        .htod_copy(y)
         .map_err(|e| format!("Failed to copy y: {}", e))?;
 
     let block_size = 256u32;
@@ -428,10 +445,13 @@ EXIT:
     // Warmup
     for _ in 0..10 {
         unsafe {
-            func.clone().launch(cfg, (&x_dev, &mut y_dev, a, n as u32))
+            func.clone()
+                .launch(cfg, (&x_dev, &mut y_dev, a, n as u32))
                 .map_err(|e| format!("Launch failed: {}", e))?;
         }
-        cuda_dev.synchronize().map_err(|e| format!("Sync failed: {}", e))?;
+        cuda_dev
+            .synchronize()
+            .map_err(|e| format!("Sync failed: {}", e))?;
     }
 
     // Benchmark
@@ -441,12 +461,15 @@ EXIT:
     while start.elapsed() < duration {
         for _ in 0..100 {
             unsafe {
-                func.clone().launch(cfg, (&x_dev, &mut y_dev, a, n as u32))
+                func.clone()
+                    .launch(cfg, (&x_dev, &mut y_dev, a, n as u32))
                     .map_err(|e| format!("Launch failed: {}", e))?;
             }
             iterations += 1;
         }
-        cuda_dev.synchronize().map_err(|e| format!("Sync failed: {}", e))?;
+        cuda_dev
+            .synchronize()
+            .map_err(|e| format!("Sync failed: {}", e))?;
     }
 
     let elapsed = start.elapsed();
@@ -455,12 +478,15 @@ EXIT:
     let avg_batch_time_us = elapsed.as_micros() as f64 / iterations as f64;
 
     // Verify result
-    let y_result = cuda_dev.dtoh_sync_copy(&y_dev)
+    let y_result = cuda_dev
+        .dtoh_sync_copy(&y_dev)
         .map_err(|e| format!("Failed to copy result: {}", e))?;
 
     // Check first few values
-    println!("  Verification: y[0]={:.2}, y[1]={:.2}, y[2]={:.2}",
-             y_result[0], y_result[1], y_result[2]);
+    println!(
+        "  Verification: y[0]={:.2}, y[1]={:.2}, y[2]={:.2}",
+        y_result[0], y_result[1], y_result[2]
+    );
 
     Ok(BenchmarkResult {
         name: "CUDA SAXPY (1M elements)".to_string(),
@@ -491,8 +517,8 @@ fn benchmark_cuda_codegen(duration: Duration) -> Result<BenchmarkResult, String>
         }
     };
 
-    let cuda_source = transpile_global_kernel(&kernel_fn)
-        .map_err(|e| format!("Transpile error: {}", e))?;
+    let cuda_source =
+        transpile_global_kernel(&kernel_fn).map_err(|e| format!("Transpile error: {}", e))?;
 
     println!("  Generated CUDA code ({} bytes)", cuda_source.len());
 
@@ -500,10 +526,12 @@ fn benchmark_cuda_codegen(duration: Duration) -> Result<BenchmarkResult, String>
     let ptx = cudarc::nvrtc::compile_ptx(&cuda_source)
         .map_err(|e| format!("NVRTC compilation error: {}", e))?;
 
-    cuda_dev.load_ptx(ptx, "scale_mod", &["scale_array"])
+    cuda_dev
+        .load_ptx(ptx, "scale_mod", &["scale_array"])
         .map_err(|e| format!("Failed to load PTX: {}", e))?;
 
-    let func = cuda_dev.get_func("scale_mod", "scale_array")
+    let func = cuda_dev
+        .get_func("scale_mod", "scale_array")
         .ok_or("Failed to get scale_array function")?;
 
     let n = 1_000_000usize;
@@ -513,9 +541,11 @@ fn benchmark_cuda_codegen(duration: Duration) -> Result<BenchmarkResult, String>
     let input: Vec<f32> = (0..n).map(|i| i as f32).collect();
     let output: Vec<f32> = vec![0.0f32; n];
 
-    let input_dev = cuda_dev.htod_copy(input.clone())
+    let input_dev = cuda_dev
+        .htod_copy(input.clone())
         .map_err(|e| format!("Failed to copy input: {}", e))?;
-    let mut output_dev = cuda_dev.htod_copy(output)
+    let mut output_dev = cuda_dev
+        .htod_copy(output)
         .map_err(|e| format!("Failed to copy output: {}", e))?;
 
     let block_size = 256u32;
@@ -529,10 +559,13 @@ fn benchmark_cuda_codegen(duration: Duration) -> Result<BenchmarkResult, String>
     // Warmup
     for _ in 0..10 {
         unsafe {
-            func.clone().launch(cfg, (&input_dev, &mut output_dev, scale, n as i32))
+            func.clone()
+                .launch(cfg, (&input_dev, &mut output_dev, scale, n as i32))
                 .map_err(|e| format!("Launch failed: {}", e))?;
         }
-        cuda_dev.synchronize().map_err(|e| format!("Sync failed: {}", e))?;
+        cuda_dev
+            .synchronize()
+            .map_err(|e| format!("Sync failed: {}", e))?;
     }
 
     // Benchmark
@@ -542,12 +575,15 @@ fn benchmark_cuda_codegen(duration: Duration) -> Result<BenchmarkResult, String>
     while start.elapsed() < duration {
         for _ in 0..100 {
             unsafe {
-                func.clone().launch(cfg, (&input_dev, &mut output_dev, scale, n as i32))
+                func.clone()
+                    .launch(cfg, (&input_dev, &mut output_dev, scale, n as i32))
                     .map_err(|e| format!("Launch failed: {}", e))?;
             }
             iterations += 1;
         }
-        cuda_dev.synchronize().map_err(|e| format!("Sync failed: {}", e))?;
+        cuda_dev
+            .synchronize()
+            .map_err(|e| format!("Sync failed: {}", e))?;
     }
 
     let elapsed = start.elapsed();
@@ -556,12 +592,19 @@ fn benchmark_cuda_codegen(duration: Duration) -> Result<BenchmarkResult, String>
     let avg_batch_time_us = elapsed.as_micros() as f64 / iterations as f64;
 
     // Verify result
-    let output_result = cuda_dev.dtoh_sync_copy(&output_dev)
+    let output_result = cuda_dev
+        .dtoh_sync_copy(&output_dev)
         .map_err(|e| format!("Failed to copy result: {}", e))?;
 
-    println!("  Verification: out[0]={:.2}, out[1]={:.2}, out[2]={:.2} (expected {:.2}, {:.2}, {:.2})",
-             output_result[0], output_result[1], output_result[2],
-             0.0 * scale, 1.0 * scale, 2.0 * scale);
+    println!(
+        "  Verification: out[0]={:.2}, out[1]={:.2}, out[2]={:.2} (expected {:.2}, {:.2}, {:.2})",
+        output_result[0],
+        output_result[1],
+        output_result[2],
+        0.0 * scale,
+        1.0 * scale,
+        2.0 * scale
+    );
 
     Ok(BenchmarkResult {
         name: "CUDA Codegen (scale 1M)".to_string(),

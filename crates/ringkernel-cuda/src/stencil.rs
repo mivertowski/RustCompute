@@ -28,15 +28,15 @@ pub struct CompiledStencilKernel {
 
 impl CompiledStencilKernel {
     /// Compile a stencil kernel from its registration.
-    pub fn from_registration(
-        reg: &StencilKernelRegistration,
-        device: &CudaDevice,
-    ) -> Result<Self> {
+    pub fn from_registration(reg: &StencilKernelRegistration, device: &CudaDevice) -> Result<Self> {
         let cuda_device = device.inner();
 
         // Compile CUDA source to PTX using NVRTC
         let ptx = cudarc::nvrtc::compile_ptx(reg.cuda_source).map_err(|e| {
-            RingKernelError::CompilationError(format!("NVRTC compilation failed for '{}': {}", reg.id, e))
+            RingKernelError::CompilationError(format!(
+                "NVRTC compilation failed for '{}': {}",
+                reg.id, e
+            ))
         })?;
 
         // Load the PTX module
@@ -44,7 +44,10 @@ impl CompiledStencilKernel {
         cuda_device
             .load_ptx(ptx, &module_name, &[reg.id])
             .map_err(|e| {
-                RingKernelError::CompilationError(format!("Failed to load PTX for '{}': {}", reg.id, e))
+                RingKernelError::CompilationError(format!(
+                    "Failed to load PTX for '{}': {}",
+                    reg.id, e
+                ))
             })?;
 
         tracing::info!(
@@ -162,9 +165,7 @@ impl StencilKernelLoader {
 
         cuda_device
             .load_ptx(ptx, module_name_static, &[kernel_id_static])
-            .map_err(|e| {
-                RingKernelError::CompilationError(format!("Failed to load PTX: {}", e))
-            })?;
+            .map_err(|e| RingKernelError::CompilationError(format!("Failed to load PTX: {}", e)))?;
 
         Ok(CompiledStencilKernel {
             id: kernel_id.to_string(),

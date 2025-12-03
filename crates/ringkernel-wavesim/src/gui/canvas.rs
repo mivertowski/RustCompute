@@ -69,9 +69,7 @@ impl GridCanvas {
         // Resize cell_types if grid size changed
         let rows = pressure_grid.len();
         let cols = if rows > 0 { pressure_grid[0].len() } else { 0 };
-        if self.cell_types.len() != rows
-            || (rows > 0 && self.cell_types[0].len() != cols)
-        {
+        if self.cell_types.len() != rows || (rows > 0 && self.cell_types[0].len() != cols) {
             self.cell_types = vec![vec![CellType::Normal; cols]; rows];
         }
 
@@ -181,11 +179,7 @@ impl canvas::Program<Message> for GridCanvas {
                         CellType::Absorber => {
                             // Dark purple for absorbers - blend with pressure
                             let base = self.pressure_to_color(pressure);
-                            Color::from_rgb(
-                                base.r * 0.3 + 0.2,
-                                base.g * 0.1,
-                                base.b * 0.3 + 0.3,
-                            )
+                            Color::from_rgb(base.r * 0.3 + 0.2, base.g * 0.1, base.b * 0.3 + 0.3)
                         }
                         CellType::Reflector => {
                             // Bright white/gray for reflectors - blend with pressure
@@ -215,8 +209,8 @@ impl canvas::Program<Message> for GridCanvas {
                 let mut tile_path = Builder::new();
 
                 // Calculate tile boundaries
-                let tiles_x = (cols + TILE_SIZE - 1) / TILE_SIZE;
-                let tiles_y = (rows + TILE_SIZE - 1) / TILE_SIZE;
+                let tiles_x = cols.div_ceil(TILE_SIZE);
+                let tiles_y = rows.div_ceil(TILE_SIZE);
 
                 // Vertical tile lines
                 for tx in 1..tiles_x {
