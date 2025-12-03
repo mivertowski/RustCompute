@@ -203,6 +203,120 @@ pub fn is_grid_pos_type(ty: &Type) -> bool {
     false
 }
 
+/// Check if a type is the ControlBlock type.
+pub fn is_control_block_type(ty: &Type) -> bool {
+    if let Type::Path(path) = ty {
+        if let Some(segment) = path.path.segments.last() {
+            return segment.ident == "ControlBlock";
+        }
+    }
+    // Also check for reference to ControlBlock
+    if let Type::Reference(reference) = ty {
+        return is_control_block_type(&reference.elem);
+    }
+    false
+}
+
+/// Check if a type is the RingContext type.
+pub fn is_ring_context_type(ty: &Type) -> bool {
+    if let Type::Path(path) = ty {
+        if let Some(segment) = path.path.segments.last() {
+            return segment.ident == "RingContext";
+        }
+    }
+    // Also check for reference to RingContext
+    if let Type::Reference(reference) = ty {
+        return is_ring_context_type(&reference.elem);
+    }
+    false
+}
+
+/// Check if a type is the HlcState type.
+#[allow(dead_code)]
+pub fn is_hlc_state_type(ty: &Type) -> bool {
+    if let Type::Path(path) = ty {
+        if let Some(segment) = path.path.segments.last() {
+            return segment.ident == "HlcState";
+        }
+    }
+    false
+}
+
+/// Known ring kernel parameter types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RingKernelParamKind {
+    /// ControlBlock pointer.
+    ControlBlock,
+    /// Input message buffer.
+    InputBuffer,
+    /// Output response buffer.
+    OutputBuffer,
+    /// Shared state pointer.
+    SharedState,
+    /// K2K routing table.
+    K2KRoutes,
+    /// RingContext (marker, removed in transpilation).
+    RingContext,
+    /// Regular parameter.
+    Regular,
+}
+
+impl RingKernelParamKind {
+    /// Detect the parameter kind from type and name.
+    pub fn from_param(name: &str, ty: &Type) -> Self {
+        // Check type first
+        if is_control_block_type(ty) {
+            return Self::ControlBlock;
+        }
+        if is_ring_context_type(ty) {
+            return Self::RingContext;
+        }
+
+        // Check name patterns
+        let name_lower = name.to_lowercase();
+        if name_lower.contains("control") {
+            return Self::ControlBlock;
+        }
+        if name_lower.contains("input") || name_lower == "inbox" {
+            return Self::InputBuffer;
+        }
+        if name_lower.contains("output") || name_lower == "outbox" {
+            return Self::OutputBuffer;
+        }
+        if name_lower.contains("k2k") || name_lower.contains("route") {
+            return Self::K2KRoutes;
+        }
+        if name_lower.contains("state") || name_lower.contains("shared") {
+            return Self::SharedState;
+        }
+        if name_lower == "ctx" || name_lower == "context" {
+            return Self::RingContext;
+        }
+
+        Self::Regular
+    }
+}
+
+/// Create a TypeMapper with ring kernel types pre-registered.
+pub fn ring_kernel_type_mapper() -> TypeMapper {
+    let mut mapper = TypeMapper::new();
+
+    // Register ControlBlock
+    mapper.register_type("ControlBlock", CudaType::Struct("ControlBlock".to_string()));
+
+    // Register HlcState
+    mapper.register_type("HlcState", CudaType::Struct("HlcState".to_string()));
+
+    // Register K2K types
+    mapper.register_type("K2KRoutingTable", CudaType::Struct("K2KRoutingTable".to_string()));
+    mapper.register_type("K2KRoute", CudaType::Struct("K2KRoute".to_string()));
+
+    // RingContext is a marker type (removed in transpilation)
+    mapper.register_type("RingContext", CudaType::Void);
+
+    mapper
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,6 +376,89 @@ mod tests {
         assert_eq!(
             mapper.map_type(&ty).unwrap().to_cuda_string(),
             "WaveParams"
+        );
+    }
+
+    #[test]
+    fn test_control_block_type() {
+        let ty: Type = parse_quote!(ControlBlock);
+        assert!(is_control_block_type(&ty));
+
+        let ref_ty: Type = parse_quote!(&ControlBlock);
+        assert!(is_control_block_type(&ref_ty));
+
+        let mut_ref_ty: Type = parse_quote!(&mut ControlBlock);
+        assert!(is_control_block_type(&mut_ref_ty));
+
+        let ty: Type = parse_quote!(f32);
+        assert!(!is_control_block_type(&ty));
+    }
+
+    #[test]
+    fn test_ring_context_type() {
+        let ty: Type = parse_quote!(RingContext);
+        assert!(is_ring_context_type(&ty));
+
+        let ref_ty: Type = parse_quote!(&RingContext);
+        assert!(is_ring_context_type(&ref_ty));
+
+        let ty: Type = parse_quote!(f32);
+        assert!(!is_ring_context_type(&ty));
+    }
+
+    #[test]
+    fn test_ring_kernel_param_kind() {
+        let ctrl_ty: Type = parse_quote!(&mut ControlBlock);
+        assert_eq!(
+            RingKernelParamKind::from_param("control", &ctrl_ty),
+            RingKernelParamKind::ControlBlock
+        );
+
+        let ctx_ty: Type = parse_quote!(&RingContext);
+        assert_eq!(
+            RingKernelParamKind::from_param("ctx", &ctx_ty),
+            RingKernelParamKind::RingContext
+        );
+
+        let input_ty: Type = parse_quote!(&[u8]);
+        assert_eq!(
+            RingKernelParamKind::from_param("input_buffer", &input_ty),
+            RingKernelParamKind::InputBuffer
+        );
+
+        let output_ty: Type = parse_quote!(&mut [u8]);
+        assert_eq!(
+            RingKernelParamKind::from_param("output_buffer", &output_ty),
+            RingKernelParamKind::OutputBuffer
+        );
+
+        let regular_ty: Type = parse_quote!(f32);
+        assert_eq!(
+            RingKernelParamKind::from_param("value", &regular_ty),
+            RingKernelParamKind::Regular
+        );
+    }
+
+    #[test]
+    fn test_ring_kernel_type_mapper() {
+        let mapper = ring_kernel_type_mapper();
+
+        let ctrl_ty: Type = parse_quote!(ControlBlock);
+        assert_eq!(
+            mapper.map_type(&ctrl_ty).unwrap().to_cuda_string(),
+            "ControlBlock"
+        );
+
+        let hlc_ty: Type = parse_quote!(HlcState);
+        assert_eq!(
+            mapper.map_type(&hlc_ty).unwrap().to_cuda_string(),
+            "HlcState"
+        );
+
+        let ctx_ty: Type = parse_quote!(RingContext);
+        assert_eq!(
+            mapper.map_type(&ctx_ty).unwrap().to_cuda_string(),
+            "void"
         );
     }
 }

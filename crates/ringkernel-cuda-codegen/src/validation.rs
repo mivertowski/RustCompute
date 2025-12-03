@@ -2,6 +2,14 @@
 //!
 //! This module validates that Rust code conforms to the restricted DSL
 //! that can be transpiled to CUDA.
+//!
+//! # Validation Modes
+//!
+//! Different kernel types have different validation requirements:
+//!
+//! - **Stencil**: No loops allowed (use parallel threads)
+//! - **Generic**: Loops allowed for general CUDA kernels
+//! - **RingKernel**: Loops required for persistent actor kernels
 
 use syn::visit::Visit;
 use syn::{
@@ -9,6 +17,38 @@ use syn::{
     Stmt,
 };
 use thiserror::Error;
+
+/// Validation mode for different kernel types.
+///
+/// Different kernel patterns have different requirements for what
+/// Rust constructs are allowed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ValidationMode {
+    /// Stencil kernels: No loops allowed (current behavior).
+    /// Work is parallelized across threads, so loops would serialize work.
+    #[default]
+    Stencil,
+
+    /// Generic CUDA kernels: Loops allowed.
+    /// Useful for kernels that need sequential processing within a thread.
+    Generic,
+
+    /// Ring/Actor kernels: Loops required (persistent message loop).
+    /// These kernels run persistently and process messages in a loop.
+    RingKernel,
+}
+
+impl ValidationMode {
+    /// Check if loops are allowed in this validation mode.
+    pub fn allows_loops(&self) -> bool {
+        matches!(self, ValidationMode::Generic | ValidationMode::RingKernel)
+    }
+
+    /// Check if loops are required in this validation mode.
+    pub fn requires_loops(&self) -> bool {
+        matches!(self, ValidationMode::RingKernel)
+    }
+}
 
 /// Validation errors for DSL constraint violations.
 #[derive(Error, Debug, Clone)]
@@ -40,19 +80,27 @@ pub enum ValidationError {
     /// Invalid function signature.
     #[error("Invalid function signature: {0}")]
     InvalidSignature(String),
+
+    /// Missing required loop for ring kernels.
+    #[error("Ring kernels require a message processing loop")]
+    LoopRequired,
 }
 
 /// Visitor that checks for DSL constraint violations.
 struct DslValidator {
     errors: Vec<ValidationError>,
     function_name: String,
+    mode: ValidationMode,
+    loop_count: usize,
 }
 
 impl DslValidator {
-    fn new(function_name: String) -> Self {
+    fn with_mode(function_name: String, mode: ValidationMode) -> Self {
         Self {
             errors: Vec::new(),
             function_name,
+            mode,
+            loop_count: 0,
         }
     }
 
@@ -106,24 +154,33 @@ impl DslValidator {
 
 impl<'ast> Visit<'ast> for DslValidator {
     fn visit_expr_for_loop(&mut self, node: &'ast ExprForLoop) {
-        self.errors.push(ValidationError::LoopNotAllowed(
-            "for loop".to_string(),
-        ));
+        if !self.mode.allows_loops() {
+            self.errors.push(ValidationError::LoopNotAllowed(
+                "for loop".to_string(),
+            ));
+        }
+        self.loop_count += 1;
         // Still visit children to find more errors
         syn::visit::visit_expr_for_loop(self, node);
     }
 
     fn visit_expr_while(&mut self, node: &'ast ExprWhile) {
-        self.errors.push(ValidationError::LoopNotAllowed(
-            "while loop".to_string(),
-        ));
+        if !self.mode.allows_loops() {
+            self.errors.push(ValidationError::LoopNotAllowed(
+                "while loop".to_string(),
+            ));
+        }
+        self.loop_count += 1;
         syn::visit::visit_expr_while(self, node);
     }
 
     fn visit_expr_loop(&mut self, node: &'ast ExprLoop) {
-        self.errors.push(ValidationError::LoopNotAllowed(
-            "loop".to_string(),
-        ));
+        if !self.mode.allows_loops() {
+            self.errors.push(ValidationError::LoopNotAllowed(
+                "loop".to_string(),
+            ));
+        }
+        self.loop_count += 1;
         syn::visit::visit_expr_loop(self, node);
     }
 
@@ -175,8 +232,50 @@ impl<'ast> Visit<'ast> for DslValidator {
 ///
 /// `Ok(())` if validation passes, `Err` with the first validation error otherwise.
 pub fn validate_function(func: &ItemFn) -> Result<(), ValidationError> {
+    validate_function_with_mode(func, ValidationMode::Stencil)
+}
+
+/// Validate a function with a specific validation mode.
+///
+/// Different kernel types have different validation requirements:
+///
+/// - `ValidationMode::Stencil`: No loops allowed (current behavior for stencil kernels)
+/// - `ValidationMode::Generic`: Loops allowed for general CUDA kernels
+/// - `ValidationMode::RingKernel`: Loops required for persistent actor kernels
+///
+/// # Arguments
+///
+/// * `func` - The function to validate
+/// * `mode` - The validation mode to use
+///
+/// # Returns
+///
+/// `Ok(())` if validation passes, `Err` with the first validation error otherwise.
+///
+/// # Example
+///
+/// ```ignore
+/// use ringkernel_cuda_codegen::{validate_function_with_mode, ValidationMode};
+/// use syn::parse_quote;
+///
+/// // Generic kernel with loops allowed
+/// let func: syn::ItemFn = parse_quote! {
+///     fn process(data: &mut [f32], n: i32) {
+///         for i in 0..n {
+///             data[i as usize] = data[i as usize] * 2.0;
+///         }
+///     }
+/// };
+///
+/// // This would fail with Stencil mode, but passes with Generic mode
+/// assert!(validate_function_with_mode(&func, ValidationMode::Generic).is_ok());
+/// ```
+pub fn validate_function_with_mode(
+    func: &ItemFn,
+    mode: ValidationMode,
+) -> Result<(), ValidationError> {
     let function_name = func.sig.ident.to_string();
-    let mut validator = DslValidator::new(function_name);
+    let mut validator = DslValidator::with_mode(function_name, mode);
 
     // Visit all statements in the function body
     for stmt in &func.block.stmts {
@@ -193,6 +292,11 @@ pub fn validate_function(func: &ItemFn) -> Result<(), ValidationError> {
 
     // Also visit the entire block to catch nested constructs
     syn::visit::visit_block(&mut validator, &func.block);
+
+    // Check if loops are required but none found
+    if mode.requires_loops() && validator.loop_count == 0 {
+        return Err(ValidationError::LoopRequired);
+    }
 
     // Return first error if any
     if let Some(error) = validator.errors.into_iter().next() {
@@ -329,5 +433,137 @@ mod tests {
 
         let result = validate_stencil_signature(&func);
         assert!(matches!(result, Err(ValidationError::AsyncNotAllowed)));
+    }
+
+    // === ValidationMode tests ===
+
+    #[test]
+    fn test_generic_mode_allows_for_loop() {
+        let func: ItemFn = parse_quote! {
+            fn process(data: &mut [f32], n: i32) {
+                for i in 0..n {
+                    data[i as usize] = data[i as usize] * 2.0;
+                }
+            }
+        };
+
+        // Stencil mode rejects loops
+        assert!(matches!(
+            validate_function_with_mode(&func, ValidationMode::Stencil),
+            Err(ValidationError::LoopNotAllowed(_))
+        ));
+
+        // Generic mode allows loops
+        assert!(validate_function_with_mode(&func, ValidationMode::Generic).is_ok());
+    }
+
+    #[test]
+    fn test_generic_mode_allows_while_loop() {
+        let func: ItemFn = parse_quote! {
+            fn process(data: &mut [f32]) {
+                let mut i = 0;
+                while i < 10 {
+                    data[i] = 0.0;
+                    i += 1;
+                }
+            }
+        };
+
+        // Generic mode allows while loops
+        assert!(validate_function_with_mode(&func, ValidationMode::Generic).is_ok());
+    }
+
+    #[test]
+    fn test_generic_mode_allows_infinite_loop() {
+        let func: ItemFn = parse_quote! {
+            fn process(active: &u32) {
+                loop {
+                    if *active == 0 {
+                        return;
+                    }
+                }
+            }
+        };
+
+        // Generic mode allows infinite loops
+        assert!(validate_function_with_mode(&func, ValidationMode::Generic).is_ok());
+    }
+
+    #[test]
+    fn test_ring_kernel_mode_requires_loop() {
+        let func_no_loop: ItemFn = parse_quote! {
+            fn handler(x: f32) -> f32 {
+                x * 2.0
+            }
+        };
+
+        // RingKernel mode requires at least one loop
+        assert!(matches!(
+            validate_function_with_mode(&func_no_loop, ValidationMode::RingKernel),
+            Err(ValidationError::LoopRequired)
+        ));
+
+        let func_with_loop: ItemFn = parse_quote! {
+            fn handler(active: &u32) {
+                while *active != 0 {
+                    // Process messages
+                }
+            }
+        };
+
+        // RingKernel mode accepts function with loop
+        assert!(validate_function_with_mode(&func_with_loop, ValidationMode::RingKernel).is_ok());
+    }
+
+    #[test]
+    fn test_validation_mode_allows_loops() {
+        assert!(!ValidationMode::Stencil.allows_loops());
+        assert!(ValidationMode::Generic.allows_loops());
+        assert!(ValidationMode::RingKernel.allows_loops());
+    }
+
+    #[test]
+    fn test_validation_mode_requires_loops() {
+        assert!(!ValidationMode::Stencil.requires_loops());
+        assert!(!ValidationMode::Generic.requires_loops());
+        assert!(ValidationMode::RingKernel.requires_loops());
+    }
+
+    #[test]
+    fn test_closures_rejected_in_all_modes() {
+        // Test without loop (for Stencil and Generic modes)
+        let func: ItemFn = parse_quote! {
+            fn apply(x: f32) -> f32 {
+                let f = |v| v * 2.0;
+                f(x)
+            }
+        };
+
+        // Closures are rejected in Stencil and Generic modes
+        assert!(matches!(
+            validate_function_with_mode(&func, ValidationMode::Stencil),
+            Err(ValidationError::ClosureNotAllowed(_))
+        ));
+        assert!(matches!(
+            validate_function_with_mode(&func, ValidationMode::Generic),
+            Err(ValidationError::ClosureNotAllowed(_))
+        ));
+
+        // For RingKernel mode, we need a function with a loop that also has a closure
+        let func_with_loop: ItemFn = parse_quote! {
+            fn apply(x: f32) -> f32 {
+                loop {
+                    let f = |v| v * 2.0;
+                    if f(x) > 0.0 { break; }
+                }
+                x
+            }
+        };
+
+        // Closures are rejected in RingKernel mode too
+        assert!(matches!(
+            validate_function_with_mode(&func_with_loop, ValidationMode::RingKernel),
+            Err(ValidationError::ClosureNotAllowed(_))
+        ));
     }
 }

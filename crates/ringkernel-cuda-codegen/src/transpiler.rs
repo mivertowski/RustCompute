@@ -2,15 +2,19 @@
 //!
 //! This module handles the translation of Rust AST to CUDA C code.
 
-use crate::intrinsics::{IntrinsicRegistry, StencilIntrinsic};
+use crate::handler::{ContextMethod, HandlerSignature};
+use crate::intrinsics::{IntrinsicRegistry, RingKernelIntrinsic, StencilIntrinsic};
+use crate::loops::{extract_loop_var, RangeInfo};
+use crate::shared::{rust_to_cuda_element_type, SharedMemoryConfig, SharedMemoryDecl};
 use crate::stencil::StencilConfig;
-use crate::types::{is_grid_pos_type, TypeMapper};
+use crate::types::{is_grid_pos_type, is_ring_context_type, TypeMapper};
+use crate::validation::ValidationMode;
 use crate::{Result, TranspileError};
 use quote::ToTokens;
 use syn::{
-    BinOp, Expr, ExprAssign, ExprBinary, ExprCall, ExprCast, ExprIf, ExprIndex, ExprLit,
-    ExprMatch, ExprMethodCall, ExprParen, ExprPath, ExprReturn, ExprUnary, FnArg, ItemFn, Lit,
-    Pat, ReturnType, Stmt, UnOp,
+    BinOp, Expr, ExprAssign, ExprBinary, ExprBreak, ExprCall, ExprCast, ExprContinue, ExprForLoop,
+    ExprIf, ExprIndex, ExprLit, ExprLoop, ExprMatch, ExprMethodCall, ExprParen, ExprPath,
+    ExprReturn, ExprStruct, ExprUnary, ExprWhile, FnArg, ItemFn, Lit, Pat, ReturnType, Stmt, UnOp,
 };
 
 /// CUDA code transpiler.
@@ -23,8 +27,31 @@ pub struct CudaTranspiler {
     intrinsics: IntrinsicRegistry,
     /// Variables known to be the GridPos context.
     grid_pos_vars: Vec<String>,
+    /// Variables known to be RingContext references.
+    context_vars: Vec<String>,
     /// Current indentation level.
     indent: usize,
+    /// Validation mode for loop handling.
+    validation_mode: ValidationMode,
+    /// Shared memory configuration.
+    shared_memory: SharedMemoryConfig,
+    /// Variables that are SharedTile or SharedArray types.
+    pub shared_vars: std::collections::HashMap<String, SharedVarInfo>,
+    /// Whether we're in ring kernel mode (enables context method inlining).
+    ring_kernel_mode: bool,
+}
+
+/// Information about a shared memory variable.
+#[derive(Debug, Clone)]
+pub struct SharedVarInfo {
+    /// Variable name.
+    pub name: String,
+    /// Whether it's a 2D tile (true) or 1D array (false).
+    pub is_tile: bool,
+    /// Dimensions: [size] for 1D, [height, width] for 2D.
+    pub dimensions: Vec<usize>,
+    /// Element type (CUDA type string).
+    pub element_type: String,
 }
 
 impl CudaTranspiler {
@@ -35,7 +62,12 @@ impl CudaTranspiler {
             type_mapper: TypeMapper::new(),
             intrinsics: IntrinsicRegistry::new(),
             grid_pos_vars: Vec::new(),
+            context_vars: Vec::new(),
             indent: 1, // Start with 1 level for function body
+            validation_mode: ValidationMode::Stencil,
+            shared_memory: SharedMemoryConfig::new(),
+            shared_vars: std::collections::HashMap::new(),
+            ring_kernel_mode: false,
         }
     }
 
@@ -46,8 +78,55 @@ impl CudaTranspiler {
             type_mapper: TypeMapper::new(),
             intrinsics: IntrinsicRegistry::new(),
             grid_pos_vars: Vec::new(),
+            context_vars: Vec::new(),
             indent: 1,
+            validation_mode: ValidationMode::Generic,
+            shared_memory: SharedMemoryConfig::new(),
+            shared_vars: std::collections::HashMap::new(),
+            ring_kernel_mode: false,
         }
+    }
+
+    /// Create a new transpiler with a specific validation mode.
+    pub fn with_mode(mode: ValidationMode) -> Self {
+        Self {
+            config: None,
+            type_mapper: TypeMapper::new(),
+            intrinsics: IntrinsicRegistry::new(),
+            grid_pos_vars: Vec::new(),
+            context_vars: Vec::new(),
+            indent: 1,
+            validation_mode: mode,
+            shared_memory: SharedMemoryConfig::new(),
+            shared_vars: std::collections::HashMap::new(),
+            ring_kernel_mode: false,
+        }
+    }
+
+    /// Create a transpiler configured for ring kernel handler transpilation.
+    pub fn for_ring_kernel() -> Self {
+        Self {
+            config: None,
+            type_mapper: crate::types::ring_kernel_type_mapper(),
+            intrinsics: IntrinsicRegistry::new(),
+            grid_pos_vars: Vec::new(),
+            context_vars: Vec::new(),
+            indent: 2, // Inside kernel + loop
+            validation_mode: ValidationMode::Generic,
+            shared_memory: SharedMemoryConfig::new(),
+            shared_vars: std::collections::HashMap::new(),
+            ring_kernel_mode: true,
+        }
+    }
+
+    /// Set the validation mode.
+    pub fn set_validation_mode(&mut self, mode: ValidationMode) {
+        self.validation_mode = mode;
+    }
+
+    /// Get the shared memory configuration.
+    pub fn shared_memory(&self) -> &SharedMemoryConfig {
+        &self.shared_memory
     }
 
     /// Get current indentation string.
@@ -103,6 +182,130 @@ impl CudaTranspiler {
         Ok(format!(
             "extern \"C\" __global__ void {signature} {{\n{body}}}\n"
         ))
+    }
+
+    /// Transpile a handler function into a persistent ring kernel.
+    ///
+    /// This wraps the handler body in a persistent message-processing loop
+    /// with control block integration, queue operations, and HLC support.
+    pub fn transpile_ring_kernel(
+        &mut self,
+        handler: &ItemFn,
+        config: &crate::ring_kernel::RingKernelConfig,
+    ) -> Result<String> {
+        use std::fmt::Write;
+
+        // Parse handler signature
+        let handler_sig = HandlerSignature::parse(handler, &self.type_mapper)?;
+
+        // Track context variables for method inlining
+        for param in &handler.sig.inputs {
+            if let FnArg::Typed(pat_type) = param {
+                if is_ring_context_type(&pat_type.ty) {
+                    if let Pat::Ident(ident) = pat_type.pat.as_ref() {
+                        self.context_vars.push(ident.ident.to_string());
+                    }
+                }
+            }
+        }
+
+        // Enable ring kernel mode for context method inlining
+        self.ring_kernel_mode = true;
+
+        let mut output = String::new();
+
+        // Generate struct definitions
+        output.push_str(&crate::ring_kernel::generate_control_block_struct());
+        output.push('\n');
+
+        if config.enable_hlc {
+            output.push_str(&crate::ring_kernel::generate_hlc_struct());
+            output.push('\n');
+        }
+
+        if config.enable_k2k {
+            output.push_str(&crate::ring_kernel::generate_k2k_structs());
+            output.push('\n');
+        }
+
+        // Generate message/response struct definitions if needed
+        if let Some(ref msg_param) = handler_sig.message_param {
+            // Extract type name from the parameter
+            let type_name = msg_param.rust_type
+                .trim_start_matches('&')
+                .trim_start_matches("mut ")
+                .trim();
+            if !type_name.is_empty() && type_name != "f32" && type_name != "i32" {
+                writeln!(output, "// Message type: {}", type_name).unwrap();
+            }
+        }
+
+        if let Some(ref ret_type) = handler_sig.return_type {
+            if ret_type.is_struct {
+                writeln!(output, "// Response type: {}", ret_type.rust_type).unwrap();
+            }
+        }
+
+        // Generate kernel signature
+        output.push_str(&config.generate_signature());
+        output.push_str(" {\n");
+
+        // Generate preamble
+        output.push_str(&config.generate_preamble("    "));
+
+        // Generate message loop header
+        output.push_str(&config.generate_loop_header("    "));
+
+        // Generate message deserialization if handler has message param
+        if let Some(ref msg_param) = handler_sig.message_param {
+            let type_name = msg_param.rust_type
+                .trim_start_matches('&')
+                .trim_start_matches("mut ")
+                .trim();
+            if !type_name.is_empty() {
+                writeln!(output, "        // Message deserialization").unwrap();
+                writeln!(output, "        // {}* {} = ({}*)msg_ptr;",
+                    type_name, msg_param.name, type_name).unwrap();
+                output.push('\n');
+            }
+        }
+
+        // Transpile handler body
+        self.indent = 2; // Inside the message loop
+        let handler_body = self.transpile_block(&handler.block)?;
+
+        // Insert handler code with proper indentation
+        writeln!(output, "        // === USER HANDLER CODE ===").unwrap();
+        for line in handler_body.lines() {
+            if !line.trim().is_empty() {
+                // Add extra indent for being inside the loop
+                writeln!(output, "    {}", line).unwrap();
+            }
+        }
+        writeln!(output, "        // === END HANDLER CODE ===").unwrap();
+
+        // Generate response serialization if handler returns a value
+        if let Some(ref ret_type) = handler_sig.return_type {
+            writeln!(output).unwrap();
+            writeln!(output, "        // Response serialization").unwrap();
+            if ret_type.is_struct {
+                writeln!(output, "        // memcpy(&output_buffer[_out_idx * RESP_SIZE], &response, sizeof({}));",
+                    ret_type.cuda_type).unwrap();
+            }
+        }
+
+        // Generate message completion
+        output.push_str(&config.generate_message_complete("    "));
+
+        // Generate loop footer
+        output.push_str(&config.generate_loop_footer("    "));
+
+        // Generate epilogue
+        output.push_str(&config.generate_epilogue("    "));
+
+        output.push_str("}\n");
+
+        Ok(output)
     }
 
     /// Transpile a generic kernel function signature (keeps all params).
@@ -197,6 +400,23 @@ impl CudaTranspiler {
                     }
                 };
 
+                // Check for SharedTile or SharedArray type annotation
+                if let Some(shared_decl) = self.try_parse_shared_declaration(local, &var_name)? {
+                    // Register the shared variable
+                    self.shared_vars.insert(var_name.clone(), SharedVarInfo {
+                        name: var_name.clone(),
+                        is_tile: shared_decl.dimensions.len() == 2,
+                        dimensions: shared_decl.dimensions.clone(),
+                        element_type: shared_decl.element_type.clone(),
+                    });
+
+                    // Add to shared memory config
+                    self.shared_memory.add(shared_decl.clone());
+
+                    // Return the __shared__ declaration
+                    return Ok(format!("{indent}{}\n", shared_decl.to_cuda_decl()));
+                }
+
                 // Get initializer
                 if let Some(init) = &local.init {
                     let expr_str = self.transpile_expr(&init.expr)?;
@@ -280,6 +500,12 @@ impl CudaTranspiler {
                 Ok(format!("{base}.{member}"))
             }
             Expr::Return(ret) => self.transpile_return(ret),
+            Expr::ForLoop(for_loop) => self.transpile_for_loop(for_loop),
+            Expr::While(while_loop) => self.transpile_while_loop(while_loop),
+            Expr::Loop(loop_expr) => self.transpile_infinite_loop(loop_expr),
+            Expr::Break(break_expr) => self.transpile_break(break_expr),
+            Expr::Continue(cont_expr) => self.transpile_continue(cont_expr),
+            Expr::Struct(struct_expr) => self.transpile_struct_literal(struct_expr),
             _ => Err(TranspileError::Unsupported(format!(
                 "Expression type: {}",
                 expr.to_token_stream()
@@ -456,9 +682,29 @@ impl CudaTranspiler {
         let receiver = self.transpile_expr(&method.receiver)?;
         let method_name = method.method.to_string();
 
+        // Check if this is a SharedTile/SharedArray method call
+        if let Some(result) = self.try_transpile_shared_method_call(&receiver, &method_name, &method.args) {
+            return result;
+        }
+
+        // Check if this is a RingContext method call (in ring kernel mode)
+        if self.ring_kernel_mode && self.context_vars.contains(&receiver) {
+            return self.transpile_context_method(&method_name, &method.args);
+        }
+
         // Check if this is a GridPos method call
         if self.grid_pos_vars.contains(&receiver) {
             return self.transpile_stencil_intrinsic(&method_name, &method.args);
+        }
+
+        // Check for ring kernel intrinsics (like is_active(), should_terminate())
+        if self.ring_kernel_mode {
+            if let Some(intrinsic) = RingKernelIntrinsic::from_name(&method_name) {
+                let args: Vec<String> = method.args.iter()
+                    .map(|a| self.transpile_expr(a).unwrap_or_default())
+                    .collect();
+                return Ok(intrinsic.to_cuda(&args));
+            }
         }
 
         // Check for f32/f64 math methods
@@ -479,6 +725,23 @@ impl CudaTranspiler {
             .collect::<Result<_>>()?;
 
         Ok(format!("{}.{}({})", receiver, method_name, args.join(", ")))
+    }
+
+    /// Transpile a RingContext method call to CUDA intrinsics.
+    fn transpile_context_method(
+        &self,
+        method: &str,
+        args: &syn::punctuated::Punctuated<Expr, syn::token::Comma>,
+    ) -> Result<String> {
+        let ctx_method = ContextMethod::from_name(method).ok_or_else(|| {
+            TranspileError::Unsupported(format!("Unknown context method: {}", method))
+        })?;
+
+        let cuda_args: Vec<String> = args.iter()
+            .map(|a| self.transpile_expr(a).unwrap_or_default())
+            .collect();
+
+        Ok(ctx_method.to_cuda(&cuda_args))
     }
 
     /// Transpile a stencil intrinsic method call.
@@ -636,6 +899,416 @@ impl CudaTranspiler {
             Ok(format!("return {expr_str}"))
         } else {
             Ok("return".to_string())
+        }
+    }
+
+    /// Transpile a struct literal expression.
+    ///
+    /// Converts Rust struct literals to C-style compound literals:
+    /// `Point { x: 1.0, y: 2.0 }` -> `(Point){ .x = 1.0f, .y = 2.0f }`
+    fn transpile_struct_literal(&self, struct_expr: &ExprStruct) -> Result<String> {
+        // Get the struct type name
+        let type_name = struct_expr
+            .path
+            .segments
+            .iter()
+            .map(|s| s.ident.to_string())
+            .collect::<Vec<_>>()
+            .join("::");
+
+        // Transpile each field
+        let mut fields = Vec::new();
+        for field in &struct_expr.fields {
+            let field_name = match &field.member {
+                syn::Member::Named(ident) => ident.to_string(),
+                syn::Member::Unnamed(idx) => idx.index.to_string(),
+            };
+            let value = self.transpile_expr(&field.expr)?;
+            fields.push(format!(".{} = {}", field_name, value));
+        }
+
+        // Check for struct update syntax (not supported in C)
+        if struct_expr.rest.is_some() {
+            return Err(TranspileError::Unsupported(
+                "Struct update syntax (..base) is not supported in CUDA".into(),
+            ));
+        }
+
+        // Generate C compound literal: (TypeName){ .field1 = val1, .field2 = val2 }
+        Ok(format!("({}){{ {} }}", type_name, fields.join(", ")))
+    }
+
+    // === Loop Transpilation ===
+
+    /// Transpile a for loop to CUDA.
+    ///
+    /// Handles `for i in start..end` and `for i in start..=end` patterns.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Rust
+    /// for i in 0..n {
+    ///     data[i] = 0.0;
+    /// }
+    ///
+    /// // CUDA
+    /// for (int i = 0; i < n; i++) {
+    ///     data[i] = 0.0f;
+    /// }
+    /// ```
+    fn transpile_for_loop(&self, for_loop: &ExprForLoop) -> Result<String> {
+        // Check if loops are allowed
+        if !self.validation_mode.allows_loops() {
+            return Err(TranspileError::Unsupported(
+                "Loops are not allowed in stencil kernels".into(),
+            ));
+        }
+
+        // Extract loop variable name
+        let var_name = extract_loop_var(&for_loop.pat).ok_or_else(|| {
+            TranspileError::Unsupported("Complex pattern in for loop".into())
+        })?;
+
+        // The iterator expression should be a range
+        let header = match for_loop.expr.as_ref() {
+            Expr::Range(range) => {
+                let range_info = RangeInfo::from_range(range, |e| self.transpile_expr(e));
+                range_info.to_cuda_for_header(&var_name, "int")
+            }
+            _ => {
+                // For non-range iterators, we can't directly transpile
+                return Err(TranspileError::Unsupported(
+                    "Only range expressions (start..end) are supported in for loops".into(),
+                ));
+            }
+        };
+
+        // Transpile the loop body
+        let body = self.transpile_loop_body(&for_loop.body)?;
+
+        Ok(format!("{header} {{\n{body}}}"))
+    }
+
+    /// Transpile a while loop to CUDA.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Rust
+    /// while !done {
+    ///     process();
+    /// }
+    ///
+    /// // CUDA
+    /// while (!done) {
+    ///     process();
+    /// }
+    /// ```
+    fn transpile_while_loop(&self, while_loop: &ExprWhile) -> Result<String> {
+        // Check if loops are allowed
+        if !self.validation_mode.allows_loops() {
+            return Err(TranspileError::Unsupported(
+                "Loops are not allowed in stencil kernels".into(),
+            ));
+        }
+
+        // Transpile the condition
+        let condition = self.transpile_expr(&while_loop.cond)?;
+
+        // Transpile the loop body
+        let body = self.transpile_loop_body(&while_loop.body)?;
+
+        Ok(format!("while ({condition}) {{\n{body}}}"))
+    }
+
+    /// Transpile an infinite loop to CUDA.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Rust
+    /// loop {
+    ///     if should_exit { break; }
+    /// }
+    ///
+    /// // CUDA
+    /// while (true) {
+    ///     if (should_exit) { break; }
+    /// }
+    /// ```
+    fn transpile_infinite_loop(&self, loop_expr: &ExprLoop) -> Result<String> {
+        // Check if loops are allowed
+        if !self.validation_mode.allows_loops() {
+            return Err(TranspileError::Unsupported(
+                "Loops are not allowed in stencil kernels".into(),
+            ));
+        }
+
+        // Transpile the loop body
+        let body = self.transpile_loop_body(&loop_expr.body)?;
+
+        // Use while(true) for infinite loops
+        Ok(format!("while (true) {{\n{body}}}"))
+    }
+
+    /// Transpile a break expression.
+    fn transpile_break(&self, break_expr: &ExprBreak) -> Result<String> {
+        // Check for labeled break (not supported)
+        if break_expr.label.is_some() {
+            return Err(TranspileError::Unsupported(
+                "Labeled break is not supported in CUDA".into(),
+            ));
+        }
+
+        // Check for break with value (not supported in CUDA)
+        if break_expr.expr.is_some() {
+            return Err(TranspileError::Unsupported(
+                "Break with value is not supported in CUDA".into(),
+            ));
+        }
+
+        Ok("break".to_string())
+    }
+
+    /// Transpile a continue expression.
+    fn transpile_continue(&self, cont_expr: &ExprContinue) -> Result<String> {
+        // Check for labeled continue (not supported)
+        if cont_expr.label.is_some() {
+            return Err(TranspileError::Unsupported(
+                "Labeled continue is not supported in CUDA".into(),
+            ));
+        }
+
+        Ok("continue".to_string())
+    }
+
+    /// Transpile a loop body (block of statements).
+    fn transpile_loop_body(&self, block: &syn::Block) -> Result<String> {
+        let mut output = String::new();
+        let inner_indent = "    ".repeat(self.indent + 1);
+
+        for stmt in &block.stmts {
+            match stmt {
+                Stmt::Local(local) => {
+                    // Variable declaration
+                    let var_name = match &local.pat {
+                        Pat::Ident(ident) => ident.ident.to_string(),
+                        Pat::Type(pat_type) => {
+                            if let Pat::Ident(ident) = pat_type.pat.as_ref() {
+                                ident.ident.to_string()
+                            } else {
+                                return Err(TranspileError::Unsupported(
+                                    "Complex pattern in let binding".into(),
+                                ));
+                            }
+                        }
+                        _ => {
+                            return Err(TranspileError::Unsupported(
+                                "Complex pattern in let binding".into(),
+                            ))
+                        }
+                    };
+
+                    if let Some(init) = &local.init {
+                        let expr_str = self.transpile_expr(&init.expr)?;
+                        let type_str = self.infer_cuda_type(&init.expr);
+                        output.push_str(&format!("{inner_indent}{type_str} {var_name} = {expr_str};\n"));
+                    } else {
+                        output.push_str(&format!("{inner_indent}float {var_name};\n"));
+                    }
+                }
+                Stmt::Expr(expr, semi) => {
+                    let expr_str = self.transpile_expr(expr)?;
+                    if semi.is_some() {
+                        output.push_str(&format!("{inner_indent}{expr_str};\n"));
+                    } else {
+                        // Expression without semicolon at end of block
+                        output.push_str(&format!("{inner_indent}{expr_str};\n"));
+                    }
+                }
+                _ => {
+                    return Err(TranspileError::Unsupported(
+                        "Unsupported statement in loop body".into(),
+                    ));
+                }
+            }
+        }
+
+        // Add closing indentation
+        let closing_indent = "    ".repeat(self.indent);
+        output.push_str(&closing_indent);
+
+        Ok(output)
+    }
+
+    // === Shared Memory Support ===
+
+    /// Try to parse a local variable declaration as a shared memory declaration.
+    ///
+    /// Recognizes patterns like:
+    /// - `let tile = SharedTile::<f32, 16, 16>::new();`
+    /// - `let buffer = SharedArray::<f32, 256>::new();`
+    /// - `let tile: SharedTile<f32, 16, 16> = SharedTile::new();`
+    fn try_parse_shared_declaration(
+        &self,
+        local: &syn::Local,
+        var_name: &str,
+    ) -> Result<Option<SharedMemoryDecl>> {
+        // Check if there's a type annotation
+        if let Pat::Type(pat_type) = &local.pat {
+            let type_str = pat_type.ty.to_token_stream().to_string();
+            return self.parse_shared_type(&type_str, var_name);
+        }
+
+        // Check the initializer expression for SharedTile::new() or SharedArray::new()
+        if let Some(init) = &local.init {
+            if let Expr::Call(call) = init.expr.as_ref() {
+                if let Expr::Path(path) = call.func.as_ref() {
+                    let path_str = path.to_token_stream().to_string();
+                    return self.parse_shared_type(&path_str, var_name);
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Parse a type string to extract shared memory info.
+    fn parse_shared_type(&self, type_str: &str, var_name: &str) -> Result<Option<SharedMemoryDecl>> {
+        // Clean up the type string (remove spaces around ::)
+        let type_str = type_str.replace(" :: ", "::").replace(" ::", "::").replace(":: ", "::");
+
+        // Check for SharedTile<T, W, H> or SharedTile::<T, W, H>::new
+        if type_str.contains("SharedTile") {
+            // Extract the generic parameters
+            if let Some(start) = type_str.find('<') {
+                if let Some(end) = type_str.rfind('>') {
+                    let params = &type_str[start + 1..end];
+                    let parts: Vec<&str> = params.split(',').map(|s| s.trim()).collect();
+
+                    if parts.len() >= 3 {
+                        let rust_type = parts[0];
+                        let width: usize = parts[1].parse().map_err(|_| {
+                            TranspileError::Unsupported("Invalid SharedTile width".into())
+                        })?;
+                        let height: usize = parts[2].parse().map_err(|_| {
+                            TranspileError::Unsupported("Invalid SharedTile height".into())
+                        })?;
+
+                        let cuda_type = rust_to_cuda_element_type(rust_type);
+                        return Ok(Some(SharedMemoryDecl::tile(
+                            var_name,
+                            cuda_type,
+                            width,
+                            height,
+                        )));
+                    }
+                }
+            }
+        }
+
+        // Check for SharedArray<T, N> or SharedArray::<T, N>::new
+        if type_str.contains("SharedArray") {
+            if let Some(start) = type_str.find('<') {
+                if let Some(end) = type_str.rfind('>') {
+                    let params = &type_str[start + 1..end];
+                    let parts: Vec<&str> = params.split(',').map(|s| s.trim()).collect();
+
+                    if parts.len() >= 2 {
+                        let rust_type = parts[0];
+                        let size: usize = parts[1].parse().map_err(|_| {
+                            TranspileError::Unsupported("Invalid SharedArray size".into())
+                        })?;
+
+                        let cuda_type = rust_to_cuda_element_type(rust_type);
+                        return Ok(Some(SharedMemoryDecl::array(var_name, cuda_type, size)));
+                    }
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Check if a variable is a shared memory variable and handle method calls.
+    fn try_transpile_shared_method_call(
+        &self,
+        receiver: &str,
+        method_name: &str,
+        args: &syn::punctuated::Punctuated<Expr, syn::token::Comma>,
+    ) -> Option<Result<String>> {
+        let shared_info = self.shared_vars.get(receiver)?;
+
+        match method_name {
+            "get" => {
+                // tile.get(x, y) -> tile[y][x] (for 2D) or arr[idx] (for 1D)
+                if shared_info.is_tile {
+                    if args.len() >= 2 {
+                        let x = self.transpile_expr(&args[0]).ok()?;
+                        let y = self.transpile_expr(&args[1]).ok()?;
+                        // CUDA uses row-major: tile[row][col] = tile[y][x]
+                        Some(Ok(format!("{}[{}][{}]", receiver, y, x)))
+                    } else {
+                        Some(Err(TranspileError::Unsupported(
+                            "SharedTile.get requires x and y arguments".into(),
+                        )))
+                    }
+                } else {
+                    // 1D array
+                    if args.len() >= 1 {
+                        let idx = self.transpile_expr(&args[0]).ok()?;
+                        Some(Ok(format!("{}[{}]", receiver, idx)))
+                    } else {
+                        Some(Err(TranspileError::Unsupported(
+                            "SharedArray.get requires index argument".into(),
+                        )))
+                    }
+                }
+            }
+            "set" => {
+                // tile.set(x, y, val) -> tile[y][x] = val
+                if shared_info.is_tile {
+                    if args.len() >= 3 {
+                        let x = self.transpile_expr(&args[0]).ok()?;
+                        let y = self.transpile_expr(&args[1]).ok()?;
+                        let val = self.transpile_expr(&args[2]).ok()?;
+                        Some(Ok(format!("{}[{}][{}] = {}", receiver, y, x, val)))
+                    } else {
+                        Some(Err(TranspileError::Unsupported(
+                            "SharedTile.set requires x, y, and value arguments".into(),
+                        )))
+                    }
+                } else {
+                    // 1D array
+                    if args.len() >= 2 {
+                        let idx = self.transpile_expr(&args[0]).ok()?;
+                        let val = self.transpile_expr(&args[1]).ok()?;
+                        Some(Ok(format!("{}[{}] = {}", receiver, idx, val)))
+                    } else {
+                        Some(Err(TranspileError::Unsupported(
+                            "SharedArray.set requires index and value arguments".into(),
+                        )))
+                    }
+                }
+            }
+            "width" | "height" | "size" => {
+                // These are compile-time constants
+                match method_name {
+                    "width" if shared_info.is_tile => {
+                        Some(Ok(shared_info.dimensions[1].to_string()))
+                    }
+                    "height" if shared_info.is_tile => {
+                        Some(Ok(shared_info.dimensions[0].to_string()))
+                    }
+                    "size" => {
+                        let total: usize = shared_info.dimensions.iter().product();
+                        Some(Ok(total.to_string()))
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
         }
     }
 
@@ -1007,5 +1680,452 @@ mod tests {
         assert!(result.contains("threadIdx.x"), "Should contain threadIdx.x");
 
         println!("Global index expression: {}", result);
+    }
+
+    // === Loop Transpilation Tests ===
+
+    #[test]
+    fn test_for_loop_transpile() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            for i in 0..n {
+                data[i] = 0.0;
+            }
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert!(result.contains("for (int i = 0; i < n; i++)"), "Should generate for loop header: {}", result);
+        assert!(result.contains("data[i] = 0.0f"), "Should contain loop body: {}", result);
+
+        println!("Generated for loop:\n{}", result);
+    }
+
+    #[test]
+    fn test_for_loop_inclusive_range() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            for i in 1..=10 {
+                sum += i;
+            }
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert!(result.contains("for (int i = 1; i <= 10; i++)"), "Should generate inclusive range: {}", result);
+
+        println!("Generated inclusive for loop:\n{}", result);
+    }
+
+    #[test]
+    fn test_while_loop_transpile() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            while i < 10 {
+                i += 1;
+            }
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert!(result.contains("while (i < 10)"), "Should generate while loop: {}", result);
+        assert!(result.contains("i += 1"), "Should contain loop body: {}", result);
+
+        println!("Generated while loop:\n{}", result);
+    }
+
+    #[test]
+    fn test_while_loop_negation() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            while !done {
+                process();
+            }
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert!(result.contains("while (!(done))"), "Should negate condition: {}", result);
+
+        println!("Generated while loop with negation:\n{}", result);
+    }
+
+    #[test]
+    fn test_infinite_loop_transpile() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            loop {
+                process();
+            }
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert!(result.contains("while (true)"), "Should generate infinite loop: {}", result);
+        assert!(result.contains("process()"), "Should contain loop body: {}", result);
+
+        println!("Generated infinite loop:\n{}", result);
+    }
+
+    #[test]
+    fn test_break_transpile() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote!(break);
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert_eq!(result, "break");
+    }
+
+    #[test]
+    fn test_continue_transpile() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote!(continue);
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert_eq!(result, "continue");
+    }
+
+    #[test]
+    fn test_loop_with_break() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            loop {
+                if done {
+                    break;
+                }
+            }
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert!(result.contains("while (true)"), "Should generate infinite loop: {}", result);
+        assert!(result.contains("break"), "Should contain break: {}", result);
+
+        println!("Generated loop with break:\n{}", result);
+    }
+
+    #[test]
+    fn test_nested_loops() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            for i in 0..m {
+                for j in 0..n {
+                    matrix[i * n + j] = 0.0;
+                }
+            }
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert!(result.contains("for (int i = 0; i < m; i++)"), "Should have outer loop: {}", result);
+        assert!(result.contains("for (int j = 0; j < n; j++)"), "Should have inner loop: {}", result);
+
+        println!("Generated nested loops:\n{}", result);
+    }
+
+    #[test]
+    fn test_stencil_mode_rejects_loops() {
+        let config = StencilConfig::new("test").with_tile_size(16, 16).with_halo(1);
+        let transpiler = CudaTranspiler::new(config);
+
+        let expr: Expr = parse_quote! {
+            for i in 0..n {
+                data[i] = 0.0;
+            }
+        };
+
+        let result = transpiler.transpile_expr(&expr);
+        assert!(result.is_err(), "Stencil mode should reject loops");
+    }
+
+    #[test]
+    fn test_labeled_break_rejected() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        // Note: We can't directly parse `break 'label` without a labeled block,
+        // so we test that the error path exists by checking the function handles labels
+        let break_expr = syn::ExprBreak {
+            attrs: Vec::new(),
+            break_token: syn::token::Break::default(),
+            label: Some(syn::Lifetime::new("'outer", proc_macro2::Span::call_site())),
+            expr: None,
+        };
+
+        let result = transpiler.transpile_break(&break_expr);
+        assert!(result.is_err(), "Labeled break should be rejected");
+    }
+
+    #[test]
+    fn test_full_kernel_with_loop() {
+        let func: ItemFn = parse_quote! {
+            fn fill_array(data: &mut [f32], n: i32) {
+                for i in 0..n {
+                    data[i as usize] = 0.0;
+                }
+            }
+        };
+
+        let mut transpiler = CudaTranspiler::new_generic();
+        let cuda = transpiler.transpile_generic_kernel(&func).unwrap();
+
+        assert!(cuda.contains("extern \"C\" __global__"), "Should be global kernel: {}", cuda);
+        assert!(cuda.contains("for (int i = 0; i < n; i++)"), "Should have for loop: {}", cuda);
+
+        println!("Generated kernel with loop:\n{}", cuda);
+    }
+
+    #[test]
+    fn test_persistent_kernel_pattern() {
+        // Test the pattern used for ring/actor kernels
+        let transpiler = CudaTranspiler::with_mode(ValidationMode::RingKernel);
+
+        let expr: Expr = parse_quote! {
+            while !should_terminate {
+                if has_message {
+                    process_message();
+                }
+            }
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert!(result.contains("while (!(should_terminate))"), "Should have persistent loop: {}", result);
+        assert!(result.contains("if (has_message)"), "Should have message check: {}", result);
+
+        println!("Generated persistent kernel pattern:\n{}", result);
+    }
+
+    // ==================== Shared Memory Tests ====================
+
+    #[test]
+    fn test_shared_tile_declaration() {
+        use crate::shared::{SharedMemoryDecl, SharedMemoryConfig};
+
+        let decl = SharedMemoryDecl::tile("tile", "float", 16, 16);
+        assert_eq!(decl.to_cuda_decl(), "__shared__ float tile[16][16];");
+
+        let mut config = SharedMemoryConfig::new();
+        config.add_tile("tile", "float", 16, 16);
+        assert_eq!(config.total_bytes(), 16 * 16 * 4); // 1024 bytes
+
+        let decls = config.generate_declarations("    ");
+        assert!(decls.contains("__shared__ float tile[16][16];"));
+    }
+
+    #[test]
+    fn test_shared_array_declaration() {
+        use crate::shared::{SharedMemoryDecl, SharedMemoryConfig};
+
+        let decl = SharedMemoryDecl::array("buffer", "float", 256);
+        assert_eq!(decl.to_cuda_decl(), "__shared__ float buffer[256];");
+
+        let mut config = SharedMemoryConfig::new();
+        config.add_array("buffer", "float", 256);
+        assert_eq!(config.total_bytes(), 256 * 4); // 1024 bytes
+    }
+
+    #[test]
+    fn test_shared_memory_access_expressions() {
+        use crate::shared::SharedMemoryDecl;
+
+        let tile = SharedMemoryDecl::tile("tile", "float", 16, 16);
+        assert_eq!(
+            tile.to_cuda_access(&["y".to_string(), "x".to_string()]),
+            "tile[y][x]"
+        );
+
+        let arr = SharedMemoryDecl::array("buf", "int", 128);
+        assert_eq!(
+            arr.to_cuda_access(&["i".to_string()]),
+            "buf[i]"
+        );
+    }
+
+    #[test]
+    fn test_parse_shared_tile_type() {
+        use crate::shared::parse_shared_tile_type;
+
+        let result = parse_shared_tile_type("SharedTile::<f32, 16, 16>");
+        assert_eq!(result, Some(("f32".to_string(), 16, 16)));
+
+        let result2 = parse_shared_tile_type("SharedTile<i32, 32, 8>");
+        assert_eq!(result2, Some(("i32".to_string(), 32, 8)));
+
+        let invalid = parse_shared_tile_type("Vec<f32>");
+        assert_eq!(invalid, None);
+    }
+
+    #[test]
+    fn test_parse_shared_array_type() {
+        use crate::shared::parse_shared_array_type;
+
+        let result = parse_shared_array_type("SharedArray::<f32, 256>");
+        assert_eq!(result, Some(("f32".to_string(), 256)));
+
+        let result2 = parse_shared_array_type("SharedArray<u32, 1024>");
+        assert_eq!(result2, Some(("u32".to_string(), 1024)));
+
+        let invalid = parse_shared_array_type("Vec<f32>");
+        assert_eq!(invalid, None);
+    }
+
+    #[test]
+    fn test_rust_to_cuda_element_types() {
+        use crate::shared::rust_to_cuda_element_type;
+
+        assert_eq!(rust_to_cuda_element_type("f32"), "float");
+        assert_eq!(rust_to_cuda_element_type("f64"), "double");
+        assert_eq!(rust_to_cuda_element_type("i32"), "int");
+        assert_eq!(rust_to_cuda_element_type("u32"), "unsigned int");
+        assert_eq!(rust_to_cuda_element_type("i64"), "long long");
+        assert_eq!(rust_to_cuda_element_type("u64"), "unsigned long long");
+        assert_eq!(rust_to_cuda_element_type("bool"), "int");
+    }
+
+    #[test]
+    fn test_shared_memory_total_bytes() {
+        use crate::shared::SharedMemoryConfig;
+
+        let mut config = SharedMemoryConfig::new();
+        config.add_tile("tile1", "float", 16, 16);  // 16*16*4 = 1024
+        config.add_tile("tile2", "double", 8, 8);   // 8*8*8 = 512
+        config.add_array("temp", "int", 64);        // 64*4 = 256
+
+        assert_eq!(config.total_bytes(), 1024 + 512 + 256);
+    }
+
+    #[test]
+    fn test_transpiler_shared_var_tracking() {
+        let mut transpiler = CudaTranspiler::new_generic();
+
+        // Manually register a shared variable
+        transpiler.shared_vars.insert("tile".to_string(), SharedVarInfo {
+            name: "tile".to_string(),
+            is_tile: true,
+            dimensions: vec![16, 16],
+            element_type: "float".to_string(),
+        });
+
+        // Test that transpiler tracks it
+        assert!(transpiler.shared_vars.contains_key("tile"));
+        assert!(transpiler.shared_vars.get("tile").unwrap().is_tile);
+    }
+
+    #[test]
+    fn test_shared_tile_get_transpilation() {
+        let mut transpiler = CudaTranspiler::new_generic();
+
+        // Register a shared tile
+        transpiler.shared_vars.insert("tile".to_string(), SharedVarInfo {
+            name: "tile".to_string(),
+            is_tile: true,
+            dimensions: vec![16, 16],
+            element_type: "float".to_string(),
+        });
+
+        // Test method call transpilation
+        let result = transpiler.try_transpile_shared_method_call(
+            "tile",
+            "get",
+            &syn::punctuated::Punctuated::new()
+        );
+
+        // With no args, it should return None (args required)
+        assert!(result.is_none() || result.unwrap().is_err());
+    }
+
+    #[test]
+    fn test_shared_array_access() {
+        let mut transpiler = CudaTranspiler::new_generic();
+
+        // Register a shared array
+        transpiler.shared_vars.insert("buffer".to_string(), SharedVarInfo {
+            name: "buffer".to_string(),
+            is_tile: false,
+            dimensions: vec![256],
+            element_type: "float".to_string(),
+        });
+
+        assert!(!transpiler.shared_vars.get("buffer").unwrap().is_tile);
+        assert_eq!(transpiler.shared_vars.get("buffer").unwrap().dimensions, vec![256]);
+    }
+
+    #[test]
+    fn test_full_kernel_with_shared_memory() {
+        // Test that we can generate declarations correctly
+        use crate::shared::SharedMemoryConfig;
+
+        let mut config = SharedMemoryConfig::new();
+        config.add_tile("smem", "float", 16, 16);
+
+        let decls = config.generate_declarations("    ");
+        assert!(decls.contains("__shared__ float smem[16][16];"));
+        assert!(!config.is_empty());
+    }
+
+    // === Struct Literal Tests ===
+
+    #[test]
+    fn test_struct_literal_transpile() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            Point { x: 1.0, y: 2.0 }
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert!(result.contains("Point"), "Should contain struct name: {}", result);
+        assert!(result.contains(".x ="), "Should have field x: {}", result);
+        assert!(result.contains(".y ="), "Should have field y: {}", result);
+        assert!(result.contains("1.0f"), "Should have value 1.0f: {}", result);
+        assert!(result.contains("2.0f"), "Should have value 2.0f: {}", result);
+
+        println!("Generated struct literal: {}", result);
+    }
+
+    #[test]
+    fn test_struct_literal_with_expressions() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            Response { value: x * 2.0, id: idx as u64 }
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert!(result.contains("Response"), "Should contain struct name: {}", result);
+        assert!(result.contains(".value = x * 2.0f"), "Should have computed value: {}", result);
+        assert!(result.contains(".id ="), "Should have id field: {}", result);
+
+        println!("Generated struct with expressions: {}", result);
+    }
+
+    #[test]
+    fn test_struct_literal_in_return() {
+        let mut transpiler = CudaTranspiler::new_generic();
+
+        let stmt: Stmt = parse_quote! {
+            return MyStruct { a: 1, b: 2.0 };
+        };
+
+        let result = transpiler.transpile_stmt(&stmt).unwrap();
+        assert!(result.contains("return"), "Should have return: {}", result);
+        assert!(result.contains("MyStruct"), "Should contain struct name: {}", result);
+
+        println!("Generated return with struct: {}", result);
+    }
+
+    #[test]
+    fn test_struct_literal_compound_literal_format() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            Vec3 { x: a, y: b, z: c }
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        // Check for C compound literal format: (Type){ .field = val, ... }
+        assert!(result.starts_with("(Vec3){"), "Should use compound literal format: {}", result);
+        assert!(result.ends_with("}"), "Should end with closing brace: {}", result);
+
+        println!("Generated compound literal: {}", result);
     }
 }

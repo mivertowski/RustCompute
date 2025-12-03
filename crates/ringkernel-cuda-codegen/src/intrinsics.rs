@@ -247,7 +247,195 @@ impl StencilIntrinsic {
             _ => None,
         }
     }
+}
 
+/// Ring kernel intrinsics for persistent actor kernels.
+///
+/// These intrinsics provide access to control block state, queue operations,
+/// and HLC (Hybrid Logical Clock) functionality within ring kernel handlers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RingKernelIntrinsic {
+    // === Control Block Access ===
+    /// Check if kernel is active: `is_active()`
+    IsActive,
+    /// Check if termination requested: `should_terminate()`
+    ShouldTerminate,
+    /// Mark kernel as terminated: `mark_terminated()`
+    MarkTerminated,
+    /// Get messages processed count: `messages_processed()`
+    GetMessagesProcessed,
+
+    // === Queue Operations ===
+    /// Get input queue size: `input_queue_size()`
+    InputQueueSize,
+    /// Get output queue size: `output_queue_size()`
+    OutputQueueSize,
+    /// Check if input queue empty: `input_queue_empty()`
+    InputQueueEmpty,
+    /// Check if output queue empty: `output_queue_empty()`
+    OutputQueueEmpty,
+    /// Enqueue a response: `enqueue_response(&response)`
+    EnqueueResponse,
+
+    // === HLC Operations ===
+    /// Increment HLC logical counter: `hlc_tick()`
+    HlcTick,
+    /// Update HLC with received timestamp: `hlc_update(received_ts)`
+    HlcUpdate,
+    /// Get current HLC timestamp: `hlc_now()`
+    HlcNow,
+
+    // === K2K Operations ===
+    /// Send message to another kernel: `k2k_send(target_id, &msg)`
+    K2kSend,
+    /// Try to receive K2K message: `k2k_try_recv()`
+    K2kTryRecv,
+    /// Check for K2K messages: `k2k_has_message()`
+    K2kHasMessage,
+    /// Peek at next K2K message without consuming: `k2k_peek()`
+    K2kPeek,
+    /// Get number of pending K2K messages: `k2k_pending_count()`
+    K2kPendingCount,
+
+    // === Timing ===
+    /// Sleep for nanoseconds: `nanosleep(ns)`
+    Nanosleep,
+}
+
+impl RingKernelIntrinsic {
+    /// Get the CUDA code for this intrinsic.
+    pub fn to_cuda(&self, args: &[String]) -> String {
+        match self {
+            Self::IsActive => "atomicAdd(&control->is_active, 0) != 0".to_string(),
+            Self::ShouldTerminate => "atomicAdd(&control->should_terminate, 0) != 0".to_string(),
+            Self::MarkTerminated => "atomicExch(&control->has_terminated, 1)".to_string(),
+            Self::GetMessagesProcessed => "atomicAdd(&control->messages_processed, 0)".to_string(),
+
+            Self::InputQueueSize => {
+                "(atomicAdd(&control->input_head, 0) - atomicAdd(&control->input_tail, 0))".to_string()
+            }
+            Self::OutputQueueSize => {
+                "(atomicAdd(&control->output_head, 0) - atomicAdd(&control->output_tail, 0))".to_string()
+            }
+            Self::InputQueueEmpty => {
+                "(atomicAdd(&control->input_head, 0) == atomicAdd(&control->input_tail, 0))".to_string()
+            }
+            Self::OutputQueueEmpty => {
+                "(atomicAdd(&control->output_head, 0) == atomicAdd(&control->output_tail, 0))".to_string()
+            }
+            Self::EnqueueResponse => {
+                if !args.is_empty() {
+                    format!(
+                        "{{ unsigned long long _out_idx = atomicAdd(&control->output_head, 1) & control->output_mask; \
+                         memcpy(&output_buffer[_out_idx * RESP_SIZE], {}, RESP_SIZE); }}",
+                        args[0]
+                    )
+                } else {
+                    "/* enqueue_response requires response pointer */".to_string()
+                }
+            }
+
+            Self::HlcTick => "hlc_logical++".to_string(),
+            Self::HlcUpdate => {
+                if !args.is_empty() {
+                    format!(
+                        "{{ if ({} > hlc_physical) {{ hlc_physical = {}; hlc_logical = 0; }} else {{ hlc_logical++; }} }}",
+                        args[0], args[0]
+                    )
+                } else {
+                    "hlc_logical++".to_string()
+                }
+            }
+            Self::HlcNow => "(hlc_physical << 32) | (hlc_logical & 0xFFFFFFFF)".to_string(),
+
+            Self::K2kSend => {
+                if args.len() >= 2 {
+                    // k2k_send(target_id, msg_ptr) -> k2k_send(k2k_routes, target_id, msg_ptr, sizeof(*msg_ptr))
+                    format!("k2k_send(k2k_routes, {}, {}, sizeof(*{}))", args[0], args[1], args[1])
+                } else {
+                    "/* k2k_send requires target_id and msg_ptr */".to_string()
+                }
+            }
+            Self::K2kTryRecv => "k2k_try_recv(k2k_inbox)".to_string(),
+            Self::K2kHasMessage => "k2k_has_message(k2k_inbox)".to_string(),
+            Self::K2kPeek => "k2k_peek(k2k_inbox)".to_string(),
+            Self::K2kPendingCount => "k2k_pending_count(k2k_inbox)".to_string(),
+
+            Self::Nanosleep => {
+                if !args.is_empty() {
+                    format!("__nanosleep({})", args[0])
+                } else {
+                    "__nanosleep(1000)".to_string()
+                }
+            }
+        }
+    }
+
+    /// Parse a function name to get the intrinsic.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "is_active" | "is_kernel_active" => Some(Self::IsActive),
+            "should_terminate" => Some(Self::ShouldTerminate),
+            "mark_terminated" => Some(Self::MarkTerminated),
+            "messages_processed" | "get_messages_processed" => Some(Self::GetMessagesProcessed),
+
+            "input_queue_size" => Some(Self::InputQueueSize),
+            "output_queue_size" => Some(Self::OutputQueueSize),
+            "input_queue_empty" => Some(Self::InputQueueEmpty),
+            "output_queue_empty" => Some(Self::OutputQueueEmpty),
+            "enqueue_response" | "enqueue" => Some(Self::EnqueueResponse),
+
+            "hlc_tick" => Some(Self::HlcTick),
+            "hlc_update" => Some(Self::HlcUpdate),
+            "hlc_now" => Some(Self::HlcNow),
+
+            "k2k_send" => Some(Self::K2kSend),
+            "k2k_try_recv" => Some(Self::K2kTryRecv),
+            "k2k_has_message" => Some(Self::K2kHasMessage),
+            "k2k_peek" => Some(Self::K2kPeek),
+            "k2k_pending_count" | "k2k_pending" => Some(Self::K2kPendingCount),
+
+            "nanosleep" => Some(Self::Nanosleep),
+
+            _ => None,
+        }
+    }
+
+    /// Check if this intrinsic requires the control block.
+    pub fn requires_control_block(&self) -> bool {
+        matches!(
+            self,
+            Self::IsActive
+                | Self::ShouldTerminate
+                | Self::MarkTerminated
+                | Self::GetMessagesProcessed
+                | Self::InputQueueSize
+                | Self::OutputQueueSize
+                | Self::InputQueueEmpty
+                | Self::OutputQueueEmpty
+                | Self::EnqueueResponse
+        )
+    }
+
+    /// Check if this intrinsic requires HLC state.
+    pub fn requires_hlc(&self) -> bool {
+        matches!(self, Self::HlcTick | Self::HlcUpdate | Self::HlcNow)
+    }
+
+    /// Check if this intrinsic requires K2K support.
+    pub fn requires_k2k(&self) -> bool {
+        matches!(
+            self,
+            Self::K2kSend
+                | Self::K2kTryRecv
+                | Self::K2kHasMessage
+                | Self::K2kPeek
+                | Self::K2kPendingCount
+        )
+    }
+}
+
+impl StencilIntrinsic {
     /// Get the index offset for 2D stencil (relative to buffer_width).
     ///
     /// Returns (row_offset, col_offset) where final offset is:
@@ -343,5 +531,119 @@ mod tests {
         assert_eq!(StencilIntrinsic::North.get_offset_2d(), Some((-1, 0)));
         assert_eq!(StencilIntrinsic::East.get_offset_2d(), Some((0, 1)));
         assert_eq!(StencilIntrinsic::Index.get_offset_2d(), Some((0, 0)));
+    }
+
+    #[test]
+    fn test_ring_kernel_intrinsic_lookup() {
+        assert_eq!(
+            RingKernelIntrinsic::from_name("is_active"),
+            Some(RingKernelIntrinsic::IsActive)
+        );
+        assert_eq!(
+            RingKernelIntrinsic::from_name("should_terminate"),
+            Some(RingKernelIntrinsic::ShouldTerminate)
+        );
+        assert_eq!(
+            RingKernelIntrinsic::from_name("hlc_tick"),
+            Some(RingKernelIntrinsic::HlcTick)
+        );
+        assert_eq!(
+            RingKernelIntrinsic::from_name("enqueue_response"),
+            Some(RingKernelIntrinsic::EnqueueResponse)
+        );
+        assert_eq!(RingKernelIntrinsic::from_name("unknown"), None);
+    }
+
+    #[test]
+    fn test_ring_kernel_intrinsic_cuda_output() {
+        assert!(RingKernelIntrinsic::IsActive.to_cuda(&[]).contains("is_active"));
+        assert!(RingKernelIntrinsic::ShouldTerminate.to_cuda(&[]).contains("should_terminate"));
+        assert!(RingKernelIntrinsic::HlcTick.to_cuda(&[]).contains("hlc_logical"));
+        assert!(RingKernelIntrinsic::InputQueueEmpty.to_cuda(&[]).contains("input_head"));
+    }
+
+    #[test]
+    fn test_ring_kernel_queue_intrinsics() {
+        let enqueue = RingKernelIntrinsic::EnqueueResponse;
+        let cuda = enqueue.to_cuda(&["&response".to_string()]);
+        assert!(cuda.contains("output_head"));
+        assert!(cuda.contains("memcpy"));
+    }
+
+    #[test]
+    fn test_k2k_intrinsics() {
+        // Test k2k_send
+        let send = RingKernelIntrinsic::K2kSend;
+        let cuda = send.to_cuda(&["target_id".to_string(), "&msg".to_string()]);
+        assert!(cuda.contains("k2k_send"));
+        assert!(cuda.contains("k2k_routes"));
+        assert!(cuda.contains("target_id"));
+
+        // Test k2k_try_recv
+        assert_eq!(
+            RingKernelIntrinsic::K2kTryRecv.to_cuda(&[]),
+            "k2k_try_recv(k2k_inbox)"
+        );
+
+        // Test k2k_has_message
+        assert_eq!(
+            RingKernelIntrinsic::K2kHasMessage.to_cuda(&[]),
+            "k2k_has_message(k2k_inbox)"
+        );
+
+        // Test k2k_peek
+        assert_eq!(
+            RingKernelIntrinsic::K2kPeek.to_cuda(&[]),
+            "k2k_peek(k2k_inbox)"
+        );
+
+        // Test k2k_pending_count
+        assert_eq!(
+            RingKernelIntrinsic::K2kPendingCount.to_cuda(&[]),
+            "k2k_pending_count(k2k_inbox)"
+        );
+    }
+
+    #[test]
+    fn test_k2k_intrinsic_lookup() {
+        assert_eq!(
+            RingKernelIntrinsic::from_name("k2k_send"),
+            Some(RingKernelIntrinsic::K2kSend)
+        );
+        assert_eq!(
+            RingKernelIntrinsic::from_name("k2k_try_recv"),
+            Some(RingKernelIntrinsic::K2kTryRecv)
+        );
+        assert_eq!(
+            RingKernelIntrinsic::from_name("k2k_has_message"),
+            Some(RingKernelIntrinsic::K2kHasMessage)
+        );
+        assert_eq!(
+            RingKernelIntrinsic::from_name("k2k_peek"),
+            Some(RingKernelIntrinsic::K2kPeek)
+        );
+        assert_eq!(
+            RingKernelIntrinsic::from_name("k2k_pending_count"),
+            Some(RingKernelIntrinsic::K2kPendingCount)
+        );
+    }
+
+    #[test]
+    fn test_intrinsic_requirements() {
+        // K2K intrinsics require K2K
+        assert!(RingKernelIntrinsic::K2kSend.requires_k2k());
+        assert!(RingKernelIntrinsic::K2kTryRecv.requires_k2k());
+        assert!(RingKernelIntrinsic::K2kPeek.requires_k2k());
+        assert!(!RingKernelIntrinsic::HlcTick.requires_k2k());
+
+        // HLC intrinsics require HLC
+        assert!(RingKernelIntrinsic::HlcTick.requires_hlc());
+        assert!(RingKernelIntrinsic::HlcNow.requires_hlc());
+        assert!(!RingKernelIntrinsic::K2kSend.requires_hlc());
+
+        // Control block intrinsics require control block
+        assert!(RingKernelIntrinsic::IsActive.requires_control_block());
+        assert!(RingKernelIntrinsic::EnqueueResponse.requires_control_block());
+        assert!(!RingKernelIntrinsic::HlcTick.requires_control_block());
     }
 }
