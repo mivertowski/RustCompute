@@ -533,6 +533,22 @@ impl SimulationGrid {
         // Re-initialize boundary reflection coefficients
         self.initialize_boundaries();
     }
+
+    /// Get mutable access to pressure buffers for educational mode processing.
+    ///
+    /// Returns (pressure, pressure_prev, width, height, c2, damping)
+    pub fn get_buffers_mut(&mut self) -> (&mut Vec<f32>, &mut Vec<f32>, usize, usize, f32, f32) {
+        let width = self.width as usize;
+        let height = self.height as usize;
+        let c2 = self.params.courant_number().powi(2);
+        let damping = 1.0 - self.params.damping;
+        (&mut self.pressure, &mut self.pressure_prev, width, height, c2, damping)
+    }
+
+    /// Swap the pressure buffers (called when educational step completes).
+    pub fn swap_buffers(&mut self) {
+        std::mem::swap(&mut self.pressure, &mut self.pressure_prev);
+    }
 }
 
 #[cfg(test)]

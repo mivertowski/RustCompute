@@ -5390,6 +5390,7 @@ dependencies = [
  "cudarc",
  "iced",
  "inventory",
+ "rand 0.8.5",
  "rayon",
  "ringkernel",
  "ringkernel-core",

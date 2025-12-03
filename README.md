@@ -238,12 +238,12 @@ cargo run -p ringkernel --example telemetry
 | `ringkernel-wgpu` | WebGPU backend |
 | `ringkernel-codegen` | GPU kernel code generation |
 | `ringkernel-cuda-codegen` | Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL |
-| `ringkernel-wavesim` | 2D wave simulation demo with tile-based FDTD |
+| `ringkernel-wavesim` | 2D wave simulation demo with tile-based FDTD and educational modes |
 
 ## Testing
 
 ```bash
-# Run all tests (280+ tests)
+# Run all tests (290+ tests)
 cargo test --workspace
 
 # CUDA backend tests (requires NVIDIA GPU)
@@ -283,6 +283,22 @@ The CUDA Packed backend demonstrates GPU-only halo exchange—all tile communica
 - Interactive GUI with real-time visualization
 - Drawing mode for absorbers and reflectors to create interference patterns
 - Multiple backends: CPU (SIMD), CUDA tile-based, CUDA packed
+- **Educational simulation modes** for teaching parallel computing concepts
+
+**Educational Modes:**
+
+WaveSim includes animated simulation modes that visually demonstrate the evolution of parallel computing:
+
+| Mode | Era | Description |
+|------|-----|-------------|
+| Standard | Modern | Full-speed parallel (default) |
+| CellByCell | 1950s | Sequential processing, one cell at a time |
+| RowByRow | 1970s | Vector processing (Cray-style), row-by-row |
+| ChaoticParallel | 1990s | Uncoordinated parallelism showing race conditions |
+| SynchronizedParallel | 2000s | Barrier-synchronized parallelism |
+| ActorBased | Modern | Tile-based actors with HLC for causal ordering |
+
+Visual indicators highlight processing: green for active cells, yellow for current row (RowByRow), cyan tiles with borders for active tiles (ActorBased).
 
 ```bash
 # Run WaveSim GUI

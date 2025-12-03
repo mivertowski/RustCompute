@@ -21,6 +21,12 @@ pub struct GridCanvas {
     max_pressure: f32,
     /// Whether to show tile boundaries.
     show_tiles: bool,
+    /// Cells currently being processed (for educational modes).
+    processing_cells: Vec<(u32, u32)>,
+    /// Active tiles being processed (for educational modes).
+    active_tiles: Vec<(u32, u32)>,
+    /// Current row being processed (for RowByRow mode).
+    current_row: Option<u32>,
 }
 
 impl GridCanvas {
@@ -34,6 +40,9 @@ impl GridCanvas {
             cell_types: vec![vec![CellType::Normal; cols]; rows],
             max_pressure: 1.0,
             show_tiles: true,
+            processing_cells: Vec::new(),
+            active_tiles: Vec::new(),
+            current_row: None,
         }
     }
 
@@ -73,6 +82,19 @@ impl GridCanvas {
     /// Update cell types and invalidate the cache.
     pub fn update_cell_types(&mut self, cell_types: Vec<Vec<CellType>>) {
         self.cell_types = cell_types;
+        self.cache.clear();
+    }
+
+    /// Set the current processing state for educational mode visualization.
+    pub fn set_processing_state(
+        &mut self,
+        cells: Vec<(u32, u32)>,
+        tiles: Vec<(u32, u32)>,
+        row: Option<u32>,
+    ) {
+        self.processing_cells = cells;
+        self.active_tiles = tiles;
+        self.current_row = row;
         self.cache.clear();
     }
 
@@ -253,6 +275,73 @@ impl canvas::Program<Message> for GridCanvas {
                     &path.build(),
                     Stroke::default().with_color(grid_color).with_width(1.0),
                 );
+            }
+
+            // Draw processing indicators for educational modes
+            // Highlight processing cells with a bright green overlay
+            if !self.processing_cells.is_empty() {
+                let processing_color = Color::from_rgba(0.0, 1.0, 0.3, 0.6);
+                for (cx, cy) in &self.processing_cells {
+                    let px = *cx as f32 * cell_width;
+                    let py = *cy as f32 * cell_height;
+                    frame.fill_rectangle(
+                        Point::new(px, py),
+                        Size::new(cell_width, cell_height),
+                        processing_color,
+                    );
+                }
+            }
+
+            // Highlight current row being processed (for RowByRow mode)
+            if let Some(row) = self.current_row {
+                let row_color = Color::from_rgba(1.0, 0.8, 0.0, 0.3);
+                let py = row as f32 * cell_height;
+                frame.fill_rectangle(
+                    Point::new(0.0, py),
+                    Size::new(bounds.width, cell_height),
+                    row_color,
+                );
+            }
+
+            // Highlight active tiles (for ActorBased mode)
+            // Note: tiles in educational mode start at cell (1,1) to skip boundary
+            if !self.active_tiles.is_empty() {
+                let tile_highlight = Color::from_rgba(0.0, 0.8, 1.0, 0.25);
+                let tile_border = Color::from_rgba(0.0, 1.0, 1.0, 0.8);
+
+                for (tx, ty) in &self.active_tiles {
+                    // Tile position: starts at cell 1 (boundary offset) + tile_index * tile_size
+                    let start_cell_x = 1 + *tx as usize * TILE_SIZE;
+                    let start_cell_y = 1 + *ty as usize * TILE_SIZE;
+                    let px = start_cell_x as f32 * cell_width;
+                    let py = start_cell_y as f32 * cell_height;
+
+                    // Clamp tile size to not exceed grid interior
+                    let end_cell_x = (start_cell_x + TILE_SIZE).min(cols - 1);
+                    let end_cell_y = (start_cell_y + TILE_SIZE).min(rows - 1);
+                    let tile_w = (end_cell_x - start_cell_x) as f32 * cell_width;
+                    let tile_h = (end_cell_y - start_cell_y) as f32 * cell_height;
+
+                    // Fill
+                    frame.fill_rectangle(
+                        Point::new(px, py),
+                        Size::new(tile_w, tile_h),
+                        tile_highlight,
+                    );
+
+                    // Border
+                    let mut tile_border_path = Builder::new();
+                    tile_border_path.move_to(Point::new(px, py));
+                    tile_border_path.line_to(Point::new(px + tile_w, py));
+                    tile_border_path.line_to(Point::new(px + tile_w, py + tile_h));
+                    tile_border_path.line_to(Point::new(px, py + tile_h));
+                    tile_border_path.line_to(Point::new(px, py));
+
+                    frame.stroke(
+                        &tile_border_path.build(),
+                        Stroke::default().with_color(tile_border).with_width(2.5),
+                    );
+                }
             }
         });
 

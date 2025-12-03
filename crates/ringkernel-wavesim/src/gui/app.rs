@@ -2,7 +2,7 @@
 
 use super::canvas::GridCanvas;
 use super::controls;
-use crate::simulation::{AcousticParams, CellType, KernelGrid, SimulationGrid};
+use crate::simulation::{AcousticParams, CellType, KernelGrid, SimulationGrid, SimulationMode, EducationalProcessor};
 
 #[cfg(feature = "cuda")]
 use crate::simulation::CudaPackedBackend;
@@ -110,6 +110,10 @@ pub struct WaveSimApp {
     draw_mode: DrawMode,
     /// Cell types for drawing (CPU mode uses grid's internal, CUDA uses this).
     cell_types: Vec<Vec<CellType>>,
+    /// Educational simulation mode.
+    simulation_mode: SimulationMode,
+    /// Educational processor for visualization modes.
+    educational_processor: EducationalProcessor,
 
     // Performance tracking
     /// Last frame time for FPS calculation.
@@ -188,6 +192,8 @@ pub enum Message {
 
     /// Toggle stats display.
     ToggleStats,
+    /// Simulation mode changed.
+    SimulationModeChanged(SimulationMode),
 }
 
 impl WaveSimApp {
@@ -218,6 +224,8 @@ impl WaveSimApp {
                 impulse_amplitude: 1.0,
                 draw_mode: DrawMode::Impulse,
                 cell_types: vec![vec![CellType::Normal; 64]; 64],
+                simulation_mode: SimulationMode::Standard,
+                educational_processor: EducationalProcessor::default(),
                 last_frame: now,
                 fps: 0.0,
                 steps_per_sec: 0.0,
@@ -587,6 +595,12 @@ impl WaveSimApp {
             Message::ToggleStats => {
                 self.show_stats = !self.show_stats;
             }
+
+            Message::SimulationModeChanged(mode) => {
+                self.simulation_mode = mode;
+                self.educational_processor.set_mode(mode);
+                tracing::info!("Simulation mode changed to: {}", mode);
+            }
         }
 
         Task::none()
@@ -747,23 +761,54 @@ impl WaveSimApp {
             SimulationEngine::Cpu(_) => {
                 let start = Instant::now();
                 if let SimulationEngine::Cpu(grid) = &mut self.engine {
-                    // Run steps for approximately 16ms (60 FPS target)
-                    let target_frame_time = Duration::from_millis(16);
-                    let dt = grid.params.time_step;
-                    let max_steps = ((0.01 / dt) as u32).clamp(1, 2000);
+                    // Check if we're using educational mode
+                    if self.simulation_mode != SimulationMode::Standard {
+                        // Educational mode: use the educational processor
+                        let (pressure, pressure_prev, width, height, c2, damping) = grid.get_buffers_mut();
 
-                    let mut steps = 0u32;
-                    while start.elapsed() < target_frame_time && steps < max_steps {
-                        grid.step();
-                        steps += 1;
+                        let result = self.educational_processor.step_frame(
+                            pressure,
+                            pressure_prev,
+                            width,
+                            height,
+                            c2,
+                            damping,
+                        );
+
+                        if result.step_complete && result.should_swap {
+                            grid.swap_buffers();
+                        }
+
+                        // Update processing indicators on canvas
+                        self.canvas.set_processing_state(
+                            self.educational_processor.state.just_processed.clone(),
+                            self.educational_processor.state.active_tiles.clone(),
+                            self.educational_processor.state.current_row,
+                        );
+
+                        self.steps_last_frame = if result.step_complete { 1 } else { 0 };
+                    } else {
+                        // Standard mode: run multiple steps per frame
+                        let target_frame_time = Duration::from_millis(16);
+                        let dt = grid.params.time_step;
+                        let max_steps = ((0.01 / dt) as u32).clamp(1, 2000);
+
+                        let mut steps = 0u32;
+                        while start.elapsed() < target_frame_time && steps < max_steps {
+                            grid.step();
+                            steps += 1;
+                        }
+
+                        self.steps_last_frame = steps;
+                        // Clear processing indicators
+                        self.canvas.set_processing_state(vec![], vec![], None);
                     }
 
-                    self.steps_last_frame = steps;
                     let pressure_grid = grid.get_pressure_grid();
                     self.max_pressure = grid.max_pressure();
                     self.total_energy = grid.total_energy();
                     self.canvas.update_pressure(pressure_grid);
-                    self.update_frame_stats(steps);
+                    self.update_frame_stats(self.steps_last_frame);
                 }
                 Task::none()
             }
@@ -825,6 +870,7 @@ impl WaveSimApp {
             self.impulse_amplitude,
             self.compute_backend,
             self.draw_mode,
+            self.simulation_mode,
             self.show_stats,
             self.fps,
             self.steps_per_sec,

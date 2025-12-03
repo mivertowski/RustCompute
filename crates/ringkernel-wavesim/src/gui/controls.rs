@@ -1,6 +1,7 @@
 //! Control panel widgets.
 
 use super::app::{ComputeBackend, DrawMode, Message};
+use crate::simulation::SimulationMode;
 use iced::widget::{button, column, container, pick_list, row, slider, text, text_input, vertical_space};
 use iced::{Alignment, Element, Length};
 
@@ -15,6 +16,7 @@ pub fn view_controls(
     impulse_amplitude: f32,
     compute_backend: ComputeBackend,
     draw_mode: DrawMode,
+    simulation_mode: SimulationMode,
     show_stats: bool,
     fps: f32,
     steps_per_sec: f32,
@@ -134,6 +136,16 @@ pub fn view_controls(
             DrawMode::Reflector => "(Click to place reflector)",
             DrawMode::Erase => "(Click to remove cell type)",
         }).size(11),
+    ]
+    .spacing(5);
+
+    // Simulation mode picker (educational modes)
+    let sim_mode_options: Vec<SimulationMode> = SimulationMode::all().to_vec();
+
+    let sim_mode_section = column![
+        text("Simulation Mode").size(14),
+        pick_list(sim_mode_options, Some(simulation_mode), Message::SimulationModeChanged).width(Length::Fill),
+        text(simulation_mode.description()).size(11),
     ]
     .spacing(5);
 
@@ -270,6 +282,8 @@ pub fn view_controls(
         backend_section,
         vertical_space().height(15),
         draw_mode_section,
+        vertical_space().height(15),
+        sim_mode_section,
         vertical_space().height(15),
         stats_btn,
         stats_panel,

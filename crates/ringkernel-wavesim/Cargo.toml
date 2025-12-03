@@ -25,6 +25,9 @@ tracing-subscriber = { workspace = true }
 # Parallel processing
 rayon = "1.10"
 
+# Random number generation (for educational chaotic mode)
+rand = "0.8"
+
 # GPU compute (optional, for tile GPU acceleration)
 wgpu = { workspace = true, optional = true }
 bytemuck = { version = "1.24", features = ["derive"], optional = true }

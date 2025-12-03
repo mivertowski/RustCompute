@@ -220,6 +220,42 @@ Per step, per tile pair:
 
 ---
 
+## Part 8: Educational Simulation Modes
+
+WaveSim includes animated educational modes that visually demonstrate the evolution of parallel computing paradigms. These modes are designed for teaching and presentations.
+
+### Available Modes
+
+| Mode | Era | Visualization | Lesson |
+|------|-----|---------------|--------|
+| **Standard** | Modern | Full-speed parallel | Production simulation |
+| **CellByCell** | 1950s | Green cells animate sequentially | Sequential computing, one operation at a time |
+| **RowByRow** | 1970s | Yellow row highlight sweeps down | Vector processors and SIMD (Cray-style) |
+| **ChaoticParallel** | 1990s | Random cells flash green | Parallel without coordination = race conditions |
+| **SynchronizedParallel** | 2000s | All cells compute, then pause | Barriers work but create bottlenecks |
+| **ActorBased** | Modern | Cyan tiles with borders | Actors + HLC = parallelism without chaos |
+
+### Visual Indicators
+
+- **Green overlay**: Cell currently being processed
+- **Yellow row**: Active row (RowByRow mode)
+- **Cyan tile with cyan border**: Active tile (ActorBased mode)
+
+### Configuration
+
+```rust
+use ringkernel_wavesim::simulation::{SimulationMode, EducationalProcessor};
+
+let mut processor = EducationalProcessor::new(SimulationMode::ActorBased);
+processor.cells_per_frame = 32;  // Cells processed per animation frame
+processor.rows_per_frame = 2;    // Rows per frame (RowByRow mode)
+processor.tiles_per_frame = 4;   // Tiles per frame (ActorBased mode)
+```
+
+These modes are accessible from the WaveSim GUI via the "Simulation Mode" dropdown.
+
+---
+
 ## Conclusion
 
 WaveSim now provides three production-ready backends with clear performance characteristics:
@@ -227,6 +263,8 @@ WaveSim now provides three production-ready backends with clear performance char
 1. **CPU SimulationGrid**: Excellent for small-to-medium grids, highly portable
 2. **CPU TileKernelGrid**: Demonstrates RingKernel's actor model with K2K messaging
 3. **CUDA Packed**: Best performance for large grids, 9.9x faster than CPU at 512×512
+
+Additionally, the **Educational Modes** provide visual demonstrations of parallel computing evolution for teaching and presentations.
 
 The CUDA Packed backend's GPU-only halo exchange design eliminates the traditional bottleneck of host-GPU transfers, achieving throughput of **18.7 million cells/second** at 512×512. This demonstrates that GPU acceleration for tile-based simulations requires careful attention to memory transfer patterns—keeping data GPU-resident and using batched kernel launches is essential for competitive performance.
 

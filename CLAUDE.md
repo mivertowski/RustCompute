@@ -57,7 +57,7 @@ The project is a Cargo workspace with these crates:
 - **`ringkernel-cuda-codegen`** - Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL
 - **`ringkernel-ecosystem`** - Integration utilities
 - **`ringkernel-audio-fft`** - Example application: GPU-accelerated audio FFT processing
-- **`ringkernel-wavesim`** - Example application: 2D acoustic wave simulation with GPU-accelerated FDTD
+- **`ringkernel-wavesim`** - Example application: 2D acoustic wave simulation with GPU-accelerated FDTD and educational simulation modes
 
 ### Core Abstractions (in ringkernel-core)
 
@@ -224,18 +224,42 @@ Main crate (`ringkernel`) features:
 
 ### Test Count Summary
 
-280+ tests across the workspace:
+290+ tests across the workspace:
 - ringkernel-core: 65 tests
 - ringkernel-cpu: 11 tests
 - ringkernel-cuda: 6 GPU execution tests
 - ringkernel-cuda-codegen: 138 tests (loops, shared memory, ring kernels, K2K)
 - ringkernel-derive: 14 macro tests
-- ringkernel-wavesim: 46 tests
+- ringkernel-wavesim: 49 tests (including educational modes)
 - k2k_integration: 11 tests
 - control_block: 29 tests
 - hlc: 16 tests
 - ringkernel-audio-fft: 32 tests
 - Plus additional integration and doc tests
+
+### WaveSim Educational Modes
+
+The WaveSim application includes educational simulation modes that visually demonstrate the evolution of parallel computing:
+
+```rust
+use crate::simulation::{SimulationMode, EducationalProcessor};
+
+// Available modes:
+// - Standard: Full-speed parallel (default)
+// - CellByCell: 1950s sequential processing
+// - RowByRow: 1970s vector processing (Cray-style)
+// - ChaoticParallel: 1990s uncoordinated parallelism (shows race conditions)
+// - SynchronizedParallel: 2000s barrier-synchronized parallelism
+// - ActorBased: Modern tile-based actors with HLC
+
+let mut processor = EducationalProcessor::new(SimulationMode::CellByCell);
+processor.cells_per_frame = 16; // Cells processed per animation frame
+```
+
+Visual indicators show:
+- **Green cells**: Currently being processed
+- **Yellow row**: Active row (RowByRow mode)
+- **Cyan tile with border**: Active tile (ActorBased mode)
 
 ## Important Patterns
 
