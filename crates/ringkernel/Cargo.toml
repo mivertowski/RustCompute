@@ -53,6 +53,13 @@ bytemuck = { workspace = true }
 # For CUDA tests - need explicit dep for test imports even though it's an optional dep
 ringkernel-cuda = { workspace = true }
 
+# For CUDA codegen examples
+ringkernel-cuda-codegen = { workspace = true }
+syn = { workspace = true, features = ["full", "parsing"] }
+
+# For educational modes example
+ringkernel-wavesim = { workspace = true }
+
 # Web API (for axum example)
 axum = "0.7"
 tower = "0.5"
@@ -124,10 +131,6 @@ harness = false
 [[bench]]
 name = "claims_validation"
 harness = false
-
-[[example]]
-name = "hello_kernel"
-path = "examples/hello_kernel.rs"
 
 [[example]]
 name = "vector_add"
@@ -204,3 +207,21 @@ path = "../../examples/macros/derive_example.rs"
 name = "wgpu_hello"
 path = "../../examples/basic/wgpu_hello.rs"
 required-features = ["wgpu"]
+
+# CUDA Codegen examples
+[[example]]
+name = "global_kernel"
+path = "../../examples/cuda-codegen/global_kernel.rs"
+
+[[example]]
+name = "stencil_kernel"
+path = "../../examples/cuda-codegen/stencil_kernel.rs"
+
+[[example]]
+name = "ring_kernel_codegen"
+path = "../../examples/cuda-codegen/ring_kernel.rs"
+
+# Educational modes example
+[[example]]
+name = "educational_modes"
+path = "../../examples/advanced/educational_modes.rs"

@@ -35,9 +35,17 @@ cargo test -p ringkernel-wgpu --features wgpu-tests -- --ignored
 cargo bench --package ringkernel
 
 # Run examples
-cargo run -p ringkernel --example hello_kernel
+cargo run -p ringkernel --example basic_hello_kernel
 cargo run -p ringkernel --example kernel_to_kernel
 cargo run -p ringkernel --example wgpu_hello --features wgpu
+
+# Run CUDA codegen examples
+cargo run -p ringkernel --example global_kernel
+cargo run -p ringkernel --example stencil_kernel
+cargo run -p ringkernel --example ring_kernel_codegen
+
+# Run educational modes example
+cargo run -p ringkernel --example educational_modes
 ```
 
 ## Architecture

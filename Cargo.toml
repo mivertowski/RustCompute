@@ -73,6 +73,7 @@ ringkernel-wgpu = { path = "crates/ringkernel-wgpu" }
 ringkernel-metal = { path = "crates/ringkernel-metal" }
 ringkernel-codegen = { path = "crates/ringkernel-codegen" }
 ringkernel-cuda-codegen = { path = "crates/ringkernel-cuda-codegen" }
+ringkernel-wavesim = { path = "crates/ringkernel-wavesim" }
 
 [profile.release]
 lto = true

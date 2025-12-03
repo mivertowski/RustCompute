@@ -1,100 +1,140 @@
-//! Ping-Pong Example
+//! # Ping-Pong K2K Messaging Example
 //!
-//! Demonstrates kernel-to-kernel messaging (K2K) with two kernels
-//! bouncing messages back and forth.
+//! Demonstrates kernel-to-kernel (K2K) messaging using the actual K2K broker.
+//! Two kernels bounce messages back and forth, showcasing direct communication
+//! without going through the host application.
+//!
+//! ## Run this example:
+//! ```bash
+//! cargo run -p ringkernel --example ping_pong
+//! ```
+//!
+//! ## What this demonstrates:
+//!
+//! - K2K broker creation and endpoint registration
+//! - Direct kernel-to-kernel message sending
+//! - Bidirectional communication patterns
+//! - Priority-based message routing
+//! - HLC timestamp integration for causal ordering
 
 use ringkernel::prelude::*;
-use std::time::Duration;
+use ringkernel_cpu::CpuRuntime;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    println!("🏓 RingKernel Ping-Pong Example\n");
+    println!("=== RingKernel Ping-Pong K2K Example ===\n");
 
-    // Create runtime
-    let runtime = RingKernel::new().await?;
-    println!("Runtime backend: {:?}\n", runtime.backend());
+    // Create runtime with K2K enabled (default)
+    let runtime = Arc::new(CpuRuntime::new().await?);
+    println!("Runtime created with K2K messaging enabled\n");
 
-    // Launch two kernels
-    let ping_kernel = runtime
-        .launch("ping", LaunchOptions::single_block(128))
-        .await?;
+    // Get the K2K broker
+    let broker = runtime.k2k_broker().expect("K2K broker should be available");
+    println!("K2K broker obtained");
 
-    let pong_kernel = runtime
-        .launch("pong", LaunchOptions::single_block(128))
-        .await?;
+    // Register ping and pong endpoints
+    let ping_id = KernelId::new("ping");
+    let pong_id = KernelId::new("pong");
 
+    let ping_endpoint = broker.register(ping_id.clone());
+    let mut pong_endpoint = broker.register(pong_id.clone());
+
+    println!("Registered endpoints: 'ping' and 'pong'");
+
+    // Check broker stats
+    let stats = broker.stats();
     println!(
-        "Launched kernels: {}, {}",
-        ping_kernel.id(),
-        pong_kernel.id()
+        "Broker stats: {} endpoints registered\n",
+        stats.registered_endpoints
     );
 
-    // Monitor kernel states
-    println!("\nKernel states:");
-    println!("  ping: {:?}", ping_kernel.status().state);
-    println!("  pong: {:?}", pong_kernel.status().state);
-
-    // Demonstrate message passing pattern
-    println!("\n--- Simulating Ping-Pong Pattern ---\n");
+    // ========== Ping-Pong Pattern ==========
+    println!("--- Starting Ping-Pong Pattern ---\n");
 
     for round in 1..=5 {
-        // Create a simple message envelope
-        let header = MessageHeader::new(
-            0x2001, // ping message type
-            ping_kernel.status().id.as_str().len() as u64,
-            pong_kernel.status().id.as_str().len() as u64,
-            8,
-            HlcTimestamp::now(1),
+        // PING sends to PONG
+        let timestamp = HlcTimestamp::now(round);
+        let envelope = MessageEnvelope::empty(
+            round as u64,      // source_id (simulated)
+            round as u64 + 1,  // dest_id (simulated)
+            timestamp,
         );
 
-        let _envelope = MessageEnvelope {
-            header,
-            payload: vec![round as u8; 8], // Simple payload
-        };
+        let receipt = ping_endpoint
+            .send(pong_id.clone(), envelope)
+            .await?;
 
-        // Simulate sending to pong kernel's input queue
-        // In real K2K, this would go through the GPU message bridge via _envelope
+        match receipt.status {
+            DeliveryStatus::Delivered => {
+                println!("Round {}: PING -> PONG [delivered]", round);
+            }
+            other => {
+                println!("Round {}: PING -> PONG [{:?}]", round, other);
+            }
+        }
 
-        println!("Round {}: PING -> PONG (payload: [{}; 8])", round, round);
+        // PONG receives the message
+        if let Some(message) = pong_endpoint.try_receive() {
+            println!(
+                "         PONG received: hops={}, priority={}",
+                message.hops, message.priority
+            );
 
-        // Small delay to simulate processing
-        tokio::time::sleep(Duration::from_millis(50)).await;
+            // PONG responds to PING
+            let response_timestamp = HlcTimestamp::now(round + 100);
+            let response = MessageEnvelope::empty(
+                message.destination.as_str().len() as u64,
+                message.source.as_str().len() as u64,
+                response_timestamp,
+            );
 
-        println!("Round {}: PONG -> PING (response received)", round);
+            let _response_receipt = pong_endpoint
+                .send(ping_id.clone(), response)
+                .await?;
+
+            println!("         PONG -> PING [responded]\n");
+        }
     }
 
-    println!("\n--- Ping-Pong Complete ---\n");
+    println!("--- Ping-Pong Complete ---\n");
 
-    // Get final metrics
-    let ping_metrics = ping_kernel.metrics();
-    let pong_metrics = pong_kernel.metrics();
+    // ========== Priority Messaging Demo ==========
+    println!("--- Priority Messaging Demo ---\n");
 
-    println!("Final metrics:");
-    println!("  ping kernel uptime: {:?}", ping_metrics.uptime);
-    println!("  pong kernel uptime: {:?}", pong_metrics.uptime);
+    // Send messages with different priorities
+    for priority in [0, 100, 200, 255] {
+        let envelope = MessageEnvelope::empty(1, 2, HlcTimestamp::now(1));
+        let receipt = ping_endpoint
+            .send_priority(pong_id.clone(), envelope, priority)
+            .await?;
+
+        println!(
+            "Sent priority {} message: {:?}",
+            priority, receipt.status
+        );
+    }
+
+    // Receive all messages
+    println!("\nReceiving messages by priority:");
+    while let Some(message) = pong_endpoint.try_receive() {
+        println!("  Received message with priority: {}", message.priority);
+    }
+
+    // ========== Final Stats ==========
+    let final_stats = broker.stats();
+    println!("\n--- Final Broker Stats ---");
+    println!("  Registered endpoints: {}", final_stats.registered_endpoints);
+    println!("  Messages delivered: {}", final_stats.messages_delivered);
+    println!("  Routes configured: {}", final_stats.routes_configured);
 
     // Cleanup
-    ping_kernel.terminate().await?;
-    pong_kernel.terminate().await?;
+    broker.unregister(&ping_id);
+    broker.unregister(&pong_id);
 
-    // List remaining kernels (should be empty after termination)
-    let kernels = runtime.list_kernels();
-    println!("\nActive kernels after termination: {}", kernels.len());
-
-    // Get runtime metrics
-    let runtime_metrics = runtime.metrics();
-    println!("\nRuntime metrics:");
-    println!(
-        "  Total kernels launched: {}",
-        runtime_metrics.total_launched
-    );
-    println!("  Active kernels: {}", runtime_metrics.active_kernels);
-
-    runtime.shutdown().await?;
-
-    println!("\n✓ Ping-pong example complete!");
+    println!("\n=== Ping-Pong Example Complete! ===");
 
     Ok(())
 }

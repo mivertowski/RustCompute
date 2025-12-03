@@ -296,6 +296,23 @@ The transpiler uses validation modes to control what constructs are allowed:
 | `Generic` | Allowed | General-purpose kernels |
 | `RingKernel` | Required | Persistent actor kernels |
 
+## Examples
+
+The repository includes working examples demonstrating all three kernel types:
+
+```bash
+# Global kernels - SAXPY, halo exchange, array initialization
+cargo run -p ringkernel --example global_kernel
+
+# Stencil kernels - FDTD wave equation, heat diffusion, box filter
+cargo run -p ringkernel --example stencil_kernel
+
+# Ring kernels - Persistent actor model with HLC and K2K
+cargo run -p ringkernel --example ring_kernel_codegen
+```
+
+See the `/examples/cuda-codegen/` directory for the full source code.
+
 ## Testing
 
 The crate includes 138 tests covering all features:

@@ -198,32 +198,36 @@ struct Matrix4x4 {
 
 ## Examples
 
-The repository includes working examples:
+The repository includes 20+ working examples organized by category:
 
 ```bash
-# Basic kernel lifecycle
-cargo run -p ringkernel --example basic_hello_kernel
+# === Basic Examples ===
+cargo run -p ringkernel --example basic_hello_kernel    # Runtime, lifecycle, suspend/resume
+cargo run -p ringkernel --example kernel_states         # State machine, multi-kernel
 
-# Kernel state management
-cargo run -p ringkernel --example kernel_states
+# === Messaging Examples ===
+cargo run -p ringkernel --example request_response      # Correlation IDs, priorities
+cargo run -p ringkernel --example pub_sub               # Topic wildcards, QoS
+cargo run -p ringkernel --example kernel_to_kernel      # K2K direct messaging
+cargo run -p ringkernel --example ping_pong             # K2K broker usage
 
-# Request-response patterns
-cargo run -p ringkernel --example request_response
+# === CUDA Codegen Examples ===
+cargo run -p ringkernel --example global_kernel         # SAXPY, halo exchange, array init
+cargo run -p ringkernel --example stencil_kernel        # FDTD wave, heat diffusion, GridPos
+cargo run -p ringkernel --example ring_kernel_codegen   # Persistent kernels, HLC, K2K
 
-# Pub/sub messaging
-cargo run -p ringkernel --example pub_sub
+# === Advanced Examples ===
+cargo run -p ringkernel --example educational_modes     # WaveSim parallel computing modes
+cargo run -p ringkernel --example multi_gpu             # Multi-GPU load balancing
 
-# Kernel-to-kernel messaging
-cargo run -p ringkernel --example kernel_to_kernel
+# === Integration Examples ===
+cargo run -p ringkernel --example axum_api              # REST API with Axum
+cargo run -p ringkernel --example grpc_server           # gRPC patterns
+cargo run -p ringkernel --example batch_processor       # Data pipelines
+cargo run -p ringkernel --example telemetry             # Metrics, alerts
 
-# WebGPU backend
+# === WebGPU ===
 cargo run -p ringkernel --example wgpu_hello --features wgpu
-
-# Batch data processing
-cargo run -p ringkernel --example batch_processor
-
-# Telemetry and monitoring
-cargo run -p ringkernel --example telemetry
 ```
 
 ## Crate Structure

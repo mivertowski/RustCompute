@@ -80,13 +80,19 @@ RustCompute/
 │           ├── simulation/       # Grid, kernels, backends
 │           └── gui/              # Interactive visualization
 │
-├── examples/                     # 11 working examples
+├── examples/                     # 20+ working examples
 │   ├── basic/
 │   │   ├── hello_kernel.rs       # Runtime, lifecycle, suspend/resume
-│   │   └── kernel_states.rs      # State machine, multi-kernel
+│   │   ├── kernel_states.rs      # State machine, multi-kernel
+│   │   └── wgpu_hello.rs         # WebGPU backend
 │   ├── messaging/
 │   │   ├── request_response.rs   # Correlation IDs, priorities
-│   │   └── pub_sub.rs            # Topic wildcards, QoS
+│   │   ├── pub_sub.rs            # Topic wildcards, QoS
+│   │   └── kernel_to_kernel.rs   # K2K direct messaging
+│   ├── cuda-codegen/             # CUDA code generation examples
+│   │   ├── global_kernel.rs      # SAXPY, halo exchange, array init
+│   │   ├── stencil_kernel.rs     # FDTD wave, heat diffusion, GridPos
+│   │   └── ring_kernel.rs        # Persistent kernels, HLC, K2K
 │   ├── web-api/
 │   │   └── axum_api.rs           # REST API integration
 │   ├── data-processing/
@@ -97,8 +103,11 @@ RustCompute/
 │   │   ├── grpc_server.rs        # gRPC patterns
 │   │   ├── config_management.rs  # TOML, env vars
 │   │   └── ml_pipeline.rs        # ML inference
+│   ├── macros/
+│   │   └── derive_example.rs     # RingMessage derive macro
 │   └── advanced/
-│       └── multi_gpu.rs          # Load balancing
+│       ├── multi_gpu.rs          # Load balancing
+│       └── educational_modes.rs  # WaveSim parallel computing modes
 │
 ├── docs/                         # Architecture documentation
 │   ├── 01-architecture-overview.md
