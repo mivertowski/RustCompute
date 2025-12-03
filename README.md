@@ -242,12 +242,14 @@ cargo run -p ringkernel --example wgpu_hello --features wgpu
 | `ringkernel-wgpu` | WebGPU backend |
 | `ringkernel-codegen` | GPU kernel code generation |
 | `ringkernel-cuda-codegen` | Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL |
+| `ringkernel-wgpu-codegen` | Rust-to-WGSL transpiler for writing GPU kernels in Rust DSL (WebGPU) |
 | `ringkernel-wavesim` | 2D wave simulation demo with tile-based FDTD and educational modes |
+| `ringkernel-txmon` | Transaction monitoring showcase with GPU-accelerated fraud detection |
 
 ## Testing
 
 ```bash
-# Run all tests (290+ tests)
+# Run all tests (390+ tests)
 cargo test --workspace
 
 # CUDA backend tests (requires NVIDIA GPU)
@@ -262,8 +264,17 @@ cargo bench --package ringkernel
 
 ## Performance
 
-Benchmarked on NVIDIA hardware:
+Benchmarked on NVIDIA RTX Ada hardware:
 
+**CUDA Codegen Transpiler Performance:**
+
+| Operation | Throughput | Batch Time | vs CPU |
+|-----------|------------|------------|--------|
+| CUDA Codegen (1M elements) | ~93B elem/sec | 0.5 µs | 12,378x |
+| CUDA SAXPY PTX | ~77B elem/sec | 0.6 µs | 10,258x |
+| Stencil Pattern Detection | ~15.7M TPS | 262 µs | 2.09x |
+
+**Core System Metrics:**
 - Message queue throughput: ~75M operations/sec
 - Host-to-device bandwidth: ~7.6 GB/s (PCIe 4.0)
 - HLC timestamp generation: <10ns per tick
@@ -314,6 +325,32 @@ cargo run -p ringkernel-wavesim --bin bench_packed --release --features cuda
 
 See [WaveSim PERFORMANCE.md](crates/ringkernel-wavesim/PERFORMANCE.md) for detailed analysis.
 
+### TxMon Showcase Application
+
+The `ringkernel-txmon` crate demonstrates GPU-accelerated transaction monitoring for real-time fraud detection:
+
+**Features:**
+- Real-time transaction simulation with configurable suspicious rate
+- Four detection rules: velocity breach, amount threshold, structured transactions, geographic anomaly
+- Three GPU backend approaches: batch kernel, ring kernel (actor model), stencil kernel (pattern detection)
+- Interactive GUI with live metrics and high-risk account tracking
+
+**GPU Backend Approaches:**
+
+| Approach | Description | Use Case |
+|----------|-------------|----------|
+| **Batch Kernel** | One thread per transaction, max throughput | High-volume batch processing |
+| **Ring Kernel** | Persistent actor with HLC + K2K messaging | Real-time streaming pipelines |
+| **Stencil Kernel** | 2D grid pattern detection (velocity × time) | Network anomaly detection |
+
+```bash
+# Run TxMon GUI
+cargo run -p ringkernel-txmon --release --features cuda-codegen
+
+# Run GPU benchmark
+cargo run -p ringkernel-txmon --bin txmon-benchmark --release --features cuda-codegen
+```
+
 Performance varies significantly by hardware and workload.
 
 ## Documentation
@@ -330,9 +367,21 @@ Detailed documentation is also available in the `docs/` directory:
 - [Memory Management](docs/04-memory-management.md)
 - [GPU Backends](docs/05-gpu-backends.md)
 
-## Rust-to-CUDA Code Generation
+## GPU Code Generation
 
-Write GPU kernels in Rust and transpile them to CUDA C. The transpiler supports three kernel types:
+Write GPU kernels in Rust and transpile them to CUDA C or WGSL. Both transpilers support three kernel types with unified API:
+
+### Backend Selection
+
+```rust
+// For NVIDIA GPUs (CUDA)
+use ringkernel_cuda_codegen::{transpile_global_kernel, transpile_stencil_kernel, StencilConfig};
+
+// For cross-platform (WebGPU/WGSL)
+use ringkernel_wgpu_codegen::{transpile_global_kernel, transpile_stencil_kernel, StencilConfig};
+```
+
+The same Rust DSL code works with both backends—just change the import.
 
 ### Global Kernels
 
@@ -399,7 +448,9 @@ let cuda_code = transpile_ring_kernel(&handler, &config)?;
 - Stencil patterns: `pos.north()`, `pos.south()`, `pos.east()`, `pos.west()`, `pos.at(dx, dy)`
 - Shared memory: `__shared__` arrays and tiles
 - Struct literals: `Point { x: 1.0, y: 2.0 }` → C compound literals
-- 40+ GPU intrinsics (atomics, warp ops, sync, math)
+- Reference expressions: `&arr[idx]` → pointer with automatic `->` for field access
+- Type inference: Tracks pointer variables for correct accessor generation
+- 45+ GPU intrinsics (atomics, warp ops, sync, math)
 
 **Ring Kernel Features:**
 - Persistent message loop with ControlBlock lifecycle
@@ -407,6 +458,29 @@ let cuda_code = transpile_ring_kernel(&handler, &config)?;
 - HLC operations: `hlc_tick()`, `hlc_now()`, `hlc_update()`
 - K2K messaging: `k2k_send()`, `k2k_try_recv()`, `k2k_peek()`
 - Queue intrinsics: `enqueue_response()`, `input_queue_empty()`
+
+### WGSL-Specific Notes
+
+The WGSL transpiler handles WebGPU limitations with automatic workarounds:
+
+| Feature | CUDA | WGSL Workaround |
+|---------|------|-----------------|
+| 64-bit integers | Native `long long` | Emulated as `vec2<u32>` lo/hi pairs |
+| 64-bit atomics | `atomicAdd(long long*)` | Helper functions: `atomic_inc_u64()` |
+| f64 | Native `double` | Downcast to `f32` with warning |
+| Persistent kernels | Persistent GPU loop | Host-driven dispatch loop |
+| K2K messaging | Supported | **Not supported** (returns error) |
+
+```rust
+use ringkernel_wgpu_codegen::{transpile_ring_kernel, RingKernelConfig};
+
+let config = RingKernelConfig::new("processor")
+    .with_workgroup_size(256)
+    .with_hlc(true);
+    // Note: .with_k2k(true) will return an error in WGPU
+
+let wgsl_code = transpile_ring_kernel(&handler, &config)?;
+```
 
 ## Known Limitations
 

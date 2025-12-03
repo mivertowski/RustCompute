@@ -13,8 +13,8 @@ use crate::{Result, TranspileError};
 use quote::ToTokens;
 use syn::{
     BinOp, Expr, ExprAssign, ExprBinary, ExprBreak, ExprCall, ExprCast, ExprContinue, ExprForLoop,
-    ExprIf, ExprIndex, ExprLit, ExprLoop, ExprMatch, ExprMethodCall, ExprParen, ExprPath,
-    ExprReturn, ExprStruct, ExprUnary, ExprWhile, FnArg, ItemFn, Lit, Pat, ReturnType, Stmt, UnOp,
+    ExprIf, ExprIndex, ExprLet, ExprLit, ExprLoop, ExprMatch, ExprMethodCall, ExprParen, ExprPath,
+    ExprReference, ExprReturn, ExprStruct, ExprUnary, ExprWhile, FnArg, ItemFn, Lit, Pat, ReturnType, Stmt, UnOp,
 };
 
 /// CUDA code transpiler.
@@ -39,6 +39,8 @@ pub struct CudaTranspiler {
     pub shared_vars: std::collections::HashMap<String, SharedVarInfo>,
     /// Whether we're in ring kernel mode (enables context method inlining).
     ring_kernel_mode: bool,
+    /// Variables known to be pointer types (for -> operator usage).
+    pointer_vars: std::collections::HashSet<String>,
 }
 
 /// Information about a shared memory variable.
@@ -68,6 +70,7 @@ impl CudaTranspiler {
             shared_memory: SharedMemoryConfig::new(),
             shared_vars: std::collections::HashMap::new(),
             ring_kernel_mode: false,
+            pointer_vars: std::collections::HashSet::new(),
         }
     }
 
@@ -84,6 +87,7 @@ impl CudaTranspiler {
             shared_memory: SharedMemoryConfig::new(),
             shared_vars: std::collections::HashMap::new(),
             ring_kernel_mode: false,
+            pointer_vars: std::collections::HashSet::new(),
         }
     }
 
@@ -100,6 +104,7 @@ impl CudaTranspiler {
             shared_memory: SharedMemoryConfig::new(),
             shared_vars: std::collections::HashMap::new(),
             ring_kernel_mode: false,
+            pointer_vars: std::collections::HashSet::new(),
         }
     }
 
@@ -116,6 +121,7 @@ impl CudaTranspiler {
             shared_memory: SharedMemoryConfig::new(),
             shared_vars: std::collections::HashMap::new(),
             ring_kernel_mode: true,
+            pointer_vars: std::collections::HashSet::new(),
         }
     }
 
@@ -425,6 +431,11 @@ impl CudaTranspiler {
                     // In a more complete implementation, we'd do proper type inference
                     let type_str = self.infer_cuda_type(&init.expr);
 
+                    // Track if this is a pointer variable for -> access
+                    if type_str.ends_with('*') {
+                        self.pointer_vars.insert(var_name.clone());
+                    }
+
                     Ok(format!("{indent}{type_str} {var_name} = {expr_str};\n"))
                 } else {
                     // Uninitialized variable - need type annotation
@@ -491,13 +502,20 @@ impl CudaTranspiler {
                 }
             }
             Expr::Field(field) => {
-                // Struct field access: obj.field -> obj.field
+                // Struct field access: obj.field -> obj.field or obj->field for pointers
                 let base = self.transpile_expr(&field.base)?;
                 let member = match &field.member {
                     syn::Member::Named(ident) => ident.to_string(),
                     syn::Member::Unnamed(idx) => idx.index.to_string(),
                 };
-                Ok(format!("{base}.{member}"))
+
+                // Check if base is a pointer variable - use -> instead of .
+                let accessor = if self.pointer_vars.contains(&base) {
+                    "->"
+                } else {
+                    "."
+                };
+                Ok(format!("{base}{accessor}{member}"))
             }
             Expr::Return(ret) => self.transpile_return(ret),
             Expr::ForLoop(for_loop) => self.transpile_for_loop(for_loop),
@@ -506,6 +524,15 @@ impl CudaTranspiler {
             Expr::Break(break_expr) => self.transpile_break(break_expr),
             Expr::Continue(cont_expr) => self.transpile_continue(cont_expr),
             Expr::Struct(struct_expr) => self.transpile_struct_literal(struct_expr),
+            Expr::Reference(ref_expr) => self.transpile_reference(ref_expr),
+            Expr::Let(let_expr) => self.transpile_let_expr(let_expr),
+            Expr::Tuple(tuple) => {
+                // Transpile tuple as a comma-separated list (for multi-value returns, etc.)
+                let elements: Vec<String> = tuple.elems.iter()
+                    .map(|e| self.transpile_expr(e))
+                    .collect::<Result<_>>()?;
+                Ok(format!("({})", elements.join(", ")))
+            }
             _ => Err(TranspileError::Unsupported(format!(
                 "Expression type: {}",
                 expr.to_token_stream()
@@ -936,6 +963,36 @@ impl CudaTranspiler {
 
         // Generate C compound literal: (TypeName){ .field1 = val1, .field2 = val2 }
         Ok(format!("({}){{ {} }}", type_name, fields.join(", ")))
+    }
+
+    /// Transpile a reference expression.
+    ///
+    /// In CUDA C, we typically need pointers. This handles:
+    /// - `&arr[idx]` -> `&arr[idx]` (pointer to element)
+    /// - `&mut arr[idx]` -> `&arr[idx]` (same in C)
+    /// - `&variable` -> `&variable`
+    fn transpile_reference(&self, ref_expr: &ExprReference) -> Result<String> {
+        let inner = self.transpile_expr(&ref_expr.expr)?;
+
+        // In CUDA C, taking a reference is the same as taking address
+        // For array indexing like &arr[idx], we produce &arr[idx]
+        // This creates a pointer to that element
+        Ok(format!("&{inner}"))
+    }
+
+    /// Transpile a let expression (used in if-let patterns).
+    ///
+    /// Note: Full pattern matching is not supported in CUDA, but we can
+    /// handle simple `if let Some(x) = expr` patterns by transpiling
+    /// to a simple conditional check.
+    fn transpile_let_expr(&self, let_expr: &ExprLet) -> Result<String> {
+        // For now, we treat let expressions as unsupported since
+        // CUDA doesn't have Option types. But we can add special cases.
+        let _ = let_expr; // Silence unused warning
+        Err(TranspileError::Unsupported(
+            "let expressions (if-let patterns) are not directly supported in CUDA. \
+             Use explicit comparisons instead.".into()
+        ))
     }
 
     // === Loop Transpilation ===
@@ -1476,7 +1533,78 @@ impl CudaTranspiler {
                 }
                 "float"
             }
+            Expr::Reference(ref_expr) => {
+                // Reference expression - try to determine pointer type from inner
+                // For &arr[idx], we get a pointer to the element type
+                match ref_expr.expr.as_ref() {
+                    Expr::Index(idx_expr) => {
+                        // &arr[idx] - get the base array name and look it up
+                        if let Expr::Path(path) = &*idx_expr.expr {
+                            let name = path.path.segments.iter()
+                                .map(|s| s.ident.to_string())
+                                .collect::<Vec<_>>()
+                                .join("::");
+                            // Common GPU struct names -> pointer to that struct
+                            if name.contains("transaction") || name.contains("Transaction") {
+                                return "GpuTransaction*";
+                            }
+                            if name.contains("profile") || name.contains("Profile") {
+                                return "GpuCustomerProfile*";
+                            }
+                            if name.contains("alert") || name.contains("Alert") {
+                                return "GpuAlert*";
+                            }
+                        }
+                        "float*" // Default element pointer
+                    }
+                    _ => "void*"
+                }
+            }
             Expr::MethodCall(_) => "float",
+            Expr::Field(field) => {
+                // Field access - try to infer type from field name
+                let member_name = match &field.member {
+                    syn::Member::Named(ident) => ident.to_string(),
+                    syn::Member::Unnamed(idx) => idx.index.to_string(),
+                };
+                // Common field name patterns
+                if member_name.contains("count") || member_name.contains("_count") {
+                    return "unsigned int";
+                }
+                if member_name.contains("threshold") || member_name.ends_with("_id") {
+                    return "unsigned long long";
+                }
+                if member_name.ends_with("_pct") {
+                    return "unsigned char";
+                }
+                "float"
+            }
+            Expr::Path(path) => {
+                // Variable access - check if it's a known variable
+                let name = path.path.segments.iter()
+                    .map(|s| s.ident.to_string())
+                    .collect::<Vec<_>>()
+                    .join("::");
+                if name.contains("threshold") || name.contains("count") || name == "idx" || name == "n" {
+                    return "int";
+                }
+                "float"
+            }
+            Expr::If(if_expr) => {
+                // For ternary (if-else), infer type from branches
+                if let Some((_, else_branch)) = &if_expr.else_branch {
+                    if let Expr::Block(block) = else_branch.as_ref() {
+                        if let Some(Stmt::Expr(expr, None)) = block.block.stmts.last() {
+                            return self.infer_cuda_type(expr);
+                        }
+                    }
+                }
+                // Try from then branch
+                if let Some(Stmt::Expr(expr, None)) = if_expr.then_branch.stmts.last() {
+                    return self.infer_cuda_type(expr);
+                }
+                "float"
+            }
             _ => "float",
         }
     }
@@ -2127,5 +2255,74 @@ mod tests {
         assert!(result.ends_with("}"), "Should end with closing brace: {}", result);
 
         println!("Generated compound literal: {}", result);
+    }
+
+    // === Reference Expression Tests ===
+
+    #[test]
+    fn test_reference_to_array_element() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            &arr[idx]
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert_eq!(result, "&arr[idx]", "Should produce address-of array element");
+    }
+
+    #[test]
+    fn test_mutable_reference_to_array_element() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            &mut arr[idx * 4 + offset]
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert!(result.contains("&arr["), "Should produce address-of: {}", result);
+        assert!(result.contains("idx * 4"), "Should have index expression: {}", result);
+    }
+
+    #[test]
+    fn test_reference_to_variable() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            &value
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert_eq!(result, "&value", "Should produce address-of variable");
+    }
+
+    #[test]
+    fn test_reference_to_struct_field() {
+        let transpiler = CudaTranspiler::new_generic();
+
+        let expr: Expr = parse_quote! {
+            &alerts[(idx as usize) * 4 + alert_idx as usize]
+        };
+
+        let result = transpiler.transpile_expr(&expr).unwrap();
+        assert!(result.starts_with("&alerts["), "Should have address-of array: {}", result);
+
+        println!("Generated reference: {}", result);
+    }
+
+    #[test]
+    fn test_complex_reference_pattern() {
+        let mut transpiler = CudaTranspiler::new_generic();
+
+        // This is the pattern from txmon batch kernel
+        let stmt: Stmt = parse_quote! {
+            let alert = &mut alerts[(idx as usize) * 4 + alert_idx as usize];
+        };
+
+        let result = transpiler.transpile_stmt(&stmt).unwrap();
+        assert!(result.contains("alert ="), "Should have variable assignment: {}", result);
+        assert!(result.contains("&alerts["), "Should have reference to array: {}", result);
+
+        println!("Generated statement: {}", result);
     }
 }

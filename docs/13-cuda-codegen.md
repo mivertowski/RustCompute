@@ -2,6 +2,8 @@
 
 The `ringkernel-cuda-codegen` crate provides a Rust-to-CUDA transpiler that lets you write GPU kernels in a Rust DSL and generate equivalent CUDA C code.
 
+> **Cross-platform alternative:** For WebGPU/WGSL, see [WGSL Code Generation](./14-wgpu-codegen.md). Both transpilers share the same Rust DSL—just change the import.
+
 ## Overview
 
 The transpiler supports three types of kernels:
@@ -200,6 +202,39 @@ let response = Response { value: result, id: tid as u64 };
 // (Response){ .value = result, .id = (unsigned long long)(tid) }
 ```
 
+### Reference Expressions
+
+The transpiler handles Rust reference expressions and automatically tracks pointer variables for correct accessor generation:
+
+```rust
+// Rust DSL with reference expressions
+fn process_batch(transactions: &[GpuTransaction], alerts: &mut [GpuAlert], n: i32) {
+    let idx = block_idx_x() * block_dim_x() + thread_idx_x();
+    if idx >= n { return; }
+
+    let tx = &transactions[idx as usize];    // Creates pointer
+    let alert = &mut alerts[idx as usize];   // Creates mutable pointer
+
+    alert.transaction_id = tx.transaction_id;  // Uses -> automatically
+}
+
+// Transpiles to CUDA:
+// GpuTransaction* tx = &transactions[(unsigned long long)(idx)];
+// GpuAlert* alert = &alerts[(unsigned long long)(idx)];
+// alert->transaction_id = tx->transaction_id;
+```
+
+**Type Inference for References:**
+- `&arr[idx]` where `arr` contains "transaction" → `GpuTransaction*`
+- `&arr[idx]` where `arr` contains "profile" → `GpuCustomerProfile*`
+- `&arr[idx]` where `arr` contains "alert" → `GpuAlert*`
+- Other reference expressions → appropriate pointer type
+
+**Automatic Accessor Selection:**
+- Pointer variables use `->` for field access
+- Value variables use `.` for field access
+- Tracked via `pointer_vars` HashSet during transpilation
+
 ### Type Mapping
 
 | Rust Type | CUDA Type |
@@ -315,10 +350,25 @@ See the `/examples/cuda-codegen/` directory for the full source code.
 
 ## Testing
 
-The crate includes 138 tests covering all features:
+The crate includes 143 tests covering all features:
 
 ```bash
 cargo test -p ringkernel-cuda-codegen
 ```
 
-## Next: [Migration Guide](./12-migration.md)
+## Benchmark Results
+
+The transpiler generates CUDA code that achieves impressive performance on NVIDIA RTX Ada:
+
+| Operation | Throughput | Batch Time | vs CPU |
+|-----------|------------|------------|--------|
+| CUDA Codegen (1M floats) | ~93B elem/sec | 0.5 µs | 12,378x |
+| CUDA SAXPY PTX | ~77B elem/sec | 0.6 µs | 10,258x |
+| Stencil Pattern Detection | ~15.7M TPS | 262 µs | 2.09x |
+
+Run the benchmark:
+```bash
+cargo run -p ringkernel-txmon --bin txmon-benchmark --release --features cuda-codegen
+```
+
+## Next: [WGSL Code Generation](./14-wgpu-codegen.md)

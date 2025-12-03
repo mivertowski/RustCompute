@@ -74,11 +74,23 @@ RustCompute/
 │   ├── ringkernel-audio-fft/     # Example: GPU audio processing
 │   │   └── src/lib.rs
 │   │
-│   └── ringkernel-wavesim/       # Example: 2D wave simulation
+│   ├── ringkernel-wavesim/       # Example: 2D wave simulation
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── simulation/       # Grid, kernels, backends
+│   │       └── gui/              # Interactive visualization
+│   │
+│   └── ringkernel-txmon/         # Showcase: Transaction monitoring
 │       └── src/
 │           ├── lib.rs
-│           ├── simulation/       # Grid, kernels, backends
-│           └── gui/              # Interactive visualization
+│           ├── types/            # Transaction, CustomerProfile, Alert
+│           ├── factory/          # Transaction generator
+│           ├── monitoring/       # Rule engine
+│           ├── gui/              # Real-time fraud detection UI
+│           ├── cuda/             # GPU backends (batch, ring, stencil)
+│           └── bin/
+│               ├── txmon.rs      # Main GUI binary
+│               └── benchmark.rs  # GPU benchmark
 │
 ├── examples/                     # 20+ working examples
 │   ├── basic/
@@ -158,6 +170,13 @@ RustCompute/
                     │ ringkernel-   │
                     │ cuda-codegen  │
                     │ (transpiler)  │
+                    └───────┬───────┘
+                            │
+                            ▼
+                    ┌───────────────┐
+                    │ ringkernel-   │
+                    │    txmon      │
+                    │ (showcase)    │
                     └───────────────┘
 ```
 
@@ -177,6 +196,7 @@ RustCompute/
 | `ringkernel-ecosystem` | Working | Integration utilities |
 | `ringkernel-audio-fft` | Working | Example: GPU audio FFT processing |
 | `ringkernel-wavesim` | Working | Example: 2D wave simulation with FDTD |
+| `ringkernel-txmon` | Working | Showcase: GPU-accelerated transaction monitoring |
 
 ---
 

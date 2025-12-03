@@ -46,6 +46,12 @@ cargo run -p ringkernel --example ring_kernel_codegen
 
 # Run educational modes example
 cargo run -p ringkernel --example educational_modes
+
+# Run transaction monitoring GUI
+cargo run -p ringkernel-txmon --release --features cuda-codegen
+
+# Run txmon GPU benchmark (requires NVIDIA GPU)
+cargo run -p ringkernel-txmon --bin txmon-benchmark --release --features cuda-codegen
 ```
 
 ## Architecture
@@ -63,9 +69,11 @@ The project is a Cargo workspace with these crates:
 - **`ringkernel-metal`** - Apple Metal backend (feature-gated, macOS only, scaffolded)
 - **`ringkernel-codegen`** - GPU kernel code generation
 - **`ringkernel-cuda-codegen`** - Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL
+- **`ringkernel-wgpu-codegen`** - Rust-to-WGSL transpiler for writing GPU kernels in Rust DSL (WebGPU backend)
 - **`ringkernel-ecosystem`** - Integration utilities
 - **`ringkernel-audio-fft`** - Example application: GPU-accelerated audio FFT processing
 - **`ringkernel-wavesim`** - Example application: 2D acoustic wave simulation with GPU-accelerated FDTD and educational simulation modes
+- **`ringkernel-txmon`** - Showcase application: GPU-accelerated transaction monitoring with real-time fraud detection GUI
 
 ### Core Abstractions (in ringkernel-core)
 
@@ -182,7 +190,8 @@ let cuda_code = transpile_ring_kernel(&handler, &config)?;
 - Stencil intrinsics: `pos.north(buf)`, `pos.south(buf)`, `pos.east(buf)`, `pos.west(buf)`, `pos.at(buf, dx, dy)`
 - Shared memory: `__shared__` arrays and tiles with `SharedMemoryConfig`
 - Struct literals: `Point { x: 1.0, y: 2.0 }` → C compound literals
-- 40+ GPU intrinsics (atomics, warp ops, sync, math)
+- Reference expressions: `&arr[idx]` → pointer to element with automatic `->` operator for field access
+- 45+ GPU intrinsics (atomics, warp ops, sync, math)
 
 **Ring Kernel Features:**
 - Persistent message loop with ControlBlock lifecycle management
@@ -191,6 +200,35 @@ let cuda_code = transpile_ring_kernel(&handler, &config)?;
 - K2K messaging: `k2k_send()`, `k2k_try_recv()`, `k2k_peek()`, `k2k_pending_count()`
 - Queue intrinsics: `enqueue_response()`, `input_queue_empty()`, etc.
 - Automatic termination handling and cleanup
+
+### WGSL Code Generation (ringkernel-wgpu-codegen)
+
+Write GPU kernels in Rust DSL and transpile to WGSL for WebGPU. Provides full parity with CUDA codegen:
+
+```rust
+use ringkernel_wgpu_codegen::{transpile_global_kernel, transpile_stencil_kernel, StencilConfig};
+use syn::parse_quote;
+
+// Global kernel
+let kernel_fn: syn::ItemFn = parse_quote! {
+    fn saxpy(x: &[f32], y: &mut [f32], a: f32, n: i32) {
+        let idx = block_idx_x() * block_dim_x() + thread_idx_x();
+        if idx >= n { return; }
+        y[idx as usize] = a * x[idx as usize] + y[idx as usize];
+    }
+};
+let wgsl_code = transpile_global_kernel(&kernel_fn)?;
+
+// Stencil kernel (same API as CUDA)
+let config = StencilConfig::new("fdtd").with_tile_size(16, 16).with_halo(1);
+let wgsl_code = transpile_stencil_kernel(&stencil_fn, &config)?;
+```
+
+**WGSL Limitations vs CUDA (handled with workarounds):**
+- No 64-bit atomics: Emulated using lo/hi u32 pairs
+- No f64: Downcast to f32 with warning
+- No persistent kernels: Host-driven dispatch loop emulation
+- No K2K messaging: Not supported in WebGPU execution model
 
 ### K2K (Kernel-to-Kernel) Messaging
 
@@ -232,18 +270,33 @@ Main crate (`ringkernel`) features:
 
 ### Test Count Summary
 
-290+ tests across the workspace:
+390+ tests across the workspace:
 - ringkernel-core: 65 tests
 - ringkernel-cpu: 11 tests
 - ringkernel-cuda: 6 GPU execution tests
-- ringkernel-cuda-codegen: 138 tests (loops, shared memory, ring kernels, K2K)
+- ringkernel-cuda-codegen: 143 tests (loops, shared memory, ring kernels, K2K, reference expressions)
+- ringkernel-wgpu-codegen: 50 tests (types, intrinsics, transpiler, validation)
 - ringkernel-derive: 14 macro tests
 - ringkernel-wavesim: 49 tests (including educational modes)
+- ringkernel-txmon: 40 tests (GPU types, batch kernel, stencil kernel, ring kernel backends)
 - k2k_integration: 11 tests
 - control_block: 29 tests
 - hlc: 16 tests
 - ringkernel-audio-fft: 32 tests
 - Plus additional integration and doc tests
+
+### GPU Benchmark Results (RTX Ada)
+
+The `ringkernel-cuda-codegen` transpiler generates CUDA code that achieves impressive performance:
+
+| Backend | Throughput | Batch Time | Speedup vs CPU |
+|---------|------------|------------|----------------|
+| CUDA Codegen (1M floats) | ~93B elem/sec | 0.5 µs | 12,378x |
+| CUDA SAXPY PTX | ~77B elem/sec | 0.6 µs | 10,258x |
+| GPU Stencil (CPU fallback) | ~15.7M TPS | 262 µs | 2.09x |
+| CPU Baseline | ~7.5M TPS | 547 µs | 1.00x |
+
+Run benchmark: `cargo run -p ringkernel-txmon --bin txmon-benchmark --release --features cuda-codegen`
 
 ### WaveSim Educational Modes
 

@@ -1,0 +1,50 @@
+[package]
+name = "ringkernel-txmon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GPU-accelerated real-time transaction monitoring showcase for RingKernel"
+
+[dependencies]
+ringkernel = { path = "../ringkernel" }
+ringkernel-core = { path = "../ringkernel-core" }
+inventory = { workspace = true }
+
+# GUI
+iced = { version = "0.13", features = ["tokio"] }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Utilities
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Random number generation for transaction factory
+rand = { version = "0.8", features = ["small_rng"] }
+
+# Zero-copy serialization for GPU-aligned structs
+bytemuck = { version = "1.24", features = ["derive"] }
+
+# CUDA compute (optional)
+ringkernel-cuda = { path = "../ringkernel-cuda", optional = true }
+ringkernel-cuda-codegen = { path = "../ringkernel-cuda-codegen", optional = true }
+cudarc = { workspace = true, optional = true }
+syn = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[features]
+default = ["cpu"]
+cpu = ["ringkernel/cpu"]
+cuda = ["ringkernel/cuda", "dep:ringkernel-cuda", "dep:cudarc"]
+cuda-codegen = ["cuda", "dep:ringkernel-cuda-codegen", "dep:syn"]
+
+[[bin]]
+name = "txmon"
+path = "src/bin/txmon.rs"
+
+[[bin]]
+name = "txmon-benchmark"
+path = "src/bin/benchmark.rs"
