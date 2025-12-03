@@ -81,3 +81,7 @@ path = "src/bin/bench_packed.rs"
 [[bin]]
 name = "verify_packed"
 path = "src/bin/verify_packed.rs"
+
+[[example]]
+name = "educational_modes"
+path = "examples/educational_modes.rs"

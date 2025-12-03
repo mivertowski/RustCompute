@@ -15,6 +15,7 @@ members = [
     "crates/ringkernel-audio-fft",
     "crates/ringkernel-wavesim",
     "crates/ringkernel-txmon",
+    "crates/ringkernel-accnet",
 ]
 
 [workspace.package]

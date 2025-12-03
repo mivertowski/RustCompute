@@ -61,9 +61,6 @@ ringkernel-cuda = { workspace = true }
 ringkernel-cuda-codegen = { workspace = true }
 syn = { workspace = true, features = ["full", "parsing"] }
 
-# For educational modes example
-ringkernel-wavesim = { workspace = true }
-
 # Web API (for axum example)
 axum = "0.7"
 tower = "0.5"
@@ -225,7 +222,5 @@ path = "../../examples/cuda-codegen/stencil_kernel.rs"
 name = "ring_kernel_codegen"
 path = "../../examples/cuda-codegen/ring_kernel.rs"
 
-# Educational modes example
-[[example]]
-name = "educational_modes"
-path = "../../examples/advanced/educational_modes.rs"
+# Educational modes example - moved to ringkernel-wavesim crate to avoid circular dependency
+# Run with: cargo run -p ringkernel-wavesim --example educational_modes
