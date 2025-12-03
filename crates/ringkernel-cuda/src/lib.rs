@@ -116,13 +116,23 @@ mod stub {
 pub use stub::CudaRuntime;
 
 /// Check if CUDA is available at runtime.
+///
+/// This function returns false if:
+/// - CUDA feature is not enabled
+/// - CUDA libraries are not installed on the system
+/// - No CUDA devices are present
+///
+/// It safely catches panics from cudarc when CUDA is not installed.
 pub fn is_cuda_available() -> bool {
     #[cfg(feature = "cuda")]
     {
-        // Check for CUDA devices
-        cudarc::driver::CudaDevice::count()
-            .map(|c| c > 0)
-            .unwrap_or(false)
+        // cudarc panics if CUDA libraries are not found, so we catch that
+        std::panic::catch_unwind(|| {
+            cudarc::driver::CudaDevice::count()
+                .map(|c| c > 0)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
     }
     #[cfg(not(feature = "cuda"))]
     {
@@ -131,10 +141,14 @@ pub fn is_cuda_available() -> bool {
 }
 
 /// Get CUDA device count.
+///
+/// Returns 0 if CUDA is not available or libraries are not installed.
 pub fn cuda_device_count() -> usize {
     #[cfg(feature = "cuda")]
     {
-        cudarc::driver::CudaDevice::count().unwrap_or(0) as usize
+        // cudarc panics if CUDA libraries are not found, so we catch that
+        std::panic::catch_unwind(|| cudarc::driver::CudaDevice::count().unwrap_or(0) as usize)
+            .unwrap_or(0)
     }
     #[cfg(not(feature = "cuda"))]
     {

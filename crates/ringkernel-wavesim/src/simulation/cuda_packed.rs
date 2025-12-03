@@ -426,7 +426,7 @@ impl CudaPackedBackend {
                 RingKernelError::BackendError("apply_boundary_conditions not found".into())
             })?;
 
-        let max_edge_threads = std::cmp::max(self.tiles_x, self.tiles_y) as u32 * self.tile_size;
+        let max_edge_threads = std::cmp::max(self.tiles_x, self.tiles_y) * self.tile_size;
 
         let boundary_cfg = cudarc::driver::LaunchConfig {
             grid_dim: (4, 1, 1), // 4 edges
