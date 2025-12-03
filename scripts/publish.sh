@@ -5,10 +5,14 @@
 # This script publishes all RingKernel crates to crates.io in the correct
 # dependency order. It handles the complex dependency graph automatically.
 #
+# By default, the script automatically skips already-published crates,
+# making it safe to run multiple times (useful with crates.io rate limits).
+#
 # Usage:
 #   ./scripts/publish.sh <CRATES_IO_TOKEN>
 #   ./scripts/publish.sh --dry-run           # Test without publishing
-#   ./scripts/publish.sh <TOKEN> --continue  # Continue from failed publish
+#   ./scripts/publish.sh <TOKEN> --force-all # Re-publish all (will fail if exists)
+#   ./scripts/publish.sh --status            # Check which crates are published
 #
 # The publishing order respects the dependency graph:
 #   Tier 1 (no deps):    core, cuda-codegen, wgpu-codegen
@@ -30,8 +34,9 @@ NC='\033[0m' # No Color
 # Configuration
 PUBLISH_DELAY=45  # Seconds to wait between publishes for crates.io index
 DRY_RUN=false
-CONTINUE_MODE=false
 SKIP_VERIFY=false
+FORCE_ALL=false   # If true, don't skip already published crates
+STATUS_ONLY=false # If true, just show status and exit
 
 # Parse arguments
 TOKEN=""
@@ -41,12 +46,21 @@ for arg in "$@"; do
             DRY_RUN=true
             shift
             ;;
+        --force-all)
+            FORCE_ALL=true
+            shift
+            ;;
         --continue)
-            CONTINUE_MODE=true
+            # Legacy flag - now default behavior, kept for compatibility
+            echo -e "${YELLOW}Note: --continue is now the default behavior${NC}"
             shift
             ;;
         --skip-verify)
             SKIP_VERIFY=true
+            shift
+            ;;
+        --status)
+            STATUS_ONLY=true
             shift
             ;;
         --help|-h)
@@ -56,9 +70,13 @@ for arg in "$@"; do
             echo ""
             echo "Options:"
             echo "  --dry-run      Perform dry run without publishing"
-            echo "  --continue     Skip already-published crates"
+            echo "  --force-all    Publish all crates (don't skip already published)"
             echo "  --skip-verify  Skip initial verification step"
+            echo "  --status       Show publish status and exit"
             echo "  --help         Show this help message"
+            echo ""
+            echo "By default, the script automatically skips already-published crates."
+            echo "This makes it safe to run multiple times when hitting rate limits."
             echo ""
             echo "Get your token from: https://crates.io/settings/tokens"
             exit 0
@@ -145,6 +163,51 @@ get_crate_version() {
     grep -A1 '^\[workspace.package\]' Cargo.toml | grep 'version' | sed 's/.*"\(.*\)".*/\1/' | head -1
 }
 
+# Check status of all crates
+check_all_status() {
+    local version=$1
+    local published_count=0
+    local pending_count=0
+
+    print_header "Crate Publishing Status (v$version)"
+
+    echo -e "${CYAN}Checking crates.io...${NC}"
+    echo ""
+
+    for crate in "${CRATES[@]}"; do
+        echo -n "  $crate: "
+        if check_crate_published "$crate" "$version"; then
+            echo -e "${GREEN}✔ published${NC}"
+            published_count=$((published_count + 1))
+        else
+            echo -e "${YELLOW}○ pending${NC}"
+            pending_count=$((pending_count + 1))
+        fi
+    done
+
+    echo ""
+    echo "───────────────────────────────────────"
+    echo -e "  Published: ${GREEN}$published_count${NC}"
+    echo -e "  Pending:   ${YELLOW}$pending_count${NC}"
+    echo -e "  Total:     ${#CRATES[@]}"
+
+    if [ $pending_count -eq 0 ]; then
+        echo ""
+        print_success "All crates are published!"
+    else
+        echo ""
+        echo "Next crate to publish:"
+        for crate in "${CRATES[@]}"; do
+            if ! check_crate_published "$crate" "$version"; then
+                echo -e "  ${CYAN}→ $crate${NC}"
+                break
+            fi
+        done
+    fi
+
+    return $pending_count
+}
+
 publish_crate() {
     local crate=$1
     local crate_dir="crates/$crate"
@@ -155,14 +218,6 @@ publish_crate() {
     fi
 
     local version=$(get_crate_version "$crate")
-
-    # Check if already published (for --continue mode)
-    if [ "$CONTINUE_MODE" = true ]; then
-        if check_crate_published "$crate" "$version"; then
-            print_warning "$crate@$version already published, skipping..."
-            return 0
-        fi
-    fi
 
     print_step "Publishing $crate@$version..."
 
@@ -223,32 +278,39 @@ wait_for_index() {
 # Main script
 print_header "RingKernel Crates Publisher"
 
+# Change to workspace root first
+cd "$(dirname "$0")/.."
+
 VERSION=$(get_crate_version "ringkernel-core")
+
+# Status-only mode
+if [ "$STATUS_ONLY" = true ]; then
+    check_all_status "$VERSION"
+    exit 0
+fi
 
 echo "Configuration:"
 echo "  Version:       $VERSION"
 echo "  Dry run:       $DRY_RUN"
-echo "  Continue mode: $CONTINUE_MODE"
+echo "  Force all:     $FORCE_ALL"
 echo "  Crates count:  ${#CRATES[@]}"
+echo "  Working dir:   $(pwd)"
 
 # Validate token
 if [ "$DRY_RUN" = false ] && [ -z "$TOKEN" ]; then
     echo ""
     print_error "No crates.io token provided!"
     echo ""
-    echo "Usage: $0 <CRATES_IO_TOKEN> [--dry-run] [--continue]"
+    echo "Usage: $0 <CRATES_IO_TOKEN> [--dry-run] [--force-all]"
     echo ""
     echo "Options:"
     echo "  --dry-run    Test without publishing"
-    echo "  --continue   Skip already-published crates"
+    echo "  --force-all  Publish all (don't skip already published)"
+    echo "  --status     Show which crates are published"
     echo ""
     echo "Get your token from: https://crates.io/settings/tokens"
     exit 1
 fi
-
-# Change to workspace root
-cd "$(dirname "$0")/.."
-echo "  Working dir:   $(pwd)"
 
 # Verify all crates exist
 print_header "Verifying Crates"
@@ -261,55 +323,91 @@ for crate in "${CRATES[@]}"; do
     fi
 done
 
-# Run dry-run verification for Tier 1 crates (they have no internal deps)
-if [ "$SKIP_VERIFY" = false ]; then
-    print_header "Verifying Tier 1 Crates (cargo publish --dry-run)"
-    echo "These crates have no internal dependencies and can be verified independently."
-    echo ""
+# Check which crates are already published
+print_header "Checking Publishing Status"
+echo -e "${CYAN}Querying crates.io for published versions...${NC}"
+echo ""
 
-    for crate in "${TIER1_CRATES[@]}"; do
-        echo -n "  Checking $crate... "
-        if cargo publish -p "$crate" --dry-run --allow-dirty 2>/dev/null; then
-            echo -e "${GREEN}OK${NC}"
-        else
-            echo -e "${RED}FAILED${NC}"
-            print_error "Dry run failed for $crate"
-            echo ""
-            echo "Run for details: cargo publish -p $crate --dry-run --allow-dirty"
-            exit 1
-        fi
-    done
+PENDING_CRATES=()
+PUBLISHED_CRATES=()
+
+for crate in "${CRATES[@]}"; do
+    echo -n "  $crate: "
+    if check_crate_published "$crate" "$VERSION"; then
+        echo -e "${GREEN}✔ published${NC}"
+        PUBLISHED_CRATES+=("$crate")
+    else
+        echo -e "${YELLOW}○ pending${NC}"
+        PENDING_CRATES+=("$crate")
+    fi
+done
+
+echo ""
+echo "───────────────────────────────────────"
+echo -e "  Already published: ${GREEN}${#PUBLISHED_CRATES[@]}${NC}"
+echo -e "  To be published:   ${YELLOW}${#PENDING_CRATES[@]}${NC}"
+
+# Check if there's nothing to do
+if [ ${#PENDING_CRATES[@]} -eq 0 ]; then
     echo ""
-    print_success "Tier 1 crates passed verification"
+    print_success "All crates are already published at version $VERSION!"
+    echo ""
+    echo "View your crates at:"
+    echo "  https://crates.io/crates/ringkernel"
+    exit 0
 fi
 
-# Show publish plan
-print_header "Publish Plan"
-echo "Crates will be published in this order:"
+# Show what will be published
 echo ""
-echo -e "${CYAN}Tier 1 - No dependencies:${NC}"
-for crate in "${TIER1_CRATES[@]}"; do
-    echo "  • $crate"
+echo "Crates to publish:"
+for crate in "${PENDING_CRATES[@]}"; do
+    echo -e "  ${CYAN}→ $crate${NC}"
 done
-echo ""
-echo -e "${CYAN}Tier 2 - Depends on core:${NC}"
-for crate in ringkernel-derive ringkernel-cpu ringkernel-cuda ringkernel-wgpu ringkernel-metal ringkernel-codegen ringkernel-ecosystem ringkernel-audio-fft; do
-    echo "  • $crate"
-done
-echo ""
-echo -e "${CYAN}Tier 3 - Main crate:${NC}"
-echo "  • ringkernel"
-echo ""
-echo -e "${CYAN}Tier 4 - Application crates:${NC}"
-echo "  • ringkernel-wavesim"
-echo "  • ringkernel-txmon"
+
+# Run dry-run verification for Tier 1 crates (they have no internal deps)
+if [ "$SKIP_VERIFY" = false ]; then
+    # Only verify unpublished Tier 1 crates
+    UNPUBLISHED_TIER1=()
+    for crate in "${TIER1_CRATES[@]}"; do
+        for pending in "${PENDING_CRATES[@]}"; do
+            if [ "$crate" = "$pending" ]; then
+                UNPUBLISHED_TIER1+=("$crate")
+                break
+            fi
+        done
+    done
+
+    if [ ${#UNPUBLISHED_TIER1[@]} -gt 0 ]; then
+        print_header "Verifying Unpublished Tier 1 Crates"
+        echo "These crates have no internal dependencies and can be verified independently."
+        echo ""
+
+        for crate in "${UNPUBLISHED_TIER1[@]}"; do
+            echo -n "  Checking $crate... "
+            if cargo publish -p "$crate" --dry-run --allow-dirty 2>/dev/null; then
+                echo -e "${GREEN}OK${NC}"
+            else
+                echo -e "${RED}FAILED${NC}"
+                print_error "Dry run failed for $crate"
+                echo ""
+                echo "Run for details: cargo publish -p $crate --dry-run --allow-dirty"
+                exit 1
+            fi
+        done
+        echo ""
+        print_success "Tier 1 crates passed verification"
+    fi
+fi
 
 # Confirm before publishing
 if [ "$DRY_RUN" = false ]; then
     print_header "Ready to Publish"
-    echo "This will publish ${#CRATES[@]} crates to crates.io as version $VERSION."
+    echo "This will publish ${#PENDING_CRATES[@]} crates to crates.io as version $VERSION."
     echo ""
-    echo -e "${YELLOW}WARNING: This action cannot be undone!${NC}"
+    echo -e "${YELLOW}Note: crates.io has a rate limit of ~5 crates per 10 minutes.${NC}"
+    echo -e "${YELLOW}If you hit the limit, wait and run this script again.${NC}"
+    echo ""
+    echo -e "${YELLOW}WARNING: Publishing cannot be undone!${NC}"
     echo ""
     read -p "Continue? (yes/no) " -r
     echo ""
@@ -334,8 +432,8 @@ for i in "${!CRATES[@]}"; do
     echo -e "${BLUE}[$((i+1))/${#CRATES[@]}]${NC} $crate@$version"
     echo "────────────────────────────────────────"
 
-    # Check if already published
-    if [ "$CONTINUE_MODE" = true ] && check_crate_published "$crate" "$version"; then
+    # Check if already published (unless --force-all)
+    if [ "$FORCE_ALL" = false ] && check_crate_published "$crate" "$version"; then
         print_warning "Already published, skipping..."
         skipped=$((skipped + 1))
         continue
@@ -352,8 +450,10 @@ for i in "${!CRATES[@]}"; do
         failed=$((failed + 1))
         print_error "Publishing stopped due to failure"
         echo ""
-        echo "To continue from this point, run:"
-        echo "  $0 <TOKEN> --continue"
+        echo -e "${YELLOW}If you hit a rate limit, wait 10 minutes and run again.${NC}"
+        echo "The script will automatically skip already-published crates."
+        echo ""
+        echo "  $0 <TOKEN>"
         exit 1
     fi
 done
@@ -372,12 +472,32 @@ if [ $failed -eq 0 ]; then
         echo "To publish for real, run:"
         echo "  $0 <YOUR_CRATES_IO_TOKEN>"
     else
-        print_success "All crates published successfully!"
-        echo ""
-        echo "View your crates at:"
-        echo "  https://crates.io/crates/ringkernel"
-        echo "  https://crates.io/crates/ringkernel-core"
-        echo "  https://crates.io/crates/ringkernel-cuda-codegen"
+        if [ $published -gt 0 ]; then
+            print_success "Successfully published $published crates!"
+        fi
+
+        # Check if all are now published
+        remaining=0
+        for crate in "${CRATES[@]}"; do
+            if ! check_crate_published "$crate" "$VERSION"; then
+                remaining=$((remaining + 1))
+            fi
+        done
+
+        if [ $remaining -eq 0 ]; then
+            echo ""
+            print_success "All crates are now published!"
+            echo ""
+            echo "View your crates at:"
+            echo "  https://crates.io/crates/ringkernel"
+            echo "  https://crates.io/crates/ringkernel-core"
+            echo "  https://crates.io/crates/ringkernel-cuda-codegen"
+        else
+            echo ""
+            echo -e "${YELLOW}$remaining crates still pending.${NC}"
+            echo "Wait for rate limit to reset and run again:"
+            echo "  $0 <TOKEN>"
+        fi
     fi
 else
     print_error "Some crates failed to publish"
