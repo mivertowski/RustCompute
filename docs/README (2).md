@@ -21,6 +21,7 @@
 12. [Performance Considerations](./10-performance.md)
 13. [Ecosystem Integration](./11-ecosystem.md)
 14. [Migration Guide](./12-migration.md)
+15. [CUDA Code Generation](./13-cuda-codegen.md) - Rust-to-CUDA transpiler
 
 ---
 

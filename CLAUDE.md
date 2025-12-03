@@ -110,24 +110,29 @@ struct Matrix4x4 {
 
 ### CUDA Code Generation (ringkernel-cuda-codegen)
 
-Write GPU kernels in Rust DSL and transpile to CUDA C:
+Write GPU kernels in Rust DSL and transpile to CUDA C. Supports three kernel types:
+
+#### 1. Global Kernels (Generic CUDA)
 
 ```rust
-use ringkernel_cuda_codegen::{transpile_global_kernel, transpile_stencil_kernel, StencilConfig, Grid};
-use ringkernel_cuda_codegen::dsl::*;
+use ringkernel_cuda_codegen::{transpile_global_kernel};
+use syn::parse_quote;
 
-// Generic CUDA kernel (non-stencil)
 let kernel_fn: syn::ItemFn = parse_quote! {
-    fn exchange_halos(buffer: &mut [f32], copies: &[u32], num_copies: i32) {
+    fn saxpy(x: &[f32], y: &mut [f32], a: f32, n: i32) {
         let idx = block_idx_x() * block_dim_x() + thread_idx_x();
-        if idx >= num_copies { return; }
-        buffer[copies[(idx * 2 + 1) as usize] as usize] =
-            buffer[copies[(idx * 2) as usize] as usize];
+        if idx >= n { return; }
+        y[idx as usize] = a * x[idx as usize] + y[idx as usize];
     }
 };
 let cuda_code = transpile_global_kernel(&kernel_fn)?;
+```
 
-// Stencil kernel with GridPos abstraction
+#### 2. Stencil Kernels (GridPos Abstraction)
+
+```rust
+use ringkernel_cuda_codegen::{transpile_stencil_kernel, StencilConfig};
+
 let stencil_fn: syn::ItemFn = parse_quote! {
     fn fdtd_step(p: &[f32], p_prev: &mut [f32], c2: f32, pos: GridPos) {
         let laplacian = pos.north(p) + pos.south(p) + pos.east(p) + pos.west(p)
@@ -139,12 +144,45 @@ let config = StencilConfig::new("fdtd").with_tile_size(16, 16).with_halo(1);
 let cuda_code = transpile_stencil_kernel(&stencil_fn, &config)?;
 ```
 
+#### 3. Ring Kernels (Persistent Actor Model)
+
+```rust
+use ringkernel_cuda_codegen::{transpile_ring_kernel, RingKernelConfig};
+
+let handler: syn::ItemFn = parse_quote! {
+    fn process_message(ctx: &RingContext, msg: &Request) -> Response {
+        let tid = ctx.global_thread_id();
+        ctx.sync_threads();
+        let result = msg.value * 2.0;
+        Response { value: result, id: tid as u64 }
+    }
+};
+
+let config = RingKernelConfig::new("processor")
+    .with_block_size(128)
+    .with_queue_capacity(1024)
+    .with_hlc(true)   // Enable Hybrid Logical Clocks
+    .with_k2k(true);  // Enable Kernel-to-Kernel messaging
+
+let cuda_code = transpile_ring_kernel(&handler, &config)?;
+```
+
 **DSL Features:**
 - Block/grid indices: `block_idx_x()`, `thread_idx_x()`, `block_dim_x()`, `grid_dim_x()`, etc.
-- Early return: `if cond { return; }`
-- Match expressions → switch/case
+- Control flow: `if/else`, `match` → switch/case, early `return`
+- Loops: `for i in 0..n`, `while cond`, `loop` with `break`/`continue`
 - Stencil intrinsics: `pos.north(buf)`, `pos.south(buf)`, `pos.east(buf)`, `pos.west(buf)`, `pos.at(buf, dx, dy)`
-- Type inference for int vs float expressions
+- Shared memory: `__shared__` arrays and tiles with `SharedMemoryConfig`
+- Struct literals: `Point { x: 1.0, y: 2.0 }` → C compound literals
+- 40+ GPU intrinsics (atomics, warp ops, sync, math)
+
+**Ring Kernel Features:**
+- Persistent message loop with ControlBlock lifecycle management
+- RingContext method inlining (`ctx.thread_id()` → `threadIdx.x`)
+- HLC clock operations: `hlc_tick()`, `hlc_update()`, `hlc_now()`
+- K2K messaging: `k2k_send()`, `k2k_try_recv()`, `k2k_peek()`, `k2k_pending_count()`
+- Queue intrinsics: `enqueue_response()`, `input_queue_empty()`, etc.
+- Automatic termination handling and cleanup
 
 ### K2K (Kernel-to-Kernel) Messaging
 
@@ -186,11 +224,11 @@ Main crate (`ringkernel`) features:
 
 ### Test Count Summary
 
-240+ tests across the workspace:
+280+ tests across the workspace:
 - ringkernel-core: 65 tests
 - ringkernel-cpu: 11 tests
 - ringkernel-cuda: 6 GPU execution tests
-- ringkernel-cuda-codegen: 39 tests
+- ringkernel-cuda-codegen: 138 tests (loops, shared memory, ring kernels, K2K)
 - ringkernel-derive: 14 macro tests
 - ringkernel-wavesim: 46 tests
 - k2k_integration: 11 tests

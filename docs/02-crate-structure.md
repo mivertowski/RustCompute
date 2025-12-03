@@ -56,13 +56,17 @@ RustCompute/
 │   │
 │   ├── ringkernel-cuda-codegen/  # Rust-to-CUDA transpiler
 │   │   └── src/
-│   │       ├── lib.rs            # Public API
+│   │       ├── lib.rs            # Public API (3 kernel types)
 │   │       ├── transpiler.rs     # Core transpilation engine
-│   │       ├── intrinsics.rs     # GPU intrinsic mappings
+│   │       ├── intrinsics.rs     # GPU intrinsic mappings (40+)
 │   │       ├── stencil.rs        # Stencil kernel support
 │   │       ├── types.rs          # Type mapping (Rust → CUDA)
 │   │       ├── dsl.rs            # DSL functions (block_idx_x, etc.)
-│   │       └── validation.rs     # Code validation
+│   │       ├── validation.rs     # Code validation with modes
+│   │       ├── loops.rs          # Loop transpilation (for/while/loop)
+│   │       ├── shared.rs         # Shared memory (__shared__)
+│   │       ├── ring_kernel.rs    # Ring kernel generation
+│   │       └── handler.rs        # Handler function integration
 │   │
 │   ├── ringkernel-ecosystem/     # Integration utilities
 │   │   └── src/lib.rs
