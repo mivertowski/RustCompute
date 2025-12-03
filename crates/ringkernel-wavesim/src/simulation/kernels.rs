@@ -112,133 +112,138 @@ fn generate_fdtd_tile_step() -> String {
 /// Generate the extract_halo kernel.
 #[cfg(feature = "cuda-codegen")]
 fn generate_extract_halo() -> String {
-    // This kernel uses switch/case which needs manual generation
-    // since our DSL doesn't support match expressions yet
-    r#"// Extract halo data from interior edge to linear buffer
-// edge: 0=North, 1=South, 2=West, 3=East
-__global__ void extract_halo(
-    const float* __restrict__ pressure,
-    float* __restrict__ halo_out,
-    int edge
-) {
-    int i = threadIdx.x;
-    if (i >= 16) return;
+    use syn::parse_quote;
 
-    int idx;
-    switch (edge) {
-        case 0:  // North - extract row 1
-            idx = 1 * 18 + (i + 1);
-            break;
-        case 1:  // South - extract row 16
-            idx = 16 * 18 + (i + 1);
-            break;
-        case 2:  // West - extract col 1
-            idx = (i + 1) * 18 + 1;
-            break;
-        case 3:  // East - extract col 16
-        default:
-            idx = (i + 1) * 18 + 16;
-            break;
+    let kernel_fn: syn::ItemFn = parse_quote! {
+        fn extract_halo(
+            pressure: &[f32],
+            halo_out: &mut [f32],
+            edge: i32,
+        ) {
+            let i = thread_idx_x();
+            if i >= 16 {
+                return;
+            }
+
+            let idx = match edge {
+                0 => 1 * 18 + (i + 1),       // North - extract row 1
+                1 => 16 * 18 + (i + 1),      // South - extract row 16
+                2 => (i + 1) * 18 + 1,       // West - extract col 1
+                _ => (i + 1) * 18 + 16,      // East - extract col 16
+            };
+
+            halo_out[i as usize] = pressure[idx as usize];
+        }
+    };
+
+    match transpile_global_kernel(&kernel_fn) {
+        Ok(cuda) => format!("// Extract Halo - extracts halo data from interior edge\n// edge: 0=North, 1=South, 2=West, 3=East\n{}", cuda),
+        Err(e) => format!("// Transpilation error: {}\n", e),
     }
-
-    halo_out[i] = pressure[idx];
-}
-"#.to_string()
 }
 
 /// Generate the inject_halo kernel.
 #[cfg(feature = "cuda-codegen")]
 fn generate_inject_halo() -> String {
-    r#"// Inject halo data from linear buffer to halo region
-// edge: 0=North, 1=South, 2=West, 3=East
-__global__ void inject_halo(
-    float* __restrict__ pressure,
-    const float* __restrict__ halo_in,
-    int edge
-) {
-    int i = threadIdx.x;
-    if (i >= 16) return;
+    use syn::parse_quote;
 
-    int idx;
-    switch (edge) {
-        case 0:  // North - inject to row 0
-            idx = 0 * 18 + (i + 1);
-            break;
-        case 1:  // South - inject to row 17
-            idx = 17 * 18 + (i + 1);
-            break;
-        case 2:  // West - inject to col 0
-            idx = (i + 1) * 18 + 0;
-            break;
-        case 3:  // East - inject to col 17
-        default:
-            idx = (i + 1) * 18 + 17;
-            break;
+    let kernel_fn: syn::ItemFn = parse_quote! {
+        fn inject_halo(
+            pressure: &mut [f32],
+            halo_in: &[f32],
+            edge: i32,
+        ) {
+            let i = thread_idx_x();
+            if i >= 16 {
+                return;
+            }
+
+            let idx = match edge {
+                0 => 0 * 18 + (i + 1),       // North - inject to row 0
+                1 => 17 * 18 + (i + 1),      // South - inject to row 17
+                2 => (i + 1) * 18 + 0,       // West - inject to col 0
+                _ => (i + 1) * 18 + 17,      // East - inject to col 17
+            };
+
+            pressure[idx as usize] = halo_in[i as usize];
+        }
+    };
+
+    match transpile_global_kernel(&kernel_fn) {
+        Ok(cuda) => format!("// Inject Halo - injects halo data from linear buffer to halo region\n// edge: 0=North, 1=South, 2=West, 3=East\n{}", cuda),
+        Err(e) => format!("// Transpilation error: {}\n", e),
     }
-
-    pressure[idx] = halo_in[i];
-}
-"#.to_string()
 }
 
 /// Generate the read_interior kernel.
 #[cfg(feature = "cuda-codegen")]
 fn generate_read_interior() -> String {
-    r#"// Read interior pressure to linear buffer for visualization
-__global__ void read_interior(
-    const float* __restrict__ pressure,
-    float* __restrict__ output
-) {
-    int lx = threadIdx.x;
-    int ly = threadIdx.y;
+    use syn::parse_quote;
 
-    if (lx >= 16 || ly >= 16) return;
+    let kernel_fn: syn::ItemFn = parse_quote! {
+        fn read_interior(
+            pressure: &[f32],
+            output: &mut [f32],
+        ) {
+            let lx = thread_idx_x();
+            let ly = thread_idx_y();
 
-    int src_idx = (ly + 1) * 18 + (lx + 1);
-    int dst_idx = ly * 16 + lx;
+            if lx >= 16 || ly >= 16 {
+                return;
+            }
 
-    output[dst_idx] = pressure[src_idx];
-}
-"#.to_string()
+            let src_idx = (ly + 1) * 18 + (lx + 1);
+            let dst_idx = ly * 16 + lx;
+
+            output[dst_idx as usize] = pressure[src_idx as usize];
+        }
+    };
+
+    match transpile_global_kernel(&kernel_fn) {
+        Ok(cuda) => format!("// Read Interior - reads interior pressure to linear buffer for visualization\n{}", cuda),
+        Err(e) => format!("// Transpilation error: {}\n", e),
+    }
 }
 
 /// Generate the apply_boundary_reflection kernel.
 #[cfg(feature = "cuda-codegen")]
 fn generate_apply_boundary_reflection() -> String {
-    r#"// Apply boundary reflection for tiles at grid edges
-// edge: 0=North, 1=South, 2=West, 3=East
-__global__ void apply_boundary_reflection(
-    float* __restrict__ pressure,
-    int edge,
-    float reflection_coeff
-) {
-    int i = threadIdx.x;
-    if (i >= 16) return;
+    use syn::parse_quote;
 
-    int src_idx, dst_idx;
-    switch (edge) {
-        case 0:  // North - reflect row 1 to row 0
-            src_idx = 1 * 18 + (i + 1);
-            dst_idx = 0 * 18 + (i + 1);
-            break;
-        case 1:  // South - reflect row 16 to row 17
-            src_idx = 16 * 18 + (i + 1);
-            dst_idx = 17 * 18 + (i + 1);
-            break;
-        case 2:  // West - reflect col 1 to col 0
-            src_idx = (i + 1) * 18 + 1;
-            dst_idx = (i + 1) * 18 + 0;
-            break;
-        case 3:  // East - reflect col 16 to col 17
-        default:
-            src_idx = (i + 1) * 18 + 16;
-            dst_idx = (i + 1) * 18 + 17;
-            break;
+    let kernel_fn: syn::ItemFn = parse_quote! {
+        fn apply_boundary_reflection(
+            pressure: &mut [f32],
+            edge: i32,
+            reflection_coeff: f32,
+        ) {
+            let i = thread_idx_x();
+            if i >= 16 {
+                return;
+            }
+
+            // Calculate source and destination indices based on edge
+            let src_idx = match edge {
+                0 => 1 * 18 + (i + 1),       // North - reflect row 1
+                1 => 16 * 18 + (i + 1),      // South - reflect row 16
+                2 => (i + 1) * 18 + 1,       // West - reflect col 1
+                _ => (i + 1) * 18 + 16,      // East - reflect col 16
+            };
+
+            let dst_idx = match edge {
+                0 => 0 * 18 + (i + 1),       // North - to row 0
+                1 => 17 * 18 + (i + 1),      // South - to row 17
+                2 => (i + 1) * 18 + 0,       // West - to col 0
+                _ => (i + 1) * 18 + 17,      // East - to col 17
+            };
+
+            pressure[dst_idx as usize] = pressure[src_idx as usize] * reflection_coeff;
+        }
+    };
+
+    match transpile_global_kernel(&kernel_fn) {
+        Ok(cuda) => format!("// Apply Boundary Reflection - applies boundary conditions for tiles at grid edges\n// edge: 0=North, 1=South, 2=West, 3=East\n{}", cuda),
+        Err(e) => format!("// Transpilation error: {}\n", e),
     }
-
-    pressure[dst_idx] = pressure[src_idx] * reflection_coeff;
-}
-"#.to_string()
 }
 
 // ============================================================================
@@ -498,70 +503,82 @@ fn generate_inject_impulse() -> String {
 /// Generate apply_boundary_conditions kernel.
 #[cfg(feature = "cuda-codegen")]
 fn generate_apply_boundary_conditions() -> String {
-    r#"// Apply Boundary Conditions - handles domain edges
-__global__ void apply_boundary_conditions(
-    float* __restrict__ packed_buffer,
-    int tiles_x,
-    int tiles_y,
-    int tile_size,
-    int buffer_width,
-    float reflection_coeff
-) {
-    int edge = blockIdx.x;
-    int idx = threadIdx.x;
+    use syn::parse_quote;
 
-    int tile_buffer_size = buffer_width * buffer_width;
+    let kernel_fn: syn::ItemFn = parse_quote! {
+        fn apply_boundary_conditions(
+            packed_buffer: &mut [f32],
+            tiles_x: i32,
+            tiles_y: i32,
+            tile_size: i32,
+            buffer_width: i32,
+            reflection_coeff: f32,
+        ) {
+            let edge = block_idx_x();
+            let idx = thread_idx_x();
 
-    if (edge == 0) {
-        // North boundary: tiles with tile_y == 0
-        int tile_x = idx / tile_size;
-        int cell_x = idx % tile_size;
-        if (tile_x >= tiles_x) return;
+            let tile_buffer_size = buffer_width * buffer_width;
 
-        int tile_idx = 0 * tiles_x + tile_x;
-        int tile_offset = tile_idx * tile_buffer_size;
-        int src_idx = tile_offset + 1 * buffer_width + (cell_x + 1);
-        int dst_idx = tile_offset + 0 * buffer_width + (cell_x + 1);
-        packed_buffer[dst_idx] = packed_buffer[src_idx] * reflection_coeff;
+            if edge == 0 {
+                // North boundary: tiles with tile_y == 0
+                let tile_x = idx / tile_size;
+                let cell_x = idx % tile_size;
+                if tile_x >= tiles_x {
+                    return;
+                }
+
+                let tile_idx = 0 * tiles_x + tile_x;
+                let tile_offset = tile_idx * tile_buffer_size;
+                let src_idx = tile_offset + 1 * buffer_width + (cell_x + 1);
+                let dst_idx = tile_offset + 0 * buffer_width + (cell_x + 1);
+                packed_buffer[dst_idx as usize] = packed_buffer[src_idx as usize] * reflection_coeff;
+            } else if edge == 1 {
+                // South boundary: tiles with tile_y == tiles_y - 1
+                let tile_x = idx / tile_size;
+                let cell_x = idx % tile_size;
+                if tile_x >= tiles_x {
+                    return;
+                }
+
+                let tile_idx = (tiles_y - 1) * tiles_x + tile_x;
+                let tile_offset = tile_idx * tile_buffer_size;
+                let src_idx = tile_offset + tile_size * buffer_width + (cell_x + 1);
+                let dst_idx = tile_offset + (tile_size + 1) * buffer_width + (cell_x + 1);
+                packed_buffer[dst_idx as usize] = packed_buffer[src_idx as usize] * reflection_coeff;
+            } else if edge == 2 {
+                // West boundary: tiles with tile_x == 0
+                let tile_y = idx / tile_size;
+                let cell_y = idx % tile_size;
+                if tile_y >= tiles_y {
+                    return;
+                }
+
+                let tile_idx = tile_y * tiles_x + 0;
+                let tile_offset = tile_idx * tile_buffer_size;
+                let src_idx = tile_offset + (cell_y + 1) * buffer_width + 1;
+                let dst_idx = tile_offset + (cell_y + 1) * buffer_width + 0;
+                packed_buffer[dst_idx as usize] = packed_buffer[src_idx as usize] * reflection_coeff;
+            } else if edge == 3 {
+                // East boundary: tiles with tile_x == tiles_x - 1
+                let tile_y = idx / tile_size;
+                let cell_y = idx % tile_size;
+                if tile_y >= tiles_y {
+                    return;
+                }
+
+                let tile_idx = tile_y * tiles_x + (tiles_x - 1);
+                let tile_offset = tile_idx * tile_buffer_size;
+                let src_idx = tile_offset + (cell_y + 1) * buffer_width + tile_size;
+                let dst_idx = tile_offset + (cell_y + 1) * buffer_width + (tile_size + 1);
+                packed_buffer[dst_idx as usize] = packed_buffer[src_idx as usize] * reflection_coeff;
+            }
+        }
+    };
+
+    match transpile_global_kernel(&kernel_fn) {
+        Ok(cuda) => format!("// Apply Boundary Conditions - handles domain edges for packed tiles\n{}", cuda),
+        Err(e) => format!("// Transpilation error: {}\n", e),
     }
-    else if (edge == 1) {
-        // South boundary: tiles with tile_y == tiles_y - 1
-        int tile_x = idx / tile_size;
-        int cell_x = idx % tile_size;
-        if (tile_x >= tiles_x) return;
-
-        int tile_idx = (tiles_y - 1) * tiles_x + tile_x;
-        int tile_offset = tile_idx * tile_buffer_size;
-        int src_idx = tile_offset + tile_size * buffer_width + (cell_x + 1);
-        int dst_idx = tile_offset + (tile_size + 1) * buffer_width + (cell_x + 1);
-        packed_buffer[dst_idx] = packed_buffer[src_idx] * reflection_coeff;
-    }
-    else if (edge == 2) {
-        // West boundary: tiles with tile_x == 0
-        int tile_y = idx / tile_size;
-        int cell_y = idx % tile_size;
-        if (tile_y >= tiles_y) return;
-
-        int tile_idx = tile_y * tiles_x + 0;
-        int tile_offset = tile_idx * tile_buffer_size;
-        int src_idx = tile_offset + (cell_y + 1) * buffer_width + 1;
-        int dst_idx = tile_offset + (cell_y + 1) * buffer_width + 0;
-        packed_buffer[dst_idx] = packed_buffer[src_idx] * reflection_coeff;
-    }
-    else if (edge == 3) {
-        // East boundary: tiles with tile_x == tiles_x - 1
-        int tile_y = idx / tile_size;
-        int cell_y = idx % tile_size;
-        if (tile_y >= tiles_y) return;
-
-        int tile_idx = tile_y * tiles_x + (tiles_x - 1);
-        int tile_offset = tile_idx * tile_buffer_size;
-        int src_idx = tile_offset + (cell_y + 1) * buffer_width + tile_size;
-        int dst_idx = tile_offset + (cell_y + 1) * buffer_width + (tile_size + 1);
-        packed_buffer[dst_idx] = packed_buffer[src_idx] * reflection_coeff;
-    }
-}
-"#.to_string()
 }
 
 // ============================================================================
@@ -674,5 +691,48 @@ mod tests {
         assert_eq!(gen_kernel_count, hw_kernel_count,
             "Kernel count mismatch: generated={}, handwritten={}",
             gen_kernel_count, hw_kernel_count);
+    }
+
+    #[test]
+    #[cfg(feature = "cuda-codegen")]
+    fn test_match_expression_transpiles_to_switch() {
+        // Test extract_halo uses switch for edge selection
+        let extract = generate_extract_halo();
+        assert!(extract.contains("switch (edge)"), "extract_halo should use switch: {}", extract);
+        assert!(extract.contains("case 0:"), "extract_halo should have case 0");
+        assert!(extract.contains("case 1:"), "extract_halo should have case 1");
+        assert!(extract.contains("case 2:"), "extract_halo should have case 2");
+        assert!(extract.contains("default:"), "extract_halo should have default");
+
+        // Test inject_halo uses switch for edge selection
+        let inject = generate_inject_halo();
+        assert!(inject.contains("switch (edge)"), "inject_halo should use switch: {}", inject);
+
+        // Test apply_boundary_reflection uses switch
+        let boundary = generate_apply_boundary_reflection();
+        assert!(boundary.contains("switch (edge)"), "apply_boundary_reflection should use switch: {}", boundary);
+
+        println!("Generated extract_halo:\n{}", extract);
+    }
+
+    #[test]
+    #[cfg(feature = "cuda-codegen")]
+    fn test_all_kernels_transpile_successfully() {
+        // Verify all tile kernels transpile without errors
+        let tile_source = generate_tile_kernels();
+        assert!(!tile_source.contains("Transpilation error"), "Tile kernels had transpilation errors:\n{}", tile_source);
+
+        // Verify all packed kernels transpile without errors
+        let packed_source = generate_packed_kernels();
+        assert!(!packed_source.contains("Transpilation error"), "Packed kernels had transpilation errors:\n{}", packed_source);
+
+        // Count __global__ functions to ensure all generated
+        let tile_count = tile_source.matches("__global__").count();
+        let packed_count = packed_source.matches("__global__").count();
+
+        assert_eq!(tile_count, 5, "Expected 5 tile kernels, got {}", tile_count);
+        assert_eq!(packed_count, 6, "Expected 6 packed kernels, got {}", packed_count);
+
+        println!("Successfully generated {} tile kernels and {} packed kernels", tile_count, packed_count);
     }
 }
