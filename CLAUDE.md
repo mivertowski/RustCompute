@@ -322,6 +322,33 @@ Visual indicators show:
 - **Yellow row**: Active row (RowByRow mode)
 - **Cyan tile with border**: Active tile (ActorBased mode)
 
+## Publishing
+
+All crates are published to crates.io under the `ringkernel-*` namespace. Use the publish script to handle the dependency order:
+
+```bash
+# Check which crates are published vs pending
+./scripts/publish.sh --status
+
+# Publish all unpublished crates (auto-skips already published)
+./scripts/publish.sh <CRATES_IO_TOKEN>
+
+# Dry run to verify without publishing
+./scripts/publish.sh --dry-run
+```
+
+The script automatically:
+- Skips already-published crates (safe to run multiple times)
+- Publishes in correct dependency order (tier by tier)
+- Handles crates.io rate limits (~5 crates per 10 minutes)
+- Shows status before and after publishing
+
+Crate publishing order:
+1. **Tier 1** (no deps): core, cuda-codegen, wgpu-codegen
+2. **Tier 2** (depends on core): derive, cpu, cuda, wgpu, metal, codegen, ecosystem, audio-fft
+3. **Tier 3** (main crate): ringkernel
+4. **Tier 4** (applications): wavesim, txmon
+
 ## Important Patterns
 
 **Queue capacity must be power of 2:**

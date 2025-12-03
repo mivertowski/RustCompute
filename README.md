@@ -1,8 +1,10 @@
 # RingKernel
 
+[![Crates.io](https://img.shields.io/crates/v/ringkernel.svg)](https://crates.io/crates/ringkernel)
+[![Documentation](https://docs.rs/ringkernel/badge.svg)](https://docs.rs/ringkernel)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
-[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://mivertowski.github.io/RustCompute/)
+[![GitHub Pages](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://mivertowski.github.io/RustCompute/)
 
 A GPU-native persistent actor model framework for Rust.
 
@@ -355,10 +357,12 @@ Performance varies significantly by hardware and workload.
 
 ## Documentation
 
-**Online Documentation:** [https://mivertowski.github.io/RustCompute/](https://mivertowski.github.io/RustCompute/)
+**API Documentation:** [https://docs.rs/ringkernel](https://docs.rs/ringkernel)
 
-- **[API Reference](https://mivertowski.github.io/RustCompute/api/ringkernel/)** - Complete API documentation generated from source
-- **[Guide](https://mivertowski.github.io/RustCompute/guide/01-architecture-overview.md)** - Architecture and usage guides
+**Online Guides:** [https://mivertowski.github.io/RustCompute/](https://mivertowski.github.io/RustCompute/)
+
+- **[API Reference](https://docs.rs/ringkernel)** - Complete API documentation on docs.rs
+- **[Guide](https://mivertowski.github.io/RustCompute/guide/01-architecture-overview.html)** - Architecture and usage guides
 
 Detailed documentation is also available in the `docs/` directory:
 
