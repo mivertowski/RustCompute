@@ -14,18 +14,63 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-linux:
-    name: Linux ${{ matrix.variant }}
+  build-linux-cpu:
+    name: Linux CPU
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - variant: cpu
-            features: ""
-            suffix: "-cpu"
-          - variant: cuda
-            features: "--features cuda"
-            suffix: "-cuda"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libgtk-3-dev \
+            libssl-dev \
+            pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: linux-cpu
+
+      - name: Build WaveSim
+        run: cargo build -p ringkernel-wavesim --release --no-default-features --features cpu
+
+      - name: Build TxMon
+        run: cargo build -p ringkernel-txmon --release --features cpu
+
+      - name: Build AccNet
+        run: cargo build -p ringkernel-accnet --release
+
+      - name: Build ProcInt
+        run: cargo build -p ringkernel-procint --release
+
+      - name: Package binaries
+        run: |
+          mkdir -p dist
+          cp target/release/wavesim dist/
+          cp target/release/txmon dist/
+          cp target/release/accnet dist/
+          cp target/release/procint dist/
+          cd dist
+          tar -czvf ../ringkernel-showcase-linux-x86_64-cpu.tar.gz *
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-cpu
+          path: ringkernel-showcase-linux-x86_64-cpu.tar.gz
+
+  build-linux-cuda:
+    name: Linux CUDA
+    runs-on: ubuntu-22.04  # Use 22.04 for CUDA compatibility
 
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +89,6 @@ jobs:
             pkg-config
 
       - name: Install CUDA toolkit
-        if: matrix.variant == 'cuda'
         uses: Jimver/cuda-toolkit@v0.2.16
         with:
           cuda: '12.5.0'
@@ -55,101 +99,128 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: linux-${{ matrix.variant }}
+          key: linux-cuda
 
-      - name: Build WaveSim
-        run: cargo build -p ringkernel-wavesim --release ${{ matrix.features }}
+      - name: Build WaveSim (CUDA)
+        run: cargo build -p ringkernel-wavesim --release --features cuda-codegen
 
-      - name: Build TxMon
-        run: cargo build -p ringkernel-txmon --release ${{ matrix.features }}
+      - name: Build TxMon (CUDA)
+        run: cargo build -p ringkernel-txmon --release --features cuda-codegen
 
-      - name: Build AccNet
-        run: cargo build -p ringkernel-accnet --release ${{ matrix.features }}
+      - name: Build AccNet (CUDA)
+        run: cargo build -p ringkernel-accnet --release --features cuda
 
-      - name: Build ProcInt
-        run: cargo build -p ringkernel-procint --release ${{ matrix.features }}
+      - name: Build ProcInt (CUDA)
+        run: cargo build -p ringkernel-procint --release --features cuda
 
       - name: Package binaries
         run: |
           mkdir -p dist
-          cp target/release/wavesim dist/wavesim${{ matrix.suffix }}
-          cp target/release/txmon dist/txmon${{ matrix.suffix }}
-          cp target/release/accnet dist/accnet${{ matrix.suffix }}
-          cp target/release/procint dist/procint${{ matrix.suffix }}
-
-          # Create archive
+          cp target/release/wavesim dist/
+          cp target/release/txmon dist/
+          cp target/release/accnet dist/
+          cp target/release/procint dist/
           cd dist
-          tar -czvf ../ringkernel-showcase-linux-x86_64${{ matrix.suffix }}.tar.gz *
+          tar -czvf ../ringkernel-showcase-linux-x86_64-cuda.tar.gz *
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux${{ matrix.suffix }}
-          path: ringkernel-showcase-linux-x86_64${{ matrix.suffix }}.tar.gz
+          name: linux-cuda
+          path: ringkernel-showcase-linux-x86_64-cuda.tar.gz
 
-  build-windows:
-    name: Windows ${{ matrix.variant }}
+  build-windows-cpu:
+    name: Windows CPU
     runs-on: windows-latest
-    strategy:
-      matrix:
-        include:
-          - variant: cpu
-            features: ""
-            suffix: "-cpu"
-          - variant: cuda
-            features: "--features cuda"
-            suffix: "-cuda"
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install CUDA toolkit
-        if: matrix.variant == 'cuda'
-        uses: Jimver/cuda-toolkit@v0.2.16
-        with:
-          cuda: '12.5.0'
-          method: 'network'
-          sub-packages: '["nvcc", "cudart"]'
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: windows-${{ matrix.variant }}
+          key: windows-cpu
 
       - name: Build WaveSim
-        run: cargo build -p ringkernel-wavesim --release ${{ matrix.features }}
+        run: cargo build -p ringkernel-wavesim --release --no-default-features --features cpu
 
       - name: Build TxMon
-        run: cargo build -p ringkernel-txmon --release ${{ matrix.features }}
+        run: cargo build -p ringkernel-txmon --release --features cpu
 
       - name: Build AccNet
-        run: cargo build -p ringkernel-accnet --release ${{ matrix.features }}
+        run: cargo build -p ringkernel-accnet --release
 
       - name: Build ProcInt
-        run: cargo build -p ringkernel-procint --release ${{ matrix.features }}
+        run: cargo build -p ringkernel-procint --release
 
       - name: Package binaries
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist
-          Copy-Item target/release/wavesim.exe dist/wavesim${{ matrix.suffix }}.exe
-          Copy-Item target/release/txmon.exe dist/txmon${{ matrix.suffix }}.exe
-          Copy-Item target/release/accnet.exe dist/accnet${{ matrix.suffix }}.exe
-          Copy-Item target/release/procint.exe dist/procint${{ matrix.suffix }}.exe
-
-          # Create archive
-          Compress-Archive -Path dist/* -DestinationPath ringkernel-showcase-windows-x86_64${{ matrix.suffix }}.zip
+          Copy-Item target/release/wavesim.exe dist/
+          Copy-Item target/release/txmon.exe dist/
+          Copy-Item target/release/accnet.exe dist/
+          Copy-Item target/release/procint.exe dist/
+          Compress-Archive -Path dist/* -DestinationPath ringkernel-showcase-windows-x86_64-cpu.zip
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows${{ matrix.suffix }}
-          path: ringkernel-showcase-windows-x86_64${{ matrix.suffix }}.zip
+          name: windows-cpu
+          path: ringkernel-showcase-windows-x86_64-cpu.zip
+
+  build-windows-cuda:
+    name: Windows CUDA
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CUDA toolkit
+        uses: Jimver/cuda-toolkit@v0.2.16
+        with:
+          cuda: '12.5.0'
+          method: 'network'
+          sub-packages: '["nvcc", "cudart"]'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-cuda
+
+      - name: Build WaveSim (CUDA)
+        run: cargo build -p ringkernel-wavesim --release --features cuda-codegen
+
+      - name: Build TxMon (CUDA)
+        run: cargo build -p ringkernel-txmon --release --features cuda-codegen
+
+      - name: Build AccNet (CUDA)
+        run: cargo build -p ringkernel-accnet --release --features cuda
+
+      - name: Build ProcInt (CUDA)
+        run: cargo build -p ringkernel-procint --release --features cuda
+
+      - name: Package binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item target/release/wavesim.exe dist/
+          Copy-Item target/release/txmon.exe dist/
+          Copy-Item target/release/accnet.exe dist/
+          Copy-Item target/release/procint.exe dist/
+          Compress-Archive -Path dist/* -DestinationPath ringkernel-showcase-windows-x86_64-cuda.zip
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-cuda
+          path: ringkernel-showcase-windows-x86_64-cuda.zip
 
   release:
     name: Create Release
-    needs: [build-linux, build-windows]
+    needs: [build-linux-cpu, build-linux-cuda, build-windows-cpu, build-windows-cuda]
     runs-on: ubuntu-latest
     permissions:
       contents: write
