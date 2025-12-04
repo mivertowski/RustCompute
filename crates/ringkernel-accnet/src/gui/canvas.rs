@@ -72,11 +72,7 @@ impl NetworkCanvas {
 
         // Queue recent flows for particle animation (limit to last 500 for performance)
         let flow_count = network.flows.len();
-        let start_idx = if flow_count > 500 {
-            flow_count - 500
-        } else {
-            0
-        };
+        let start_idx = flow_count.saturating_sub(500);
 
         for flow in &network.flows[start_idx..] {
             let suspicious = flow.is_anomalous();

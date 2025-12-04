@@ -6,7 +6,7 @@ nav_order: 16
 
 # Showcase Applications
 
-RingKernel includes three comprehensive showcase applications demonstrating GPU-accelerated computing with the actor model. Each showcases different aspects of the framework.
+RingKernel includes four comprehensive showcase applications demonstrating GPU-accelerated computing with the actor model. Each showcases different aspects of the framework.
 
 ---
 
@@ -112,26 +112,78 @@ cargo run -p ringkernel-accnet --release --features cuda
 
 ---
 
+## ProcInt - Process Intelligence
+
+![ProcInt Screenshot](screenshots/procint.png)
+
+**GPU-accelerated process mining** for discovering, analyzing, and monitoring business processes from event logs.
+
+### Key Features
+
+- **DFG Mining**: Directly-Follows Graph construction from event streams with GPU acceleration
+- **Pattern Detection**: Bottlenecks, loops, rework, and long-running activities
+- **Conformance Checking**: Fitness and precision metrics against reference models
+- **Timeline View**: Partial order traces with concurrent activity visualization
+- **Multi-Sector**: Healthcare, Manufacturing, Finance, and IT process templates
+
+### GPU Kernels
+
+1. **DFG Construction**: Builds directly-follows graph from event stream (batch kernel)
+2. **Pattern Detection**: Identifies process patterns like bottlenecks and loops
+3. **Partial Order Derivation**: Builds precedence matrix from interval events (stencil kernel)
+4. **Conformance Checking**: Validates traces against reference models
+
+### Architecture
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌────────────────┐
+│   Data Fabric   │────>│  GPU Kernels     │────>│  Visualization │
+│ (Event Stream)  │     │ (DFG/Pattern)    │     │  (egui Canvas) │
+└─────────────────┘     └──────────────────┘     └────────────────┘
+        │                       │                       │
+   Sector Templates      4 Kernel Types           Force-directed
+   Anomaly Injection     CPU/CUDA fallback        DFG + Timeline
+```
+
+### Performance
+
+| Operation | Throughput |
+|-----------|------------|
+| DFG Construction | ~47K events/sec |
+| Pattern Detection | ~3.8M elements/sec |
+
+### Run It
+
+```bash
+# CPU backend
+cargo run -p ringkernel-procint --release
+
+# Run benchmark
+cargo run -p ringkernel-procint --bin procint-benchmark --release
+```
+
+---
+
 ## Common Patterns Across Showcases
 
-All three applications demonstrate RingKernel's core capabilities:
+All four applications demonstrate RingKernel's core capabilities:
 
-| Pattern | WaveSim | TxMon | AccNet |
-|---------|---------|-------|--------|
-| GPU Actor Model | Tile actors | Ring kernels | Analysis actors |
-| K2K Messaging | Halo exchange | Multi-stage pipeline | Network analysis |
-| Real-time GUI | egui + glow | egui dashboard | egui graph canvas |
-| Multi-backend | CPU/CUDA/WGPU | CPU/CUDA | CPU/CUDA |
-| HLC Timestamps | Tile ordering | Transaction ordering | Event ordering |
+| Pattern | WaveSim | TxMon | AccNet | ProcInt |
+|---------|---------|-------|--------|---------|
+| GPU Actor Model | Tile actors | Ring kernels | Analysis actors | DFG/Pattern kernels |
+| K2K Messaging | Halo exchange | Multi-stage pipeline | Network analysis | Kernel coordination |
+| Real-time GUI | egui + glow | egui dashboard | egui graph canvas | egui DFG + Timeline |
+| Multi-backend | CPU/CUDA/WGPU | CPU/CUDA | CPU/CUDA | CPU/CUDA |
+| HLC Timestamps | Tile ordering | Transaction ordering | Event ordering | Trace ordering |
 
 ### Build All Showcases
 
 ```bash
 # All showcases, CPU only
-cargo build -p ringkernel-wavesim -p ringkernel-txmon -p ringkernel-accnet --release
+cargo build -p ringkernel-wavesim -p ringkernel-txmon -p ringkernel-accnet -p ringkernel-procint --release
 
 # With CUDA support
-cargo build -p ringkernel-wavesim -p ringkernel-txmon -p ringkernel-accnet --release --features cuda
+cargo build -p ringkernel-wavesim -p ringkernel-txmon -p ringkernel-accnet -p ringkernel-procint --release --features cuda
 ```
 
 ---

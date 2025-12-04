@@ -244,7 +244,7 @@ impl AccNetApp {
 
         // Only update particles periodically, don't reinitialize layout
         // This preserves node positions while refreshing flow animations
-        if self.batches_processed % 100 == 0 && self.batches_processed > 0 {
+        if self.batches_processed.is_multiple_of(100) && self.batches_processed > 0 {
             self.canvas.refresh_particles(&self.network);
         }
     }

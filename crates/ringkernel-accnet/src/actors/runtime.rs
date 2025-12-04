@@ -703,12 +703,13 @@ mod tests {
     #[test]
     fn test_risk_score_calculation() {
         let runtime = GpuActorRuntime::default();
-        let mut result = GpuAnalyticsResult::default();
-
-        result.fraud_pattern_count = 50;
-        result.gaap_violation_count = 25;
-        result.suspense_account_count = 10;
-        result.benford_anomaly = true;
+        let result = GpuAnalyticsResult {
+            fraud_pattern_count: 50,
+            gaap_violation_count: 25,
+            suspense_account_count: 10,
+            benford_anomaly: true,
+            ..Default::default()
+        };
 
         let risk = runtime.calculate_risk_score(&result);
         assert!(risk > 0.0);

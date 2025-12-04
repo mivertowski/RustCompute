@@ -119,6 +119,7 @@ impl TransactionFlow {
     }
 
     /// Create a flow with full provenance.
+    #[allow(clippy::too_many_arguments)]
     pub fn with_provenance(
         source: u16,
         target: u16,
@@ -296,7 +297,7 @@ mod tests {
             size
         );
         assert!(
-            size % 64 == 0,
+            size.is_multiple_of(64),
             "TransactionFlow should be 64-byte aligned, got {}",
             size
         );

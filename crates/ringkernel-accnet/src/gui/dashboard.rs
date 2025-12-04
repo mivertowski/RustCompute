@@ -128,7 +128,7 @@ impl AnalyticsDashboard {
             if amount >= 1.0 {
                 // Get first digit
                 let first_digit = get_first_digit(amount);
-                if first_digit >= 1 && first_digit <= 9 {
+                if (1..=9).contains(&first_digit) {
                     self.benford_counts[(first_digit - 1) as usize] += 1;
                 }
             }
@@ -233,7 +233,7 @@ impl AnalyticsDashboard {
 
         // Confidence: lower average confidence = higher risk
         let avg_confidence = network.statistics.avg_confidence as f32;
-        let confidence_risk = (1.0 - avg_confidence).max(0.0).min(1.0);
+        let confidence_risk = (1.0 - avg_confidence).clamp(0.0, 1.0);
 
         // Weighted combination - each factor contributes proportionally
         // Weights sum to 1.0
@@ -243,7 +243,7 @@ impl AnalyticsDashboard {
             + 0.10 * benford_risk
             + 0.15 * confidence_risk;
 
-        risk.min(1.0).max(0.0)
+        risk.clamp(0.0, 1.0)
     }
 
     /// Render the full dashboard.

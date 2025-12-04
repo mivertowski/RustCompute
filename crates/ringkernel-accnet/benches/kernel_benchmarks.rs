@@ -1,7 +1,7 @@
 //! Benchmarks for accounting network kernels.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use ringkernel_accnet::kernels::{AnalysisKernel, TemporalKernel, TransformationKernel};
+use ringkernel_accnet::kernels::{AnalysisKernel, TransformationKernel};
 use ringkernel_accnet::prelude::*;
 
 fn benchmark_transformation(c: &mut Criterion) {
@@ -11,10 +11,9 @@ fn benchmark_transformation(c: &mut Criterion) {
 
     for size in [100, 1000, 10000] {
         // Generate test entries
-        let archetype = CompanyArchetype::retail_default();
-        let template = ChartOfAccountsTemplate::retail_standard();
+        let archetype = CompanyArchetype::retail_standard();
         let mut generator =
-            TransactionGenerator::new(archetype, template, GeneratorConfig::default());
+            TransactionGenerator::new(archetype, GeneratorConfig::default());
         let entries = generator.generate_batch(size);
 
         group.bench_with_input(
@@ -35,10 +34,10 @@ fn benchmark_analysis(c: &mut Criterion) {
 
     for size in [100, 500, 1000] {
         // Generate test network
-        let archetype = CompanyArchetype::retail_default();
-        let template = ChartOfAccountsTemplate::retail_standard();
+        let archetype = CompanyArchetype::retail_standard();
         let mut generator =
-            TransactionGenerator::new(archetype, template, GeneratorConfig::default());
+            TransactionGenerator::new(archetype.clone(), GeneratorConfig::default());
+        let template = ChartOfAccountsTemplate::for_archetype(&archetype);
         let entries = generator.generate_batch(size);
         let result = transform_kernel.transform(&entries);
 

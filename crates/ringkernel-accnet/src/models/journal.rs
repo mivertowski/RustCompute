@@ -456,7 +456,7 @@ mod tests {
             size
         );
         assert!(
-            size % 128 == 0,
+            size.is_multiple_of(128),
             "JournalEntry should be 128-byte aligned, got {}",
             size
         );
@@ -471,7 +471,7 @@ mod tests {
             size
         );
         assert!(
-            size % 64 == 0,
+            size.is_multiple_of(64),
             "JournalLineItem should be 64-byte aligned, got {}",
             size
         );

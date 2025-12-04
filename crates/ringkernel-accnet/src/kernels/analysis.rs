@@ -169,7 +169,7 @@ impl AnalysisKernel {
             let amount = flow.amount.abs();
             if amount.mantissa > 0 {
                 let first_digit = Self::first_digit(amount.mantissa.unsigned_abs());
-                if first_digit >= 1 && first_digit <= 9 {
+                if (1..=9).contains(&first_digit) {
                     digit_counts[(first_digit - 1) as usize] += 1;
                     total += 1;
                 }

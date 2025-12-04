@@ -380,7 +380,7 @@ mod tests {
             size
         );
         assert!(
-            size % 128 == 0,
+            size.is_multiple_of(128),
             "AccountNode should be 128-byte aligned, got {}",
             size
         );

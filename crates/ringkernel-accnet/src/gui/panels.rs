@@ -463,15 +463,12 @@ impl AlertsPanel {
                         );
 
                         // Timestamp
-                        let time = format!(
-                            "{}",
-                            chrono::DateTime::from_timestamp(
-                                (alert.timestamp.physical / 1000) as i64,
-                                0
-                            )
-                            .map(|dt| dt.format("%H:%M:%S").to_string())
-                            .unwrap_or_else(|| "Unknown".to_string())
-                        );
+                        let time = chrono::DateTime::from_timestamp(
+                            (alert.timestamp.physical / 1000) as i64,
+                            0,
+                        )
+                        .map(|dt| dt.format("%H:%M:%S").to_string())
+                        .unwrap_or_else(|| "Unknown".to_string());
                         ui.label(RichText::new(time).small().color(theme.text_secondary));
                     });
                 });
@@ -619,11 +616,7 @@ impl EducationalOverlay {
 
         for (name, desc) in patterns {
             ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(format!("{}", name))
-                        .strong()
-                        .color(theme.alert_high),
-                );
+                ui.label(RichText::new(name).strong().color(theme.alert_high));
                 ui.label(RichText::new(format!(" - {}", desc)).color(theme.text_secondary));
             });
         }
@@ -650,11 +643,7 @@ impl EducationalOverlay {
 
         for (name, desc) in violations {
             ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(format!("{}", name))
-                        .strong()
-                        .color(theme.alert_medium),
-                );
+                ui.label(RichText::new(name).strong().color(theme.alert_medium));
                 ui.label(RichText::new(format!(" - {}", desc)).color(theme.text_secondary));
             });
         }
@@ -710,11 +699,7 @@ impl EducationalOverlay {
 
         for (name, desc) in metrics {
             ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(format!("{}", name))
-                        .strong()
-                        .color(theme.accent),
-                );
+                ui.label(RichText::new(name).strong().color(theme.accent));
                 ui.label(RichText::new(format!(" - {}", desc)).color(theme.text_secondary));
             });
         }

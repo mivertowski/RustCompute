@@ -163,10 +163,10 @@ impl ActivityHeatmap {
 
             // Simulate activity distribution (in real app, use actual temporal data)
             let base_activity = account.transaction_count as f32;
-            for col in 0..8 {
+            for (col, cell) in data[row_idx].iter_mut().enumerate().take(8) {
                 // Create some variation based on account properties
                 let variation = ((account.index as f32 + col as f32) * 0.7).sin() * 0.3 + 0.7;
-                data[row_idx][col] = base_activity * variation;
+                *cell = base_activity * variation;
             }
         }
 
@@ -363,8 +363,8 @@ impl CorrelationHeatmap {
         }
 
         // Diagonal = 1.0 (self-correlation)
-        for i in 0..n {
-            data[i][i] = 1.0;
+        for (i, row) in data.iter_mut().enumerate().take(n) {
+            row[i] = 1.0;
         }
 
         Self {

@@ -658,13 +658,7 @@ impl MethodDistribution {
             if segment_width > 1.0 {
                 painter.rect_filled(
                     Rect::from_min_size(Pos2::new(x, bar_y), Vec2::new(segment_width, bar_height)),
-                    if i == 0 {
-                        4.0
-                    } else if i == 4 {
-                        4.0
-                    } else {
-                        0.0
-                    },
+                    if i == 0 || i == 4 { 4.0 } else { 0.0 },
                     colors[i],
                 );
                 x += segment_width;
