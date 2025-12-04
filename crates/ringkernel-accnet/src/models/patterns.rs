@@ -134,6 +134,7 @@ pub struct FraudPattern {
 }
 
 impl FraudPattern {
+    /// Create a new fraud pattern instance.
     pub fn new(pattern_type: FraudPatternType) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -172,7 +173,9 @@ impl FraudPattern {
 }
 
 /// GAAP violation severity levels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Archive, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Archive, Serialize, Deserialize,
+)]
 #[archive(compare(PartialEq))]
 #[repr(u8)]
 pub enum ViolationSeverity {
@@ -187,11 +190,12 @@ pub enum ViolationSeverity {
 }
 
 impl ViolationSeverity {
+    /// Get color for this severity level (RGB).
     pub fn color(&self) -> [u8; 3] {
         match self {
             ViolationSeverity::Low => [255, 235, 59],     // Yellow
-            ViolationSeverity::Medium => [255, 152, 0],  // Orange
-            ViolationSeverity::High => [244, 67, 54],    // Red
+            ViolationSeverity::Medium => [255, 152, 0],   // Orange
+            ViolationSeverity::High => [244, 67, 54],     // Red
             ViolationSeverity::Critical => [183, 28, 28], // Dark red
         }
     }
@@ -254,13 +258,17 @@ impl GaapViolationType {
     pub fn description(&self) -> &'static str {
         match self {
             GaapViolationType::RevenueToCashDirect => "Revenue directly to Cash (bypass A/R)",
-            GaapViolationType::RevenueToExpense => "Revenue to Expense (accounting equation violation)",
+            GaapViolationType::RevenueToExpense => {
+                "Revenue to Expense (accounting equation violation)"
+            }
             GaapViolationType::CashToRevenue => "Cash to Revenue (backward flow)",
             GaapViolationType::ExpenseToAsset => "Expense to Asset (improper capitalization)",
             GaapViolationType::LiabilityToRevenue => "Liability to Revenue (misclassification)",
             GaapViolationType::CogsWithoutInventory => "COGS without Inventory movement",
             GaapViolationType::AccumDepreciationIncrease => "Direct Accum. Depreciation increase",
-            GaapViolationType::RetainedEarningsModification => "Direct Retained Earnings modification",
+            GaapViolationType::RetainedEarningsModification => {
+                "Direct Retained Earnings modification"
+            }
             GaapViolationType::IntercompanyImbalance => "Intercompany accounts don't balance",
             GaapViolationType::UnbalancedEntry => "Debits ≠ Credits",
         }
@@ -333,6 +341,7 @@ pub struct GaapViolation {
 }
 
 impl GaapViolation {
+    /// Create a new GAAP violation instance.
     pub fn new(
         violation_type: GaapViolationType,
         source: u16,
@@ -414,14 +423,12 @@ mod tests {
 
     #[test]
     fn test_gaap_violation_matching() {
-        assert!(GaapViolationType::RevenueToExpense.matches(
-            AccountType::Revenue,
-            AccountType::Expense
-        ));
-        assert!(!GaapViolationType::RevenueToExpense.matches(
-            AccountType::Asset,
-            AccountType::Expense
-        ));
+        assert!(
+            GaapViolationType::RevenueToExpense.matches(AccountType::Revenue, AccountType::Expense)
+        );
+        assert!(
+            !GaapViolationType::RevenueToExpense.matches(AccountType::Asset, AccountType::Expense)
+        );
     }
 
     #[test]

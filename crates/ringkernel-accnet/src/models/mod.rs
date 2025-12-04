@@ -4,15 +4,15 @@
 //! transformed into a graph representation for GPU-accelerated analysis.
 
 mod account;
-mod journal;
 mod flow;
+mod journal;
 mod network;
 mod patterns;
 mod temporal;
 
 pub use account::*;
-pub use journal::*;
 pub use flow::*;
+pub use journal::*;
 pub use network::*;
 pub use patterns::*;
 pub use temporal::*;
@@ -32,20 +32,31 @@ pub struct Decimal128 {
 }
 
 impl Decimal128 {
-    pub const ZERO: Self = Self { mantissa: 0, scale: 2 };
+    /// Zero value constant with scale 2.
+    pub const ZERO: Self = Self {
+        mantissa: 0,
+        scale: 2,
+    };
 
+    /// Create a new Decimal128 with given mantissa and scale.
     pub fn new(mantissa: i128, scale: u8) -> Self {
         Self { mantissa, scale }
     }
 
+    /// Create a zero value.
     pub fn zero() -> Self {
         Self::ZERO
     }
 
+    /// Create from cents (scale 2).
     pub fn from_cents(cents: i64) -> Self {
-        Self { mantissa: cents as i128, scale: 2 }
+        Self {
+            mantissa: cents as i128,
+            scale: 2,
+        }
     }
 
+    /// Create from f64 (scale 2).
     pub fn from_f64(value: f64) -> Self {
         Self {
             mantissa: (value * 100.0).round() as i128,
@@ -53,10 +64,12 @@ impl Decimal128 {
         }
     }
 
+    /// Convert to f64.
     pub fn to_f64(&self) -> f64 {
         self.mantissa as f64 / 10f64.powi(self.scale as i32)
     }
 
+    /// Get absolute value.
     pub fn abs(&self) -> Self {
         Self {
             mantissa: self.mantissa.abs(),
@@ -64,14 +77,17 @@ impl Decimal128 {
         }
     }
 
+    /// Check if value is zero.
     pub fn is_zero(&self) -> bool {
         self.mantissa == 0
     }
 
+    /// Check if value is positive.
     pub fn is_positive(&self) -> bool {
         self.mantissa > 0
     }
 
+    /// Check if value is negative.
     pub fn is_negative(&self) -> bool {
         self.mantissa < 0
     }
@@ -136,6 +152,7 @@ pub struct HybridTimestamp {
 }
 
 impl HybridTimestamp {
+    /// Create a timestamp with current physical time.
     pub fn now() -> Self {
         use std::time::{SystemTime, UNIX_EPOCH};
         let physical = SystemTime::now()
@@ -149,6 +166,7 @@ impl HybridTimestamp {
         }
     }
 
+    /// Create a timestamp with current time and specified node ID.
     pub fn with_node_id(node_id: u32) -> Self {
         use std::time::{SystemTime, UNIX_EPOCH};
         let physical = SystemTime::now()
@@ -162,6 +180,7 @@ impl HybridTimestamp {
         }
     }
 
+    /// Create a timestamp with specific physical and logical components.
     pub fn new(physical: u64, logical: u32) -> Self {
         Self {
             physical,
@@ -170,6 +189,7 @@ impl HybridTimestamp {
         }
     }
 
+    /// Create a zero timestamp.
     pub fn zero() -> Self {
         Self {
             physical: 0,

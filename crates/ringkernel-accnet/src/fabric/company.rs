@@ -390,7 +390,7 @@ impl CompanyArchetype {
                 let mut mults = [1.0; 12];
                 // Apply peaks
                 for &peak_month in &config.seasonal_peaks {
-                    if peak_month >= 1 && peak_month <= 12 {
+                    if (1..=12).contains(&peak_month) {
                         mults[(peak_month - 1) as usize] = 2.5;
                         // Adjacent months get smaller boost
                         if peak_month > 1 {
@@ -467,7 +467,7 @@ mod tests {
         // November and December should be peaks
         assert!(mults[10] > 1.5); // November
         assert!(mults[11] > 2.0); // December
-        // January should be low
+                                  // January should be low
         assert!(mults[0] < 1.0);
     }
 

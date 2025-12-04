@@ -8,8 +8,8 @@
 //! cycle detection, and anomaly identification.
 
 use super::{
-    AccountFlags, AccountMetadata, AccountNode, AccountType, AggregatedFlow, Decimal128,
-    FlowDirection, GraphEdge, HybridTimestamp, TransactionFlow,
+    AccountFlags, AccountMetadata, AccountNode, AccountType, AggregatedFlow, FlowDirection,
+    GraphEdge, HybridTimestamp, TransactionFlow,
 };
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
@@ -76,8 +76,9 @@ pub struct AccountingNetwork {
     /// Network statistics
     pub statistics: NetworkStatistics,
 
-    /// Period boundaries
+    /// Period start timestamp.
     pub period_start: HybridTimestamp,
+    /// Period end timestamp.
     pub period_end: HybridTimestamp,
 }
 
@@ -422,14 +423,23 @@ impl AccountingNetwork {
 /// Lightweight snapshot of network state for UI updates.
 #[derive(Debug, Clone)]
 pub struct NetworkSnapshot {
+    /// Timestamp of the snapshot.
     pub timestamp: HybridTimestamp,
+    /// Number of account nodes.
     pub node_count: usize,
+    /// Number of transaction edges.
     pub edge_count: usize,
+    /// Number of unique account pairs.
     pub unique_edges: usize,
+    /// Total monetary flow in the network.
     pub total_flow: f64,
+    /// Average confidence across all flows.
     pub avg_confidence: f64,
+    /// Number of suspense accounts detected.
     pub suspense_count: usize,
+    /// Number of GAAP violations.
     pub violation_count: usize,
+    /// Number of fraud patterns.
     pub fraud_count: usize,
 }
 
@@ -486,6 +496,7 @@ impl From<&AccountingNetwork> for GpuNetworkHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::Decimal128;
 
     fn create_test_network() -> AccountingNetwork {
         let mut network = AccountingNetwork::new(Uuid::new_v4(), 2024, 1);
@@ -557,7 +568,15 @@ mod tests {
     #[test]
     fn test_gpu_header_size() {
         let size = std::mem::size_of::<GpuNetworkHeader>();
-        assert!(size >= 128, "GpuNetworkHeader should be at least 128 bytes, got {}", size);
-        assert!(size % 128 == 0, "GpuNetworkHeader should be 128-byte aligned, got {}", size);
+        assert!(
+            size >= 128,
+            "GpuNetworkHeader should be at least 128 bytes, got {}",
+            size
+        );
+        assert!(
+            size % 128 == 0,
+            "GpuNetworkHeader should be 128-byte aligned, got {}",
+            size
+        );
     }
 }

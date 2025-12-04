@@ -6,9 +6,8 @@
 //! - Trend changes
 
 use crate::models::{
-    AccountingNetwork, BehavioralBaseline, SeasonalPattern,
-    TemporalAlert, TemporalAlertType, TimeGranularity,
-    HybridTimestamp,
+    AccountingNetwork, BehavioralBaseline, HybridTimestamp, SeasonalPattern, TemporalAlert,
+    TemporalAlertType, TimeGranularity,
 };
 use std::collections::HashMap;
 
@@ -104,7 +103,9 @@ impl TemporalKernel {
                             timestamp: *timestamp,
                             message: format!(
                                 "Anomalous activity: {:.2} (expected {:.2} ± {:.2})",
-                                value, baseline.mean, baseline.std_dev * 2.0
+                                value,
+                                baseline.mean,
+                                baseline.std_dev * 2.0
                             ),
                         });
                         result.stats.anomalies_detected += 1;
@@ -119,19 +120,24 @@ impl TemporalKernel {
     }
 
     /// Build time series from flows.
-    fn build_time_series(&self, network: &AccountingNetwork) -> HashMap<u16, Vec<(HybridTimestamp, f64)>> {
+    fn build_time_series(
+        &self,
+        network: &AccountingNetwork,
+    ) -> HashMap<u16, Vec<(HybridTimestamp, f64)>> {
         let mut series: HashMap<u16, Vec<(HybridTimestamp, f64)>> = HashMap::new();
 
         for flow in &network.flows {
             let amount = flow.amount.to_f64();
 
             // Add to source account (outflow)
-            series.entry(flow.source_account_index)
+            series
+                .entry(flow.source_account_index)
                 .or_default()
                 .push((flow.timestamp, -amount));
 
             // Add to target account (inflow)
-            series.entry(flow.target_account_index)
+            series
+                .entry(flow.target_account_index)
                 .or_default()
                 .push((flow.timestamp, amount));
         }
@@ -145,7 +151,11 @@ impl TemporalKernel {
     }
 
     /// Compute baseline for a time series.
-    fn compute_baseline(&self, account_id: u16, series: &[(HybridTimestamp, f64)]) -> BehavioralBaseline {
+    fn compute_baseline(
+        &self,
+        account_id: u16,
+        series: &[(HybridTimestamp, f64)],
+    ) -> BehavioralBaseline {
         let values: Vec<f64> = series.iter().map(|(_, v)| *v).collect();
         let n = values.len() as f64;
 
@@ -174,7 +184,8 @@ impl TemporalKernel {
         // Compute MAD (Median Absolute Deviation)
         let mut abs_deviations: Vec<f64> = values.iter().map(|v| (v - median).abs()).collect();
         abs_deviations.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let mad_idx = ((abs_deviations.len() as f64 * 0.5) as usize).min(abs_deviations.len().saturating_sub(1));
+        let mad_idx = ((abs_deviations.len() as f64 * 0.5) as usize)
+            .min(abs_deviations.len().saturating_sub(1));
         let mad = abs_deviations.get(mad_idx).copied().unwrap_or(0.0);
 
         let mut baseline = BehavioralBaseline::new(account_id);

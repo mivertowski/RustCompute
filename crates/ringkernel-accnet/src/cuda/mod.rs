@@ -14,7 +14,7 @@ pub mod runtime;
 #[cfg(feature = "cuda")]
 pub use codegen::*;
 #[cfg(feature = "cuda")]
-pub use executor::{GpuExecutor, GpuAnalysisResult, BenchmarkResults, KernelBenchmark};
+pub use executor::{BenchmarkResults, GpuAnalysisResult, GpuExecutor, KernelBenchmark};
 pub use runtime::{AnalysisRuntime, Backend, RuntimeStatus};
 
 /// CUDA kernel configuration.
@@ -101,7 +101,10 @@ mod tests {
 
     #[test]
     fn test_kernel_types() {
-        assert_eq!(CudaKernelType::JournalTransform.name(), "journal_transform_kernel");
+        assert_eq!(
+            CudaKernelType::JournalTransform.name(),
+            "journal_transform_kernel"
+        );
         assert_eq!(CudaKernelType::PageRank.recommended_block_size(), 256);
     }
 }

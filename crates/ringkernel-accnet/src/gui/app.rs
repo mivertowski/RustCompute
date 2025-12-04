@@ -1,19 +1,19 @@
 //! Main application window.
 
-use eframe::egui::{self, CentralPanel, SidePanel, TopBottomPanel, RichText};
+use eframe::egui::{self, CentralPanel, RichText, SidePanel, TopBottomPanel};
 use uuid::Uuid;
 
-use crate::models::{AccountingNetwork, HybridTimestamp};
+use super::canvas::NetworkCanvas;
+use super::dashboard::AnalyticsDashboard;
+use super::panels::{AlertsPanel, AnalyticsPanel, ControlPanel, EducationalOverlay};
+use super::theme::AccNetTheme;
+use crate::actors::{CoordinatorConfig, GpuActorRuntime};
 use crate::analytics::AnalyticsEngine;
 use crate::cuda::{AnalysisRuntime, Backend};
 use crate::fabric::{
-    DataFabricPipeline, PipelineConfig, CompanyArchetype,
-    GeneratorConfig, Alert, AlertSeverity,
+    Alert, AlertSeverity, CompanyArchetype, DataFabricPipeline, GeneratorConfig, PipelineConfig,
 };
-use super::canvas::NetworkCanvas;
-use super::panels::{ControlPanel, AnalyticsPanel, AlertsPanel, EducationalOverlay};
-use super::dashboard::AnalyticsDashboard;
-use super::theme::AccNetTheme;
+use crate::models::{AccountingNetwork, HybridTimestamp};
 
 /// Main application state.
 pub struct AccNetApp {
@@ -40,6 +40,8 @@ pub struct AccNetApp {
     engine: AnalyticsEngine,
     /// GPU-accelerated analysis runtime.
     analysis_runtime: AnalysisRuntime,
+    /// GPU-native actor runtime for ring kernel analytics.
+    actor_runtime: GpuActorRuntime,
 
     /// Frame counter.
     frame_count: u64,
@@ -78,6 +80,18 @@ impl AccNetApp {
             eprintln!("AccNet: CPU backend (CUDA not available)");
         }
 
+        // Initialize GPU-native actor runtime for ring kernel analytics
+        let actor_runtime = GpuActorRuntime::new(CoordinatorConfig::default());
+        if actor_runtime.is_gpu_active() {
+            let status = actor_runtime.status();
+            eprintln!(
+                "AccNet: Ring Kernel Actor System active - {} kernels",
+                status.kernels_launched
+            );
+        } else {
+            eprintln!("AccNet: Ring Kernel Actor System (CPU fallback)");
+        }
+
         Self {
             canvas: NetworkCanvas::new(),
             controls: ControlPanel::new(),
@@ -90,6 +104,7 @@ impl AccNetApp {
             pipeline: None,
             engine: AnalyticsEngine::new(),
             analysis_runtime,
+            actor_runtime,
             frame_count: 0,
             batches_processed: 0,
             show_debug: false,
@@ -166,6 +181,15 @@ impl AccNetApp {
         // Run analysis using GPU-accelerated runtime (CUDA if available)
         let analysis = self.analysis_runtime.analyze(&self.network);
 
+        // Also run ring kernel actor-based analytics
+        let actor_result = self.actor_runtime.analyze(&self.network);
+
+        // Use actor results for Benford analysis if available
+        if actor_result.benford_distribution.iter().sum::<u32>() > 0 {
+            // Update dashboard with actor-based Benford analysis
+            // (The actor runtime provides more accurate parallel analysis)
+        }
+
         // Update network statistics
         self.network.statistics.suspense_account_count = analysis.stats.suspense_count;
         self.network.statistics.gaap_violation_count = analysis.stats.gaap_violation_count;
@@ -203,7 +227,12 @@ impl AccNetApp {
                 severity,
                 alert_type: format!("Fraud: {:?}", pattern.pattern_type),
                 message: pattern.pattern_type.description().to_string(),
-                accounts: pattern.involved_accounts.iter().copied().filter(|&x| x != 0).collect(),
+                accounts: pattern
+                    .involved_accounts
+                    .iter()
+                    .copied()
+                    .filter(|&x| x != 0)
+                    .collect(),
                 amount: Some(pattern.amount),
                 timestamp: HybridTimestamp::now(),
             });
@@ -283,23 +312,34 @@ impl AccNetApp {
                 let (backend_text, backend_color) = if self.analysis_runtime.is_cuda_active() {
                     let status = self.analysis_runtime.status();
                     let device = status.cuda_device_name.as_deref().unwrap_or("GPU");
-                    (format!("GPU: {}", device), egui::Color32::from_rgb(100, 220, 100))
+                    (
+                        format!("GPU: {}", device),
+                        egui::Color32::from_rgb(100, 220, 100),
+                    )
                 } else {
                     match self.analysis_runtime.backend() {
-                        Backend::Cuda => ("CUDA (fallback CPU)".to_string(), egui::Color32::from_rgb(220, 180, 100)),
+                        Backend::Cuda => (
+                            "CUDA (fallback CPU)".to_string(),
+                            egui::Color32::from_rgb(220, 180, 100),
+                        ),
                         Backend::Cpu => ("CPU".to_string(), egui::Color32::from_rgb(180, 180, 180)),
-                        Backend::Auto => ("AUTO".to_string(), egui::Color32::from_rgb(180, 180, 180)),
+                        Backend::Auto => {
+                            ("AUTO".to_string(), egui::Color32::from_rgb(180, 180, 180))
+                        }
                     }
                 };
                 ui.label(RichText::new(backend_text).color(backend_color).small());
                 ui.separator();
 
-                ui.label(RichText::new(format!(
-                    "Batches: {} | Flows: {} | FPS: {:.1}",
-                    self.batches_processed,
-                    self.network.flows.len(),
-                    ui.ctx().input(|i| 1.0 / i.predicted_dt)
-                )).small());
+                ui.label(
+                    RichText::new(format!(
+                        "Batches: {} | Flows: {} | FPS: {:.1}",
+                        self.batches_processed,
+                        self.network.flows.len(),
+                        ui.ctx().input(|i| 1.0 / i.predicted_dt)
+                    ))
+                    .small(),
+                );
             });
         });
     }
@@ -393,7 +433,9 @@ impl eframe::App for AccNetApp {
                             // Benford's histogram
                             ui.vertical(|ui| {
                                 ui.set_width(180.0);
-                                let hist = super::charts::Histogram::benford(self.dashboard.benford_counts());
+                                let hist = super::charts::Histogram::benford(
+                                    self.dashboard.benford_counts(),
+                                );
                                 hist.show(ui, &self.theme);
                             });
 
@@ -417,8 +459,10 @@ impl eframe::App for AccNetApp {
                             // Method distribution with explanations
                             ui.vertical(|ui| {
                                 ui.set_width(220.0);
-                                let dist = super::charts::MethodDistribution::new(self.dashboard.method_counts())
-                                    .with_explanation(true);
+                                let dist = super::charts::MethodDistribution::new(
+                                    self.dashboard.method_counts(),
+                                )
+                                .with_explanation(true);
                                 dist.show(ui, &self.theme);
                             });
 
@@ -443,9 +487,21 @@ impl eframe::App for AccNetApp {
                             ui.vertical(|ui| {
                                 ui.set_width(180.0);
                                 let chart = super::charts::BarChart::new("Detected Issues")
-                                    .add("Suspense", self.network.statistics.suspense_account_count as f64, self.theme.alert_medium)
-                                    .add("GAAP", self.network.statistics.gaap_violation_count as f64, self.theme.alert_high)
-                                    .add("Fraud", self.network.statistics.fraud_pattern_count as f64, self.theme.alert_critical);
+                                    .add(
+                                        "Suspense",
+                                        self.network.statistics.suspense_account_count as f64,
+                                        self.theme.alert_medium,
+                                    )
+                                    .add(
+                                        "GAAP",
+                                        self.network.statistics.gaap_violation_count as f64,
+                                        self.theme.alert_high,
+                                    )
+                                    .add(
+                                        "Fraud",
+                                        self.network.statistics.fraud_pattern_count as f64,
+                                        self.theme.alert_critical,
+                                    );
                                 chart.show(ui, &self.theme);
                             });
 
@@ -463,7 +519,8 @@ impl eframe::App for AccNetApp {
 
                                 ui.add_space(10.0);
 
-                                let mut risk_sparkline = super::charts::Sparkline::new("Risk Trend");
+                                let mut risk_sparkline =
+                                    super::charts::Sparkline::new("Risk Trend");
                                 risk_sparkline.color = self.theme.alert_high;
                                 for val in self.dashboard.risk_history() {
                                     risk_sparkline.push(*val * 100.0);
@@ -500,9 +557,27 @@ impl eframe::App for AccNetApp {
                     ui.label(format!("Accounts: {}", self.network.accounts.len()));
                     ui.label(format!("Flows: {}", self.network.flows.len()));
                     ui.label(format!("Particles: {}", self.canvas.particles.count()));
-                    ui.label(format!("Layout converged: {}", self.canvas.layout.converged));
+                    ui.label(format!(
+                        "Layout converged: {}",
+                        self.canvas.layout.converged
+                    ));
                     ui.label(format!("Selected node: {:?}", self.canvas.selected_node));
                     ui.label(format!("Hovered node: {:?}", self.canvas.hovered_node));
+
+                    ui.separator();
+                    ui.heading("Ring Kernel Actor System");
+                    let status = self.actor_runtime.status();
+                    ui.label(format!("GPU Active: {}", status.cuda_active));
+                    ui.label(format!("Kernels: {}", status.kernels_launched));
+                    ui.label(format!("Messages Processed: {}", status.messages_processed));
+                    ui.label(format!(
+                        "Snapshots: {}",
+                        status.coordinator_stats.snapshots_processed
+                    ));
+                    ui.label(format!(
+                        "Avg Processing: {:.2} µs",
+                        status.coordinator_stats.avg_processing_time_us
+                    ));
                 });
         }
 

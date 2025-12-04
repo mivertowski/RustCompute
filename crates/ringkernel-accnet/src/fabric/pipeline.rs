@@ -3,13 +3,13 @@
 //! The pipeline orchestrates data flow from generation through
 //! transformation and analysis, emitting events for visualization.
 
-use crate::models::{
-    AccountingNetwork, AccountMetadata, AccountNode, Decimal128, FraudPattern,
-    GaapViolation, HybridTimestamp, NetworkSnapshot, TemporalAlert, TransactionFlow,
-};
 use super::{
-    AnomalyInjectionConfig, AnomalyInjector, ChartOfAccountsTemplate, CompanyArchetype,
-    GeneratedEntry, GeneratorConfig, TransactionGenerator, AccountTypeInfo,
+    AccountTypeInfo, AnomalyInjectionConfig, AnomalyInjector, ChartOfAccountsTemplate,
+    CompanyArchetype, GeneratorConfig, TransactionGenerator,
+};
+use crate::models::{
+    AccountingNetwork, Decimal128, FraudPattern, GaapViolation, HybridTimestamp, NetworkSnapshot,
+    TemporalAlert, TransactionFlow,
 };
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -65,15 +65,19 @@ impl PipelineConfig {
 /// Events emitted by the pipeline.
 #[derive(Debug, Clone)]
 pub enum PipelineEvent {
-    /// New journal entries were generated
+    /// New journal entries were generated.
     EntriesGenerated {
+        /// Number of entries generated.
         count: usize,
+        /// Timestamp of generation.
         timestamp: HybridTimestamp,
     },
 
-    /// Entries were transformed into flows
+    /// Entries were transformed into flows.
     FlowsCreated {
+        /// Generated transaction flows.
         flows: Vec<TransactionFlow>,
+        /// Timestamp of transformation.
         timestamp: HybridTimestamp,
     },
 
@@ -143,7 +147,7 @@ impl AlertSeverity {
     /// Get color for this severity.
     pub fn color(&self) -> [u8; 3] {
         match self {
-            AlertSeverity::Info => [100, 181, 246],    // Light blue
+            AlertSeverity::Info => [100, 181, 246],   // Light blue
             AlertSeverity::Low => [255, 235, 59],     // Yellow
             AlertSeverity::Medium => [255, 152, 0],   // Orange
             AlertSeverity::High => [244, 67, 54],     // Red
@@ -228,10 +232,7 @@ impl DataFabricPipeline {
 
         // Create anomaly injector if enabled
         let injector = if pipeline_config.inject_anomalies {
-            let mut inj = AnomalyInjector::new(
-                pipeline_config.anomaly_config.clone(),
-                None,
-            );
+            let mut inj = AnomalyInjector::new(pipeline_config.anomaly_config.clone(), None);
 
             // Register account types
             for (idx, def) in coa.accounts.iter().enumerate() {
@@ -332,13 +333,10 @@ impl DataFabricPipeline {
 
         for entry in entries {
             // Optionally inject anomalies
-            let (final_entry, debit_lines, credit_lines, anomaly_label) =
+            let (final_entry, debit_lines, credit_lines, _anomaly_label) =
                 if let Some(ref mut injector) = self.injector {
-                    let result = injector.process(
-                        entry.entry,
-                        entry.debit_lines,
-                        entry.credit_lines,
-                    );
+                    let result =
+                        injector.process(entry.entry, entry.debit_lines, entry.credit_lines);
 
                     if result.anomaly_injected {
                         self.stats.anomalies_detected += 1;
@@ -346,11 +344,18 @@ impl DataFabricPipeline {
                         // Emit anomaly alert
                         if let Some(ref label) = result.anomaly_label {
                             let alert = self.create_alert_from_label(label, &result.entry);
-                            let _ = self.event_sender.send(PipelineEvent::AnomalyDetected(alert));
+                            let _ = self
+                                .event_sender
+                                .send(PipelineEvent::AnomalyDetected(alert));
                         }
                     }
 
-                    (result.entry, result.debit_lines, result.credit_lines, result.anomaly_label)
+                    (
+                        result.entry,
+                        result.debit_lines,
+                        result.credit_lines,
+                        result.anomaly_label,
+                    )
                 } else {
                     (entry.entry, entry.debit_lines, entry.credit_lines, None)
                 };
@@ -385,9 +390,9 @@ impl DataFabricPipeline {
         self.network.update_statistics();
 
         // Emit network update
-        let _ = self.event_sender.send(PipelineEvent::NetworkUpdated(
-            self.network.snapshot()
-        ));
+        let _ = self
+            .event_sender
+            .send(PipelineEvent::NetworkUpdated(self.network.snapshot()));
 
         // Update timing stats
         if let Some(start) = self.start_time {
@@ -454,9 +459,7 @@ impl DataFabricPipeline {
 
             _ => {
                 // For C/D/E, create flows from each debit to proportional credits
-                let total_credit: f64 = credit_lines.iter()
-                    .map(|c| c.amount.to_f64())
-                    .sum();
+                let total_credit: f64 = credit_lines.iter().map(|c| c.amount.to_f64()).sum();
 
                 if total_credit == 0.0 {
                     return Vec::new();

@@ -3,7 +3,7 @@
 //! Each account is a node in the directed graph, with edges representing
 //! monetary flows between accounts.
 
-use super::{Decimal128, HybridTimestamp};
+use super::Decimal128;
 use rkyv::{Archive, Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -58,12 +58,12 @@ impl AccountType {
     /// Returns a color for visualization.
     pub fn color(&self) -> [u8; 3] {
         match self {
-            AccountType::Asset => [100, 149, 237],     // Cornflower blue
-            AccountType::Liability => [255, 99, 71],  // Tomato red
-            AccountType::Equity => [50, 205, 50],     // Lime green
-            AccountType::Revenue => [255, 215, 0],    // Gold
-            AccountType::Expense => [255, 140, 0],    // Dark orange
-            AccountType::Contra => [148, 0, 211],     // Dark violet
+            AccountType::Asset => [100, 149, 237],   // Cornflower blue
+            AccountType::Liability => [255, 99, 71], // Tomato red
+            AccountType::Equity => [50, 205, 50],    // Lime green
+            AccountType::Revenue => [255, 215, 0],   // Gold
+            AccountType::Expense => [255, 140, 0],   // Dark orange
+            AccountType::Contra => [148, 0, 211],    // Dark violet
         }
     }
 
@@ -82,12 +82,12 @@ impl AccountType {
     /// Returns an icon character for visualization.
     pub fn icon(&self) -> char {
         match self {
-            AccountType::Asset => '●',      // Solid circle
-            AccountType::Liability => '○',  // Empty circle
-            AccountType::Equity => '▣',     // Square with fill
-            AccountType::Revenue => '◆',    // Diamond
-            AccountType::Expense => '◇',    // Empty diamond
-            AccountType::Contra => '◐',     // Half-filled circle
+            AccountType::Asset => '●',     // Solid circle
+            AccountType::Liability => '○', // Empty circle
+            AccountType::Equity => '▣',    // Square with fill
+            AccountType::Revenue => '◆',   // Diamond
+            AccountType::Expense => '◇',   // Empty diamond
+            AccountType::Contra => '◐',    // Half-filled circle
         }
     }
 }
@@ -97,7 +97,9 @@ impl AccountType {
 #[archive(compare(PartialEq))]
 #[repr(u8)]
 pub enum BalanceSide {
+    /// Debit side (left side of T-account).
     Debit = 0,
+    /// Credit side (right side of T-account).
     Credit = 1,
 }
 
@@ -114,29 +116,44 @@ pub struct AccountSemantics {
 }
 
 impl AccountSemantics {
-    // Bit flag constants
+    /// Flag: Cash or cash equivalent account.
     pub const IS_CASH: u32 = 1 << 0;
+    /// Flag: Accounts receivable.
     pub const IS_RECEIVABLE: u32 = 1 << 1;
+    /// Flag: Accounts payable.
     pub const IS_PAYABLE: u32 = 1 << 2;
+    /// Flag: Revenue account.
     pub const IS_REVENUE: u32 = 1 << 3;
+    /// Flag: Expense account.
     pub const IS_EXPENSE: u32 = 1 << 4;
+    /// Flag: Inventory account.
     pub const IS_INVENTORY: u32 = 1 << 5;
+    /// Flag: VAT/sales tax account.
     pub const IS_VAT: u32 = 1 << 6;
+    /// Flag: Suspense/clearing account.
     pub const IS_SUSPENSE: u32 = 1 << 7;
+    /// Flag: Intercompany account.
     pub const IS_INTERCOMPANY: u32 = 1 << 8;
+    /// Flag: Depreciation account.
     pub const IS_DEPRECIATION: u32 = 1 << 9;
+    /// Flag: Cost of goods sold account.
     pub const IS_COGS: u32 = 1 << 10;
+    /// Flag: Payroll account.
     pub const IS_PAYROLL: u32 = 1 << 11;
 
+    /// Check if this is a cash account.
     pub fn is_cash(&self) -> bool {
         self.flags & Self::IS_CASH != 0
     }
+    /// Check if this is a suspense account.
     pub fn is_suspense(&self) -> bool {
         self.flags & Self::IS_SUSPENSE != 0
     }
+    /// Check if this is a revenue account.
     pub fn is_revenue(&self) -> bool {
         self.flags & Self::IS_REVENUE != 0
     }
+    /// Check if this is an expense account.
     pub fn is_expense(&self) -> bool {
         self.flags & Self::IS_EXPENSE != 0
     }
@@ -200,6 +217,7 @@ pub struct AccountNode {
     pub transaction_count: u32,
 
     // === Flags (4 bytes) ===
+    /// Account property flags.
     pub flags: AccountFlags,
 }
 
@@ -209,29 +227,43 @@ pub struct AccountNode {
 pub struct AccountFlags(pub u32);
 
 impl AccountFlags {
+    /// Flag: Identified as a suspense account.
     pub const IS_SUSPENSE_ACCOUNT: u32 = 1 << 0;
+    /// Flag: Cash or cash equivalent.
     pub const IS_CASH_ACCOUNT: u32 = 1 << 1;
+    /// Flag: Revenue account.
     pub const IS_REVENUE_ACCOUNT: u32 = 1 << 2;
+    /// Flag: Expense account.
     pub const IS_EXPENSE_ACCOUNT: u32 = 1 << 3;
+    /// Flag: Intercompany account.
     pub const IS_INTERCOMPANY: u32 = 1 << 4;
+    /// Flag: Flagged for audit review.
     pub const FLAGGED_FOR_AUDIT: u32 = 1 << 5;
+    /// Flag: Has GAAP violation.
     pub const HAS_GAAP_VIOLATION: u32 = 1 << 6;
+    /// Flag: Involved in fraud pattern.
     pub const HAS_FRAUD_PATTERN: u32 = 1 << 7;
+    /// Flag: Dormant account (no recent activity).
     pub const IS_DORMANT: u32 = 1 << 8;
+    /// Flag: Has detected anomaly.
     pub const HAS_ANOMALY: u32 = 1 << 9;
 
+    /// Create a new empty flags instance.
     pub fn new() -> Self {
         Self(0)
     }
 
+    /// Set a flag.
     pub fn set(&mut self, flag: u32) {
         self.0 |= flag;
     }
 
+    /// Clear a flag.
     pub fn clear(&mut self, flag: u32) {
         self.0 &= !flag;
     }
 
+    /// Check if a flag is set.
     pub fn has(&self, flag: u32) -> bool {
         self.0 & flag != 0
     }
@@ -306,6 +338,7 @@ pub struct AccountMetadata {
 }
 
 impl AccountMetadata {
+    /// Create new account metadata with code and name.
     pub fn new(code: impl Into<String>, name: impl Into<String>) -> Self {
         Self {
             code: code.into(),
@@ -341,7 +374,15 @@ mod tests {
     fn test_account_node_size() {
         // Ensure GPU alignment (may be larger with rkyv metadata)
         let size = std::mem::size_of::<AccountNode>();
-        assert!(size >= 128, "AccountNode should be at least 128 bytes, got {}", size);
-        assert!(size % 128 == 0, "AccountNode should be 128-byte aligned, got {}", size);
+        assert!(
+            size >= 128,
+            "AccountNode should be at least 128 bytes, got {}",
+            size
+        );
+        assert!(
+            size % 128 == 0,
+            "AccountNode should be 128-byte aligned, got {}",
+            size
+        );
     }
 }

@@ -1,10 +1,10 @@
 //! UI panels for controls, analytics, and alerts.
 
-use eframe::egui::{self, Color32, RichText, Ui};
-use crate::models::AccountingNetwork;
-use crate::analytics::AnalyticsSnapshot;
-use crate::fabric::{PipelineConfig, Alert, AlertSeverity};
 use super::theme::AccNetTheme;
+use crate::analytics::AnalyticsSnapshot;
+use crate::fabric::{Alert, AlertSeverity, PipelineConfig};
+use crate::models::AccountingNetwork;
+use eframe::egui::{self, Color32, RichText, Ui};
 
 /// Control panel for simulation settings.
 pub struct ControlPanel {
@@ -157,17 +157,42 @@ impl AnalyticsPanel {
 
                 // Metrics grid
                 ui.horizontal(|ui| {
-                    self.metric_box(ui, "Accounts", &network.accounts.len().to_string(), theme.asset_color);
-                    self.metric_box(ui, "Flows", &network.flows.len().to_string(), theme.flow_normal);
+                    self.metric_box(
+                        ui,
+                        "Accounts",
+                        &network.accounts.len().to_string(),
+                        theme.asset_color,
+                    );
+                    self.metric_box(
+                        ui,
+                        "Flows",
+                        &network.flows.len().to_string(),
+                        theme.flow_normal,
+                    );
                 });
 
                 ui.horizontal(|ui| {
-                    self.metric_box(ui, "Suspense", &snapshot.suspense_accounts.to_string(), theme.alert_medium);
-                    self.metric_box(ui, "GAAP", &snapshot.gaap_violations.to_string(), theme.alert_high);
+                    self.metric_box(
+                        ui,
+                        "Suspense",
+                        &snapshot.suspense_accounts.to_string(),
+                        theme.alert_medium,
+                    );
+                    self.metric_box(
+                        ui,
+                        "GAAP",
+                        &snapshot.gaap_violations.to_string(),
+                        theme.alert_high,
+                    );
                 });
 
                 ui.horizontal(|ui| {
-                    self.metric_box(ui, "Fraud", &snapshot.fraud_patterns.to_string(), theme.alert_critical);
+                    self.metric_box(
+                        ui,
+                        "Fraud",
+                        &snapshot.fraud_patterns.to_string(),
+                        theme.alert_critical,
+                    );
                     let health = format!("{:.0}%", snapshot.network_health.coverage * 100.0);
                     self.metric_box(ui, "Health", &health, theme.equity_color);
                 });
@@ -185,10 +210,8 @@ impl AnalyticsPanel {
 
     /// Draw a risk gauge.
     fn draw_risk_gauge(&self, ui: &mut Ui, risk: f32, theme: &AccNetTheme) {
-        let (rect, _response) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), 30.0),
-            egui::Sense::hover(),
-        );
+        let (rect, _response) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), egui::Sense::hover());
 
         let painter = ui.painter();
 
@@ -214,16 +237,25 @@ impl AnalyticsPanel {
 
     /// Draw a metric box.
     fn metric_box(&self, ui: &mut Ui, label: &str, value: &str, color: Color32) {
-        let (rect, _response) = ui.allocate_exact_size(
-            egui::vec2(90.0, 55.0),
-            egui::Sense::hover(),
-        );
+        let (rect, _response) =
+            ui.allocate_exact_size(egui::vec2(90.0, 55.0), egui::Sense::hover());
 
         let painter = ui.painter();
 
         // Background
-        painter.rect_filled(rect, 4.0, Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 30));
-        painter.rect_stroke(rect, 4.0, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 60)));
+        painter.rect_filled(
+            rect,
+            4.0,
+            Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 30),
+        );
+        painter.rect_stroke(
+            rect,
+            4.0,
+            egui::Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 60),
+            ),
+        );
 
         // Value (large, centered)
         painter.text(
@@ -246,10 +278,8 @@ impl AnalyticsPanel {
 
     /// Draw sparkline of risk history.
     fn draw_sparkline(&self, ui: &mut Ui, theme: &AccNetTheme) {
-        let (rect, _response) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), 40.0),
-            egui::Sense::hover(),
-        );
+        let (rect, _response) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 40.0), egui::Sense::hover());
 
         if self.risk_history.is_empty() {
             return;
@@ -262,7 +292,8 @@ impl AnalyticsPanel {
 
         // Draw line
         let n = self.risk_history.len();
-        let points: Vec<egui::Pos2> = self.risk_history
+        let points: Vec<egui::Pos2> = self
+            .risk_history
             .iter()
             .enumerate()
             .map(|(i, &risk)| {
@@ -355,9 +386,17 @@ impl AlertsPanel {
                     .selected_text(format!("{:?}", self.min_severity))
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut self.min_severity, AlertSeverity::Low, "Low");
-                        ui.selectable_value(&mut self.min_severity, AlertSeverity::Medium, "Medium");
+                        ui.selectable_value(
+                            &mut self.min_severity,
+                            AlertSeverity::Medium,
+                            "Medium",
+                        );
                         ui.selectable_value(&mut self.min_severity, AlertSeverity::High, "High");
-                        ui.selectable_value(&mut self.min_severity, AlertSeverity::Critical, "Critical");
+                        ui.selectable_value(
+                            &mut self.min_severity,
+                            AlertSeverity::Critical,
+                            "Critical",
+                        );
                     });
             });
 
@@ -396,14 +435,20 @@ impl AlertsPanel {
         };
 
         egui::Frame::none()
-            .fill(Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 20))
+            .fill(Color32::from_rgba_unmultiplied(
+                color.r(),
+                color.g(),
+                color.b(),
+                20,
+            ))
             .inner_margin(8.0)
             .outer_margin(2.0)
             .rounding(4.0)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     // Severity indicator
-                    let (rect, _) = ui.allocate_exact_size(egui::vec2(4.0, 40.0), egui::Sense::hover());
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(4.0, 40.0), egui::Sense::hover());
                     ui.painter().rect_filled(rect, 2.0, color);
 
                     ui.vertical(|ui| {
@@ -411,7 +456,11 @@ impl AlertsPanel {
                         ui.label(RichText::new(&alert.alert_type).strong().color(color));
 
                         // Message
-                        ui.label(RichText::new(&alert.message).small().color(theme.text_secondary));
+                        ui.label(
+                            RichText::new(&alert.message)
+                                .small()
+                                .color(theme.text_secondary),
+                        );
 
                         // Timestamp
                         let time = format!(
@@ -487,16 +536,28 @@ impl EducationalOverlay {
     pub fn show_content(&mut self, ui: &mut Ui, theme: &AccNetTheme) {
         // Topic tabs
         ui.horizontal(|ui| {
-            if ui.selectable_label(self.topic == EducationalTopic::DoubleEntry, "Double Entry").clicked() {
+            if ui
+                .selectable_label(self.topic == EducationalTopic::DoubleEntry, "Double Entry")
+                .clicked()
+            {
                 self.topic = EducationalTopic::DoubleEntry;
             }
-            if ui.selectable_label(self.topic == EducationalTopic::FraudPatterns, "Fraud").clicked() {
+            if ui
+                .selectable_label(self.topic == EducationalTopic::FraudPatterns, "Fraud")
+                .clicked()
+            {
                 self.topic = EducationalTopic::FraudPatterns;
             }
-            if ui.selectable_label(self.topic == EducationalTopic::GaapCompliance, "GAAP").clicked() {
+            if ui
+                .selectable_label(self.topic == EducationalTopic::GaapCompliance, "GAAP")
+                .clicked()
+            {
                 self.topic = EducationalTopic::GaapCompliance;
             }
-            if ui.selectable_label(self.topic == EducationalTopic::BenfordsLaw, "Benford").clicked() {
+            if ui
+                .selectable_label(self.topic == EducationalTopic::BenfordsLaw, "Benford")
+                .clicked()
+            {
                 self.topic = EducationalTopic::BenfordsLaw;
             }
         });
@@ -513,7 +574,11 @@ impl EducationalOverlay {
     }
 
     fn show_double_entry(&self, ui: &mut Ui, theme: &AccNetTheme) {
-        ui.label(RichText::new("Double-Entry Bookkeeping").heading().color(theme.text_primary));
+        ui.label(
+            RichText::new("Double-Entry Bookkeeping")
+                .heading()
+                .color(theme.text_primary),
+        );
         ui.add_space(5.0);
         ui.label("Every financial transaction is recorded in at least two accounts:");
         ui.label("- One account is debited (left side)");
@@ -526,49 +591,81 @@ impl EducationalOverlay {
     }
 
     fn show_fraud_patterns(&self, ui: &mut Ui, theme: &AccNetTheme) {
-        ui.label(RichText::new("Fraud Pattern Detection").heading().color(theme.text_primary));
+        ui.label(
+            RichText::new("Fraud Pattern Detection")
+                .heading()
+                .color(theme.text_primary),
+        );
         ui.add_space(5.0);
         ui.label("Common fraud patterns we detect:");
         ui.add_space(5.0);
 
         let patterns = [
-            ("Circular Flows", "Money cycling through accounts back to origin"),
-            ("Benford Violation", "Digit distribution doesn't match natural patterns"),
-            ("Threshold Clustering", "Amounts clustered just below approval limits"),
+            (
+                "Circular Flows",
+                "Money cycling through accounts back to origin",
+            ),
+            (
+                "Benford Violation",
+                "Digit distribution doesn't match natural patterns",
+            ),
+            (
+                "Threshold Clustering",
+                "Amounts clustered just below approval limits",
+            ),
             ("Round Amounts", "Excessive use of round numbers"),
             ("Timing Anomalies", "Unusual transaction timing patterns"),
         ];
 
         for (name, desc) in patterns {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{}", name)).strong().color(theme.alert_high));
+                ui.label(
+                    RichText::new(format!("{}", name))
+                        .strong()
+                        .color(theme.alert_high),
+                );
                 ui.label(RichText::new(format!(" - {}", desc)).color(theme.text_secondary));
             });
         }
     }
 
     fn show_gaap(&self, ui: &mut Ui, theme: &AccNetTheme) {
-        ui.label(RichText::new("GAAP Compliance").heading().color(theme.text_primary));
+        ui.label(
+            RichText::new("GAAP Compliance")
+                .heading()
+                .color(theme.text_primary),
+        );
         ui.add_space(5.0);
         ui.label("Generally Accepted Accounting Principles (GAAP) violations:");
         ui.add_space(5.0);
 
         let violations = [
             ("Revenue → Cash", "Revenue should flow through A/R first"),
-            ("Revenue → Expense", "Revenue shouldn't directly offset expenses"),
+            (
+                "Revenue → Expense",
+                "Revenue shouldn't directly offset expenses",
+            ),
             ("Asset → Equity", "Direct transfers bypass income statement"),
         ];
 
         for (name, desc) in violations {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{}", name)).strong().color(theme.alert_medium));
+                ui.label(
+                    RichText::new(format!("{}", name))
+                        .strong()
+                        .color(theme.alert_medium),
+                );
                 ui.label(RichText::new(format!(" - {}", desc)).color(theme.text_secondary));
             });
         }
     }
 
     fn show_benford(&self, ui: &mut Ui, theme: &AccNetTheme) {
-        ui.label(RichText::new("Benford's Law").heading().color(theme.text_primary));
+        ui.label(
+            RichText::new("Benford's Law")
+                .heading()
+                .color(theme.text_primary),
+        );
         ui.add_space(5.0);
         ui.label("In naturally occurring datasets, leading digits follow a specific distribution:");
         ui.add_space(5.0);
@@ -596,7 +693,11 @@ impl EducationalOverlay {
     }
 
     fn show_metrics(&self, ui: &mut Ui, theme: &AccNetTheme) {
-        ui.label(RichText::new("Network Metrics").heading().color(theme.text_primary));
+        ui.label(
+            RichText::new("Network Metrics")
+                .heading()
+                .color(theme.text_primary),
+        );
         ui.add_space(5.0);
         ui.label("We analyze the accounting network using graph theory:");
         ui.add_space(5.0);
@@ -609,7 +710,11 @@ impl EducationalOverlay {
 
         for (name, desc) in metrics {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{}", name)).strong().color(theme.accent));
+                ui.label(
+                    RichText::new(format!("{}", name))
+                        .strong()
+                        .color(theme.accent),
+                );
                 ui.label(RichText::new(format!(" - {}", desc)).color(theme.text_secondary));
             });
         }

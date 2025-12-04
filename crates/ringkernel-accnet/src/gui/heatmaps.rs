@@ -9,7 +9,7 @@ use eframe::egui::{self, Color32, Pos2, Rect, Response, Sense, Stroke, Vec2};
 use std::collections::HashMap;
 
 use super::theme::AccNetTheme;
-use crate::models::{AccountingNetwork, AccountType};
+use crate::models::{AccountType, AccountingNetwork};
 
 /// Color gradient for heatmaps (cold to hot).
 pub struct HeatmapGradient {
@@ -22,13 +22,13 @@ impl HeatmapGradient {
     pub fn thermal() -> Self {
         Self {
             stops: vec![
-                (0.0, Color32::from_rgb(20, 30, 60)),      // Dark blue
-                (0.2, Color32::from_rgb(40, 80, 160)),     // Blue
-                (0.4, Color32::from_rgb(60, 180, 180)),    // Cyan
-                (0.5, Color32::from_rgb(80, 200, 100)),    // Green
-                (0.7, Color32::from_rgb(220, 200, 60)),    // Yellow
-                (0.85, Color32::from_rgb(240, 120, 40)),   // Orange
-                (1.0, Color32::from_rgb(200, 40, 40)),     // Red
+                (0.0, Color32::from_rgb(20, 30, 60)),    // Dark blue
+                (0.2, Color32::from_rgb(40, 80, 160)),   // Blue
+                (0.4, Color32::from_rgb(60, 180, 180)),  // Cyan
+                (0.5, Color32::from_rgb(80, 200, 100)),  // Green
+                (0.7, Color32::from_rgb(220, 200, 60)),  // Yellow
+                (0.85, Color32::from_rgb(240, 120, 40)), // Orange
+                (1.0, Color32::from_rgb(200, 40, 40)),   // Red
             ],
         }
     }
@@ -37,11 +37,11 @@ impl HeatmapGradient {
     pub fn correlation() -> Self {
         Self {
             stops: vec![
-                (0.0, Color32::from_rgb(40, 80, 200)),     // Strong negative (blue)
-                (0.35, Color32::from_rgb(80, 120, 180)),   // Weak negative
-                (0.5, Color32::from_rgb(60, 60, 70)),      // Zero (gray)
-                (0.65, Color32::from_rgb(180, 100, 80)),   // Weak positive
-                (1.0, Color32::from_rgb(200, 50, 50)),     // Strong positive (red)
+                (0.0, Color32::from_rgb(40, 80, 200)), // Strong negative (blue)
+                (0.35, Color32::from_rgb(80, 120, 180)), // Weak negative
+                (0.5, Color32::from_rgb(60, 60, 70)),  // Zero (gray)
+                (0.65, Color32::from_rgb(180, 100, 80)), // Weak positive
+                (1.0, Color32::from_rgb(200, 50, 50)), // Strong positive (red)
             ],
         }
     }
@@ -50,12 +50,12 @@ impl HeatmapGradient {
     pub fn risk() -> Self {
         Self {
             stops: vec![
-                (0.0, Color32::from_rgb(60, 160, 80)),     // Safe (green)
-                (0.3, Color32::from_rgb(120, 180, 80)),    // Low risk
-                (0.5, Color32::from_rgb(200, 200, 60)),    // Medium (yellow)
-                (0.7, Color32::from_rgb(220, 140, 50)),    // Elevated
-                (0.85, Color32::from_rgb(200, 80, 50)),    // High
-                (1.0, Color32::from_rgb(180, 40, 40)),     // Critical (red)
+                (0.0, Color32::from_rgb(60, 160, 80)),  // Safe (green)
+                (0.3, Color32::from_rgb(120, 180, 80)), // Low risk
+                (0.5, Color32::from_rgb(200, 200, 60)), // Medium (yellow)
+                (0.7, Color32::from_rgb(220, 140, 50)), // Elevated
+                (0.85, Color32::from_rgb(200, 80, 50)), // High
+                (1.0, Color32::from_rgb(180, 40, 40)),  // Critical (red)
             ],
         }
     }
@@ -171,7 +171,8 @@ impl ActivityHeatmap {
         }
 
         // Normalize
-        let max_val = data.iter()
+        let max_val = data
+            .iter()
             .flat_map(|row| row.iter())
             .copied()
             .fold(0.0f32, f32::max)
@@ -273,7 +274,11 @@ impl ActivityHeatmap {
             Pos2::new(grid_left, grid_top),
             Vec2::new(cols as f32 * self.cell_size, rows as f32 * self.cell_size),
         );
-        painter.rect_stroke(grid_rect, 0.0, Stroke::new(1.0, Color32::from_rgb(60, 60, 70)));
+        painter.rect_stroke(
+            grid_rect,
+            0.0,
+            Stroke::new(1.0, Color32::from_rgb(60, 60, 70)),
+        );
 
         response
     }
@@ -295,7 +300,11 @@ pub struct CorrelationHeatmap {
 
 impl CorrelationHeatmap {
     /// Create from network flow data.
-    pub fn from_network(network: &AccountingNetwork, top_n: usize, account_names: &HashMap<u16, String>) -> Self {
+    pub fn from_network(
+        network: &AccountingNetwork,
+        top_n: usize,
+        account_names: &HashMap<u16, String>,
+    ) -> Self {
         // Get top N accounts by degree
         let mut accounts: Vec<_> = network.accounts.iter().enumerate().collect();
         accounts.sort_by(|a, b| {
@@ -460,7 +469,11 @@ pub struct RiskHeatmap {
 
 impl RiskHeatmap {
     /// Create from network analyzing multiple risk factors.
-    pub fn from_network(network: &AccountingNetwork, top_n: usize, account_names: &HashMap<u16, String>) -> Self {
+    pub fn from_network(
+        network: &AccountingNetwork,
+        top_n: usize,
+        account_names: &HashMap<u16, String>,
+    ) -> Self {
         let factors = ["Suspense", "Centrality", "Volume", "Balance", "Anomaly"];
 
         // Get accounts with highest total risk indicators
@@ -469,7 +482,10 @@ impl RiskHeatmap {
             .iter()
             .enumerate()
             .map(|(i, acc)| {
-                let suspense_risk = if acc.flags.has(crate::models::AccountFlags::IS_SUSPENSE_ACCOUNT) {
+                let suspense_risk = if acc
+                    .flags
+                    .has(crate::models::AccountFlags::IS_SUSPENSE_ACCOUNT)
+                {
                     0.8
                 } else {
                     0.0
@@ -486,15 +502,21 @@ impl RiskHeatmap {
         let mut data = Vec::new();
         let mut account_labels = Vec::new();
 
-        let max_degree = network.accounts.iter()
+        let max_degree = network
+            .accounts
+            .iter()
             .map(|a| (a.in_degree + a.out_degree) as f32)
             .fold(1.0f32, f32::max);
 
-        let max_volume = network.accounts.iter()
+        let max_volume = network
+            .accounts
+            .iter()
             .map(|a| a.transaction_count as f32)
             .fold(1.0f32, f32::max);
 
-        let max_balance = network.accounts.iter()
+        let max_balance = network
+            .accounts
+            .iter()
             .map(|a| a.closing_balance.to_f64().abs() as f32)
             .fold(1.0f32, f32::max);
 
@@ -509,7 +531,14 @@ impl RiskHeatmap {
 
             let row = vec![
                 // Suspense risk
-                if acc.flags.has(crate::models::AccountFlags::IS_SUSPENSE_ACCOUNT) { 0.9 } else { 0.1 },
+                if acc
+                    .flags
+                    .has(crate::models::AccountFlags::IS_SUSPENSE_ACCOUNT)
+                {
+                    0.9
+                } else {
+                    0.1
+                },
                 // Centrality risk (high degree = higher risk)
                 ((acc.in_degree + acc.out_degree) as f32 / max_degree).min(1.0),
                 // Volume risk (high transaction count = watch closely)
@@ -517,7 +546,11 @@ impl RiskHeatmap {
                 // Balance concentration risk
                 (acc.closing_balance.to_f64().abs() as f32 / max_balance).min(1.0),
                 // Anomaly flag risk
-                if acc.flags.has(crate::models::AccountFlags::HAS_ANOMALY) { 0.85 } else { 0.15 },
+                if acc.flags.has(crate::models::AccountFlags::HAS_ANOMALY) {
+                    0.85
+                } else {
+                    0.15
+                },
             ];
             data.push(row);
         }

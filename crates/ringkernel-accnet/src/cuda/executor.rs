@@ -3,11 +3,10 @@
 //! This module provides actual GPU execution of the generated CUDA kernels
 //! using the ringkernel-cuda infrastructure.
 
-use std::sync::Arc;
 use std::time::Instant;
 
-use ringkernel_cuda::{CudaDevice, StencilKernelLoader};
 use cudarc::driver::LaunchAsync;
+use ringkernel_cuda::{CudaDevice, StencilKernelLoader};
 
 use crate::models::AccountingNetwork;
 
@@ -15,7 +14,8 @@ use crate::models::AccountingNetwork;
 pub struct GpuExecutor {
     /// CUDA device.
     device: CudaDevice,
-    /// Kernel loader for compiling CUDA code.
+    /// Kernel loader for compiling CUDA code (reserved for dynamic kernel loading).
+    #[allow(dead_code)]
     loader: StencilKernelLoader,
     /// Compiled suspense detection kernel.
     suspense_kernel: Option<CompiledKernel>,
@@ -93,8 +93,8 @@ impl GpuExecutor {
         }
 
         // Create device
-        let device = CudaDevice::new(0)
-            .map_err(|e| format!("Failed to create CUDA device: {}", e))?;
+        let device =
+            CudaDevice::new(0).map_err(|e| format!("Failed to create CUDA device: {}", e))?;
 
         let device_name = device.name().to_string();
         let compute_capability = device.compute_capability();
@@ -212,7 +212,8 @@ impl GpuExecutor {
         }
 
         // Synchronize to ensure all GPU work is done
-        cuda_device.synchronize()
+        cuda_device
+            .synchronize()
             .map_err(|e| format!("GPU synchronize failed: {}", e))?;
 
         result.execution_time_us = start.elapsed().as_micros() as u64;
@@ -230,32 +231,43 @@ impl GpuExecutor {
         let n = network.accounts.len();
 
         // Prepare input data
-        let balance_debit: Vec<f64> = network.accounts.iter()
+        let balance_debit: Vec<f64> = network
+            .accounts
+            .iter()
             .map(|a| a.total_debits.to_f64())
             .collect();
-        let balance_credit: Vec<f64> = network.accounts.iter()
+        let balance_credit: Vec<f64> = network
+            .accounts
+            .iter()
             .map(|a| a.total_credits.to_f64())
             .collect();
-        let risk_scores: Vec<f32> = network.accounts.iter()
-            .map(|a| a.risk_score)
-            .collect();
-        let inflow_counts: Vec<u32> = network.accounts.iter()
+        let risk_scores: Vec<f32> = network.accounts.iter().map(|a| a.risk_score).collect();
+        let inflow_counts: Vec<u32> = network
+            .accounts
+            .iter()
             .map(|a| a.in_degree as u32)
             .collect();
-        let outflow_counts: Vec<u32> = network.accounts.iter()
+        let outflow_counts: Vec<u32> = network
+            .accounts
+            .iter()
             .map(|a| a.out_degree as u32)
             .collect();
 
         // Allocate GPU memory
-        let d_balance_debit = cuda_device.htod_copy(balance_debit)
+        let d_balance_debit = cuda_device
+            .htod_copy(balance_debit)
             .map_err(|e| format!("Failed to copy balance_debit: {}", e))?;
-        let d_balance_credit = cuda_device.htod_copy(balance_credit)
+        let d_balance_credit = cuda_device
+            .htod_copy(balance_credit)
             .map_err(|e| format!("Failed to copy balance_credit: {}", e))?;
-        let d_risk_scores = cuda_device.htod_copy(risk_scores)
+        let d_risk_scores = cuda_device
+            .htod_copy(risk_scores)
             .map_err(|e| format!("Failed to copy risk_scores: {}", e))?;
-        let d_inflow_counts = cuda_device.htod_copy(inflow_counts)
+        let d_inflow_counts = cuda_device
+            .htod_copy(inflow_counts)
             .map_err(|e| format!("Failed to copy inflow_counts: {}", e))?;
-        let d_outflow_counts = cuda_device.htod_copy(outflow_counts)
+        let d_outflow_counts = cuda_device
+            .htod_copy(outflow_counts)
             .map_err(|e| format!("Failed to copy outflow_counts: {}", e))?;
 
         // Allocate output buffer
@@ -263,7 +275,8 @@ impl GpuExecutor {
             .map_err(|e| format!("Failed to allocate suspense_scores: {}", e))?;
 
         // Get kernel function
-        let func = cuda_device.get_func(kernel.module_name, kernel.function_name)
+        let func = cuda_device
+            .get_func(kernel.module_name, kernel.function_name)
             .ok_or_else(|| format!("Kernel function '{}' not found", kernel.function_name))?;
 
         // Calculate grid dimensions
@@ -278,19 +291,24 @@ impl GpuExecutor {
         };
 
         unsafe {
-            func.launch(cfg, (
-                &d_balance_debit,
-                &d_balance_credit,
-                &d_risk_scores,
-                &d_inflow_counts,
-                &d_outflow_counts,
-                &d_suspense_scores,
-                n as i32,
-            ))
-        }.map_err(|e| format!("Kernel launch failed: {}", e))?;
+            func.launch(
+                cfg,
+                (
+                    &d_balance_debit,
+                    &d_balance_credit,
+                    &d_risk_scores,
+                    &d_inflow_counts,
+                    &d_outflow_counts,
+                    &d_suspense_scores,
+                    n as i32,
+                ),
+            )
+        }
+        .map_err(|e| format!("Kernel launch failed: {}", e))?;
 
         // Copy results back
-        let suspense_scores = cuda_device.dtoh_sync_copy(&d_suspense_scores)
+        let suspense_scores = cuda_device
+            .dtoh_sync_copy(&d_suspense_scores)
             .map_err(|e| format!("Failed to copy results: {}", e))?;
 
         Ok(suspense_scores)
@@ -306,22 +324,31 @@ impl GpuExecutor {
         let n_flows = network.flows.len();
 
         // Prepare input data
-        let flow_source: Vec<u16> = network.flows.iter()
+        let flow_source: Vec<u16> = network
+            .flows
+            .iter()
             .map(|f| f.source_account_index)
             .collect();
-        let flow_target: Vec<u16> = network.flows.iter()
+        let flow_target: Vec<u16> = network
+            .flows
+            .iter()
             .map(|f| f.target_account_index)
             .collect();
-        let account_types: Vec<u8> = network.accounts.iter()
+        let account_types: Vec<u8> = network
+            .accounts
+            .iter()
             .map(|a| a.account_type as u8)
             .collect();
 
         // Allocate GPU memory
-        let d_flow_source = cuda_device.htod_copy(flow_source)
+        let d_flow_source = cuda_device
+            .htod_copy(flow_source)
             .map_err(|e| format!("Failed to copy flow_source: {}", e))?;
-        let d_flow_target = cuda_device.htod_copy(flow_target)
+        let d_flow_target = cuda_device
+            .htod_copy(flow_target)
             .map_err(|e| format!("Failed to copy flow_target: {}", e))?;
-        let d_account_types = cuda_device.htod_copy(account_types)
+        let d_account_types = cuda_device
+            .htod_copy(account_types)
             .map_err(|e| format!("Failed to copy account_types: {}", e))?;
 
         // Allocate output buffer
@@ -329,7 +356,8 @@ impl GpuExecutor {
             .map_err(|e| format!("Failed to allocate violation_flags: {}", e))?;
 
         // Get kernel function
-        let func = cuda_device.get_func(kernel.module_name, kernel.function_name)
+        let func = cuda_device
+            .get_func(kernel.module_name, kernel.function_name)
             .ok_or_else(|| format!("Kernel function '{}' not found", kernel.function_name))?;
 
         // Calculate grid dimensions
@@ -344,17 +372,22 @@ impl GpuExecutor {
         };
 
         unsafe {
-            func.launch(cfg, (
-                &d_flow_source,
-                &d_flow_target,
-                &d_account_types,
-                &d_violation_flags,
-                n_flows as i32,
-            ))
-        }.map_err(|e| format!("Kernel launch failed: {}", e))?;
+            func.launch(
+                cfg,
+                (
+                    &d_flow_source,
+                    &d_flow_target,
+                    &d_account_types,
+                    &d_violation_flags,
+                    n_flows as i32,
+                ),
+            )
+        }
+        .map_err(|e| format!("Kernel launch failed: {}", e))?;
 
         // Copy results back
-        let violations = cuda_device.dtoh_sync_copy(&d_violation_flags)
+        let violations = cuda_device
+            .dtoh_sync_copy(&d_violation_flags)
             .map_err(|e| format!("Failed to copy results: {}", e))?;
 
         Ok(violations)
@@ -370,20 +403,25 @@ impl GpuExecutor {
         let n_flows = network.flows.len();
 
         // Prepare input data - extract amounts from flows
-        let amounts: Vec<f64> = network.flows.iter()
+        let amounts: Vec<f64> = network
+            .flows
+            .iter()
             .map(|f| f.amount.to_f64().abs())
             .collect();
 
         // Allocate GPU memory
-        let d_amounts = cuda_device.htod_copy(amounts)
+        let d_amounts = cuda_device
+            .htod_copy(amounts)
             .map_err(|e| format!("Failed to copy amounts: {}", e))?;
 
         // Allocate and zero-initialize digit counts
-        let d_digit_counts = cuda_device.htod_copy(vec![0u32; 9])
+        let d_digit_counts = cuda_device
+            .htod_copy(vec![0u32; 9])
             .map_err(|e| format!("Failed to allocate digit_counts: {}", e))?;
 
         // Get kernel function
-        let func = cuda_device.get_func(kernel.module_name, kernel.function_name)
+        let func = cuda_device
+            .get_func(kernel.module_name, kernel.function_name)
             .ok_or_else(|| format!("Kernel function '{}' not found", kernel.function_name))?;
 
         // Calculate grid dimensions
@@ -397,16 +435,12 @@ impl GpuExecutor {
             shared_mem_bytes: 0,
         };
 
-        unsafe {
-            func.launch(cfg, (
-                &d_amounts,
-                &d_digit_counts,
-                n_flows as i32,
-            ))
-        }.map_err(|e| format!("Kernel launch failed: {}", e))?;
+        unsafe { func.launch(cfg, (&d_amounts, &d_digit_counts, n_flows as i32)) }
+            .map_err(|e| format!("Kernel launch failed: {}", e))?;
 
         // Copy results back
-        let counts_vec = cuda_device.dtoh_sync_copy(&d_digit_counts)
+        let counts_vec = cuda_device
+            .dtoh_sync_copy(&d_digit_counts)
             .map_err(|e| format!("Failed to copy results: {}", e))?;
 
         let mut counts = [0u32; 9];
@@ -426,7 +460,9 @@ impl GpuExecutor {
             for _ in 0..10 {
                 self.run_suspense_detection(network, kernel)?;
             }
-            self.device.synchronize().map_err(|e| format!("Sync failed: {}", e))?;
+            self.device
+                .synchronize()
+                .map_err(|e| format!("Sync failed: {}", e))?;
             let elapsed = start.elapsed().as_micros() as u64 / 10;
 
             let n = network.accounts.len();
@@ -434,7 +470,11 @@ impl GpuExecutor {
                 name: "Suspense Detection".to_string(),
                 time_us: elapsed,
                 elements: n,
-                throughput_meps: if elapsed > 0 { n as f64 / elapsed as f64 } else { 0.0 },
+                throughput_meps: if elapsed > 0 {
+                    n as f64 / elapsed as f64
+                } else {
+                    0.0
+                },
             });
             total_gpu_time += elapsed;
         }
@@ -446,7 +486,9 @@ impl GpuExecutor {
                 for _ in 0..10 {
                     self.run_gaap_violation(network, kernel)?;
                 }
-                self.device.synchronize().map_err(|e| format!("Sync failed: {}", e))?;
+                self.device
+                    .synchronize()
+                    .map_err(|e| format!("Sync failed: {}", e))?;
                 let elapsed = start.elapsed().as_micros() as u64 / 10;
 
                 let n = network.flows.len();
@@ -454,7 +496,11 @@ impl GpuExecutor {
                     name: "GAAP Violation".to_string(),
                     time_us: elapsed,
                     elements: n,
-                    throughput_meps: if elapsed > 0 { n as f64 / elapsed as f64 } else { 0.0 },
+                    throughput_meps: if elapsed > 0 {
+                        n as f64 / elapsed as f64
+                    } else {
+                        0.0
+                    },
                 });
                 total_gpu_time += elapsed;
             }
@@ -467,7 +513,9 @@ impl GpuExecutor {
                 for _ in 0..10 {
                     self.run_benford_analysis(network, kernel)?;
                 }
-                self.device.synchronize().map_err(|e| format!("Sync failed: {}", e))?;
+                self.device
+                    .synchronize()
+                    .map_err(|e| format!("Sync failed: {}", e))?;
                 let elapsed = start.elapsed().as_micros() as u64 / 10;
 
                 let n = network.flows.len();
@@ -475,7 +523,11 @@ impl GpuExecutor {
                     name: "Benford Analysis".to_string(),
                     time_us: elapsed,
                     elements: n,
-                    throughput_meps: if elapsed > 0 { n as f64 / elapsed as f64 } else { 0.0 },
+                    throughput_meps: if elapsed > 0 {
+                        n as f64 / elapsed as f64
+                    } else {
+                        0.0
+                    },
                 });
                 total_gpu_time += elapsed;
             }
@@ -507,39 +559,55 @@ impl GpuExecutor {
     /// CPU baseline for comparison.
     fn cpu_baseline(&self, network: &AccountingNetwork) {
         // Suspense detection
-        let _suspense: Vec<f32> = network.accounts.iter().map(|a| {
-            let balance = a.total_debits.to_f64() - a.total_credits.to_f64();
-            let mut score = 0.0f32;
-            if balance.abs() > 0.0 && balance.abs() % 1000.0 < 1.0 {
-                score += 0.3;
-            }
-            if a.risk_score > 0.5 {
-                score += 0.4;
-            }
-            let flow_ratio = if a.out_degree > 0 {
-                a.in_degree as f32 / a.out_degree as f32
-            } else {
-                10.0
-            };
-            if flow_ratio > 5.0 {
-                score += 0.3;
-            }
-            score.min(1.0)
-        }).collect();
+        let _suspense: Vec<f32> = network
+            .accounts
+            .iter()
+            .map(|a| {
+                let balance = a.total_debits.to_f64() - a.total_credits.to_f64();
+                let mut score = 0.0f32;
+                if balance.abs() > 0.0 && balance.abs() % 1000.0 < 1.0 {
+                    score += 0.3;
+                }
+                if a.risk_score > 0.5 {
+                    score += 0.4;
+                }
+                let flow_ratio = if a.out_degree > 0 {
+                    a.in_degree as f32 / a.out_degree as f32
+                } else {
+                    10.0
+                };
+                if flow_ratio > 5.0 {
+                    score += 0.3;
+                }
+                score.min(1.0)
+            })
+            .collect();
 
         // GAAP violations
-        let _violations: Vec<u8> = network.flows.iter().map(|f| {
-            let src_type = network.accounts.get(f.source_account_index as usize)
-                .map(|a| a.account_type as u8)
-                .unwrap_or(0);
-            let tgt_type = network.accounts.get(f.target_account_index as usize)
-                .map(|a| a.account_type as u8)
-                .unwrap_or(0);
+        let _violations: Vec<u8> = network
+            .flows
+            .iter()
+            .map(|f| {
+                let src_type = network
+                    .accounts
+                    .get(f.source_account_index as usize)
+                    .map(|a| a.account_type as u8)
+                    .unwrap_or(0);
+                let tgt_type = network
+                    .accounts
+                    .get(f.target_account_index as usize)
+                    .map(|a| a.account_type as u8)
+                    .unwrap_or(0);
 
-            if src_type == 3 && tgt_type == 0 { 1 }
-            else if src_type == 3 && tgt_type == 4 { 2 }
-            else { 0 }
-        }).collect();
+                if src_type == 3 && tgt_type == 0 {
+                    1
+                } else if src_type == 3 && tgt_type == 4 {
+                    2
+                } else {
+                    0
+                }
+            })
+            .collect();
 
         // Benford analysis
         let mut _digit_counts = [0u32; 9];
@@ -547,7 +615,9 @@ impl GpuExecutor {
             let amount = flow.amount.to_f64().abs();
             if amount >= 1.0 {
                 let mut value = amount;
-                while value >= 10.0 { value /= 10.0; }
+                while value >= 10.0 {
+                    value /= 10.0;
+                }
                 let first_digit = value as usize;
                 if first_digit >= 1 && first_digit <= 9 {
                     _digit_counts[first_digit - 1] += 1;

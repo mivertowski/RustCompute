@@ -3,7 +3,7 @@
 //! Implements Fruchterman-Reingold with Barnes-Hut optimization for
 //! smooth, aesthetically pleasing network layouts.
 
-use crate::models::{AccountingNetwork, AccountType};
+use crate::models::{AccountType, AccountingNetwork};
 use nalgebra::Vector2;
 use std::collections::HashMap;
 
@@ -54,15 +54,15 @@ pub struct LayoutConfig {
 impl Default for LayoutConfig {
     fn default() -> Self {
         Self {
-            repulsion: 50000.0,     // Very strong repulsion for maximum spacing
-            attraction: 0.0008,     // Very gentle attraction for loose connections
-            damping: 0.85,          // Balance between friction and movement
-            min_velocity: 0.3,      // Lower threshold for smoother convergence
+            repulsion: 50000.0, // Very strong repulsion for maximum spacing
+            attraction: 0.0008, // Very gentle attraction for loose connections
+            damping: 0.85,      // Balance between friction and movement
+            min_velocity: 0.3,  // Lower threshold for smoother convergence
             max_iterations: 50,
-            ideal_length: 300.0,    // Large ideal edge length
+            ideal_length: 300.0, // Large ideal edge length
             width: 800.0,
             height: 600.0,
-            gravity: 0.008,         // Very low gravity - minimal pull to center
+            gravity: 0.008, // Very low gravity - minimal pull to center
             group_by_type: true,
             min_node_distance: 300.0, // Very large minimum distance between nodes
         }
@@ -114,26 +114,31 @@ impl ForceDirectedLayout {
                 center + Vector2::new(angle.cos() * radius, angle.sin() * radius)
             } else {
                 // Random initial position
-                center + Vector2::new(
-                    (rand::random::<f32>() - 0.5) * self.config.width * 0.8,
-                    (rand::random::<f32>() - 0.5) * self.config.height * 0.8,
-                )
+                center
+                    + Vector2::new(
+                        (rand::random::<f32>() - 0.5) * self.config.width * 0.8,
+                        (rand::random::<f32>() - 0.5) * self.config.height * 0.8,
+                    )
             };
 
-            self.nodes.insert(account.index, LayoutNode {
-                index: account.index,
-                account_type: account.account_type,
-                position,
-                velocity: Vector2::zeros(),
-                pinned: false,
-                mass: 1.0 + (account.risk_score * 2.0),
-            });
+            self.nodes.insert(
+                account.index,
+                LayoutNode {
+                    index: account.index,
+                    account_type: account.account_type,
+                    position,
+                    velocity: Vector2::zeros(),
+                    pinned: false,
+                    mass: 1.0 + (account.risk_score * 2.0),
+                },
+            );
         }
 
         // Create edges from flows
         for flow in &network.flows {
             let weight = flow.amount.to_f64().abs() as f32;
-            self.edges.push((flow.source_account_index, flow.target_account_index, weight));
+            self.edges
+                .push((flow.source_account_index, flow.target_account_index, weight));
         }
     }
 
@@ -257,7 +262,8 @@ impl ForceDirectedLayout {
                 }
 
                 // Update velocity with force and damping
-                let new_velocity = (node.velocity + *force / node.mass.max(0.1)) * self.config.damping;
+                let new_velocity =
+                    (node.velocity + *force / node.mass.max(0.1)) * self.config.damping;
 
                 // Skip if velocity becomes NaN
                 if !new_velocity.x.is_finite() || !new_velocity.y.is_finite() {
@@ -394,14 +400,17 @@ impl ForceDirectedLayout {
                 let radius = self.config.width.min(self.config.height) * 0.3;
                 let position = center + Vector2::new(angle.cos() * radius, angle.sin() * radius);
 
-                self.nodes.insert(account.index, LayoutNode {
-                    index: account.index,
-                    account_type: account.account_type,
-                    position,
-                    velocity: Vector2::zeros(),
-                    pinned: false,
-                    mass: 1.0 + (account.risk_score * 2.0),
-                });
+                self.nodes.insert(
+                    account.index,
+                    LayoutNode {
+                        index: account.index,
+                        account_type: account.account_type,
+                        position,
+                        velocity: Vector2::zeros(),
+                        pinned: false,
+                        mass: 1.0 + (account.risk_score * 2.0),
+                    },
+                );
             }
         }
     }

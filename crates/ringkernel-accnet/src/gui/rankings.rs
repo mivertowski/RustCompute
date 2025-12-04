@@ -5,11 +5,11 @@
 //! - Centrality (degree/betweenness)
 //! - Risk score (composite anomaly indicator)
 
-use eframe::egui::{self, Color32, Pos2, Rect, Response, RichText, Sense, Stroke, Vec2};
+use eframe::egui::{self, Color32, Pos2, Rect, Response, Sense, Vec2};
 use std::collections::HashMap;
 
 use super::theme::AccNetTheme;
-use crate::models::{AccountingNetwork, AccountType, AccountFlags};
+use crate::models::{AccountFlags, AccountType, AccountingNetwork};
 
 /// A ranked account entry.
 #[derive(Clone)]
@@ -77,7 +77,11 @@ impl TopAccountsPanel {
             })
             .collect();
 
-        accounts.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap_or(std::cmp::Ordering::Equal));
+        accounts.sort_by(|a, b| {
+            b.value
+                .partial_cmp(&a.value)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         accounts.truncate(10);
 
         Self {
@@ -97,7 +101,11 @@ impl TopAccountsPanel {
             .iter()
             .map(|acc| {
                 let degree = (acc.in_degree + acc.out_degree) as f64;
-                let centrality = if max_possible > 0.0 { degree / max_possible } else { 0.0 };
+                let centrality = if max_possible > 0.0 {
+                    degree / max_possible
+                } else {
+                    0.0
+                };
                 let name = metadata
                     .get(&acc.index)
                     .cloned()
@@ -113,7 +121,11 @@ impl TopAccountsPanel {
             })
             .collect();
 
-        accounts.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap_or(std::cmp::Ordering::Equal));
+        accounts.sort_by(|a, b| {
+            b.value
+                .partial_cmp(&a.value)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         accounts.truncate(10);
 
         Self {
@@ -145,7 +157,11 @@ impl TopAccountsPanel {
             })
             .collect();
 
-        accounts.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap_or(std::cmp::Ordering::Equal));
+        accounts.sort_by(|a, b| {
+            b.value
+                .partial_cmp(&a.value)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         accounts.truncate(10);
 
         Self {
@@ -184,7 +200,11 @@ impl TopAccountsPanel {
             })
             .collect();
 
-        accounts.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap_or(std::cmp::Ordering::Equal));
+        accounts.sort_by(|a, b| {
+            b.value
+                .partial_cmp(&a.value)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         accounts.truncate(10);
 
         Self {
@@ -233,12 +253,11 @@ impl TopAccountsPanel {
         let width = ui.available_width();
         let row_height = 18.0;
         let header_height = 20.0;
-        let total_height = header_height + self.accounts.len().min(self.max_display) as f32 * row_height + 10.0;
+        let total_height =
+            header_height + self.accounts.len().min(self.max_display) as f32 * row_height + 10.0;
 
-        let (response, painter) = ui.allocate_painter(
-            Vec2::new(width, total_height),
-            Sense::hover(),
-        );
+        let (response, painter) =
+            ui.allocate_painter(Vec2::new(width, total_height), Sense::hover());
         let rect = response.rect;
 
         // Title
@@ -261,10 +280,7 @@ impl TopAccountsPanel {
             return response;
         }
 
-        let max_value = self.accounts
-            .iter()
-            .map(|a| a.value)
-            .fold(0.001, f64::max);
+        let max_value = self.accounts.iter().map(|a| a.value).fold(0.001, f64::max);
 
         let rank_width = 20.0;
         let name_width = 70.0;
@@ -318,11 +334,7 @@ impl TopAccountsPanel {
             // Risk indicator dot
             let risk_x = rect.right() - 10.0;
             let risk_color = Self::risk_color(account.risk);
-            painter.circle_filled(
-                Pos2::new(risk_x, y + row_height / 2.0),
-                4.0,
-                risk_color,
-            );
+            painter.circle_filled(Pos2::new(risk_x, y + row_height / 2.0), 4.0, risk_color);
         }
 
         response
@@ -341,13 +353,13 @@ impl TopAccountsPanel {
 
     fn risk_color(risk: f32) -> Color32 {
         if risk < 0.25 {
-            Color32::from_rgb(80, 180, 100)  // Green - low risk
+            Color32::from_rgb(80, 180, 100) // Green - low risk
         } else if risk < 0.5 {
-            Color32::from_rgb(180, 180, 80)  // Yellow - medium
+            Color32::from_rgb(180, 180, 80) // Yellow - medium
         } else if risk < 0.75 {
-            Color32::from_rgb(220, 140, 60)  // Orange - elevated
+            Color32::from_rgb(220, 140, 60) // Orange - elevated
         } else {
-            Color32::from_rgb(200, 60, 60)   // Red - high risk
+            Color32::from_rgb(200, 60, 60) // Red - high risk
         }
     }
 }
@@ -374,7 +386,6 @@ impl PatternStatsPanel {
         // Analyze flows for patterns
         let mut circular_flows = 0;
         let mut velocity_anomalies = 0;
-        let mut timing_anomalies = 0;
         let mut amount_clustering = 0;
         let mut dormant_reactivations = 0;
         let mut round_amounts = 0;
@@ -414,7 +425,7 @@ impl PatternStatsPanel {
         }
 
         // Estimate timing anomalies from fraud pattern count
-        timing_anomalies = network.statistics.fraud_pattern_count / 4;
+        let timing_anomalies = network.statistics.fraud_pattern_count / 4;
 
         Self {
             circular_flows,
@@ -430,21 +441,49 @@ impl PatternStatsPanel {
     pub fn show(&self, ui: &mut egui::Ui, theme: &AccNetTheme) -> Response {
         let width = ui.available_width();
         let patterns = [
-            ("Circular Flows", self.circular_flows, "⟲", Color32::from_rgb(200, 80, 80)),
-            ("Velocity Anomalies", self.velocity_anomalies, "⚡", Color32::from_rgb(220, 160, 60)),
-            ("Timing Anomalies", self.timing_anomalies, "⏰", Color32::from_rgb(180, 100, 180)),
-            ("Amount Clustering", self.amount_clustering, "▣", Color32::from_rgb(100, 160, 200)),
-            ("Dormant Reactivated", self.dormant_reactivations, "💤", Color32::from_rgb(140, 140, 180)),
-            ("Round Amounts", self.round_amounts, "○", Color32::from_rgb(160, 200, 160)),
+            (
+                "Circular Flows",
+                self.circular_flows,
+                "⟲",
+                Color32::from_rgb(200, 80, 80),
+            ),
+            (
+                "Velocity Anomalies",
+                self.velocity_anomalies,
+                "⚡",
+                Color32::from_rgb(220, 160, 60),
+            ),
+            (
+                "Timing Anomalies",
+                self.timing_anomalies,
+                "⏰",
+                Color32::from_rgb(180, 100, 180),
+            ),
+            (
+                "Amount Clustering",
+                self.amount_clustering,
+                "▣",
+                Color32::from_rgb(100, 160, 200),
+            ),
+            (
+                "Dormant Reactivated",
+                self.dormant_reactivations,
+                "💤",
+                Color32::from_rgb(140, 140, 180),
+            ),
+            (
+                "Round Amounts",
+                self.round_amounts,
+                "○",
+                Color32::from_rgb(160, 200, 160),
+            ),
         ];
 
         let row_height = 18.0;
         let total_height = 20.0 + patterns.len() as f32 * row_height + 5.0;
 
-        let (response, painter) = ui.allocate_painter(
-            Vec2::new(width, total_height),
-            Sense::hover(),
-        );
+        let (response, painter) =
+            ui.allocate_painter(Vec2::new(width, total_height), Sense::hover());
         let rect = response.rect;
 
         // Title
@@ -456,8 +495,13 @@ impl PatternStatsPanel {
             theme.text_secondary,
         );
 
-        let total: usize = patterns.iter().map(|(_, c, _, _)| c).sum();
-        let max_count = patterns.iter().map(|(_, c, _, _)| *c).max().unwrap_or(1).max(1);
+        let _total: usize = patterns.iter().map(|(_, c, _, _)| c).sum();
+        let max_count = patterns
+            .iter()
+            .map(|(_, c, _, _)| *c)
+            .max()
+            .unwrap_or(1)
+            .max(1);
 
         for (i, (name, count, icon, color)) in patterns.iter().enumerate() {
             let y = rect.top() + 18.0 + i as f32 * row_height;
@@ -497,7 +541,11 @@ impl PatternStatsPanel {
                 egui::Align2::RIGHT_CENTER,
                 count.to_string(),
                 egui::FontId::proportional(9.0),
-                if *count > 0 { *color } else { theme.text_secondary },
+                if *count > 0 {
+                    *color
+                } else {
+                    theme.text_secondary
+                },
             );
         }
 
@@ -554,10 +602,7 @@ impl AmountDistribution {
         let width = ui.available_width();
         let height = 90.0;
 
-        let (response, painter) = ui.allocate_painter(
-            Vec2::new(width, height),
-            Sense::hover(),
-        );
+        let (response, painter) = ui.allocate_painter(Vec2::new(width, height), Sense::hover());
         let rect = response.rect;
 
         // Title
@@ -584,7 +629,10 @@ impl AmountDistribution {
 
         // Background
         painter.rect_filled(
-            Rect::from_min_size(Pos2::new(chart_left, chart_top), Vec2::new(chart_width, chart_height)),
+            Rect::from_min_size(
+                Pos2::new(chart_left, chart_top),
+                Vec2::new(chart_width, chart_height),
+            ),
             2.0,
             Color32::from_rgb(25, 25, 35),
         );

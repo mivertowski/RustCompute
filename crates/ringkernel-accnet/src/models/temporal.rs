@@ -3,7 +3,7 @@
 //! These models support seasonality detection, trend analysis, and
 //! behavioral anomaly identification.
 
-use super::{Decimal128, HybridTimestamp};
+use super::HybridTimestamp;
 use rkyv::{Archive, Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -12,11 +12,17 @@ use uuid::Uuid;
 #[archive(compare(PartialEq))]
 #[repr(u8)]
 pub enum TimeGranularity {
+    /// Daily granularity (365 periods/year).
     Daily = 0,
+    /// Weekly granularity (52 periods/year).
     Weekly = 1,
+    /// Bi-weekly granularity (26 periods/year).
     BiWeekly = 2,
+    /// Monthly granularity (12 periods/year).
     Monthly = 3,
+    /// Quarterly granularity (4 periods/year).
     Quarterly = 4,
+    /// Annual granularity (1 period/year).
     Annual = 5,
 }
 
@@ -137,14 +143,20 @@ pub struct SeasonalPattern {
 pub struct SeasonalPatternFlags(pub u32);
 
 impl SeasonalPatternFlags {
+    /// Flag: Pattern is statistically significant.
     pub const IS_STATISTICALLY_SIGNIFICANT: u32 = 1 << 0;
+    /// Flag: Pattern shows upward trend.
     pub const HAS_UPWARD_TREND: u32 = 1 << 1;
+    /// Flag: Pattern shows downward trend.
     pub const HAS_DOWNWARD_TREND: u32 = 1 << 2;
+    /// Flag: Pattern is stable over time.
     pub const IS_STABLE: u32 = 1 << 3;
+    /// Flag: Structural break detected in pattern.
     pub const HAS_STRUCTURAL_BREAK: u32 = 1 << 4;
 }
 
 impl SeasonalPattern {
+    /// Create a new seasonal pattern for an account.
     pub fn new(account_id: u16, seasonality_type: SeasonalityType) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -240,6 +252,7 @@ pub struct BehavioralBaseline {
 }
 
 impl BehavioralBaseline {
+    /// Create a new behavioral baseline for an account.
     pub fn new(account_id: u16) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -389,9 +402,11 @@ pub struct TimeSeriesMetrics {
     pub forecast_ci: f64,
 
     // === Timestamps ===
+    /// Start of the time series period.
     pub period_start: HybridTimestamp,
 
     // === Flags ===
+    /// Time series property flags.
     pub flags: TimeSeriesFlags,
 }
 
@@ -401,14 +416,20 @@ pub struct TimeSeriesMetrics {
 pub struct TimeSeriesFlags(pub u32);
 
 impl TimeSeriesFlags {
+    /// Flag: Series has a statistically significant trend.
     pub const HAS_SIGNIFICANT_TREND: u32 = 1 << 0;
+    /// Flag: Series is increasing (upward trend).
     pub const IS_INCREASING: u32 = 1 << 1;
+    /// Flag: Series is decreasing (downward trend).
     pub const IS_DECREASING: u32 = 1 << 2;
+    /// Flag: Series has high volatility.
     pub const IS_HIGH_VOLATILITY: u32 = 1 << 3;
+    /// Flag: Series is stationary (no trend).
     pub const IS_STATIONARY: u32 = 1 << 4;
 }
 
 impl TimeSeriesMetrics {
+    /// Create new time series metrics for an account.
     pub fn new(account_id: u16, granularity: TimeGranularity) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -488,6 +509,7 @@ pub enum TemporalAlertType {
 }
 
 impl TemporalAlertType {
+    /// Get icon character for this alert type.
     pub fn icon(&self) -> &'static str {
         match self {
             TemporalAlertType::Anomaly => "⚠️",
@@ -499,6 +521,7 @@ impl TemporalAlertType {
         }
     }
 
+    /// Get description of this alert type.
     pub fn description(&self) -> &'static str {
         match self {
             TemporalAlertType::Anomaly => "Value outside normal range",

@@ -4,12 +4,10 @@
 //! into the synthetic data stream for testing detection algorithms.
 
 use crate::models::{
-    Decimal128, FraudPatternType, GaapViolationType, HybridTimestamp,
-    JournalEntry, JournalLineItem, LineType, SolvingMethod,
+    Decimal128, FraudPatternType, GaapViolationType, JournalEntry, JournalLineItem,
 };
 use rand::prelude::*;
 use std::collections::HashMap;
-use uuid::Uuid;
 
 /// Configuration for anomaly injection.
 #[derive(Debug, Clone)]
@@ -80,12 +78,18 @@ impl AnomalyInjectionConfig {
     pub fn validate(&self) -> Result<(), String> {
         let fraud_total: f64 = self.fraud_patterns.iter().map(|p| p.probability).sum();
         if (fraud_total - 1.0).abs() > 0.01 {
-            return Err(format!("Fraud pattern probabilities must sum to 1.0, got {}", fraud_total));
+            return Err(format!(
+                "Fraud pattern probabilities must sum to 1.0, got {}",
+                fraud_total
+            ));
         }
 
         let gaap_total: f64 = self.gaap_violations.iter().map(|v| v.probability).sum();
         if (gaap_total - 1.0).abs() > 0.01 {
-            return Err(format!("GAAP violation probabilities must sum to 1.0, got {}", gaap_total));
+            return Err(format!(
+                "GAAP violation probabilities must sum to 1.0, got {}",
+                gaap_total
+            ));
         }
 
         Ok(())
@@ -244,40 +248,35 @@ pub struct AnomalyInjector {
     account_types: HashMap<u16, AccountTypeInfo>,
     /// Injection statistics
     stats: InjectionStats,
-    /// Pending circular flow entries
+    /// Pending circular flow entries (for future multi-entry injection)
+    #[allow(dead_code)]
     pending_circular_flows: Vec<CircularFlowState>,
     /// Dormant accounts (haven't been used recently)
     dormant_accounts: Vec<u16>,
 }
 
 /// Information about an account's type for violation detection.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct AccountTypeInfo {
+    /// Whether this is an asset account.
     pub is_asset: bool,
+    /// Whether this is a liability account.
     pub is_liability: bool,
+    /// Whether this is a revenue account.
     pub is_revenue: bool,
+    /// Whether this is an expense account.
     pub is_expense: bool,
+    /// Whether this is an equity account.
     pub is_equity: bool,
+    /// Whether this is a cash account.
     pub is_cash: bool,
+    /// Whether this is a suspense account.
     pub is_suspense: bool,
-}
-
-impl Default for AccountTypeInfo {
-    fn default() -> Self {
-        Self {
-            is_asset: false,
-            is_liability: false,
-            is_revenue: false,
-            is_expense: false,
-            is_equity: false,
-            is_cash: false,
-            is_suspense: false,
-        }
-    }
 }
 
 /// State for multi-entry circular flow injection.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct CircularFlowState {
     /// Accounts in the circle
     accounts: Vec<u16>,
@@ -412,9 +411,7 @@ impl AnomalyInjector {
             FraudPatternType::ThresholdClustering => {
                 // Modify amount to be just below threshold
                 let threshold = 10000.0;
-                let new_amount = Decimal128::from_f64(
-                    threshold - self.rng.gen_range(1.0..999.0)
-                );
+                let new_amount = Decimal128::from_f64(threshold - self.rng.gen_range(1.0..999.0));
 
                 for line in &mut debit_lines {
                     line.amount = new_amount;
@@ -425,15 +422,16 @@ impl AnomalyInjector {
                 entry.total_debits = new_amount;
                 entry.total_credits = new_amount;
 
-                Some(AnomalyLabel::FraudPattern(FraudPatternType::ThresholdClustering))
+                Some(AnomalyLabel::FraudPattern(
+                    FraudPatternType::ThresholdClustering,
+                ))
             }
 
             FraudPatternType::RoundAmounts => {
                 // Make amount suspiciously round
                 let round_amounts = [1000.0, 5000.0, 10000.0, 25000.0, 50000.0, 100000.0];
-                let new_amount = Decimal128::from_f64(
-                    round_amounts[self.rng.gen_range(0..round_amounts.len())]
-                );
+                let new_amount =
+                    Decimal128::from_f64(round_amounts[self.rng.gen_range(0..round_amounts.len())]);
 
                 for line in &mut debit_lines {
                     line.amount = new_amount;
@@ -479,7 +477,11 @@ impl AnomalyInjector {
             debit_lines,
             credit_lines,
             anomaly_injected: label.is_some(),
-            anomaly_label: if self.config.label_anomalies { label } else { None },
+            anomaly_label: if self.config.label_anomalies {
+                label
+            } else {
+                None
+            },
         }
     }
 
@@ -496,14 +498,14 @@ impl AnomalyInjector {
             GaapViolationType::UnbalancedEntry => {
                 // Make entry unbalanced
                 if !credit_lines.is_empty() {
-                    let adjustment = Decimal128::from_f64(
-                        self.rng.gen_range(100.0..1000.0)
-                    );
+                    let adjustment = Decimal128::from_f64(self.rng.gen_range(100.0..1000.0));
                     credit_lines[0].amount = credit_lines[0].amount + adjustment;
                     entry.total_credits = entry.total_credits + adjustment;
                     entry.flags.0 &= !crate::models::JournalEntryFlags::IS_BALANCED;
                 }
-                Some(AnomalyLabel::GaapViolation(GaapViolationType::UnbalancedEntry))
+                Some(AnomalyLabel::GaapViolation(
+                    GaapViolationType::UnbalancedEntry,
+                ))
             }
 
             GaapViolationType::RevenueToCashDirect => {
@@ -515,7 +517,9 @@ impl AnomalyInjector {
                     if !credit_lines.is_empty() {
                         credit_lines[0].account_index = revenue_idx;
                     }
-                    Some(AnomalyLabel::GaapViolation(GaapViolationType::RevenueToCashDirect))
+                    Some(AnomalyLabel::GaapViolation(
+                        GaapViolationType::RevenueToCashDirect,
+                    ))
                 } else {
                     None
                 }
@@ -529,7 +533,11 @@ impl AnomalyInjector {
 
         if label.is_some() {
             self.stats.anomalies_injected += 1;
-            *self.stats.gaap_violations.entry(violation_type).or_insert(0) += 1;
+            *self
+                .stats
+                .gaap_violations
+                .entry(violation_type)
+                .or_insert(0) += 1;
         }
 
         InjectionResult {
@@ -537,7 +545,11 @@ impl AnomalyInjector {
             debit_lines,
             credit_lines,
             anomaly_injected: label.is_some(),
-            anomaly_label: if self.config.label_anomalies { label } else { None },
+            anomaly_label: if self.config.label_anomalies {
+                label
+            } else {
+                None
+            },
         }
     }
 
@@ -553,7 +565,8 @@ impl AnomalyInjector {
         let ms_per_day = 86_400_000u64;
         let ms_per_hour = 3_600_000u64;
         let day_start = (entry.posting_date.physical / ms_per_day) * ms_per_day;
-        entry.posting_date.physical = day_start + 23 * ms_per_hour + self.rng.gen_range(0..ms_per_hour);
+        entry.posting_date.physical =
+            day_start + 23 * ms_per_hour + self.rng.gen_range(0..ms_per_hour);
 
         self.stats.anomalies_injected += 1;
         self.stats.timing_anomalies += 1;
@@ -640,10 +653,14 @@ impl AnomalyInjector {
 
     /// Find an unusual account pairing (revenue-expense).
     fn find_unusual_pair(&self) -> (Option<u16>, Option<u16>) {
-        let revenue = self.account_types.iter()
+        let revenue = self
+            .account_types
+            .iter()
             .find(|(_, info)| info.is_revenue)
             .map(|(&idx, _)| idx);
-        let expense = self.account_types.iter()
+        let expense = self
+            .account_types
+            .iter()
             .find(|(_, info)| info.is_expense)
             .map(|(&idx, _)| idx);
         (revenue, expense)
@@ -651,10 +668,14 @@ impl AnomalyInjector {
 
     /// Find revenue and cash accounts.
     fn find_revenue_cash_pair(&self) -> (Option<u16>, Option<u16>) {
-        let revenue = self.account_types.iter()
+        let revenue = self
+            .account_types
+            .iter()
             .find(|(_, info)| info.is_revenue)
             .map(|(&idx, _)| idx);
-        let cash = self.account_types.iter()
+        let cash = self
+            .account_types
+            .iter()
             .find(|(_, info)| info.is_cash)
             .map(|(&idx, _)| idx);
         (revenue, cash)
@@ -674,6 +695,8 @@ impl AnomalyInjector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::HybridTimestamp;
+    use uuid::Uuid;
 
     #[test]
     fn test_config_default() {
@@ -694,11 +717,7 @@ mod tests {
         let config = AnomalyInjectionConfig::disabled();
         let mut injector = AnomalyInjector::new(config, Some(42));
 
-        let entry = JournalEntry::new(
-            Uuid::new_v4(),
-            Uuid::new_v4(),
-            HybridTimestamp::now(),
-        );
+        let entry = JournalEntry::new(Uuid::new_v4(), Uuid::new_v4(), HybridTimestamp::now());
 
         let result = injector.process(entry, vec![], vec![]);
         assert!(!result.anomaly_injected);
@@ -714,11 +733,7 @@ mod tests {
 
         // Process multiple entries and verify injections happen
         for _ in 0..100 {
-            let entry = JournalEntry::new(
-                Uuid::new_v4(),
-                Uuid::new_v4(),
-                HybridTimestamp::now(),
-            );
+            let entry = JournalEntry::new(Uuid::new_v4(), Uuid::new_v4(), HybridTimestamp::now());
             let debit = JournalLineItem::debit(0, Decimal128::from_f64(1000.0), 1);
             let credit = JournalLineItem::credit(1, Decimal128::from_f64(1000.0), 2);
 

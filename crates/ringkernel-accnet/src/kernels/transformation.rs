@@ -3,9 +3,8 @@
 //! These kernels transform double-entry journal entries into
 //! directed graph flows using the methods from Ivertowski et al., 2024.
 
-use crate::models::{Decimal128, TransactionFlow, SolvingMethod, HybridTimestamp};
 use crate::fabric::GeneratedEntry;
-use uuid::Uuid;
+use crate::models::{SolvingMethod, TransactionFlow};
 
 /// Configuration for transformation kernels.
 #[derive(Debug, Clone)]
@@ -62,6 +61,7 @@ pub struct TransformationStats {
 
 /// Journal transformation kernel dispatcher.
 pub struct TransformationKernel {
+    #[allow(dead_code)]
     config: TransformationConfig,
 }
 
@@ -112,7 +112,11 @@ impl TransformationKernel {
             0.0
         };
 
-        TransformationResult { flows, methods, stats }
+        TransformationResult {
+            flows,
+            methods,
+            stats,
+        }
     }
 }
 

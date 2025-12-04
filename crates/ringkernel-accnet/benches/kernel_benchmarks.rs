@@ -1,8 +1,8 @@
 //! Benchmarks for accounting network kernels.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use ringkernel_accnet::kernels::{AnalysisKernel, TemporalKernel, TransformationKernel};
 use ringkernel_accnet::prelude::*;
-use ringkernel_accnet::kernels::{TransformationKernel, AnalysisKernel, TemporalKernel};
 
 fn benchmark_transformation(c: &mut Criterion) {
     let kernel = TransformationKernel::default();
@@ -13,15 +13,14 @@ fn benchmark_transformation(c: &mut Criterion) {
         // Generate test entries
         let archetype = CompanyArchetype::retail_default();
         let template = ChartOfAccountsTemplate::retail_standard();
-        let mut generator = TransactionGenerator::new(archetype, template, GeneratorConfig::default());
+        let mut generator =
+            TransactionGenerator::new(archetype, template, GeneratorConfig::default());
         let entries = generator.generate_batch(size);
 
         group.bench_with_input(
             BenchmarkId::new("journal_transform", size),
             &entries,
-            |b, entries| {
-                b.iter(|| kernel.transform(black_box(entries)))
-            },
+            |b, entries| b.iter(|| kernel.transform(black_box(entries))),
         );
     }
 
@@ -38,7 +37,8 @@ fn benchmark_analysis(c: &mut Criterion) {
         // Generate test network
         let archetype = CompanyArchetype::retail_default();
         let template = ChartOfAccountsTemplate::retail_standard();
-        let mut generator = TransactionGenerator::new(archetype, template, GeneratorConfig::default());
+        let mut generator =
+            TransactionGenerator::new(archetype, template, GeneratorConfig::default());
         let entries = generator.generate_batch(size);
         let result = transform_kernel.transform(&entries);
 
@@ -58,9 +58,7 @@ fn benchmark_analysis(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("network_analysis", size),
             &network,
-            |b, network| {
-                b.iter(|| analysis_kernel.analyze(black_box(network)))
-            },
+            |b, network| b.iter(|| analysis_kernel.analyze(black_box(network))),
         );
     }
 

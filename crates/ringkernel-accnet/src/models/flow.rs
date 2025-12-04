@@ -45,6 +45,7 @@ pub struct TransactionFlow {
     pub _pad: [u8; 2],
 
     // === Reserved (8 bytes) ===
+    /// Reserved for future use.
     pub _reserved: [u8; 8],
 }
 
@@ -54,27 +55,39 @@ pub struct TransactionFlow {
 pub struct FlowFlags(pub u8);
 
 impl FlowFlags {
+    /// Flag: Flow derived from shadow bookings (Method E).
     pub const HAS_SHADOW_BOOKINGS: u8 = 1 << 0;
+    /// Flag: Flow uses higher aggregate matching (Method D).
     pub const USES_HIGHER_AGGREGATE: u8 = 1 << 1;
+    /// Flag: Flow flagged for audit review.
     pub const FLAGGED_FOR_AUDIT: u8 = 1 << 2;
+    /// Flag: Flow is a reversal of another transaction.
     pub const IS_REVERSAL: u8 = 1 << 3;
+    /// Flag: Flow is part of a circular pattern.
     pub const IS_CIRCULAR: u8 = 1 << 4;
+    /// Flag: Flow detected as anomalous.
     pub const IS_ANOMALOUS: u8 = 1 << 5;
+    /// Flag: Flow violates GAAP rules.
     pub const IS_GAAP_VIOLATION: u8 = 1 << 6;
+    /// Flag: Flow is part of a fraud pattern.
     pub const IS_FRAUD_PATTERN: u8 = 1 << 7;
 
+    /// Create new empty flags.
     pub fn new() -> Self {
         Self(0)
     }
 
+    /// Check if a flag is set.
     pub fn has(&self, flag: u8) -> bool {
         self.0 & flag != 0
     }
 
+    /// Set a flag.
     pub fn set(&mut self, flag: u8) {
         self.0 |= flag;
     }
 
+    /// Clear a flag.
     pub fn clear(&mut self, flag: u8) {
         self.0 &= !flag;
     }
@@ -177,6 +190,7 @@ pub struct AggregatedFlow {
 }
 
 impl AggregatedFlow {
+    /// Create a new aggregated flow between two accounts.
     pub fn new(source: u16, target: u16) -> Self {
         Self {
             source,
@@ -261,9 +275,12 @@ pub enum FlowDirection {
 /// Edge in the graph for traversal algorithms.
 #[derive(Debug, Clone, Copy)]
 pub struct GraphEdge {
+    /// Source node index.
     pub from: u16,
+    /// Target node index.
     pub to: u16,
-    pub weight: f64, // Could be amount, frequency, or custom metric
+    /// Edge weight (amount, frequency, or custom metric).
+    pub weight: f64,
 }
 
 #[cfg(test)]
@@ -273,8 +290,16 @@ mod tests {
     #[test]
     fn test_transaction_flow_size() {
         let size = std::mem::size_of::<TransactionFlow>();
-        assert!(size >= 64, "TransactionFlow should be at least 64 bytes, got {}", size);
-        assert!(size % 64 == 0, "TransactionFlow should be 64-byte aligned, got {}", size);
+        assert!(
+            size >= 64,
+            "TransactionFlow should be at least 64 bytes, got {}",
+            size
+        );
+        assert!(
+            size % 64 == 0,
+            "TransactionFlow should be 64-byte aligned, got {}",
+            size
+        );
     }
 
     #[test]

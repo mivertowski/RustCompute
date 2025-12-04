@@ -3,24 +3,19 @@
 //! This module provides a unified runtime interface that uses
 //! CUDA GPU acceleration when available, falling back to CPU execution.
 
+use crate::kernels::{AnalysisConfig, AnalysisKernel, AnalysisResult};
 use crate::models::AccountingNetwork;
-use crate::kernels::{AnalysisKernel, AnalysisConfig, AnalysisResult};
 
 /// Backend selection for kernel execution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Backend {
     /// Automatically select best available backend.
+    #[default]
     Auto,
     /// Force CUDA GPU execution.
     Cuda,
     /// Force CPU execution.
     Cpu,
-}
-
-impl Default for Backend {
-    fn default() -> Self {
-        Backend::Auto
-    }
 }
 
 /// Runtime status and capabilities.
@@ -200,17 +195,21 @@ impl AnalysisRuntime {
         gpu_result: super::executor::GpuAnalysisResult,
     ) -> AnalysisResult {
         use crate::kernels::AnalysisStats;
-        use crate::models::{GaapViolation, GaapViolationType, ViolationSeverity, HybridTimestamp};
+        use crate::models::{GaapViolation, GaapViolationType, HybridTimestamp, ViolationSeverity};
 
         // Build suspense results as (index, score) tuples
-        let suspense_accounts: Vec<(u16, f32)> = gpu_result.suspense_scores.iter()
+        let suspense_accounts: Vec<(u16, f32)> = gpu_result
+            .suspense_scores
+            .iter()
             .enumerate()
             .filter(|(_, &score)| score > 0.5)
             .map(|(idx, &score)| (idx as u16, score))
             .collect();
 
         // Build GAAP violation results
-        let gaap_violations: Vec<GaapViolation> = gpu_result.gaap_violations.iter()
+        let gaap_violations: Vec<GaapViolation> = gpu_result
+            .gaap_violations
+            .iter()
             .enumerate()
             .filter(|(_, &flag)| flag > 0)
             .map(|(idx, &flag)| {
@@ -222,7 +221,11 @@ impl AnalysisRuntime {
                         2 => GaapViolationType::RevenueToExpense,
                         _ => GaapViolationType::UnbalancedEntry,
                     },
-                    severity: if flag == 1 { ViolationSeverity::High } else { ViolationSeverity::Medium },
+                    severity: if flag == 1 {
+                        ViolationSeverity::High
+                    } else {
+                        ViolationSeverity::Medium
+                    },
                     source_account: flow.map(|f| f.source_account_index).unwrap_or(0),
                     target_account: flow.map(|f| f.target_account_index).unwrap_or(0),
                     amount: flow.map(|f| f.amount).unwrap_or_default(),
@@ -253,7 +256,10 @@ impl AnalysisRuntime {
 
     /// Run benchmarks comparing CPU vs GPU performance.
     #[cfg(feature = "cuda")]
-    pub fn run_benchmarks(&self, network: &AccountingNetwork) -> Option<super::executor::BenchmarkResults> {
+    pub fn run_benchmarks(
+        &self,
+        network: &AccountingNetwork,
+    ) -> Option<super::executor::BenchmarkResults> {
         if let Some(ref executor) = self.gpu_executor {
             match executor.run_benchmarks(network) {
                 Ok(results) => Some(results),
@@ -270,14 +276,14 @@ impl AnalysisRuntime {
     /// Get the generated CUDA kernel code (for inspection/debugging).
     #[cfg(feature = "cuda")]
     pub fn cuda_kernel_code(&self, kernel_type: super::CudaKernelType) -> Option<String> {
-        super::GeneratedKernels::generate().ok().map(|k| {
-            match kernel_type {
+        super::GeneratedKernels::generate()
+            .ok()
+            .map(|k| match kernel_type {
                 super::CudaKernelType::SuspenseDetection => k.suspense_detection,
                 super::CudaKernelType::GaapViolation => k.gaap_violation,
                 super::CudaKernelType::BenfordAnalysis => k.benford_analysis,
                 _ => String::new(),
-            }
-        })
+            })
     }
 }
 

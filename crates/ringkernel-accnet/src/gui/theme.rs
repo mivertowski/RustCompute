@@ -1,6 +1,6 @@
 //! Visual theme for the accounting network GUI.
 
-use eframe::egui::{self, Color32, Stroke, Rounding};
+use eframe::egui::{self, Color32, Rounding, Stroke};
 
 /// Color theme for the application.
 #[derive(Debug, Clone)]
@@ -77,12 +77,12 @@ impl AccNetTheme {
             accent: Color32::from_rgb(100, 180, 255),
 
             // Account types - professional palette
-            asset_color: Color32::from_rgb(66, 165, 245),     // Blue
-            liability_color: Color32::from_rgb(239, 83, 80),   // Red
-            equity_color: Color32::from_rgb(102, 187, 106),    // Green
-            revenue_color: Color32::from_rgb(255, 202, 40),    // Amber
-            expense_color: Color32::from_rgb(171, 71, 188),    // Purple
-            contra_color: Color32::from_rgb(158, 158, 158),    // Gray
+            asset_color: Color32::from_rgb(66, 165, 245), // Blue
+            liability_color: Color32::from_rgb(239, 83, 80), // Red
+            equity_color: Color32::from_rgb(102, 187, 106), // Green
+            revenue_color: Color32::from_rgb(255, 202, 40), // Amber
+            expense_color: Color32::from_rgb(171, 71, 188), // Purple
+            contra_color: Color32::from_rgb(158, 158, 158), // Gray
 
             // Alerts
             alert_low: Color32::from_rgb(100, 180, 255),
@@ -165,7 +165,13 @@ impl AccNetTheme {
 
     /// Get futuristic edge color with transparency based on weight and flow type.
     /// Returns (color, alpha) tuple.
-    pub fn edge_color_futuristic(&self, weight: f32, suspicious: bool, fraud: bool, max_weight: f32) -> Color32 {
+    pub fn edge_color_futuristic(
+        &self,
+        weight: f32,
+        suspicious: bool,
+        fraud: bool,
+        max_weight: f32,
+    ) -> Color32 {
         // Normalize weight for alpha calculation
         let normalized = (weight / max_weight.max(1.0)).min(1.0);
 
@@ -178,9 +184,9 @@ impl AccNetTheme {
             // Gradient from cyan to blue based on weight
             let t = normalized;
             Color32::from_rgb(
-                (60.0 + t * 40.0) as u8,    // 60-100
-                (180.0 + t * 40.0) as u8,   // 180-220
-                (220.0 + t * 35.0) as u8,   // 220-255
+                (60.0 + t * 40.0) as u8,  // 60-100
+                (180.0 + t * 40.0) as u8, // 180-220
+                (220.0 + t * 35.0) as u8, // 220-255
             )
         };
 

@@ -3,13 +3,13 @@
 //! Generates realistic journal entries following configurable patterns
 //! and the method distribution from Ivertowski et al. (2024).
 
-use crate::models::{
-    AccountingNetwork, Decimal128, HybridTimestamp, JournalEntry, JournalEntryFlags,
-    JournalLineItem, LineType, SolvingMethod, TransactionFlow,
-};
 use super::{ChartOfAccountsTemplate, CompanyArchetype, ExpectedFlow};
+use crate::models::{
+    Decimal128, HybridTimestamp, JournalEntry, JournalEntryFlags, JournalLineItem, SolvingMethod,
+    TransactionFlow,
+};
 use rand::prelude::*;
-use rand_distr::{LogNormal, Normal};
+use rand_distr::LogNormal;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -103,10 +103,7 @@ impl GeneratorConfig {
             + self.method_e_ratio;
 
         if (total - 1.0).abs() > 0.01 {
-            return Err(format!(
-                "Method ratios must sum to 1.0, got {}",
-                total
-            ));
+            return Err(format!("Method ratios must sum to 1.0, got {}", total));
         }
         Ok(())
     }
@@ -114,7 +111,8 @@ impl GeneratorConfig {
 
 /// Transaction generator that creates synthetic journal entries.
 pub struct TransactionGenerator {
-    /// Company archetype
+    /// Company archetype (reserved for future use)
+    #[allow(dead_code)]
     archetype: CompanyArchetype,
     /// Chart of accounts template
     coa: ChartOfAccountsTemplate,
@@ -130,7 +128,8 @@ pub struct TransactionGenerator {
     current_time: HybridTimestamp,
     /// Entry counter for IDs
     entry_counter: u64,
-    /// Node ID for timestamps
+    /// Node ID for timestamps (reserved for distributed use)
+    #[allow(dead_code)]
     node_id: u32,
     /// Accounts that haven't been used yet (for ensuring full coverage)
     unused_accounts: Vec<u16>,
@@ -140,10 +139,7 @@ pub struct TransactionGenerator {
 
 impl TransactionGenerator {
     /// Create a new generator.
-    pub fn new(
-        archetype: CompanyArchetype,
-        config: GeneratorConfig,
-    ) -> Self {
+    pub fn new(archetype: CompanyArchetype, config: GeneratorConfig) -> Self {
         let seed = config.seed.unwrap_or_else(|| rand::thread_rng().gen());
         let rng = StdRng::seed_from_u64(seed);
 
@@ -244,13 +240,21 @@ impl TransactionGenerator {
     fn generate_method_a(&mut self) -> GeneratedEntry {
         // Every 5th transaction, ensure we use accounts that haven't been touched yet
         self.coverage_counter += 1;
-        let (from_idx, to_idx, amount) = if self.coverage_counter % 5 == 0 {
+        let (from_idx, to_idx, amount) = if self.coverage_counter.is_multiple_of(5) {
             self.select_coverage_flow()
         } else {
             let flow = self.select_flow();
             let amount = self.generate_amount(flow.amount_range.0, flow.amount_range.1);
-            let from_idx = self.account_indices.get(&flow.from_code).copied().unwrap_or(0);
-            let to_idx = self.account_indices.get(&flow.to_code).copied().unwrap_or(1);
+            let from_idx = self
+                .account_indices
+                .get(&flow.from_code)
+                .copied()
+                .unwrap_or(0);
+            let to_idx = self
+                .account_indices
+                .get(&flow.to_code)
+                .copied()
+                .unwrap_or(1);
             (from_idx, to_idx, amount)
         };
 
@@ -281,16 +285,14 @@ impl TransactionGenerator {
         // Pick accounts - prefer unused ones, but always pick valid accounts
         let from_idx = if !self.unused_accounts.is_empty() {
             let idx = self.rng.gen_range(0..self.unused_accounts.len());
-            let acc = self.unused_accounts.remove(idx);
-            acc
+            self.unused_accounts.remove(idx)
         } else {
             self.rng.gen_range(0..account_count)
         };
 
         let to_idx = if !self.unused_accounts.is_empty() {
             let idx = self.rng.gen_range(0..self.unused_accounts.len());
-            let acc = self.unused_accounts.remove(idx);
-            acc
+            self.unused_accounts.remove(idx)
         } else {
             // Pick a different account than from_idx
             loop {
@@ -323,16 +325,27 @@ impl TransactionGenerator {
 
         // Use coverage flow for at least one line pair in each Method B entry
         self.coverage_counter += 1;
-        let use_coverage = self.coverage_counter % 3 == 0;
+        let use_coverage = self.coverage_counter.is_multiple_of(3);
 
         for i in 0..n {
             let (from_idx, to_idx, amount) = if use_coverage && i == 0 {
                 self.select_coverage_flow()
             } else {
                 let flow = self.select_flow();
-                let amount = self.generate_amount(flow.amount_range.0 / n as f64, flow.amount_range.1 / n as f64);
-                let from_idx = self.account_indices.get(&flow.from_code).copied().unwrap_or(0);
-                let to_idx = self.account_indices.get(&flow.to_code).copied().unwrap_or(1);
+                let amount = self.generate_amount(
+                    flow.amount_range.0 / n as f64,
+                    flow.amount_range.1 / n as f64,
+                );
+                let from_idx = self
+                    .account_indices
+                    .get(&flow.from_code)
+                    .copied()
+                    .unwrap_or(0);
+                let to_idx = self
+                    .account_indices
+                    .get(&flow.to_code)
+                    .copied()
+                    .unwrap_or(1);
                 (from_idx, to_idx, amount)
             };
             total = total + amount;
@@ -364,7 +377,11 @@ impl TransactionGenerator {
         let n_debits = self.rng.gen_range(1..=3);
         let n_credits = self.rng.gen_range(2..=5);
         // Ensure different counts
-        let n_credits = if n_credits == n_debits { n_credits + 1 } else { n_credits };
+        let n_credits = if n_credits == n_debits {
+            n_credits + 1
+        } else {
+            n_credits
+        };
 
         let mut entry = self.create_entry_header();
         let mut debit_lines = Vec::with_capacity(n_debits);
@@ -377,7 +394,7 @@ impl TransactionGenerator {
 
         // Periodically use coverage accounts for Method C
         self.coverage_counter += 1;
-        let use_coverage = self.coverage_counter % 4 == 0;
+        let use_coverage = self.coverage_counter.is_multiple_of(4);
 
         // Split among debits
         let debit_amounts = self.split_amount(total_f64, n_debits);
@@ -387,9 +404,16 @@ impl TransactionGenerator {
                 idx
             } else {
                 let flow = self.select_flow();
-                self.account_indices.get(&flow.from_code).copied().unwrap_or(0)
+                self.account_indices
+                    .get(&flow.from_code)
+                    .copied()
+                    .unwrap_or(0)
             };
-            debit_lines.push(JournalLineItem::debit(from_idx, Decimal128::from_f64(amt), (i + 1) as u16));
+            debit_lines.push(JournalLineItem::debit(
+                from_idx,
+                Decimal128::from_f64(amt),
+                (i + 1) as u16,
+            ));
         }
 
         // Split among credits
@@ -400,9 +424,16 @@ impl TransactionGenerator {
                 idx
             } else {
                 let flow = self.select_flow();
-                self.account_indices.get(&flow.to_code).copied().unwrap_or(1)
+                self.account_indices
+                    .get(&flow.to_code)
+                    .copied()
+                    .unwrap_or(1)
             };
-            credit_lines.push(JournalLineItem::credit(to_idx, Decimal128::from_f64(amt), (n_debits + i + 1) as u16));
+            credit_lines.push(JournalLineItem::credit(
+                to_idx,
+                Decimal128::from_f64(amt),
+                (n_debits + i + 1) as u16,
+            ));
         }
 
         // For Method C, flows are approximated by matching largest to largest
@@ -468,7 +499,8 @@ impl TransactionGenerator {
             // Log-normal distribution approximates Benford's Law
             let mean = ((min.ln() + max.ln()) / 2.0).exp();
             let std_dev = (max / min).ln() / 4.0;
-            let dist = LogNormal::new(mean.ln(), std_dev).unwrap_or_else(|_| LogNormal::new(0.0, 1.0).unwrap());
+            let dist = LogNormal::new(mean.ln(), std_dev)
+                .unwrap_or_else(|_| LogNormal::new(0.0, 1.0).unwrap());
             let raw: f64 = self.rng.sample(dist);
             raw.clamp(min, max)
         } else {
@@ -490,9 +522,7 @@ impl TransactionGenerator {
         }
 
         // Generate random split points
-        let mut points: Vec<f64> = (0..parts - 1)
-            .map(|_| self.rng.gen::<f64>())
-            .collect();
+        let mut points: Vec<f64> = (0..parts - 1).map(|_| self.rng.gen::<f64>()).collect();
         points.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
         // Convert to amounts
@@ -505,7 +535,10 @@ impl TransactionGenerator {
         amounts.push((1.0 - prev) * total);
 
         // Round to cents
-        amounts.iter().map(|a| (a * 100.0).round() / 100.0).collect()
+        amounts
+            .iter()
+            .map(|a| (a * 100.0).round() / 100.0)
+            .collect()
     }
 
     /// Create a new entry header with generated metadata.

@@ -4,13 +4,13 @@
 //! using charts, histograms, heatmaps, and real-time metrics.
 
 use eframe::egui::{self, Color32, RichText, Ui};
-use std::collections::{VecDeque, HashMap};
+use std::collections::{HashMap, VecDeque};
 
-use crate::models::{AccountingNetwork, AccountType, SolvingMethod};
-use super::charts::{Histogram, BarChart, DonutChart, Sparkline, MethodDistribution, LiveTicker};
+use super::charts::{BarChart, DonutChart, Histogram, LiveTicker, MethodDistribution, Sparkline};
 use super::heatmaps::{ActivityHeatmap, CorrelationHeatmap, RiskHeatmap};
-use super::rankings::{TopAccountsPanel, PatternStatsPanel, AmountDistribution};
+use super::rankings::{AmountDistribution, PatternStatsPanel, TopAccountsPanel};
 use super::theme::AccNetTheme;
+use crate::models::{AccountType, AccountingNetwork, SolvingMethod};
 
 /// Analytics dashboard with live visualizations.
 pub struct AnalyticsDashboard {
@@ -169,9 +169,12 @@ impl AnalyticsDashboard {
         }
 
         // Volume (cumulative flows)
-        let volume = network.flows.iter()
+        let volume = network
+            .flows
+            .iter()
             .map(|f| f.amount.to_f64().abs())
-            .sum::<f64>() as f32 / 1000.0; // In thousands
+            .sum::<f64>() as f32
+            / 1000.0; // In thousands
         self.volume_history.push_back(volume);
         if self.volume_history.len() > self.max_history {
             self.volume_history.pop_front();
@@ -186,7 +189,9 @@ impl AnalyticsDashboard {
         }
 
         // Chi-squared test
-        let expected = [0.301, 0.176, 0.125, 0.097, 0.079, 0.067, 0.058, 0.051, 0.046];
+        let expected = [
+            0.301, 0.176, 0.125, 0.097, 0.079, 0.067, 0.058, 0.051, 0.046,
+        ];
         let mut chi_sq = 0.0;
 
         for (i, &count) in self.benford_counts.iter().enumerate() {
@@ -196,7 +201,11 @@ impl AnalyticsDashboard {
         }
 
         // Critical value at 0.05 significance with 8 df is 15.507
-        if chi_sq > 15.507 { 1 } else { 0 }
+        if chi_sq > 15.507 {
+            1
+        } else {
+            0
+        }
     }
 
     /// Calculate overall risk score.
@@ -211,11 +220,13 @@ impl AnalyticsDashboard {
 
         // GAAP violations: per 100 flows, capped at 10%
         // Having 10 violations per 100 flows = max risk from this factor
-        let violation_ratio = (network.statistics.gaap_violation_count as f32 / flows * 100.0).min(10.0) / 10.0;
+        let violation_ratio =
+            (network.statistics.gaap_violation_count as f32 / flows * 100.0).min(10.0) / 10.0;
 
         // Fraud patterns: per 100 flows, capped at 5%
         // Having 5 fraud patterns per 100 flows = max risk from this factor
-        let fraud_ratio = (network.statistics.fraud_pattern_count as f32 / flows * 100.0).min(5.0) / 5.0;
+        let fraud_ratio =
+            (network.statistics.fraud_pattern_count as f32 / flows * 100.0).min(5.0) / 5.0;
 
         // Benford's Law anomaly (binary: 0 or 1)
         let benford_risk = self.calculate_benford_violations() as f32;
@@ -273,8 +284,20 @@ impl AnalyticsDashboard {
             ui.add_space(5.0);
 
             // Pattern Detection (Collapsible)
-            let patterns_header = if self.expanded_sections.show_patterns { "▼ Pattern Detection" } else { "▶ Pattern Detection" };
-            if ui.selectable_label(self.expanded_sections.show_patterns, RichText::new(patterns_header).color(theme.text_primary).size(12.0)).clicked() {
+            let patterns_header = if self.expanded_sections.show_patterns {
+                "▼ Pattern Detection"
+            } else {
+                "▶ Pattern Detection"
+            };
+            if ui
+                .selectable_label(
+                    self.expanded_sections.show_patterns,
+                    RichText::new(patterns_header)
+                        .color(theme.text_primary)
+                        .size(12.0),
+                )
+                .clicked()
+            {
                 self.expanded_sections.show_patterns = !self.expanded_sections.show_patterns;
             }
             if self.expanded_sections.show_patterns {
@@ -284,8 +307,20 @@ impl AnalyticsDashboard {
             }
 
             // Top Accounts Rankings (Collapsible)
-            let rankings_header = if self.expanded_sections.show_rankings { "▼ Top Accounts" } else { "▶ Top Accounts" };
-            if ui.selectable_label(self.expanded_sections.show_rankings, RichText::new(rankings_header).color(theme.text_primary).size(12.0)).clicked() {
+            let rankings_header = if self.expanded_sections.show_rankings {
+                "▼ Top Accounts"
+            } else {
+                "▶ Top Accounts"
+            };
+            if ui
+                .selectable_label(
+                    self.expanded_sections.show_rankings,
+                    RichText::new(rankings_header)
+                        .color(theme.text_primary)
+                        .size(12.0),
+                )
+                .clicked()
+            {
                 self.expanded_sections.show_rankings = !self.expanded_sections.show_rankings;
             }
             if self.expanded_sections.show_rankings {
@@ -295,8 +330,20 @@ impl AnalyticsDashboard {
             }
 
             // Amount Distribution (Collapsible)
-            let amounts_header = if self.expanded_sections.show_amounts { "▼ Amount Distribution" } else { "▶ Amount Distribution" };
-            if ui.selectable_label(self.expanded_sections.show_amounts, RichText::new(amounts_header).color(theme.text_primary).size(12.0)).clicked() {
+            let amounts_header = if self.expanded_sections.show_amounts {
+                "▼ Amount Distribution"
+            } else {
+                "▶ Amount Distribution"
+            };
+            if ui
+                .selectable_label(
+                    self.expanded_sections.show_amounts,
+                    RichText::new(amounts_header)
+                        .color(theme.text_primary)
+                        .size(12.0),
+                )
+                .clicked()
+            {
                 self.expanded_sections.show_amounts = !self.expanded_sections.show_amounts;
             }
             if self.expanded_sections.show_amounts {
@@ -306,8 +353,20 @@ impl AnalyticsDashboard {
             }
 
             // Heatmaps (Collapsible)
-            let heatmaps_header = if self.expanded_sections.show_heatmaps { "▼ Heatmaps" } else { "▶ Heatmaps" };
-            if ui.selectable_label(self.expanded_sections.show_heatmaps, RichText::new(heatmaps_header).color(theme.text_primary).size(12.0)).clicked() {
+            let heatmaps_header = if self.expanded_sections.show_heatmaps {
+                "▼ Heatmaps"
+            } else {
+                "▶ Heatmaps"
+            };
+            if ui
+                .selectable_label(
+                    self.expanded_sections.show_heatmaps,
+                    RichText::new(heatmaps_header)
+                        .color(theme.text_primary)
+                        .size(12.0),
+                )
+                .clicked()
+            {
                 self.expanded_sections.show_heatmaps = !self.expanded_sections.show_heatmaps;
             }
             if self.expanded_sections.show_heatmaps {
@@ -319,7 +378,12 @@ impl AnalyticsDashboard {
     }
 
     /// Show pattern detection panel.
-    fn show_pattern_detection(&self, ui: &mut Ui, network: &AccountingNetwork, theme: &AccNetTheme) {
+    fn show_pattern_detection(
+        &self,
+        ui: &mut Ui,
+        network: &AccountingNetwork,
+        theme: &AccNetTheme,
+    ) {
         let stats = PatternStatsPanel::from_network(network);
         stats.show(ui, theme);
     }
@@ -327,7 +391,8 @@ impl AnalyticsDashboard {
     /// Show top accounts rankings.
     fn show_top_accounts(&self, ui: &mut Ui, network: &AccountingNetwork, theme: &AccNetTheme) {
         // Build account name map from network metadata
-        let account_names: HashMap<u16, String> = network.account_metadata
+        let account_names: HashMap<u16, String> = network
+            .account_metadata
             .iter()
             .map(|(&idx, meta)| (idx, meta.name.clone()))
             .collect();
@@ -349,7 +414,12 @@ impl AnalyticsDashboard {
     }
 
     /// Show amount distribution.
-    fn show_amount_distribution(&self, ui: &mut Ui, network: &AccountingNetwork, theme: &AccNetTheme) {
+    fn show_amount_distribution(
+        &self,
+        ui: &mut Ui,
+        network: &AccountingNetwork,
+        theme: &AccNetTheme,
+    ) {
         let dist = AmountDistribution::from_network(network);
         dist.show(ui, theme);
     }
@@ -357,7 +427,8 @@ impl AnalyticsDashboard {
     /// Show heatmaps.
     fn show_heatmaps(&self, ui: &mut Ui, network: &AccountingNetwork, theme: &AccNetTheme) {
         // Build account name map from network metadata
-        let account_names: HashMap<u16, String> = network.account_metadata
+        let account_names: HashMap<u16, String> = network
+            .account_metadata
             .iter()
             .map(|(&idx, meta)| (idx, meta.name.clone()))
             .collect();
@@ -384,10 +455,22 @@ impl AnalyticsDashboard {
     /// Show the live ticker.
     fn show_ticker(&self, ui: &mut Ui, network: &AccountingNetwork, theme: &AccNetTheme) {
         let ticker = LiveTicker::new()
-            .add("Accounts", network.accounts.len().to_string(), theme.asset_color)
+            .add(
+                "Accounts",
+                network.accounts.len().to_string(),
+                theme.asset_color,
+            )
             .add("Flows", network.flows.len().to_string(), theme.flow_normal)
-            .add("Alerts", network.statistics.gaap_violation_count.to_string(), theme.alert_high)
-            .add("Fraud", network.statistics.fraud_pattern_count.to_string(), theme.alert_critical);
+            .add(
+                "Alerts",
+                network.statistics.gaap_violation_count.to_string(),
+                theme.alert_high,
+            )
+            .add(
+                "Fraud",
+                network.statistics.fraud_pattern_count.to_string(),
+                theme.alert_critical,
+            );
 
         ticker.show(ui, theme);
     }
@@ -416,11 +499,31 @@ impl AnalyticsDashboard {
     /// Show account type distribution.
     fn show_account_distribution(&self, ui: &mut Ui, theme: &AccNetTheme) {
         let chart = DonutChart::new("Account Types")
-            .add("Asset", self.account_type_counts[0] as f64, theme.asset_color)
-            .add("Liability", self.account_type_counts[1] as f64, theme.liability_color)
-            .add("Equity", self.account_type_counts[2] as f64, theme.equity_color)
-            .add("Revenue", self.account_type_counts[3] as f64, theme.revenue_color)
-            .add("Expense", self.account_type_counts[4] as f64, theme.expense_color);
+            .add(
+                "Asset",
+                self.account_type_counts[0] as f64,
+                theme.asset_color,
+            )
+            .add(
+                "Liability",
+                self.account_type_counts[1] as f64,
+                theme.liability_color,
+            )
+            .add(
+                "Equity",
+                self.account_type_counts[2] as f64,
+                theme.equity_color,
+            )
+            .add(
+                "Revenue",
+                self.account_type_counts[3] as f64,
+                theme.revenue_color,
+            )
+            .add(
+                "Expense",
+                self.account_type_counts[4] as f64,
+                theme.expense_color,
+            );
 
         chart.show(ui, theme);
     }
@@ -441,7 +544,11 @@ impl AnalyticsDashboard {
             .add("Suspense Accts", suspense as f64, theme.alert_medium)
             .add("GAAP Violations", gaap_count as f64, theme.alert_high)
             .add("Fraud Patterns", fraud_count as f64, theme.alert_critical)
-            .add("Benford Anomaly", self.calculate_benford_violations() as f64, Color32::from_rgb(200, 100, 200));
+            .add(
+                "Benford Anomaly",
+                self.calculate_benford_violations() as f64,
+                Color32::from_rgb(200, 100, 200),
+            );
 
         chart.show(ui, theme);
     }

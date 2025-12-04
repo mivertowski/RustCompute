@@ -3,8 +3,8 @@
 //! Animates particles flowing along edges to visualize money movement
 //! through the accounting network.
 
-use nalgebra::Vector2;
 use eframe::egui::Color32;
+use nalgebra::Vector2;
 use std::collections::VecDeque;
 
 /// A particle flowing along an edge.
@@ -37,7 +37,7 @@ impl FlowParticle {
             progress: 0.0,
             speed: 0.25, // Slower, more subtle movement
             color: Color32::from_rgba_unmultiplied(100, 200, 160, 150), // Semi-transparent
-            size: 2.5, // Smaller, more subtle
+            size: 2.5,   // Smaller, more subtle
             suspicious: false,
             flow_id,
         }
@@ -96,8 +96,16 @@ impl ParticleSystem {
     }
 
     /// Queue a flow for particle spawning.
-    pub fn queue_flow(&mut self, source: u16, target: u16, flow_id: uuid::Uuid, color: Color32, suspicious: bool) {
-        self.pending_spawns.push((source, target, flow_id, color, suspicious));
+    pub fn queue_flow(
+        &mut self,
+        source: u16,
+        target: u16,
+        flow_id: uuid::Uuid,
+        color: Color32,
+        suspicious: bool,
+    ) {
+        self.pending_spawns
+            .push((source, target, flow_id, color, suspicious));
     }
 
     /// Clear pending flows.
@@ -132,8 +140,10 @@ impl ParticleSystem {
                     let mut particle = FlowParticle::new(source, target, flow_id);
                     // Make particles semi-transparent for subtler effect
                     particle.color = Color32::from_rgba_unmultiplied(
-                        color.r(), color.g(), color.b(),
-                        if suspicious { 180 } else { 100 } // More transparent for normal flows
+                        color.r(),
+                        color.g(),
+                        color.b(),
+                        if suspicious { 180 } else { 100 }, // More transparent for normal flows
                     );
                     particle.suspicious = suspicious;
                     particle.size = if suspicious { 4.0 } else { 2.5 }; // Smaller particles
@@ -142,7 +152,8 @@ impl ParticleSystem {
                 }
 
                 // Re-add to queue for continuous spawning
-                self.pending_spawns.insert(0, (source, target, flow_id, color, suspicious));
+                self.pending_spawns
+                    .insert(0, (source, target, flow_id, color, suspicious));
             }
         }
     }
@@ -164,7 +175,14 @@ impl ParticleSystem {
     }
 
     /// Spawn a burst of particles for a specific flow.
-    pub fn burst(&mut self, source: u16, target: u16, flow_id: uuid::Uuid, color: Color32, count: usize) {
+    pub fn burst(
+        &mut self,
+        source: u16,
+        target: u16,
+        flow_id: uuid::Uuid,
+        color: Color32,
+        count: usize,
+    ) {
         for i in 0..count {
             if self.particles.len() >= self.max_particles {
                 break;

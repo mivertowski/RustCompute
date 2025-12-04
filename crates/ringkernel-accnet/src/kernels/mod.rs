@@ -19,10 +19,10 @@
 //! | D | Higher aggregate | 11.00% |
 //! | E | Decomposition | 0.69% |
 
-pub mod transformation;
 pub mod analysis;
 pub mod temporal;
+pub mod transformation;
 
-pub use transformation::*;
 pub use analysis::*;
 pub use temporal::*;
+pub use transformation::*;

@@ -1,11 +1,13 @@
 //! Benchmark utility for accounting network kernels.
 //!
-//! Compares CPU vs GPU performance for analysis kernels.
+//! Compares CPU vs GPU performance for analysis kernels,
+//! including the Ring Kernel Actor System.
 
-use std::time::Instant;
-use ringkernel_accnet::prelude::*;
-use ringkernel_accnet::kernels::{TransformationKernel, AnalysisKernel};
+use ringkernel_accnet::actors::{CoordinatorConfig, GpuActorRuntime};
 use ringkernel_accnet::cuda::{AnalysisRuntime, Backend};
+use ringkernel_accnet::kernels::TransformationKernel;
+use ringkernel_accnet::prelude::*;
+use std::time::Instant;
 
 fn main() {
     println!("╔══════════════════════════════════════════════════════════════╗");
@@ -16,6 +18,7 @@ fn main() {
     // Initialize runtimes
     let cpu_runtime = AnalysisRuntime::with_backend(Backend::Cpu);
     let gpu_runtime = AnalysisRuntime::with_backend(Backend::Auto);
+    let mut actor_runtime = GpuActorRuntime::new(CoordinatorConfig::default());
 
     println!("Runtime Configuration:");
     println!("  CPU Runtime: Active");
@@ -32,6 +35,17 @@ fn main() {
     } else {
         println!("  GPU Runtime: Not available (CUDA feature or hardware missing)");
     }
+
+    let actor_status = actor_runtime.status();
+    println!(
+        "  Ring Kernel Actors: {} ({} kernels)",
+        if actor_status.cuda_active {
+            "GPU"
+        } else {
+            "CPU"
+        },
+        actor_status.kernels_launched
+    );
     println!();
 
     // Setup
@@ -40,11 +54,11 @@ fn main() {
 
     // Benchmark different network sizes
     let sizes = vec![
-        (100, 10),      // Small: 100 entries, ~10 flows each
-        (500, 50),      // Medium: 500 entries
-        (1000, 100),    // Large: 1000 entries
-        (5000, 500),    // Very Large: 5000 entries
-        (10000, 1000),  // Huge: 10000 entries
+        (100, 10),     // Small: 100 entries, ~10 flows each
+        (500, 50),     // Medium: 500 entries
+        (1000, 100),   // Large: 1000 entries
+        (5000, 500),   // Very Large: 5000 entries
+        (10000, 1000), // Huge: 10000 entries
     ];
 
     println!("═══════════════════════════════════════════════════════════════");
@@ -56,10 +70,8 @@ fn main() {
     println!("{:-<12} {:-<12} {:-<15}", "", "", "");
 
     for &(size, _) in &sizes {
-        let mut generator = TransactionGenerator::new(
-            archetype.clone(),
-            GeneratorConfig::default(),
-        );
+        let mut generator =
+            TransactionGenerator::new(archetype.clone(), GeneratorConfig::default());
         let entries = generator.generate_batch(size);
         let kernel = TransformationKernel::default();
 
@@ -86,10 +98,8 @@ fn main() {
     let mut benchmark_networks = Vec::new();
 
     for &(entry_count, _) in &sizes {
-        let mut generator = TransactionGenerator::new(
-            archetype.clone(),
-            GeneratorConfig::default(),
-        );
+        let mut generator =
+            TransactionGenerator::new(archetype.clone(), GeneratorConfig::default());
         let entries = generator.generate_batch(entry_count);
         let transform_kernel = TransformationKernel::default();
         let result = transform_kernel.transform(&entries);
@@ -112,12 +122,15 @@ fn main() {
 
     // CPU Benchmarks
     println!("CPU Analysis (baseline):");
-    println!("{:<12} {:>10} {:>12} {:>15}", "Accounts", "Flows", "Time (ms)", "Throughput");
+    println!(
+        "{:<12} {:>10} {:>12} {:>15}",
+        "Accounts", "Flows", "Time (ms)", "Throughput"
+    );
     println!("{:-<12} {:-<10} {:-<12} {:-<15}", "", "", "", "");
 
     let mut cpu_times = Vec::new();
 
-    for (entry_count, network) in &benchmark_networks {
+    for (_, network) in &benchmark_networks {
         let start = Instant::now();
         let iterations = 50;
         for _ in 0..iterations {
@@ -142,10 +155,16 @@ fn main() {
     // GPU Benchmarks
     if gpu_available {
         println!("\nGPU Analysis (CUDA):");
-        println!("{:<12} {:>10} {:>12} {:>15} {:>10}", "Accounts", "Flows", "Time (ms)", "Throughput", "Speedup");
-        println!("{:-<12} {:-<10} {:-<12} {:-<15} {:-<10}", "", "", "", "", "");
+        println!(
+            "{:<12} {:>10} {:>12} {:>15} {:>10}",
+            "Accounts", "Flows", "Time (ms)", "Throughput", "Speedup"
+        );
+        println!(
+            "{:-<12} {:-<10} {:-<12} {:-<15} {:-<10}",
+            "", "", "", "", ""
+        );
 
-        for (i, (entry_count, network)) in benchmark_networks.iter().enumerate() {
+        for (i, (_, network)) in benchmark_networks.iter().enumerate() {
             let start = Instant::now();
             let iterations = 50;
             for _ in 0..iterations {
@@ -177,7 +196,8 @@ fn main() {
             // Use the largest network for detailed benchmarks
             if let Some((_, network)) = benchmark_networks.last() {
                 if let Some(results) = gpu_runtime.run_benchmarks(network) {
-                    println!("Device: {} (CC {}.{})",
+                    println!(
+                        "Device: {} (CC {}.{})",
                         results.device_name,
                         results.compute_capability.0,
                         results.compute_capability.1
@@ -185,16 +205,16 @@ fn main() {
                     println!();
 
                     println!("Individual Kernel Performance:");
-                    println!("{:<25} {:>12} {:>12} {:>15}", "Kernel", "Elements", "Time (µs)", "Throughput");
+                    println!(
+                        "{:<25} {:>12} {:>12} {:>15}",
+                        "Kernel", "Elements", "Time (µs)", "Throughput"
+                    );
                     println!("{:-<25} {:-<12} {:-<12} {:-<15}", "", "", "", "");
 
                     for kernel in &results.kernels {
                         println!(
                             "{:<25} {:>12} {:>12} {:>12.2} ME/s",
-                            kernel.name,
-                            kernel.elements,
-                            kernel.time_us,
-                            kernel.throughput_meps
+                            kernel.name, kernel.elements, kernel.time_us, kernel.throughput_meps
                         );
                     }
 
@@ -208,6 +228,75 @@ fn main() {
         }
     }
 
+    // Ring Kernel Actor System Benchmarks
+    println!("\n═══════════════════════════════════════════════════════════════");
+    println!("                 RING KERNEL ACTOR BENCHMARKS");
+    println!("═══════════════════════════════════════════════════════════════\n");
+
+    println!("Ring Kernel Actor-Based Analytics:");
+    println!(
+        "{:<12} {:>10} {:>12} {:>15} {:>10}",
+        "Accounts", "Flows", "Time (ms)", "Throughput", "vs CPU"
+    );
+    println!(
+        "{:-<12} {:-<10} {:-<12} {:-<15} {:-<10}",
+        "", "", "", "", ""
+    );
+
+    let mut actor_times = Vec::new();
+
+    for (i, (_, network)) in benchmark_networks.iter().enumerate() {
+        let start = Instant::now();
+        let iterations = 50;
+        for _ in 0..iterations {
+            let _ = actor_runtime.analyze(network);
+        }
+        let elapsed = start.elapsed();
+        let per_iter_us = elapsed.as_micros() as f64 / iterations as f64;
+        let per_iter_ms = per_iter_us / 1000.0;
+        let throughput = network.flows.len() as f64 / (per_iter_us / 1_000_000.0);
+        let speedup = cpu_times[i] / per_iter_us;
+
+        actor_times.push(per_iter_us);
+
+        println!(
+            "{:<12} {:>10} {:>12.3} {:>12.0} f/s {:>9.1}x",
+            network.accounts.len(),
+            network.flows.len(),
+            per_iter_ms,
+            throughput,
+            speedup
+        );
+    }
+
+    // Ring Kernel Actor Statistics
+    let final_status = actor_runtime.status();
+    println!("\nRing Kernel Actor Statistics:");
+    println!(
+        "  Total Snapshots Processed: {}",
+        final_status.coordinator_stats.snapshots_processed
+    );
+    println!(
+        "  Total Processing Time: {} µs",
+        final_status.coordinator_stats.total_processing_time_us
+    );
+    println!(
+        "  Average Processing Time: {:.2} µs",
+        final_status.coordinator_stats.avg_processing_time_us
+    );
+    println!(
+        "  Fraud Patterns Detected: {}",
+        final_status.coordinator_stats.total_fraud_patterns
+    );
+    println!(
+        "  GAAP Violations Detected: {}",
+        final_status.coordinator_stats.total_gaap_violations
+    );
+    println!(
+        "  Suspense Accounts Flagged: {}",
+        final_status.coordinator_stats.total_suspense_accounts
+    );
+
     println!("\n═══════════════════════════════════════════════════════════════");
     println!("                        BENCHMARK COMPLETE");
     println!("═══════════════════════════════════════════════════════════════\n");
@@ -217,6 +306,7 @@ fn main() {
     println!("  - Throughput is measured in flows/sec (f/s) or elements/sec");
     println!("  - GPU speedup is relative to CPU baseline");
     println!("  - Times include host-device memory transfers");
+    println!("  - Ring Kernel Actors use persistent GPU kernels with K2K messaging");
     if !gpu_available {
         println!("\n  To enable GPU benchmarks, build with: cargo build --features cuda");
     }

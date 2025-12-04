@@ -58,43 +58,70 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
-pub mod models;
-pub mod fabric;
-pub mod kernels;
+pub mod actors;
 pub mod analytics;
-pub mod gui;
 pub mod cuda;
+pub mod fabric;
+pub mod gui;
+pub mod kernels;
+pub mod models;
 
 /// Prelude for convenient imports.
 pub mod prelude {
     pub use crate::models::{
+        AccountFlags,
+        AccountMetadata,
         // Core types
-        AccountNode, AccountType, AccountFlags, AccountMetadata, AccountSemantics,
-        BalanceSide, Decimal128, HybridTimestamp,
-        // Journal entries
-        JournalEntry, JournalLineItem, LineType, SolvingMethod,
-        BookingPatternType, JournalEntryFlags, LineItemFlags,
-        // Flows
-        TransactionFlow, FlowFlags, AggregatedFlow, FlowDirection, GraphEdge,
+        AccountNode,
+        AccountSemantics,
+        AccountType,
         // Network
-        AccountingNetwork, NetworkStatistics, NetworkSnapshot, GpuNetworkHeader,
-        // Patterns
-        FraudPattern, FraudPatternType, GaapViolation, GaapViolationType,
-        ViolationSeverity, GaapViolationRule,
+        AccountingNetwork,
+        AggregatedFlow,
+        BalanceSide,
         // Temporal
-        BehavioralBaseline, SeasonalPattern, SeasonalityType, TimeGranularity,
-        TimeSeriesMetrics, TemporalAlert, TemporalAlertType,
+        BehavioralBaseline,
+        BookingPatternType,
+        Decimal128,
+        FlowDirection,
+        FlowFlags,
+        // Patterns
+        FraudPattern,
+        FraudPatternType,
+        GaapViolation,
+        GaapViolationRule,
+        GaapViolationType,
+        GpuNetworkHeader,
+        GraphEdge,
+        HybridTimestamp,
+        // Journal entries
+        JournalEntry,
+        JournalEntryFlags,
+        JournalLineItem,
+        LineItemFlags,
+        LineType,
+        NetworkSnapshot,
+        NetworkStatistics,
+        SeasonalPattern,
+        SeasonalityType,
+        SolvingMethod,
+        TemporalAlert,
+        TemporalAlertType,
+        TimeGranularity,
+        TimeSeriesMetrics,
+        // Flows
+        TransactionFlow,
+        ViolationSeverity,
     };
 
     pub use crate::fabric::{
-        CompanyArchetype, ChartOfAccountsTemplate, TransactionGenerator,
-        GeneratorConfig, AnomalyInjectionConfig, DataFabricPipeline,
-        PipelineEvent, PipelineConfig,
+        AnomalyInjectionConfig, ChartOfAccountsTemplate, CompanyArchetype, DataFabricPipeline,
+        GeneratorConfig, PipelineConfig, PipelineEvent, TransactionGenerator,
     };
 
-    pub use crate::analytics::{
-        AnalyticsEngine, AnalyticsSnapshot, RiskScore,
-    };
+    pub use crate::analytics::{AnalyticsEngine, AnalyticsSnapshot, RiskScore};
+
+    pub use crate::actors::{CoordinatorConfig, GpuActorRuntime, GpuAnalyticsResult};
 }
 
 /// Version information.

@@ -77,10 +77,8 @@ impl Histogram {
     /// Render the histogram.
     pub fn show(&self, ui: &mut egui::Ui, theme: &AccNetTheme) -> Response {
         let width = ui.available_width();
-        let (response, painter) = ui.allocate_painter(
-            Vec2::new(width, self.height + 30.0),
-            Sense::hover(),
-        );
+        let (response, painter) =
+            ui.allocate_painter(Vec2::new(width, self.height + 30.0), Sense::hover());
         let rect = response.rect;
 
         // Title
@@ -115,8 +113,17 @@ impl Histogram {
         let n = self.values.len();
         let bar_width = (chart_rect.width() - 10.0) / n as f32;
         let gap = bar_width * 0.15;
-        let max_val = self.values.iter().copied().fold(0.0_f64, f64::max)
-            .max(self.expected.as_ref().map(|e| e.iter().copied().fold(0.0_f64, f64::max)).unwrap_or(0.0))
+        let max_val = self
+            .values
+            .iter()
+            .copied()
+            .fold(0.0_f64, f64::max)
+            .max(
+                self.expected
+                    .as_ref()
+                    .map(|e| e.iter().copied().fold(0.0_f64, f64::max))
+                    .unwrap_or(0.0),
+            )
             .max(0.01);
 
         // Draw bars
@@ -134,7 +141,8 @@ impl Histogram {
             // Expected value marker (horizontal line)
             if let Some(ref expected) = self.expected {
                 if i < expected.len() {
-                    let expected_y = chart_rect.bottom() - (expected[i] / max_val) as f32 * (chart_rect.height() - 5.0);
+                    let expected_y = chart_rect.bottom()
+                        - (expected[i] / max_val) as f32 * (chart_rect.height() - 5.0);
                     painter.line_segment(
                         [
                             Pos2::new(x + gap / 2.0, expected_y),
@@ -201,10 +209,8 @@ impl BarChart {
         let width = ui.available_width();
         let total_height = 18.0 + self.data.len() as f32 * (self.bar_height + 4.0);
 
-        let (response, painter) = ui.allocate_painter(
-            Vec2::new(width, total_height),
-            Sense::hover(),
-        );
+        let (response, painter) =
+            ui.allocate_painter(Vec2::new(width, total_height), Sense::hover());
         let rect = response.rect;
 
         // Title
@@ -220,7 +226,12 @@ impl BarChart {
             return response;
         }
 
-        let max_val = self.data.iter().map(|(_, v, _)| *v).fold(0.0_f64, f64::max).max(1.0);
+        let max_val = self
+            .data
+            .iter()
+            .map(|(_, v, _)| *v)
+            .fold(0.0_f64, f64::max)
+            .max(1.0);
         let label_width = 80.0;
         let bar_area_width = width - label_width - 45.0;
 
@@ -246,7 +257,10 @@ impl BarChart {
 
             // Value
             painter.text(
-                Pos2::new(rect.left() + label_width + bar_width + 5.0, y + self.bar_height / 2.0),
+                Pos2::new(
+                    rect.left() + label_width + bar_width + 5.0,
+                    y + self.bar_height / 2.0,
+                ),
                 egui::Align2::LEFT_CENTER,
                 format!("{}", *value as usize),
                 egui::FontId::proportional(10.0),
@@ -292,10 +306,7 @@ impl DonutChart {
         let width = ui.available_width();
         let height = self.radius * 2.0 + 50.0;
 
-        let (response, painter) = ui.allocate_painter(
-            Vec2::new(width, height),
-            Sense::hover(),
-        );
+        let (response, painter) = ui.allocate_painter(Vec2::new(width, height), Sense::hover());
         let rect = response.rect;
 
         // Title
@@ -316,7 +327,10 @@ impl DonutChart {
             return response;
         }
 
-        let center = Pos2::new(rect.left() + self.radius + 10.0, rect.top() + self.radius + 18.0);
+        let center = Pos2::new(
+            rect.left() + self.radius + 10.0,
+            rect.top() + self.radius + 18.0,
+        );
         let mut start_angle = -PI / 2.0; // Start at top
 
         // Draw segments using triangles for proper rendering
@@ -361,15 +375,27 @@ impl DonutChart {
                 let end_angle = start_angle + sweep_angle;
                 painter.line_segment(
                     [
-                        Pos2::new(center.x + self.inner_radius * start_angle.cos(), center.y + self.inner_radius * start_angle.sin()),
-                        Pos2::new(center.x + self.radius * start_angle.cos(), center.y + self.radius * start_angle.sin()),
+                        Pos2::new(
+                            center.x + self.inner_radius * start_angle.cos(),
+                            center.y + self.inner_radius * start_angle.sin(),
+                        ),
+                        Pos2::new(
+                            center.x + self.radius * start_angle.cos(),
+                            center.y + self.radius * start_angle.sin(),
+                        ),
                     ],
                     Stroke::new(1.0, Color32::from_rgb(50, 50, 60)),
                 );
                 painter.line_segment(
                     [
-                        Pos2::new(center.x + self.inner_radius * end_angle.cos(), center.y + self.inner_radius * end_angle.sin()),
-                        Pos2::new(center.x + self.radius * end_angle.cos(), center.y + self.radius * end_angle.sin()),
+                        Pos2::new(
+                            center.x + self.inner_radius * end_angle.cos(),
+                            center.y + self.inner_radius * end_angle.sin(),
+                        ),
+                        Pos2::new(
+                            center.x + self.radius * end_angle.cos(),
+                            center.y + self.radius * end_angle.sin(),
+                        ),
                     ],
                     Stroke::new(1.0, Color32::from_rgb(50, 50, 60)),
                 );
@@ -398,7 +424,11 @@ impl DonutChart {
             painter.circle_filled(Pos2::new(legend_x, y + 5.0), 4.0, *color);
 
             // Label and value
-            let pct = if total > 0.0 { (*value / total * 100.0) as usize } else { 0 };
+            let pct = if total > 0.0 {
+                (*value / total * 100.0) as usize
+            } else {
+                0
+            };
             painter.text(
                 Pos2::new(legend_x + 10.0, y),
                 egui::Align2::LEFT_TOP,
@@ -458,10 +488,8 @@ impl Sparkline {
     /// Render the sparkline.
     pub fn show(&self, ui: &mut egui::Ui, theme: &AccNetTheme) -> Response {
         let width = ui.available_width();
-        let (response, painter) = ui.allocate_painter(
-            Vec2::new(width, self.height + 16.0),
-            Sense::hover(),
-        );
+        let (response, painter) =
+            ui.allocate_painter(Vec2::new(width, self.height + 16.0), Sense::hover());
         let rect = response.rect;
 
         // Title
@@ -487,16 +515,23 @@ impl Sparkline {
         }
 
         let min_val = self.values.iter().copied().fold(f32::INFINITY, f32::min);
-        let max_val = self.values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let max_val = self
+            .values
+            .iter()
+            .copied()
+            .fold(f32::NEG_INFINITY, f32::max);
         let range = (max_val - min_val).max(0.01);
 
         let n = self.values.len();
-        let points: Vec<Pos2> = self.values
+        let points: Vec<Pos2> = self
+            .values
             .iter()
             .enumerate()
             .map(|(i, &val)| {
                 let x = chart_rect.left() + (i as f32 / (n - 1) as f32) * chart_rect.width();
-                let y = chart_rect.bottom() - ((val - min_val) / range) * (chart_rect.height() - 4.0) - 2.0;
+                let y = chart_rect.bottom()
+                    - ((val - min_val) / range) * (chart_rect.height() - 4.0)
+                    - 2.0;
                 Pos2::new(x, y)
             })
             .collect();
@@ -506,12 +541,8 @@ impl Sparkline {
         area_points.push(Pos2::new(chart_rect.right(), chart_rect.bottom()));
         area_points.push(Pos2::new(chart_rect.left(), chart_rect.bottom()));
 
-        let fill_color = Color32::from_rgba_unmultiplied(
-            self.color.r(),
-            self.color.g(),
-            self.color.b(),
-            40,
-        );
+        let fill_color =
+            Color32::from_rgba_unmultiplied(self.color.r(), self.color.g(), self.color.b(), 40);
         painter.add(egui::Shape::convex_polygon(
             area_points,
             fill_color,
@@ -555,7 +586,10 @@ pub struct MethodDistribution {
 impl MethodDistribution {
     /// Create from counts.
     pub fn new(counts: [usize; 5]) -> Self {
-        Self { counts, show_explanation: true }
+        Self {
+            counts,
+            show_explanation: true,
+        }
     }
 
     /// Set whether to show explanation.
@@ -568,11 +602,11 @@ impl MethodDistribution {
     pub fn show(&self, ui: &mut egui::Ui, theme: &AccNetTheme) -> Response {
         let labels = ["A", "B", "C", "D", "E"];
         let descriptions = [
-            "1:1 direct mapping",      // A
-            "n:n amount match",        // B
-            "n:m partition",           // C
-            "Higher aggregate",        // D
-            "Decomposition",           // E
+            "1:1 direct mapping", // A
+            "n:n amount match",   // B
+            "n:m partition",      // C
+            "Higher aggregate",   // D
+            "Decomposition",      // E
         ];
         let colors = [
             Color32::from_rgb(100, 180, 230), // A - blue
@@ -586,10 +620,8 @@ impl MethodDistribution {
         let width = ui.available_width();
         let base_height = if self.show_explanation { 95.0 } else { 60.0 };
 
-        let (response, painter) = ui.allocate_painter(
-            Vec2::new(width, base_height),
-            Sense::hover(),
-        );
+        let (response, painter) =
+            ui.allocate_painter(Vec2::new(width, base_height), Sense::hover());
         let rect = response.rect;
 
         // Title
@@ -607,7 +639,10 @@ impl MethodDistribution {
 
         // Background
         painter.rect_filled(
-            Rect::from_min_size(Pos2::new(rect.left() + 5.0, bar_y), Vec2::new(bar_width, bar_height)),
+            Rect::from_min_size(
+                Pos2::new(rect.left() + 5.0, bar_y),
+                Vec2::new(bar_width, bar_height),
+            ),
             4.0,
             Color32::from_rgb(40, 40, 50),
         );
@@ -623,7 +658,13 @@ impl MethodDistribution {
             if segment_width > 1.0 {
                 painter.rect_filled(
                     Rect::from_min_size(Pos2::new(x, bar_y), Vec2::new(segment_width, bar_height)),
-                    if i == 0 { 4.0 } else if i == 4 { 4.0 } else { 0.0 },
+                    if i == 0 {
+                        4.0
+                    } else if i == 4 {
+                        4.0
+                    } else {
+                        0.0
+                    },
                     colors[i],
                 );
                 x += segment_width;
@@ -636,7 +677,11 @@ impl MethodDistribution {
 
         for (i, label) in labels.iter().enumerate() {
             let x = rect.left() + 5.0 + legend_spacing * (i as f32 + 0.5);
-            let pct = if total > 0 { self.counts[i] * 100 / total } else { 0 };
+            let pct = if total > 0 {
+                self.counts[i] * 100 / total
+            } else {
+                0
+            };
 
             painter.circle_filled(Pos2::new(x - 15.0, legend_y + 5.0), 4.0, colors[i]);
             painter.text(
@@ -711,10 +756,8 @@ impl BalanceBarChart {
         let width = ui.available_width();
         let total_height = 18.0 + self.data.len() as f32 * (self.bar_height + 3.0);
 
-        let (response, painter) = ui.allocate_painter(
-            Vec2::new(width, total_height),
-            Sense::hover(),
-        );
+        let (response, painter) =
+            ui.allocate_painter(Vec2::new(width, total_height), Sense::hover());
         let rect = response.rect;
 
         // Title
@@ -730,7 +773,12 @@ impl BalanceBarChart {
             return response;
         }
 
-        let max_val = self.data.iter().map(|(_, v, _)| *v).fold(0.0_f64, f64::max).max(1.0);
+        let max_val = self
+            .data
+            .iter()
+            .map(|(_, v, _)| *v)
+            .fold(0.0_f64, f64::max)
+            .max(1.0);
         let label_width = 55.0;
         let value_width = 40.0;
         let bar_area_width = width - label_width - value_width - 15.0;
@@ -764,7 +812,10 @@ impl BalanceBarChart {
 
             // Value
             painter.text(
-                Pos2::new(rect.left() + label_width + bar_area_width + 5.0, y + self.bar_height / 2.0),
+                Pos2::new(
+                    rect.left() + label_width + bar_area_width + 5.0,
+                    y + self.bar_height / 2.0,
+                ),
                 egui::Align2::LEFT_CENTER,
                 Self::format_value(*value),
                 egui::FontId::proportional(9.0),
@@ -789,7 +840,12 @@ impl LiveTicker {
     }
 
     /// Add an item.
-    pub fn add(mut self, label: impl Into<String>, value: impl Into<String>, color: Color32) -> Self {
+    pub fn add(
+        mut self,
+        label: impl Into<String>,
+        value: impl Into<String>,
+        color: Color32,
+    ) -> Self {
         self.items.push((label.into(), value.into(), color));
         self
     }
@@ -797,10 +853,7 @@ impl LiveTicker {
     /// Render the ticker.
     pub fn show(&self, ui: &mut egui::Ui, _theme: &AccNetTheme) -> Response {
         let width = ui.available_width();
-        let (response, painter) = ui.allocate_painter(
-            Vec2::new(width, 30.0),
-            Sense::hover(),
-        );
+        let (response, painter) = ui.allocate_painter(Vec2::new(width, 30.0), Sense::hover());
         let rect = response.rect;
 
         if self.items.is_empty() {

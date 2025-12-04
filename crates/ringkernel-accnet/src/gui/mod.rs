@@ -12,23 +12,23 @@
 //! - **Heatmaps**: Activity and correlation heatmaps
 //! - **Rankings**: Top accounts by PageRank, centrality, risk
 
+pub mod animation;
 pub mod app;
 pub mod canvas;
-pub mod layout;
-pub mod panels;
-pub mod animation;
-pub mod theme;
 pub mod charts;
 pub mod dashboard;
 pub mod heatmaps;
+pub mod layout;
+pub mod panels;
 pub mod rankings;
+pub mod theme;
 
+pub use animation::{FlowParticle, ParticleSystem};
 pub use app::AccNetApp;
 pub use canvas::NetworkCanvas;
+pub use charts::{BalanceBarChart, BarChart, DonutChart, Histogram, MethodDistribution, Sparkline};
+pub use heatmaps::{ActivityHeatmap, CorrelationHeatmap, HeatmapGradient, RiskHeatmap};
 pub use layout::ForceDirectedLayout;
-pub use panels::{AnalyticsPanel, ControlPanel, AlertsPanel};
-pub use animation::{FlowParticle, ParticleSystem};
+pub use panels::{AlertsPanel, AnalyticsPanel, ControlPanel};
+pub use rankings::{AmountDistribution, PatternStatsPanel, RankedAccount, TopAccountsPanel};
 pub use theme::AccNetTheme;
-pub use charts::{Histogram, BarChart, BalanceBarChart, DonutChart, Sparkline, MethodDistribution};
-pub use heatmaps::{ActivityHeatmap, CorrelationHeatmap, RiskHeatmap, HeatmapGradient};
-pub use rankings::{TopAccountsPanel, PatternStatsPanel, AmountDistribution, RankedAccount};

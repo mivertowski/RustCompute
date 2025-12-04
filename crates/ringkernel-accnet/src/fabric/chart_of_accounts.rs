@@ -3,8 +3,8 @@
 //! Each template provides a realistic account structure with
 //! typical account relationships and expected flow patterns.
 
-use crate::models::{AccountNode, AccountType, AccountMetadata, AccountSemantics};
 use super::{CompanyArchetype, Industry};
+use crate::models::{AccountMetadata, AccountNode, AccountSemantics, AccountType};
 use uuid::Uuid;
 
 /// A Chart of Accounts template.
@@ -196,7 +196,6 @@ impl ChartOfAccountsTemplate {
                     .with_semantics(AccountSemantics::IS_DEPRECIATION)
                     .with_activity(12.0)
                     .with_description("Accumulated depreciation on fixed assets"),
-
                 // Liabilities (2xxx)
                 AccountDefinition::new("2000", "Liabilities", AccountType::Liability)
                     .with_class(2, 0)
@@ -222,7 +221,6 @@ impl ChartOfAccountsTemplate {
                     .with_parent("2000")
                     .with_activity(2.0)
                     .with_description("Short-term loans"),
-
                 // Equity (3xxx)
                 AccountDefinition::new("3000", "Equity", AccountType::Equity)
                     .with_class(3, 0)
@@ -237,7 +235,6 @@ impl ChartOfAccountsTemplate {
                     .with_parent("3000")
                     .with_activity(1.0)
                     .with_description("Accumulated profits"),
-
                 // Revenue (4xxx)
                 AccountDefinition::new("4000", "Revenue", AccountType::Revenue)
                     .with_class(4, 0)
@@ -255,7 +252,6 @@ impl ChartOfAccountsTemplate {
                     .with_semantics(AccountSemantics::IS_REVENUE)
                     .with_activity(20.0)
                     .with_description("Revenue from services"),
-
                 // Expenses (5xxx-6xxx)
                 AccountDefinition::new("5000", "Cost of Goods Sold", AccountType::Expense)
                     .with_class(5, 0)
@@ -297,7 +293,6 @@ impl ChartOfAccountsTemplate {
                     .with_parent("6000")
                     .with_activity(15.0)
                     .with_description("Miscellaneous expenses"),
-
                 // Suspense/Clearing (9xxx)
                 AccountDefinition::new("9100", "Clearing Account", AccountType::Asset)
                     .with_class(9, 1)
@@ -313,7 +308,6 @@ impl ChartOfAccountsTemplate {
                     .with_description("Collection: A/R → Cash"),
                 ExpectedFlow::new("4100", "1100", 0.10, (20.0, 500.0))
                     .with_description("Cash sale: Revenue → Cash"),
-
                 // Purchasing cycle
                 ExpectedFlow::new("1300", "2100", 0.15, (100.0, 10000.0))
                     .with_description("Purchase: Inventory → A/P"),
@@ -321,7 +315,6 @@ impl ChartOfAccountsTemplate {
                     .with_description("Payment: A/P → Cash"),
                 ExpectedFlow::new("5000", "1300", 0.15, (50.0, 5000.0))
                     .with_description("Cost of sale: COGS → Inventory"),
-
                 // Operating expenses
                 ExpectedFlow::new("6100", "1100", 0.08, (5000.0, 50000.0))
                     .with_description("Payroll: Salaries → Cash"),
@@ -353,7 +346,6 @@ impl ChartOfAccountsTemplate {
                 .with_class(1, 3)
                 .with_parent("1300")
                 .with_activity(10.0),
-
             // Point of Sale
             AccountDefinition::new("1110", "Cash Registers", AccountType::Asset)
                 .with_class(1, 1)
@@ -365,13 +357,11 @@ impl ChartOfAccountsTemplate {
                 .with_parent("1100")
                 .with_semantics(AccountSemantics::IS_SUSPENSE | AccountSemantics::IS_CASH)
                 .with_activity(100.0),
-
             // Credit card processing
             AccountDefinition::new("1130", "Credit Card Receivable", AccountType::Asset)
                 .with_class(1, 1)
                 .with_parent("1100")
                 .with_activity(80.0),
-
             // Sales returns
             AccountDefinition::new("4110", "Sales Returns", AccountType::Contra)
                 .with_class(4, 1)
@@ -381,7 +371,6 @@ impl ChartOfAccountsTemplate {
                 .with_class(4, 1)
                 .with_parent("4100")
                 .with_activity(15.0),
-
             // Retail expenses
             AccountDefinition::new("6510", "Store Supplies", AccountType::Expense)
                 .with_class(6, 5)
@@ -403,8 +392,7 @@ impl ChartOfAccountsTemplate {
                 .with_description("Register → Undeposited"),
             ExpectedFlow::new("1120", "1100", 0.15, (1000.0, 20000.0))
                 .with_description("Bank deposit"),
-            ExpectedFlow::new("4110", "1200", 0.05, (20.0, 500.0))
-                .with_description("Sales return"),
+            ExpectedFlow::new("4110", "1200", 0.05, (20.0, 500.0)).with_description("Sales return"),
             ExpectedFlow::new("6520", "1130", 0.08, (50.0, 500.0))
                 .with_description("CC processing fees"),
         ]);
@@ -425,11 +413,14 @@ impl ChartOfAccountsTemplate {
                 .with_class(2, 3)
                 .with_parent("2300")
                 .with_activity(100.0),
-            AccountDefinition::new("2320", "Deferred Revenue - Long-term", AccountType::Liability)
-                .with_class(2, 3)
-                .with_parent("2300")
-                .with_activity(20.0),
-
+            AccountDefinition::new(
+                "2320",
+                "Deferred Revenue - Long-term",
+                AccountType::Liability,
+            )
+            .with_class(2, 3)
+            .with_parent("2300")
+            .with_activity(20.0),
             // Subscription metrics
             AccountDefinition::new("4110", "Subscription Revenue", AccountType::Revenue)
                 .with_class(4, 1)
@@ -440,7 +431,6 @@ impl ChartOfAccountsTemplate {
                 .with_class(4, 2)
                 .with_parent("4200")
                 .with_activity(20.0),
-
             // SaaS costs
             AccountDefinition::new("5100", "Hosting Costs", AccountType::Expense)
                 .with_class(5, 1)
@@ -450,7 +440,6 @@ impl ChartOfAccountsTemplate {
                 .with_class(5, 2)
                 .with_parent("5000")
                 .with_activity(24.0),
-
             // Customer acquisition
             AccountDefinition::new("6510", "Customer Acquisition Cost", AccountType::Expense)
                 .with_class(6, 5)

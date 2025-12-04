@@ -6,9 +6,8 @@
 //! - Fraud patterns (circular flows, Benford violations, etc.)
 
 use crate::models::{
-    AccountingNetwork, AccountType,
-    FraudPattern, FraudPatternType, GaapViolation, GaapViolationType,
-    ViolationSeverity, Decimal128, HybridTimestamp,
+    AccountType, AccountingNetwork, FraudPattern, FraudPatternType, GaapViolation,
+    GaapViolationType,
 };
 
 /// Configuration for analysis kernels.
@@ -87,7 +86,9 @@ impl AnalysisKernel {
         // Suspense detection
         for account in &network.accounts {
             if account.suspense_score >= self.config.suspense_threshold {
-                result.suspense_accounts.push((account.index, account.suspense_score));
+                result
+                    .suspense_accounts
+                    .push((account.index, account.suspense_score));
             }
         }
 
@@ -102,7 +103,9 @@ impl AnalysisKernel {
         }
 
         if self.config.circular_detection_enabled {
-            result.fraud_patterns.extend(self.detect_circular_flows(network));
+            result
+                .fraud_patterns
+                .extend(self.detect_circular_flows(network));
         }
 
         // Update stats
@@ -222,7 +225,14 @@ impl AnalysisKernel {
         for start in 0..n {
             if !visited[start] {
                 let mut path = Vec::new();
-                if self.has_cycle(&adj, start, &mut visited, &mut rec_stack, &mut path, self.config.max_cycle_length) {
+                if self.has_cycle(
+                    &adj,
+                    start,
+                    &mut visited,
+                    &mut rec_stack,
+                    &mut path,
+                    self.config.max_cycle_length,
+                ) {
                     let mut pattern = FraudPattern::new(FraudPatternType::CircularFlow);
                     pattern.account_count = path.len() as u16;
                     for (i, &idx) in path.iter().enumerate().take(8) {

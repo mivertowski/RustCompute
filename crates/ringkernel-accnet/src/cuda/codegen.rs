@@ -180,6 +180,7 @@ fn generate_benford_analysis_kernel() -> Result<String, String> {
 }
 
 /// Generate PageRank initialization kernel (sets initial values).
+#[allow(dead_code)]
 fn generate_pagerank_init_kernel() -> Result<String, String> {
     let kernel_fn: syn::ItemFn = syn::parse_quote! {
         fn pagerank_init(
@@ -204,7 +205,11 @@ mod tests {
     #[test]
     fn test_generate_kernels() {
         let result = GeneratedKernels::generate();
-        assert!(result.is_ok(), "Failed to generate kernels: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to generate kernels: {:?}",
+            result.err()
+        );
 
         let kernels = result.unwrap();
         assert!(kernels.suspense_detection.contains("__global__"));

@@ -2,7 +2,7 @@
 //!
 //! Provides high-level analysis combining outputs from GPU kernels.
 
-use crate::models::{AccountingNetwork, FraudPattern, GaapViolation, NetworkSnapshot};
+use crate::models::AccountingNetwork;
 use std::collections::HashMap;
 
 /// The main analytics engine.
@@ -50,24 +50,32 @@ impl AnalyticsEngine {
 
     /// Analyze the network and return a snapshot.
     pub fn analyze(&self, network: &AccountingNetwork) -> AnalyticsSnapshot {
-        let mut snapshot = AnalyticsSnapshot::default();
-
-        // Calculate overall risk
-        snapshot.overall_risk = self.calculate_overall_risk(network);
-
-        // Count issues by severity
-        snapshot.suspense_accounts = network.statistics.suspense_account_count;
-        snapshot.gaap_violations = network.statistics.gaap_violation_count;
-        snapshot.fraud_patterns = network.statistics.fraud_pattern_count;
+        let mut snapshot = AnalyticsSnapshot {
+            overall_risk: self.calculate_overall_risk(network),
+            suspense_accounts: network.statistics.suspense_account_count,
+            gaap_violations: network.statistics.gaap_violation_count,
+            fraud_patterns: network.statistics.fraud_pattern_count,
+            ..Default::default()
+        };
 
         // Account risks
         for account in &network.accounts {
-            snapshot.account_risks.insert(account.index, RiskScore {
-                total: account.risk_score,
-                suspense_component: account.suspense_score * 0.3,
-                fraud_component: if account.flags.has(crate::models::AccountFlags::HAS_FRAUD_PATTERN) { 0.5 } else { 0.0 },
-                confidence_component: 0.0, // Would be calculated from flows
-            });
+            snapshot.account_risks.insert(
+                account.index,
+                RiskScore {
+                    total: account.risk_score,
+                    suspense_component: account.suspense_score * 0.3,
+                    fraud_component: if account
+                        .flags
+                        .has(crate::models::AccountFlags::HAS_FRAUD_PATTERN)
+                    {
+                        0.5
+                    } else {
+                        0.0
+                    },
+                    confidence_component: 0.0, // Would be calculated from flows
+                },
+            );
         }
 
         // Network health
@@ -90,7 +98,10 @@ impl AnalyticsEngine {
         let fraud_ratio = network.statistics.fraud_pattern_count as f32 / n;
         let confidence_factor = 1.0 - network.statistics.avg_confidence as f32;
 
-        (0.25 * suspense_ratio + 0.30 * violation_ratio + 0.35 * fraud_ratio + 0.10 * confidence_factor)
+        (0.25 * suspense_ratio
+            + 0.30 * violation_ratio
+            + 0.35 * fraud_ratio
+            + 0.10 * confidence_factor)
             .min(1.0)
     }
 }

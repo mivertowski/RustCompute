@@ -7,10 +7,10 @@ use eframe::egui::{self, Color32, Pos2, Rect, Response, Sense, Stroke, Vec2};
 use nalgebra::Vector2;
 use uuid::Uuid;
 
-use crate::models::AccountingNetwork;
-use super::layout::{ForceDirectedLayout, LayoutConfig};
 use super::animation::ParticleSystem;
+use super::layout::{ForceDirectedLayout, LayoutConfig};
 use super::theme::AccNetTheme;
+use crate::models::AccountingNetwork;
 
 /// Interactive network canvas.
 pub struct NetworkCanvas {
@@ -72,7 +72,11 @@ impl NetworkCanvas {
 
         // Queue recent flows for particle animation (limit to last 500 for performance)
         let flow_count = network.flows.len();
-        let start_idx = if flow_count > 500 { flow_count - 500 } else { 0 };
+        let start_idx = if flow_count > 500 {
+            flow_count - 500
+        } else {
+            0
+        };
 
         for flow in &network.flows[start_idx..] {
             let suspicious = flow.is_anomalous();
@@ -108,17 +112,16 @@ impl NetworkCanvas {
 
     /// Render the canvas.
     pub fn show(&mut self, ui: &mut egui::Ui, network: &AccountingNetwork) -> Response {
-        let (response, painter) = ui.allocate_painter(
-            ui.available_size(),
-            Sense::click_and_drag(),
-        );
+        let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
 
         let rect = response.rect;
 
         // Only resize layout when canvas size actually changes
         let current_width = self.layout.config.width;
         let current_height = self.layout.config.height;
-        if (rect.width() - current_width).abs() > 1.0 || (rect.height() - current_height).abs() > 1.0 {
+        if (rect.width() - current_width).abs() > 1.0
+            || (rect.height() - current_height).abs() > 1.0
+        {
             self.layout.resize(rect.width(), rect.height());
         }
 
@@ -139,21 +142,28 @@ impl NetworkCanvas {
         };
 
         // Calculate max edge weight for normalization
-        let max_weight = self.layout.edges()
+        let max_weight = self
+            .layout
+            .edges()
             .iter()
             .map(|(_, _, w)| *w)
             .fold(1.0f32, f32::max);
 
         // Calculate center for edge bundling
         let center = {
-            let (sum_x, sum_y, count) = self.layout.nodes().fold(
-                (0.0f32, 0.0f32, 0usize),
-                |(sx, sy, c), node| (sx + node.position.x, sy + node.position.y, c + 1)
-            );
+            let (sum_x, sum_y, count) = self
+                .layout
+                .nodes()
+                .fold((0.0f32, 0.0f32, 0usize), |(sx, sy, c), node| {
+                    (sx + node.position.x, sy + node.position.y, c + 1)
+                });
             if count > 0 {
                 Vector2::new(sum_x / count as f32, sum_y / count as f32)
             } else {
-                Vector2::new(self.layout.config.width / 2.0, self.layout.config.height / 2.0)
+                Vector2::new(
+                    self.layout.config.width / 2.0,
+                    self.layout.config.height / 2.0,
+                )
             }
         };
 
@@ -171,7 +181,9 @@ impl NetworkCanvas {
                 });
 
                 // Get futuristic color with transparency
-                let color = self.theme.edge_color_futuristic(*weight, suspicious, false, max_weight);
+                let color = self
+                    .theme
+                    .edge_color_futuristic(*weight, suspicious, false, max_weight);
 
                 // Thin edges: 0.5 to 2.0 based on weight
                 let thickness = (0.5 + (*weight / max_weight).sqrt() * 1.5).min(2.0);
@@ -179,13 +191,22 @@ impl NetworkCanvas {
                 // Edge bundling: curve edges toward center
                 let bundle_strength = 0.15; // How much to curve toward center
                 let ctrl = Vector2::new(
-                    src_pos.x + (tgt_pos.x - src_pos.x) * 0.5 + (center.x - (src_pos.x + tgt_pos.x) * 0.5) * bundle_strength,
-                    src_pos.y + (tgt_pos.y - src_pos.y) * 0.5 + (center.y - (src_pos.y + tgt_pos.y) * 0.5) * bundle_strength,
+                    src_pos.x
+                        + (tgt_pos.x - src_pos.x) * 0.5
+                        + (center.x - (src_pos.x + tgt_pos.x) * 0.5) * bundle_strength,
+                    src_pos.y
+                        + (tgt_pos.y - src_pos.y) * 0.5
+                        + (center.y - (src_pos.y + tgt_pos.y) * 0.5) * bundle_strength,
                 );
 
                 // Draw curved edge (quadratic bezier)
-                self.draw_curved_edge(&painter, transform(src_pos), transform(ctrl), transform(tgt_pos),
-                    Stroke::new(thickness, color));
+                self.draw_curved_edge(
+                    &painter,
+                    transform(src_pos),
+                    transform(ctrl),
+                    transform(tgt_pos),
+                    Stroke::new(thickness, color),
+                );
             }
         }
 
@@ -353,7 +374,14 @@ impl NetworkCanvas {
     }
 
     /// Draw a curved edge using quadratic Bezier curve.
-    fn draw_curved_edge(&self, painter: &egui::Painter, src: Pos2, ctrl: Pos2, tgt: Pos2, stroke: Stroke) {
+    fn draw_curved_edge(
+        &self,
+        painter: &egui::Painter,
+        src: Pos2,
+        ctrl: Pos2,
+        tgt: Pos2,
+        stroke: Stroke,
+    ) {
         // Approximate quadratic Bezier with line segments for smooth curve
         let segments = 16;
         let mut prev = src;
@@ -372,6 +400,7 @@ impl NetworkCanvas {
     }
 
     /// Draw an arrow from src to tgt.
+    #[allow(dead_code)]
     fn draw_arrow(&self, painter: &egui::Painter, src: Pos2, tgt: Pos2, stroke: Stroke) {
         // Line
         painter.line_segment([src, tgt], stroke);
@@ -439,8 +468,7 @@ impl NetworkCanvas {
         ];
 
         // Calculate total height
-        let total_height =
-            18.0 + // "Accounts" header
+        let total_height = 18.0 + // "Accounts" header
             account_entries.len() as f32 * line_height +
             section_spacing +
             18.0 + // "Flows" header
@@ -456,8 +484,16 @@ impl NetworkCanvas {
             Pos2::new(legend_x - 10.0, legend_y - 5.0),
             Vec2::new(125.0, total_height),
         );
-        painter.rect_filled(bg_rect, 6.0, Color32::from_rgba_unmultiplied(15, 15, 25, 220));
-        painter.rect_stroke(bg_rect, 6.0, Stroke::new(1.0, Color32::from_rgb(60, 60, 80)));
+        painter.rect_filled(
+            bg_rect,
+            6.0,
+            Color32::from_rgba_unmultiplied(15, 15, 25, 220),
+        );
+        painter.rect_stroke(
+            bg_rect,
+            6.0,
+            Stroke::new(1.0, Color32::from_rgb(60, 60, 80)),
+        );
 
         let mut y = legend_y;
 
@@ -499,7 +535,10 @@ impl NetworkCanvas {
         // Flow type entries (with line indicator instead of circle)
         for (label, color) in &flow_entries {
             painter.line_segment(
-                [Pos2::new(legend_x, y + 6.0), Pos2::new(legend_x + 12.0, y + 6.0)],
+                [
+                    Pos2::new(legend_x, y + 6.0),
+                    Pos2::new(legend_x + 12.0, y + 6.0),
+                ],
                 Stroke::new(3.0, *color),
             );
             painter.text(

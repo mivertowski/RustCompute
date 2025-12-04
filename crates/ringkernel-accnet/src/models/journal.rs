@@ -81,7 +81,7 @@ impl SolvingMethod {
     /// Color for visualization.
     pub fn color(&self) -> [u8; 3] {
         match self {
-            SolvingMethod::MethodA => [0, 200, 83],     // Green - best
+            SolvingMethod::MethodA => [0, 200, 83],    // Green - best
             SolvingMethod::MethodB => [100, 181, 246], // Blue
             SolvingMethod::MethodC => [255, 193, 7],   // Amber
             SolvingMethod::MethodD => [255, 152, 0],   // Orange
@@ -141,9 +141,11 @@ pub struct JournalEntry {
     pub _pad: u8,
 
     // === Flags (4 bytes) ===
+    /// Entry property flags.
     pub flags: JournalEntryFlags,
 
     // === Reserved (12 bytes) ===
+    /// Reserved for future use.
     pub _reserved: [u8; 12],
 }
 
@@ -153,27 +155,41 @@ pub struct JournalEntry {
 pub struct JournalEntryFlags(pub u32);
 
 impl JournalEntryFlags {
+    /// Flag: Entry is balanced (debits = credits).
     pub const IS_BALANCED: u32 = 1 << 0;
+    /// Flag: Entry has been transformed to flows.
     pub const IS_TRANSFORMED: u32 = 1 << 1;
+    /// Flag: Contains decomposed/shadow values.
     pub const HAS_DECOMPOSED_VALUES: u32 = 1 << 2;
+    /// Flag: Uses higher aggregate matching.
     pub const USES_HIGHER_AGGREGATE: u32 = 1 << 3;
+    /// Flag: Flagged for audit review.
     pub const FLAGGED_FOR_AUDIT: u32 = 1 << 4;
+    /// Flag: Reversing entry.
     pub const IS_REVERSING: u32 = 1 << 5;
+    /// Flag: Recurring entry.
     pub const IS_RECURRING: u32 = 1 << 6;
+    /// Flag: Adjustment entry.
     pub const IS_ADJUSTMENT: u32 = 1 << 7;
+    /// Flag: Contains VAT lines.
     pub const HAS_VAT: u32 = 1 << 8;
+    /// Flag: Intercompany transaction.
     pub const IS_INTERCOMPANY: u32 = 1 << 9;
 
+    /// Create new flags (balanced by default).
     pub fn new() -> Self {
         Self(Self::IS_BALANCED) // Entries should be balanced by default
     }
 
+    /// Check if entry is balanced.
     pub fn is_balanced(&self) -> bool {
         self.0 & Self::IS_BALANCED != 0
     }
+    /// Check if entry has been transformed.
     pub fn is_transformed(&self) -> bool {
         self.0 & Self::IS_TRANSFORMED != 0
     }
+    /// Check if entry is flagged for audit.
     pub fn flagged_for_audit(&self) -> bool {
         self.0 & Self::FLAGGED_FOR_AUDIT != 0
     }
@@ -215,6 +231,7 @@ pub struct JournalLineItem {
     pub _pad2: u8,
 
     // === Reserved (12 bytes) ===
+    /// Reserved for future use.
     pub _reserved: [u8; 12],
 }
 
@@ -223,14 +240,18 @@ pub struct JournalLineItem {
 #[archive(compare(PartialEq))]
 #[repr(u8)]
 pub enum LineType {
+    /// Debit line (left side of entry).
     Debit = 0,
+    /// Credit line (right side of entry).
     Credit = 1,
 }
 
 impl LineType {
+    /// Check if this is a debit line.
     pub fn is_debit(&self) -> bool {
         matches!(self, LineType::Debit)
     }
+    /// Check if this is a credit line.
     pub fn is_credit(&self) -> bool {
         matches!(self, LineType::Credit)
     }
@@ -242,10 +263,15 @@ impl LineType {
 pub struct LineItemFlags(pub u8);
 
 impl LineItemFlags {
+    /// Flag: Shadow booking (Method E decomposition).
     pub const IS_SHADOW_BOOKING: u8 = 1 << 0;
+    /// Flag: Higher aggregate line (Method D).
     pub const IS_HIGHER_AGGREGATE: u8 = 1 << 1;
+    /// Flag: VAT/tax line.
     pub const IS_VAT_LINE: u8 = 1 << 2;
+    /// Flag: Rounding adjustment line.
     pub const IS_ROUNDING_ADJUSTMENT: u8 = 1 << 3;
+    /// Flag: Line has been matched.
     pub const IS_MATCHED: u8 = 1 << 4;
 }
 
@@ -328,14 +354,17 @@ impl JournalLineItem {
         }
     }
 
+    /// Check if this is a debit line.
     pub fn is_debit(&self) -> bool {
         self.line_type.is_debit()
     }
 
+    /// Check if this is a credit line.
     pub fn is_credit(&self) -> bool {
         self.line_type.is_credit()
     }
 
+    /// Check if this line has been matched to another.
     pub fn is_matched(&self) -> bool {
         self.matched_line_index != u16::MAX
     }
@@ -375,9 +404,9 @@ impl BookingPatternType {
     /// Expected account type for debit side.
     pub fn expected_debit_type(&self) -> Option<AccountType> {
         match self {
-            BookingPatternType::CashReceipt => Some(AccountType::Asset),      // Cash
-            BookingPatternType::CashPayment => Some(AccountType::Liability),  // A/P
-            BookingPatternType::SalesRevenue => Some(AccountType::Asset),     // A/R
+            BookingPatternType::CashReceipt => Some(AccountType::Asset), // Cash
+            BookingPatternType::CashPayment => Some(AccountType::Liability), // A/P
+            BookingPatternType::SalesRevenue => Some(AccountType::Asset), // A/R
             BookingPatternType::Purchase => Some(AccountType::Expense),
             BookingPatternType::Payroll => Some(AccountType::Expense),
             BookingPatternType::Depreciation => Some(AccountType::Expense),
@@ -390,11 +419,11 @@ impl BookingPatternType {
     pub fn expected_credit_type(&self) -> Option<AccountType> {
         match self {
             BookingPatternType::CashReceipt => Some(AccountType::Revenue),
-            BookingPatternType::CashPayment => Some(AccountType::Asset),      // Cash
+            BookingPatternType::CashPayment => Some(AccountType::Asset), // Cash
             BookingPatternType::SalesRevenue => Some(AccountType::Revenue),
-            BookingPatternType::Purchase => Some(AccountType::Liability),     // A/P
-            BookingPatternType::Payroll => Some(AccountType::Asset),          // Cash
-            BookingPatternType::Depreciation => Some(AccountType::Contra),    // Accum Depr
+            BookingPatternType::Purchase => Some(AccountType::Liability), // A/P
+            BookingPatternType::Payroll => Some(AccountType::Asset),      // Cash
+            BookingPatternType::Depreciation => Some(AccountType::Contra), // Accum Depr
             BookingPatternType::Accrual => Some(AccountType::Liability),
             _ => None,
         }
@@ -421,24 +450,36 @@ mod tests {
     #[test]
     fn test_journal_entry_size() {
         let size = std::mem::size_of::<JournalEntry>();
-        assert!(size >= 128, "JournalEntry should be at least 128 bytes, got {}", size);
-        assert!(size % 128 == 0, "JournalEntry should be 128-byte aligned, got {}", size);
+        assert!(
+            size >= 128,
+            "JournalEntry should be at least 128 bytes, got {}",
+            size
+        );
+        assert!(
+            size % 128 == 0,
+            "JournalEntry should be 128-byte aligned, got {}",
+            size
+        );
     }
 
     #[test]
     fn test_line_item_size() {
         let size = std::mem::size_of::<JournalLineItem>();
-        assert!(size >= 64, "JournalLineItem should be at least 64 bytes, got {}", size);
-        assert!(size % 64 == 0, "JournalLineItem should be 64-byte aligned, got {}", size);
+        assert!(
+            size >= 64,
+            "JournalLineItem should be at least 64 bytes, got {}",
+            size
+        );
+        assert!(
+            size % 64 == 0,
+            "JournalLineItem should be 64-byte aligned, got {}",
+            size
+        );
     }
 
     #[test]
     fn test_method_determination() {
-        let mut entry = JournalEntry::new(
-            Uuid::new_v4(),
-            Uuid::new_v4(),
-            HybridTimestamp::now(),
-        );
+        let mut entry = JournalEntry::new(Uuid::new_v4(), Uuid::new_v4(), HybridTimestamp::now());
 
         // 1 debit, 1 credit -> Method A
         entry.debit_line_count = 1;
