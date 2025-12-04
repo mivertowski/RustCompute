@@ -234,13 +234,14 @@ cargo run -p ringkernel --example wgpu_hello --features wgpu
 
 ## Showcase Applications
 
-RingKernel includes three comprehensive showcase applications demonstrating GPU-accelerated computing.
+RingKernel includes four comprehensive showcase applications demonstrating GPU-accelerated computing.
 
 | App | Description | Run Command |
 |-----|-------------|-------------|
 | **WaveSim** | 2D acoustic wave simulation with FDTD | `cargo run -p ringkernel-wavesim --release` |
 | **TxMon** | Real-time transaction monitoring | `cargo run -p ringkernel-txmon --release` |
 | **AccNet** | Accounting network analytics | `cargo run -p ringkernel-accnet --release` |
+| **ProcInt** | Process intelligence with DFG mining | `cargo run -p ringkernel-procint --release` |
 
 See the [Showcase Applications Guide](docs/15-showcase-applications.md) for detailed documentation with screenshots.
 
@@ -260,11 +261,12 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 | `ringkernel-wavesim` | 2D wave simulation demo with tile-based FDTD and educational modes |
 | `ringkernel-txmon` | Transaction monitoring showcase with GPU-accelerated fraud detection |
 | `ringkernel-accnet` | Accounting network analytics with fraud detection and GAAP compliance |
+| `ringkernel-procint` | Process intelligence with DFG mining, pattern detection, conformance checking |
 
 ## Testing
 
 ```bash
-# Run all tests (390+ tests)
+# Run all tests (470+ tests)
 cargo test --workspace
 
 # CUDA backend tests (requires NVIDIA GPU)

@@ -52,6 +52,12 @@ cargo run -p ringkernel-txmon --release --features cuda-codegen
 
 # Run txmon GPU benchmark (requires NVIDIA GPU)
 cargo run -p ringkernel-txmon --bin txmon-benchmark --release --features cuda-codegen
+
+# Run process intelligence GUI
+cargo run -p ringkernel-procint --release
+
+# Run process intelligence benchmark
+cargo run -p ringkernel-procint --bin procint-benchmark --release
 ```
 
 ## Architecture
@@ -74,6 +80,8 @@ The project is a Cargo workspace with these crates:
 - **`ringkernel-audio-fft`** - Example application: GPU-accelerated audio FFT processing
 - **`ringkernel-wavesim`** - Example application: 2D acoustic wave simulation with GPU-accelerated FDTD and educational simulation modes
 - **`ringkernel-txmon`** - Showcase application: GPU-accelerated transaction monitoring with real-time fraud detection GUI
+- **`ringkernel-accnet`** - Showcase application: GPU-accelerated accounting network visualization
+- **`ringkernel-procint`** - Showcase application: GPU-accelerated process intelligence with DFG mining, pattern detection, and conformance checking
 
 ### Core Abstractions (in ringkernel-core)
 
@@ -270,7 +278,7 @@ Main crate (`ringkernel`) features:
 
 ### Test Count Summary
 
-390+ tests across the workspace:
+470+ tests across the workspace:
 - ringkernel-core: 65 tests
 - ringkernel-cpu: 11 tests
 - ringkernel-cuda: 6 GPU execution tests
@@ -279,6 +287,7 @@ Main crate (`ringkernel`) features:
 - ringkernel-derive: 14 macro tests
 - ringkernel-wavesim: 49 tests (including educational modes)
 - ringkernel-txmon: 40 tests (GPU types, batch kernel, stencil kernel, ring kernel backends)
+- ringkernel-procint: 77 tests (DFG construction, pattern detection, partial order, conformance checking)
 - k2k_integration: 11 tests
 - control_block: 29 tests
 - hlc: 16 tests
@@ -347,7 +356,7 @@ Crate publishing order:
 1. **Tier 1** (no deps): core, cuda-codegen, wgpu-codegen
 2. **Tier 2** (depends on core): derive, cpu, cuda, wgpu, metal, codegen, ecosystem, audio-fft
 3. **Tier 3** (main crate): ringkernel
-4. **Tier 4** (applications): wavesim, txmon
+4. **Tier 4** (applications): wavesim, txmon, accnet, procint
 
 ## Important Patterns
 

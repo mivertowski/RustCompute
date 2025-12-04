@@ -5834,7 +5834,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -5873,7 +5873,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-accnet"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "criterion",
@@ -5909,7 +5909,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-audio-fft"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "atomic",
@@ -5933,7 +5933,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-codegen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "handlebars",
  "proc-macro2",
@@ -5947,7 +5947,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "atomic",
@@ -5969,7 +5969,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-cpu"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "crossbeam",
@@ -5985,7 +5985,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-cuda"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "cudarc",
@@ -5999,7 +5999,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-cuda-codegen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6009,7 +6009,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-derive"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytemuck",
  "darling",
@@ -6025,7 +6025,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-ecosystem"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "actix",
  "actix-rt",
@@ -6053,7 +6053,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-metal"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "futures",
@@ -6067,7 +6067,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-procint"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "criterion",
@@ -6103,7 +6103,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-txmon"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -6123,7 +6123,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-wavesim"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -6146,7 +6146,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-wgpu"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "futures",
@@ -6160,7 +6160,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-wgpu-codegen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "naga 24.0.0",
  "proc-macro2",
