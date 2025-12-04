@@ -2,6 +2,8 @@
 
 Interactive 2D acoustic wave propagation simulator showcasing RingKernel's GPU compute and actor model capabilities.
 
+![WaveSim Screenshot](../../docs/screenshots/wavesim.png)
+
 ## Overview
 
 WaveSim implements a Finite-Difference Time-Domain (FDTD) solver for the 2D wave equation, demonstrating several RingKernel features:

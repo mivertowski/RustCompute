@@ -2,6 +2,8 @@
 
 GPU-accelerated real-time transaction monitoring showcase for RingKernel.
 
+![TxMon Screenshot](../../docs/screenshots/txmon.png)
+
 ## Overview
 
 TxMon demonstrates RingKernel's capabilities for high-throughput financial transaction monitoring, suitable for banking/AML compliance scenarios. It includes a transaction factory, compliance rule engine, and real-time GUI.

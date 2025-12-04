@@ -232,6 +232,18 @@ cargo run -p ringkernel --example telemetry             # Metrics, alerts
 cargo run -p ringkernel --example wgpu_hello --features wgpu
 ```
 
+## Showcase Applications
+
+RingKernel includes three comprehensive showcase applications demonstrating GPU-accelerated computing.
+
+| App | Description | Run Command |
+|-----|-------------|-------------|
+| **WaveSim** | 2D acoustic wave simulation with FDTD | `cargo run -p ringkernel-wavesim --release` |
+| **TxMon** | Real-time transaction monitoring | `cargo run -p ringkernel-txmon --release` |
+| **AccNet** | Accounting network analytics | `cargo run -p ringkernel-accnet --release` |
+
+See the [Showcase Applications Guide](docs/15-showcase-applications.md) for detailed documentation with screenshots.
+
 ## Crate Structure
 
 | Crate | Description |
@@ -247,6 +259,7 @@ cargo run -p ringkernel --example wgpu_hello --features wgpu
 | `ringkernel-wgpu-codegen` | Rust-to-WGSL transpiler for writing GPU kernels in Rust DSL (WebGPU) |
 | `ringkernel-wavesim` | 2D wave simulation demo with tile-based FDTD and educational modes |
 | `ringkernel-txmon` | Transaction monitoring showcase with GPU-accelerated fraud detection |
+| `ringkernel-accnet` | Accounting network analytics with fraud detection and GAAP compliance |
 
 ## Testing
 
