@@ -12,8 +12,7 @@ fn benchmark_transformation(c: &mut Criterion) {
     for size in [100, 1000, 10000] {
         // Generate test entries
         let archetype = CompanyArchetype::retail_standard();
-        let mut generator =
-            TransactionGenerator::new(archetype, GeneratorConfig::default());
+        let mut generator = TransactionGenerator::new(archetype, GeneratorConfig::default());
         let entries = generator.generate_batch(size);
 
         group.bench_with_input(
