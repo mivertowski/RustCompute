@@ -73,14 +73,17 @@ path = "src/bin/full_benchmark.rs"
 [[bin]]
 name = "test_cuda"
 path = "src/bin/test_cuda.rs"
+required-features = ["cuda"]
 
 [[bin]]
 name = "bench_packed"
 path = "src/bin/bench_packed.rs"
+required-features = ["cuda"]
 
 [[bin]]
 name = "verify_packed"
 path = "src/bin/verify_packed.rs"
+required-features = ["cuda"]
 
 [[example]]
 name = "educational_modes"
