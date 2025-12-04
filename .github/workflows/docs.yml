@@ -52,9 +52,15 @@ jobs:
         run: |
           mkdir -p ./docs-output/api
           mkdir -p ./docs-output/guide
+          mkdir -p ./docs-output/guide/screenshots
 
           # Copy API docs
           cp -r ./target/doc/* ./docs-output/api/
+
+          # Copy screenshots for showcase documentation
+          if [ -d ./docs/screenshots ]; then
+            cp -r ./docs/screenshots/* ./docs-output/guide/screenshots/
+          fi
 
           # Disable Jekyll processing
           touch ./docs-output/.nojekyll
@@ -268,6 +274,7 @@ jobs:
             { file: '12-migration.md', title: 'Migration Guide' },
             { file: '13-cuda-codegen.md', title: 'CUDA Codegen' },
             { file: '14-wgpu-codegen.md', title: 'WGSL Codegen' },
+            { file: '15-showcase-applications.md', title: 'Showcase Applications' },
           ];
 
           const docsDir = './docs';
@@ -830,6 +837,10 @@ jobs:
                               <a href="./guide/14-wgpu-codegen.html" class="doc-link">
                                   <h4>WGSL Codegen</h4>
                                   <p>Rust to WGSL transpiler documentation.</p>
+                              </a>
+                              <a href="./guide/15-showcase-applications.html" class="doc-link">
+                                  <h4>Showcase Applications</h4>
+                                  <p>WaveSim, TxMon, and AccNet demos with screenshots.</p>
                               </a>
                           </div>
 
