@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2025-12-04
+
+### Added
+
+#### New Showcase Applications
+- **AccNet** (`ringkernel-accnet`) - GPU-accelerated accounting network analytics
+  - Network visualization with force-directed graph layout
+  - Fraud detection: circular flows, threshold clustering, Benford's Law violations
+  - GAAP compliance checking for accounting rule violations
+  - Temporal analysis for seasonality, trends, and behavioral anomalies
+  - GPU kernels: Suspense detection, GAAP violation, Benford analysis, PageRank
+- **ProcInt** (`ringkernel-procint`) - GPU-accelerated process intelligence
+  - DFG (Directly-Follows Graph) mining from event streams
+  - Pattern detection: bottlenecks, loops, rework, long-running activities
+  - Conformance checking with fitness and precision metrics
+  - Timeline view with partial order traces and concurrent activity visualization
+  - Multi-sector templates: Healthcare, Manufacturing, Finance, IT
+  - GPU kernels: DFG construction, pattern detection, partial order derivation, conformance checking
+
+### Changed
+- Updated showcase documentation with AccNet and ProcInt sections
+- Updated CI workflow to exclude CUDA tests on runners without GPU hardware
+
+### Fixed
+- Fixed 14 clippy warnings in ringkernel-accnet (needless_range_loop, manual_range_contains, clamp patterns, etc.)
+- Fixed benchmark API compatibility in ringkernel-accnet
+- Fixed code formatting issues across showcase applications
+
 ## [0.1.0] - 2025-12-03
 
 ### Added
@@ -80,5 +108,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLAUDE.md with build commands and architecture overview
 - Code examples for all major features
 
-[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/mivertowski/RustCompute/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/mivertowski/RustCompute/releases/tag/v0.1.0

@@ -18,7 +18,7 @@
 #   Tier 1 (no deps):    core, cuda-codegen, wgpu-codegen
 #   Tier 2 (core deps):  derive, cpu, cuda, wgpu, metal, codegen, ecosystem, audio-fft
 #   Tier 3 (main crate): ringkernel
-#   Tier 4 (apps):       wavesim, txmon
+#   Tier 4 (apps):       wavesim, txmon, accnet, procint
 #
 
 set -e
@@ -113,6 +113,8 @@ CRATES=(
     # Tier 4: Application crates (depend on main crate)
     "ringkernel-wavesim"     # depends on: ringkernel, core, derive, cuda, cuda-codegen
     "ringkernel-txmon"       # depends on: ringkernel, core, cuda, cuda-codegen
+    "ringkernel-accnet"      # depends on: ringkernel, core, cuda, cuda-codegen
+    "ringkernel-procint"     # depends on: ringkernel, core, cuda, cuda-codegen
 )
 
 # Tier 1 crates can be verified independently
