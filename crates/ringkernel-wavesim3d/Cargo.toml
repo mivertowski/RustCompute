@@ -1,0 +1,75 @@
+[package]
+name = "ringkernel-wavesim3d"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "3D acoustic wave simulation with realistic physics, binaural audio, and GPU acceleration"
+keywords = ["gpu", "simulation", "wave", "physics", "3d-audio", "binaural"]
+categories = ["simulation", "graphics", "visualization", "multimedia::audio"]
+readme = "README.md"
+
+[dependencies]
+ringkernel = { version = "0.1.1", path = "../ringkernel" }
+ringkernel-core = { version = "0.1.1", path = "../ringkernel-core" }
+ringkernel-derive = { version = "0.1.1", path = "../ringkernel-derive" }
+ringkernel-cuda-codegen = { version = "0.1.1", path = "../ringkernel-cuda-codegen", optional = true }
+inventory = { workspace = true }
+
+# 3D Rendering
+wgpu = { workspace = true }
+winit = "0.29"
+egui = "0.27"
+egui-wgpu = "0.27"
+egui-winit = "0.27"
+glam = "0.27"  # 3D math (Vec3, Mat4, Quat)
+bytemuck = { version = "1.24", features = ["derive"] }
+pollster = "0.3"  # Blocking async runtime for wgpu init
+
+# Async runtime
+tokio = { workspace = true }
+
+# Utilities
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Parallel processing
+rayon = "1.10"
+
+# Random number generation
+rand = "0.8"
+
+# Audio processing (hound is always available for file I/O)
+hound = "3.5"  # WAV file reading/writing
+# Real-time audio (optional, requires system libs)
+cpal = { version = "0.15", optional = true }
+rustfft = { version = "6.2", optional = true }  # FFT for frequency analysis
+
+# CUDA compute (optional)
+ringkernel-cuda = { version = "0.1.1", path = "../ringkernel-cuda", optional = true }
+cudarc = { workspace = true, optional = true }
+
+# Code generation (optional)
+syn = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[features]
+default = ["cpu"]
+cpu = ["ringkernel/cpu"]
+cuda = ["ringkernel/cuda", "dep:ringkernel-cuda", "dep:cudarc"]
+cuda-codegen = ["cuda", "dep:ringkernel-cuda-codegen", "dep:syn", "ringkernel-derive/cuda-codegen"]
+audio-output = ["dep:cpal", "dep:rustfft"]
+
+[[bin]]
+name = "wavesim3d"
+path = "src/bin/wavesim3d.rs"
+
+[[bin]]
+name = "wavesim3d-benchmark"
+path = "src/bin/benchmark.rs"
+required-features = ["cuda"]

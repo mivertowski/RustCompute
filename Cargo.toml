@@ -17,6 +17,7 @@ members = [
     "crates/ringkernel-txmon",
     "crates/ringkernel-accnet",
     "crates/ringkernel-procint",
+    "crates/ringkernel-wavesim3d",
 ]
 
 [workspace.package]
