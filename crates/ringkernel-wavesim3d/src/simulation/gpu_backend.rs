@@ -4,8 +4,7 @@
 //! for efficient memory access and halo exchange.
 
 use super::grid3d::{GridParams, SimulationGrid3D};
-use cudarc::driver::{CudaDevice, CudaSlice, DeviceRepr, LaunchAsync, LaunchConfig};
-use cudarc::nvrtc::Ptx;
+use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig};
 use std::sync::Arc;
 
 /// GPU error types.

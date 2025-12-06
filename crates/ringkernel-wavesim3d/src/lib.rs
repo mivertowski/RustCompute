@@ -32,6 +32,7 @@
 //!   - CUDA backend for NVIDIA GPUs
 //!   - 3D stencil operations
 //!   - Efficient packed buffer layout
+//!   - **Actor-based computation**: Cell-as-actor paradigm with message-based halo exchange
 //!
 //! - **3D Visualization**:
 //!   - Slice rendering (XY, XZ, YZ planes)
@@ -81,11 +82,17 @@ pub mod prelude {
         SourceManager, SourceType, VirtualHead,
     };
     pub use crate::simulation::{
-        AcousticParams3D, CellType, Environment, Medium, MediumProperties, Orientation3D,
-        Position3D, SimulationConfig, SimulationEngine, SimulationGrid3D,
+        AcousticParams3D, CellType, ComputationMethod, Environment, Medium, MediumProperties,
+        Orientation3D, Position3D, SimulationConfig, SimulationEngine, SimulationGrid3D,
     };
     pub use crate::visualization::{
         Camera3D, CameraController, ColorMap, RenderConfig, SliceRenderer, VisualizationMode,
+    };
+
+    // Actor-based computation (CUDA feature only)
+    #[cfg(feature = "cuda")]
+    pub use crate::simulation::{
+        ActorBackendConfig, ActorError, ActorStats, CellActorState, Direction3D, HaloMessage,
     };
 }
 
