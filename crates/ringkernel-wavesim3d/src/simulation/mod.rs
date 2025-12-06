@@ -4,12 +4,37 @@
 //! - Physics parameters with realistic acoustic modeling
 //! - 3D FDTD simulation grid (CPU and GPU backends)
 //! - GPU-accelerated stencil operations
+//! - **Actor-based GPU simulation** (cell-as-actor paradigm)
+//!
+//! # Computation Methods
+//!
+//! The simulation supports two GPU computation methods:
+//!
+//! ## Stencil Method (Default)
+//! Traditional GPU stencil computation where each thread reads neighbor values
+//! from shared memory. Fast and efficient for regular grids.
+//!
+//! ## Actor Method
+//! Novel cell-as-actor paradigm where each spatial cell is an independent actor.
+//! Actors communicate via message passing (halo exchange) instead of shared memory.
+//! Uses HLC (Hybrid Logical Clocks) for temporal alignment.
+//!
+//! ```ignore
+//! use ringkernel_wavesim3d::simulation::{ComputationMethod, SimulationConfig};
+//!
+//! let config = SimulationConfig::default()
+//!     .with_computation_method(ComputationMethod::Actor);
+//! let engine = config.build();
+//! ```
 
 pub mod grid3d;
 pub mod physics;
 
 #[cfg(feature = "cuda")]
 pub mod gpu_backend;
+
+#[cfg(feature = "cuda")]
+pub mod actor_backend;
 
 #[cfg(feature = "cuda-codegen")]
 pub mod kernels;
@@ -20,15 +45,45 @@ pub use physics::{
     MultiBandDamping, Orientation3D, Position3D,
 };
 
+#[cfg(feature = "cuda")]
+pub use actor_backend::{
+    ActorBackendConfig, ActorError, ActorStats, CellActorState, Direction3D, HaloMessage,
+};
+
+/// Computation method for GPU-accelerated simulation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ComputationMethod {
+    /// Traditional stencil-based GPU computation.
+    /// Each thread reads neighbor values from global/shared memory.
+    /// Fast and efficient for regular grids.
+    #[default]
+    Stencil,
+
+    /// Actor-based GPU computation (cell-as-actor paradigm).
+    /// Each spatial cell is an independent actor that:
+    /// - Holds its own state (pressure, cell type)
+    /// - Communicates with neighbors via message passing
+    /// - Uses HLC for temporal alignment
+    ///
+    /// This method demonstrates the actor model on GPUs but may have
+    /// higher overhead than stencil computation.
+    Actor,
+}
+
 /// Simulation engine that manages grid updates and GPU/CPU dispatch.
 pub struct SimulationEngine {
     /// 3D simulation grid
     pub grid: SimulationGrid3D,
     /// Use GPU backend if available
     pub use_gpu: bool,
-    /// GPU backend
+    /// Computation method for GPU
+    pub computation_method: ComputationMethod,
+    /// Stencil GPU backend
     #[cfg(feature = "cuda")]
     pub gpu: Option<gpu_backend::GpuBackend3D>,
+    /// Actor GPU backend
+    #[cfg(feature = "cuda")]
+    pub actor_gpu: Option<actor_backend::ActorGpuBackend3D>,
 }
 
 impl SimulationEngine {
@@ -42,12 +97,15 @@ impl SimulationEngine {
         Self {
             grid: SimulationGrid3D::new(width, height, depth, params),
             use_gpu: false,
+            computation_method: ComputationMethod::Stencil,
             #[cfg(feature = "cuda")]
             gpu: None,
+            #[cfg(feature = "cuda")]
+            actor_gpu: None,
         }
     }
 
-    /// Create a new simulation engine with GPU backend.
+    /// Create a new simulation engine with GPU backend (stencil method).
     #[cfg(feature = "cuda")]
     pub fn new_gpu(
         width: usize,
@@ -61,7 +119,33 @@ impl SimulationEngine {
         Ok(Self {
             grid,
             use_gpu: true,
+            computation_method: ComputationMethod::Stencil,
             gpu: Some(gpu),
+            actor_gpu: None,
+        })
+    }
+
+    /// Create a new simulation engine with GPU backend using actor model.
+    ///
+    /// This uses the cell-as-actor paradigm where each spatial cell is an
+    /// independent actor that communicates with neighbors via message passing.
+    #[cfg(feature = "cuda")]
+    pub fn new_gpu_actor(
+        width: usize,
+        height: usize,
+        depth: usize,
+        params: AcousticParams3D,
+        actor_config: actor_backend::ActorBackendConfig,
+    ) -> Result<Self, actor_backend::ActorError> {
+        let grid = SimulationGrid3D::new(width, height, depth, params);
+        let actor_gpu = actor_backend::ActorGpuBackend3D::new(&grid, actor_config)?;
+
+        Ok(Self {
+            grid,
+            use_gpu: true,
+            computation_method: ComputationMethod::Actor,
+            gpu: None,
+            actor_gpu: Some(actor_gpu),
         })
     }
 
@@ -69,9 +153,20 @@ impl SimulationEngine {
     pub fn step(&mut self) {
         #[cfg(feature = "cuda")]
         if self.use_gpu {
-            if let Some(ref mut gpu) = self.gpu {
-                if gpu.step(&mut self.grid).is_ok() {
-                    return;
+            match self.computation_method {
+                ComputationMethod::Stencil => {
+                    if let Some(ref mut gpu) = self.gpu {
+                        if gpu.step(&mut self.grid).is_ok() {
+                            return;
+                        }
+                    }
+                }
+                ComputationMethod::Actor => {
+                    if let Some(ref mut actor_gpu) = self.actor_gpu {
+                        if actor_gpu.step(&mut self.grid, 1).is_ok() {
+                            return;
+                        }
+                    }
                 }
             }
         }
@@ -92,8 +187,13 @@ impl SimulationEngine {
         self.grid.reset();
 
         #[cfg(feature = "cuda")]
-        if let Some(ref mut gpu) = self.gpu {
-            let _ = gpu.reset(&self.grid);
+        {
+            if let Some(ref mut gpu) = self.gpu {
+                let _ = gpu.reset(&self.grid);
+            }
+            if let Some(ref mut actor_gpu) = self.actor_gpu {
+                let _ = actor_gpu.reset(&self.grid);
+            }
         }
     }
 
@@ -102,8 +202,13 @@ impl SimulationEngine {
         self.grid.inject_impulse(x, y, z, amplitude);
 
         #[cfg(feature = "cuda")]
-        if let Some(ref mut gpu) = self.gpu {
-            let _ = gpu.upload_pressure(&self.grid);
+        {
+            if let Some(ref mut gpu) = self.gpu {
+                let _ = gpu.upload_pressure(&self.grid);
+            }
+            if let Some(ref mut actor_gpu) = self.actor_gpu {
+                let _ = actor_gpu.upload_pressure(&self.grid);
+            }
         }
     }
 
@@ -125,24 +230,86 @@ impl SimulationEngine {
     /// Enable or disable GPU acceleration.
     #[cfg(feature = "cuda")]
     pub fn set_use_gpu(&mut self, use_gpu: bool) {
-        if use_gpu && self.gpu.is_none() {
-            if let Ok(gpu) = gpu_backend::GpuBackend3D::new(&self.grid) {
-                self.gpu = Some(gpu);
+        if use_gpu {
+            match self.computation_method {
+                ComputationMethod::Stencil => {
+                    if self.gpu.is_none() {
+                        if let Ok(gpu) = gpu_backend::GpuBackend3D::new(&self.grid) {
+                            self.gpu = Some(gpu);
+                        }
+                    }
+                    self.use_gpu = self.gpu.is_some();
+                }
+                ComputationMethod::Actor => {
+                    if self.actor_gpu.is_none() {
+                        if let Ok(actor_gpu) = actor_backend::ActorGpuBackend3D::new(
+                            &self.grid,
+                            actor_backend::ActorBackendConfig::default(),
+                        ) {
+                            self.actor_gpu = Some(actor_gpu);
+                        }
+                    }
+                    self.use_gpu = self.actor_gpu.is_some();
+                }
             }
+        } else {
+            self.use_gpu = false;
         }
-        self.use_gpu = use_gpu && self.gpu.is_some();
+    }
+
+    /// Set the computation method for GPU.
+    #[cfg(feature = "cuda")]
+    pub fn set_computation_method(&mut self, method: ComputationMethod) {
+        self.computation_method = method;
+        // Re-initialize the appropriate backend if GPU is in use
+        if self.use_gpu {
+            self.set_use_gpu(true);
+        }
     }
 
     /// Check if GPU is being used.
     pub fn is_using_gpu(&self) -> bool {
         #[cfg(feature = "cuda")]
         {
-            self.use_gpu && self.gpu.is_some()
+            match self.computation_method {
+                ComputationMethod::Stencil => self.use_gpu && self.gpu.is_some(),
+                ComputationMethod::Actor => self.use_gpu && self.actor_gpu.is_some(),
+            }
         }
         #[cfg(not(feature = "cuda"))]
         {
             false
         }
+    }
+
+    /// Get the current computation method.
+    pub fn computation_method(&self) -> ComputationMethod {
+        self.computation_method
+    }
+
+    /// Download pressure data from GPU to CPU grid (if using GPU).
+    #[cfg(feature = "cuda")]
+    pub fn sync_from_gpu(&mut self) {
+        if self.use_gpu {
+            match self.computation_method {
+                ComputationMethod::Stencil => {
+                    if let Some(ref gpu) = self.gpu {
+                        let _ = gpu.download_pressure(&mut self.grid);
+                    }
+                }
+                ComputationMethod::Actor => {
+                    if let Some(ref actor_gpu) = self.actor_gpu {
+                        let _ = actor_gpu.download_pressure(&mut self.grid);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get actor backend statistics (if using actor method).
+    #[cfg(feature = "cuda")]
+    pub fn actor_stats(&self) -> Option<actor_backend::ActorStats> {
+        self.actor_gpu.as_ref().map(|gpu| gpu.stats())
     }
 }
 
@@ -161,6 +328,11 @@ pub struct SimulationConfig {
     pub environment: Environment,
     /// Use GPU if available
     pub prefer_gpu: bool,
+    /// Computation method for GPU
+    pub computation_method: ComputationMethod,
+    /// Actor backend configuration (for Actor method)
+    #[cfg(feature = "cuda")]
+    pub actor_config: actor_backend::ActorBackendConfig,
 }
 
 impl Default for SimulationConfig {
@@ -172,6 +344,9 @@ impl Default for SimulationConfig {
             cell_size: 0.05, // 5cm cells
             environment: Environment::default(),
             prefer_gpu: true,
+            computation_method: ComputationMethod::Stencil,
+            #[cfg(feature = "cuda")]
+            actor_config: actor_backend::ActorBackendConfig::default(),
         }
     }
 }
@@ -183,9 +358,7 @@ impl SimulationConfig {
             width: 200,
             height: 60,
             depth: 200,
-            cell_size: 0.05, // 5cm cells
-            environment: Environment::default(),
-            prefer_gpu: true,
+            ..Default::default()
         }
     }
 
@@ -196,8 +369,7 @@ impl SimulationConfig {
             height: 50,
             depth: 200,
             cell_size: 0.1, // 10cm cells
-            environment: Environment::default(),
-            prefer_gpu: true,
+            ..Default::default()
         }
     }
 
@@ -208,8 +380,7 @@ impl SimulationConfig {
             height: 50,
             depth: 250,
             cell_size: 0.2, // 20cm cells
-            environment: Environment::default(),
-            prefer_gpu: true,
+            ..Default::default()
         }
     }
 
@@ -227,16 +398,47 @@ impl SimulationConfig {
         self
     }
 
+    /// Set the computation method.
+    ///
+    /// - `Stencil`: Traditional GPU stencil computation (default)
+    /// - `Actor`: Cell-as-actor paradigm with message-based halo exchange
+    pub fn with_computation_method(mut self, method: ComputationMethod) -> Self {
+        self.computation_method = method;
+        self
+    }
+
+    /// Set the actor backend configuration (only used with Actor method).
+    #[cfg(feature = "cuda")]
+    pub fn with_actor_config(mut self, config: actor_backend::ActorBackendConfig) -> Self {
+        self.actor_config = config;
+        self
+    }
+
     /// Build the simulation engine.
     pub fn build(self) -> SimulationEngine {
         let params = AcousticParams3D::new(self.environment, self.cell_size);
 
         #[cfg(feature = "cuda")]
         if self.prefer_gpu {
-            if let Ok(engine) =
-                SimulationEngine::new_gpu(self.width, self.height, self.depth, params.clone())
-            {
-                return engine;
+            match self.computation_method {
+                ComputationMethod::Stencil => {
+                    if let Ok(engine) =
+                        SimulationEngine::new_gpu(self.width, self.height, self.depth, params.clone())
+                    {
+                        return engine;
+                    }
+                }
+                ComputationMethod::Actor => {
+                    if let Ok(engine) = SimulationEngine::new_gpu_actor(
+                        self.width,
+                        self.height,
+                        self.depth,
+                        params.clone(),
+                        self.actor_config,
+                    ) {
+                        return engine;
+                    }
+                }
             }
         }
 
@@ -298,5 +500,29 @@ mod tests {
         assert!(small.width < medium.width || small.cell_size < medium.cell_size);
         assert!(medium.width < large.width || medium.cell_size < large.cell_size);
         assert_eq!(water.environment.medium, Medium::Water);
+    }
+
+    #[test]
+    fn test_computation_method_default() {
+        let config = SimulationConfig::default();
+        assert_eq!(config.computation_method, ComputationMethod::Stencil);
+    }
+
+    #[test]
+    fn test_computation_method_actor() {
+        let config = SimulationConfig::default()
+            .with_computation_method(ComputationMethod::Actor);
+        assert_eq!(config.computation_method, ComputationMethod::Actor);
+    }
+
+    #[test]
+    fn test_engine_computation_method() {
+        let engine = SimulationEngine::new_cpu(
+            16,
+            16,
+            16,
+            AcousticParams3D::default(),
+        );
+        assert_eq!(engine.computation_method(), ComputationMethod::Stencil);
     }
 }

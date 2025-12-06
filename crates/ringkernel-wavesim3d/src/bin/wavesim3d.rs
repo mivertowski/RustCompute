@@ -274,8 +274,7 @@ fn main() {
         height: 32,
         depth: 64,
         cell_size: 0.1, // 10cm cells
-        environment: Environment::default(),
-        prefer_gpu: true,
+        ..Default::default()
     };
 
     println!("\nSimulation Configuration:");
