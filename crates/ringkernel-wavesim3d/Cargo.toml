@@ -27,6 +27,7 @@ egui-wgpu = "0.27"
 egui-winit = "0.27"
 glam = "0.27"  # 3D math (Vec3, Mat4, Quat)
 bytemuck = { version = "1.24", features = ["derive"] }
+half = "2.4"  # f16 support for volume textures
 pollster = "0.3"  # Blocking async runtime for wgpu init
 
 # Async runtime

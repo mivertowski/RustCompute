@@ -212,8 +212,10 @@ impl BinauralMicrophone {
         self.accumulated_right.push(right_pressure);
 
         // Downsample to audio rate when we have enough samples
-        while self.accumulated_left.len() as f32 >= self.interp_factor {
-            let n = self.interp_factor.ceil() as usize;
+        // Ensure we always remove at least 1 sample to prevent infinite loop
+        let min_remove = self.interp_factor.max(1.0).ceil() as usize;
+        while self.accumulated_left.len() >= min_remove {
+            let n = min_remove;
 
             // Simple averaging for now (could use better filter)
             let left_sample: f32 =
@@ -227,8 +229,8 @@ impl BinauralMicrophone {
                 self.right_buffer.push_back(right_sample);
             }
 
-            // Remove processed samples
-            let to_remove = self.interp_factor.floor() as usize;
+            // Remove processed samples (always at least 1)
+            let to_remove = min_remove.max(1);
             self.accumulated_left.drain(0..to_remove.min(self.accumulated_left.len()));
             self.accumulated_right.drain(0..to_remove.min(self.accumulated_right.len()));
         }

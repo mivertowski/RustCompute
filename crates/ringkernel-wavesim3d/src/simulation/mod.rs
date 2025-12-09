@@ -171,8 +171,8 @@ impl SimulationEngine {
             }
         }
 
-        // Fall back to parallel CPU
-        self.grid.step_parallel();
+        // Fall back to sequential CPU (parallel can cause issues with GUI event loops)
+        self.grid.step_sequential();
     }
 
     /// Perform multiple simulation steps.

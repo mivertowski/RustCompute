@@ -60,7 +60,7 @@ impl Default for GuiState {
         Self {
             is_playing: false,
             simulation_speed: 1.0,
-            steps_per_frame: 10,
+            steps_per_frame: 1,
 
             temperature_c: 20.0,
             humidity_percent: 50.0,
@@ -70,8 +70,8 @@ impl Default for GuiState {
             xz_slice_position: 0.5,
             yz_slice_position: 0.5,
             show_xy_slice: true,
-            show_xz_slice: false,
-            show_yz_slice: false,
+            show_xz_slice: true,
+            show_yz_slice: true,
 
             source_x: 0.5,
             source_y: 0.5,

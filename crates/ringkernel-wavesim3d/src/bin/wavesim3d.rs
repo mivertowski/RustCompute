@@ -9,7 +9,7 @@
 
 use ringkernel_wavesim3d::audio::{AudioSystem, VirtualHead};
 use ringkernel_wavesim3d::gui::GuiState;
-use ringkernel_wavesim3d::simulation::{Environment, Position3D, SimulationConfig, SimulationEngine};
+use ringkernel_wavesim3d::simulation::{Position3D, SimulationConfig, SimulationEngine};
 use ringkernel_wavesim3d::visualization::{MouseButton, Renderer3D};
 
 use std::sync::Arc;
@@ -38,7 +38,8 @@ impl WaveSim3DApp {
 
         // Initialize renderer
         let grid_size = engine.grid.physical_size();
-        let renderer = pollster::block_on(async { Renderer3D::new(&window, grid_size).await })
+        let grid_dimensions = engine.dimensions();
+        let renderer = pollster::block_on(async { Renderer3D::new(&window, grid_size, grid_dimensions).await })
             .expect("Failed to create renderer");
 
         Self {
@@ -204,6 +205,14 @@ impl WaveSim3DApp {
                         PhysicalKey::Code(KeyCode::Digit3) => {
                             self.gui_state.show_yz_slice = !self.gui_state.show_yz_slice;
                         }
+                        PhysicalKey::Code(KeyCode::KeyV) => {
+                            // Toggle between volume and slice rendering
+                            use ringkernel_wavesim3d::visualization::VisualizationMode;
+                            self.renderer.config.mode = match self.renderer.config.mode {
+                                VisualizationMode::VolumeRender => VisualizationMode::MultiSlice,
+                                _ => VisualizationMode::VolumeRender,
+                            };
+                        }
                         PhysicalKey::Code(KeyCode::Escape) => {
                             return true; // Signal to exit
                         }
@@ -263,6 +272,7 @@ fn main() {
     println!("║    Space    - Play/Pause simulation                           ║");
     println!("║    R        - Reset simulation                                ║");
     println!("║    I        - Inject impulse at source position               ║");
+    println!("║    V        - Toggle volume/slice rendering mode              ║");
     println!("║    1/2/3    - Toggle XY/XZ/YZ slice visibility                ║");
     println!("║    Mouse    - Rotate (left), Pan (right), Zoom (scroll)       ║");
     println!("║    Escape   - Quit                                            ║");
@@ -307,10 +317,12 @@ fn main() {
     app.init_audio();
 
     // Run event loop (winit 0.29 closure-based API)
+    // Use WaitUntil to limit frame rate to ~60fps for better efficiency
+    use std::time::Duration;
+    let frame_duration = Duration::from_millis(16); // ~60fps
+
     event_loop
         .run(move |event, elwt| {
-            elwt.set_control_flow(ControlFlow::Poll);
-
             match event {
                 Event::WindowEvent { event, .. } => {
                     if app.handle_window_event(&event) {
@@ -318,6 +330,10 @@ fn main() {
                     }
                 }
                 Event::AboutToWait => {
+                    // Schedule next frame at ~60fps
+                    elwt.set_control_flow(ControlFlow::WaitUntil(
+                        std::time::Instant::now() + frame_duration,
+                    ));
                     app.window.request_redraw();
                 }
                 _ => {}

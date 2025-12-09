@@ -283,56 +283,67 @@ impl SimulationGrid3D {
         let c2 = self.params.c_squared;
         let damping = self.params.simple_damping;
         let width = self.width;
+        let height = self.height;
+        let depth = self.depth;
         let slice_size = self.slice_size;
 
-        // Process z-slices in parallel
+        // Take references to avoid capturing self in closures
         let pressure = &self.pressure;
+        let pressure_prev = &self.pressure_prev;
         let cell_types = &self.cell_types;
 
-        // Create output buffer for new values
-        let new_pressure: Vec<f32> = (1..self.depth - 1)
-            .into_par_iter()
-            .flat_map(|z| {
-                let mut slice_result = Vec::with_capacity((self.height - 2) * (self.width - 2));
+        // Compute new values in parallel and store in a new buffer
+        // Use par_iter over z indices to avoid flat_map memory explosion
+        let num_interior_z = depth - 2;
 
-                for y in 1..self.height - 1 {
+        // Pre-allocate output buffer
+        let mut new_values = vec![0.0f32; num_interior_z * (height - 2) * (width - 2)];
+
+        // Process in parallel
+        new_values
+            .par_chunks_mut((height - 2) * (width - 2))
+            .enumerate()
+            .for_each(|(zi, chunk)| {
+                let z = zi + 1; // Actual z index (skip boundary)
+                let mut out_idx = 0;
+
+                for y in 1..height - 1 {
                     for x in 1..width - 1 {
                         let idx = z * slice_size + y * width + x;
 
-                        if cell_types[idx] != CellType::Normal {
-                            slice_result.push(self.pressure_prev[idx]);
-                            continue;
-                        }
+                        let p_new = if cell_types[idx] != CellType::Normal {
+                            // Keep previous value for non-normal cells
+                            pressure_prev[idx]
+                        } else {
+                            let p = pressure[idx];
+                            let p_prev = pressure_prev[idx];
 
-                        let p = pressure[idx];
-                        let p_prev = self.pressure_prev[idx];
+                            // 6 neighbors
+                            let p_west = pressure[idx - 1];
+                            let p_east = pressure[idx + 1];
+                            let p_south = pressure[idx - width];
+                            let p_north = pressure[idx + width];
+                            let p_down = pressure[idx - slice_size];
+                            let p_up = pressure[idx + slice_size];
 
-                        // 6 neighbors
-                        let p_west = pressure[idx - 1];
-                        let p_east = pressure[idx + 1];
-                        let p_south = pressure[idx - width];
-                        let p_north = pressure[idx + width];
-                        let p_down = pressure[idx - slice_size];
-                        let p_up = pressure[idx + slice_size];
+                            let laplacian =
+                                p_west + p_east + p_south + p_north + p_down + p_up - 6.0 * p;
+                            (2.0 * p - p_prev + c2 * laplacian) * damping
+                        };
 
-                        let laplacian =
-                            p_west + p_east + p_south + p_north + p_down + p_up - 6.0 * p;
-                        let p_new = (2.0 * p - p_prev + c2 * laplacian) * damping;
-
-                        slice_result.push(p_new);
+                        chunk[out_idx] = p_new;
+                        out_idx += 1;
                     }
                 }
-                slice_result
-            })
-            .collect();
+            });
 
         // Copy results back to pressure_prev
         let mut result_idx = 0;
-        for z in 1..self.depth - 1 {
-            for y in 1..self.height - 1 {
-                for x in 1..self.width - 1 {
+        for z in 1..depth - 1 {
+            for y in 1..height - 1 {
+                for x in 1..width - 1 {
                     let idx = self.index(x, y, z);
-                    self.pressure_prev[idx] = new_pressure[result_idx];
+                    self.pressure_prev[idx] = new_values[result_idx];
                     result_idx += 1;
                 }
             }

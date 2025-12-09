@@ -4,6 +4,7 @@
 
 use super::camera::{Camera3D, CameraController};
 use super::slice::SliceRenderer;
+use super::volume::VolumeRenderer;
 use super::{CameraUniform, ColorMap, GridLines, HeadWireframe, MarkerSphere, Vertex3D};
 use crate::simulation::physics::Position3D;
 use wgpu::util::DeviceExt;
@@ -23,7 +24,7 @@ pub enum VisualizationMode {
 
 impl Default for VisualizationMode {
     fn default() -> Self {
-        VisualizationMode::SingleSlice
+        VisualizationMode::VolumeRender
     }
 }
 
@@ -55,7 +56,7 @@ pub struct RenderConfig {
 impl Default for RenderConfig {
     fn default() -> Self {
         Self {
-            mode: VisualizationMode::SingleSlice,
+            mode: VisualizationMode::VolumeRender,
             color_map: ColorMap::BlueWhiteRed,
             background_color: [0.1, 0.1, 0.15, 1.0],
             show_bounding_box: true,
@@ -143,6 +144,26 @@ pub struct Renderer3D {
     camera_buffer: wgpu::Buffer,
     /// Camera bind group
     camera_bind_group: wgpu::BindGroup,
+    /// Depth texture view (cached)
+    depth_texture_view: wgpu::TextureView,
+    /// Cached slice vertex buffer
+    slice_buffer: Option<wgpu::Buffer>,
+    /// Cached slice vertex count
+    slice_vertex_count: u32,
+    /// Cached line vertex buffer
+    line_buffer: Option<wgpu::Buffer>,
+    /// Cached line vertex count
+    line_vertex_count: u32,
+    /// Cached marker vertex buffer
+    marker_buffer: Option<wgpu::Buffer>,
+    /// Cached marker vertex count
+    marker_vertex_count: u32,
+    /// Volume renderer
+    volume_renderer: Option<VolumeRenderer>,
+    /// Grid dimensions (cells)
+    grid_dimensions: (usize, usize, usize),
+    /// Camera bind group layout (for volume renderer)
+    camera_bind_group_layout: wgpu::BindGroupLayout,
     /// Camera
     pub camera: Camera3D,
     /// Camera controller
@@ -164,6 +185,7 @@ impl Renderer3D {
     pub async fn new(
         window: &winit::window::Window,
         grid_size: (f32, f32, f32),
+        grid_dimensions: (usize, usize, usize),
     ) -> Result<Self, RendererError> {
         let size = window.inner_size();
 
@@ -350,6 +372,17 @@ impl Renderer3D {
         camera.set_aspect(size.width as f32 / size.height as f32);
         let camera_controller = CameraController::from_camera(&camera);
 
+        // Create initial depth texture
+        let depth_texture_view = Self::create_depth_texture_static(&device, &surface_config);
+
+        // Create volume renderer
+        let volume_renderer = VolumeRenderer::new(
+            &device,
+            surface_config.format,
+            &bind_group_layout,
+            grid_dimensions,
+        );
+
         Ok(Self {
             device,
             queue,
@@ -359,6 +392,16 @@ impl Renderer3D {
             line_pipeline,
             camera_buffer,
             camera_bind_group,
+            depth_texture_view,
+            slice_buffer: None,
+            slice_vertex_count: 0,
+            line_buffer: None,
+            line_vertex_count: 0,
+            marker_buffer: None,
+            marker_vertex_count: 0,
+            volume_renderer: Some(volume_renderer),
+            grid_dimensions,
+            camera_bind_group_layout: bind_group_layout,
             camera,
             camera_controller,
             slice_renderer: SliceRenderer::new(),
@@ -377,6 +420,9 @@ impl Renderer3D {
             self.surface.configure(&self.device, &self.surface_config);
             self.camera
                 .set_aspect(new_size.width as f32 / new_size.height as f32);
+            // Recreate depth texture for new size
+            self.depth_texture_view =
+                Self::create_depth_texture_static(&self.device, &self.surface_config);
         }
     }
 
@@ -409,13 +455,16 @@ impl Renderer3D {
             .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[uniform]));
     }
 
-    /// Create depth texture.
-    fn create_depth_texture(&self) -> wgpu::TextureView {
-        let depth_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+    /// Create depth texture (static method for use in constructor).
+    fn create_depth_texture_static(
+        device: &wgpu::Device,
+        surface_config: &wgpu::SurfaceConfiguration,
+    ) -> wgpu::TextureView {
+        let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("depth_texture"),
             size: wgpu::Extent3d {
-                width: self.surface_config.width,
-                height: self.surface_config.height,
+                width: surface_config.width,
+                height: surface_config.height,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -427,6 +476,46 @@ impl Renderer3D {
         });
 
         depth_texture.create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    /// Update a cached vertex buffer, recreating only if size changed significantly.
+    fn update_vertex_buffer_static(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        vertices: &[Vertex3D],
+        buffer: &mut Option<wgpu::Buffer>,
+        vertex_count: &mut u32,
+        label: &str,
+    ) {
+        let new_count = vertices.len() as u32;
+        let data = bytemuck::cast_slice(vertices);
+        let required_size = data.len() as u64;
+
+        // Check if we need to recreate the buffer
+        let needs_recreate = match buffer {
+            Some(ref existing) => existing.size() < required_size,
+            None => true,
+        };
+
+        if needs_recreate && !vertices.is_empty() {
+            // Allocate with some extra capacity to reduce reallocations
+            let alloc_size = (required_size as f64 * 1.5) as u64;
+            *buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: alloc_size,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+        }
+
+        // Write data to buffer
+        if let Some(ref buf) = buffer {
+            if !vertices.is_empty() {
+                queue.write_buffer(buf, 0, data);
+            }
+        }
+
+        *vertex_count = new_count;
     }
 
     /// Render a frame.
@@ -443,8 +532,6 @@ impl Renderer3D {
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-
-        let depth_view = self.create_depth_texture();
 
         // Update camera
         self.update_camera_uniform();
@@ -490,30 +577,31 @@ impl Renderer3D {
             }
         }
 
-        // Create vertex buffers
-        let slice_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("slice_vertex_buffer"),
-                contents: bytemuck::cast_slice(&slice_vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-
-        let line_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("line_vertex_buffer"),
-                contents: bytemuck::cast_slice(&line_vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-
-        let marker_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("marker_vertex_buffer"),
-                contents: bytemuck::cast_slice(&marker_vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
+        // Update cached vertex buffers (recreate only if size changed significantly)
+        Self::update_vertex_buffer_static(
+            &self.device,
+            &self.queue,
+            &slice_vertices,
+            &mut self.slice_buffer,
+            &mut self.slice_vertex_count,
+            "slice_vertex_buffer",
+        );
+        Self::update_vertex_buffer_static(
+            &self.device,
+            &self.queue,
+            &line_vertices,
+            &mut self.line_buffer,
+            &mut self.line_vertex_count,
+            "line_vertex_buffer",
+        );
+        Self::update_vertex_buffer_static(
+            &self.device,
+            &self.queue,
+            &marker_vertices,
+            &mut self.marker_buffer,
+            &mut self.marker_vertex_count,
+            "marker_vertex_buffer",
+        );
 
         // Create command encoder
         let mut encoder = self
@@ -521,6 +609,14 @@ impl Renderer3D {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("render_encoder"),
             });
+
+        // Update volume texture if in volume mode
+        if self.config.mode == VisualizationMode::VolumeRender {
+            if let Some(ref mut volume_renderer) = self.volume_renderer {
+                volume_renderer.update_volume(&self.queue, grid);
+                volume_renderer.update_params(&self.queue);
+            }
+        }
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -539,7 +635,7 @@ impl Renderer3D {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &depth_view,
+                    view: &self.depth_texture_view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -550,28 +646,45 @@ impl Renderer3D {
                 occlusion_query_set: None,
             });
 
-            // Draw slices
-            if !slice_vertices.is_empty() {
-                render_pass.set_pipeline(&self.triangle_pipeline);
-                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, slice_buffer.slice(..));
-                render_pass.draw(0..slice_vertices.len() as u32, 0..1);
+            // Draw based on visualization mode
+            match self.config.mode {
+                VisualizationMode::VolumeRender => {
+                    // Draw volume
+                    if let Some(ref volume_renderer) = self.volume_renderer {
+                        volume_renderer.render(&mut render_pass, &self.camera_bind_group);
+                    }
+                }
+                _ => {
+                    // Draw slices (slice modes)
+                    if self.slice_vertex_count > 0 {
+                        if let Some(ref buffer) = self.slice_buffer {
+                            render_pass.set_pipeline(&self.triangle_pipeline);
+                            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                            render_pass.set_vertex_buffer(0, buffer.slice(..));
+                            render_pass.draw(0..self.slice_vertex_count, 0..1);
+                        }
+                    }
+                }
             }
 
             // Draw markers
-            if !marker_vertices.is_empty() {
-                render_pass.set_pipeline(&self.triangle_pipeline);
-                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, marker_buffer.slice(..));
-                render_pass.draw(0..marker_vertices.len() as u32, 0..1);
+            if self.marker_vertex_count > 0 {
+                if let Some(ref buffer) = self.marker_buffer {
+                    render_pass.set_pipeline(&self.triangle_pipeline);
+                    render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, buffer.slice(..));
+                    render_pass.draw(0..self.marker_vertex_count, 0..1);
+                }
             }
 
             // Draw lines
-            if !line_vertices.is_empty() {
-                render_pass.set_pipeline(&self.line_pipeline);
-                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, line_buffer.slice(..));
-                render_pass.draw(0..line_vertices.len() as u32, 0..1);
+            if self.line_vertex_count > 0 {
+                if let Some(ref buffer) = self.line_buffer {
+                    render_pass.set_pipeline(&self.line_pipeline);
+                    render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, buffer.slice(..));
+                    render_pass.draw(0..self.line_vertex_count, 0..1);
+                }
             }
         }
 

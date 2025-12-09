@@ -9,10 +9,12 @@
 pub mod camera;
 pub mod renderer;
 pub mod slice;
+pub mod volume;
 
 pub use camera::{Camera3D, CameraController, MouseButton};
 pub use renderer::{RenderConfig, Renderer3D, VisualizationMode};
 pub use slice::{SliceAxis, SliceConfig, SliceRenderer};
+pub use volume::{VolumeParams, VolumeRenderer};
 
 use crate::simulation::physics::Position3D;
 use glam::Mat4;
