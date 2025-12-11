@@ -211,5 +211,69 @@ fn main() {
         }
     }
 
+    // Additional benchmark with smaller grid that fits cooperative limits
+    #[cfg(feature = "cooperative")]
+    {
+        println!("\n╔══════════════════════════════════════════════════════════════════╗");
+        println!("║     Cooperative Launch Test (Small Grid)                         ║");
+        println!("╚══════════════════════════════════════════════════════════════════╝\n");
+
+        // Use a grid size that fits within 144 concurrent blocks
+        // 40×40×40 = 64000 cells, 5×5×5 = 125 blocks
+        let coop_width = 40;
+        let coop_height = 40;
+        let coop_depth = 40;
+        let coop_steps = 100;
+
+        println!("Configuration for cooperative test:");
+        println!("  Grid: {}×{}×{} = {} cells", coop_width, coop_height, coop_depth,
+            coop_width * coop_height * coop_depth);
+        println!("  Blocks: 5×5×5 = 125 (within 144 limit)");
+        println!("  Steps: {}", coop_steps);
+        println!();
+
+        let coop_config = SimulationConfig {
+            width: coop_width,
+            height: coop_height,
+            depth: coop_depth,
+            cell_size: 0.1,
+            prefer_gpu: true,
+            computation_method: ComputationMethod::BlockActor,
+            ..Default::default()
+        };
+
+        let mut engine = coop_config.build();
+        if engine.is_using_gpu() && engine.computation_method() == ComputationMethod::BlockActor {
+            engine.inject_impulse(coop_width / 2, coop_height / 2, coop_depth / 2, 1.0);
+
+            // Check if cooperative mode is available
+            if let Some(stats) = engine.block_actor_stats() {
+                println!("Block Actor initialized:");
+                println!("  Blocks: {}", stats.num_blocks);
+                if let Some(max_coop) = stats.max_cooperative_blocks {
+                    println!("  Max cooperative blocks: {}", max_coop);
+                    if stats.num_blocks as u32 <= max_coop {
+                        println!("  ✓ Grid fits within cooperative limits!");
+                    } else {
+                        println!("  ✗ Grid too large for cooperative launch");
+                    }
+                }
+            }
+            println!();
+
+            // Warm up
+            engine.step_n(10);
+
+            let start = Instant::now();
+            engine.step_n(coop_steps);
+            let coop_time = start.elapsed();
+            let coop_throughput = (coop_width * coop_height * coop_depth * coop_steps) as f64 / coop_time.as_secs_f64() / 1e6;
+
+            println!("Results:");
+            println!("  Time: {:?}", coop_time);
+            println!("  Throughput: {:.2} Mcells/s", coop_throughput);
+        }
+    }
+
     println!("\nBenchmark complete.");
 }

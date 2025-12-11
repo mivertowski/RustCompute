@@ -1559,6 +1559,10 @@ impl BlockActorGpuBackend {
                 self.params.blocks_y as usize,
                 self.params.blocks_z as usize,
             ),
+            #[cfg(feature = "cooperative")]
+            max_cooperative_blocks: self.max_cooperative_blocks(),
+            #[cfg(not(feature = "cooperative"))]
+            max_cooperative_blocks: None,
         }
     }
 }
@@ -1571,6 +1575,8 @@ pub struct BlockActorStats {
     pub total_cells: usize,
     pub memory_usage_bytes: usize,
     pub block_dims: (usize, usize, usize),
+    /// Maximum blocks for cooperative launch (if available).
+    pub max_cooperative_blocks: Option<u32>,
 }
 
 #[cfg(test)]
