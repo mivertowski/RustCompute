@@ -8,7 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 description = "3D acoustic wave simulation with realistic physics, binaural audio, and GPU acceleration"
-keywords = ["gpu", "simulation", "wave", "physics", "3d-audio", "binaural"]
+keywords = ["gpu", "simulation", "wave", "physics", "binaural"]
 categories = ["simulation", "graphics", "visualization", "multimedia::audio"]
 readme = "README.md"
 
