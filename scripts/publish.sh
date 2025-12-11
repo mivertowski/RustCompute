@@ -115,6 +115,7 @@ CRATES=(
     "ringkernel-txmon"       # depends on: ringkernel, core, cuda, cuda-codegen
     "ringkernel-accnet"      # depends on: ringkernel, core, cuda, cuda-codegen
     "ringkernel-procint"     # depends on: ringkernel, core, cuda, cuda-codegen
+    "ringkernel-wavesim3d"   # depends on: ringkernel, core, derive, cuda, cuda-codegen
 )
 
 # Tier 1 crates can be verified independently

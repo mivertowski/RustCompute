@@ -86,17 +86,35 @@ RustCompute/
 │   │       ├── simulation/       # Grid, kernels, backends
 │   │       └── gui/              # Interactive visualization
 │   │
-│   └── ringkernel-txmon/         # Showcase: Transaction monitoring
+│   ├── ringkernel-wavesim3d/     # Showcase: 3D wave simulation
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── simulation/       # 3D FDTD, actor backend, physics
+│   │       ├── audio/            # Binaural audio, sources, virtual head
+│   │       ├── visualization/    # Volume renderer, slices, camera
+│   │       └── gui/              # Controls panel
+│   │
+│   ├── ringkernel-txmon/         # Showcase: Transaction monitoring
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── types/            # Transaction, CustomerProfile, Alert
+│   │       ├── factory/          # Transaction generator
+│   │       ├── monitoring/       # Rule engine
+│   │       ├── gui/              # Real-time fraud detection UI
+│   │       ├── cuda/             # GPU backends (batch, ring, stencil)
+│   │       └── bin/
+│   │           ├── txmon.rs      # Main GUI binary
+│   │           └── benchmark.rs  # GPU benchmark
+│   │
+│   ├── ringkernel-accnet/        # Showcase: Accounting network analytics
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       └── ...               # Network analysis, fraud detection
+│   │
+│   └── ringkernel-procint/       # Showcase: Process intelligence
 │       └── src/
 │           ├── lib.rs
-│           ├── types/            # Transaction, CustomerProfile, Alert
-│           ├── factory/          # Transaction generator
-│           ├── monitoring/       # Rule engine
-│           ├── gui/              # Real-time fraud detection UI
-│           ├── cuda/             # GPU backends (batch, ring, stencil)
-│           └── bin/
-│               ├── txmon.rs      # Main GUI binary
-│               └── benchmark.rs  # GPU benchmark
+│           └── ...               # DFG mining, pattern detection
 │
 ├── examples/                     # 20+ working examples
 │   ├── basic/
@@ -199,10 +217,14 @@ RustCompute/
 | `ringkernel-derive` | Working | Proc macros for message/kernel definitions |
 | `ringkernel-codegen` | In Development | GPU kernel code generation |
 | `ringkernel-cuda-codegen` | Working | Rust-to-CUDA transpiler for GPU kernels |
+| `ringkernel-wgpu-codegen` | Working | Rust-to-WGSL transpiler for GPU kernels |
 | `ringkernel-ecosystem` | Working | Integration utilities |
 | `ringkernel-audio-fft` | Working | Example: GPU audio FFT processing |
 | `ringkernel-wavesim` | Working | Example: 2D wave simulation with FDTD |
+| `ringkernel-wavesim3d` | Working | Showcase: 3D wave simulation with binaural audio |
 | `ringkernel-txmon` | Working | Showcase: GPU-accelerated transaction monitoring |
+| `ringkernel-accnet` | Working | Showcase: Accounting network analytics |
+| `ringkernel-procint` | Working | Showcase: Process intelligence with DFG mining |
 
 ---
 
@@ -223,7 +245,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT OR Apache-2.0"

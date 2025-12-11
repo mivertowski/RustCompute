@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2025-12-11
+
+### Added
+
+#### New Crate
+- **WaveSim3D** (`ringkernel-wavesim3d`) - 3D acoustic wave simulation with realistic physics
+  - Full 3D FDTD (Finite-Difference Time-Domain) wave propagation solver
+  - Binaural audio rendering with HRTF (Head-Related Transfer Function) support
+  - Volumetric ray marching visualization for real-time 3D pressure field rendering
+  - GPU-native actor system for distributed 3D wave simulation
+  - Support for multiple sound sources with frequency-dependent propagation
+  - Material absorption modeling with frequency-dependent coefficients
+  - Interactive 3D camera controls and visualization modes
+
+### Changed
+- Added `required-features` to CUDA-only wavesim binaries to fix build without CUDA
+- Updated GitHub Actions release workflow with proper feature flags and Ubuntu version
+
+### Fixed
+- Fixed release workflow feature flags for showcase applications
+- Fixed Ubuntu version compatibility in CI/CD pipeline
+
 ## [0.1.1] - 2025-12-04
 
 ### Added
@@ -108,6 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLAUDE.md with build commands and architecture overview
 - Code examples for all major features
 
-[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/mivertowski/RustCompute/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/mivertowski/RustCompute/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/mivertowski/RustCompute/releases/tag/v0.1.0

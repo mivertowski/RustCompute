@@ -6,7 +6,6 @@
 //! - Frequency-dependent atmospheric damping (ISO 9613-1)
 //! - Multiple propagation media (air, water, metal)
 
-
 /// Physical constants for acoustic simulations.
 pub mod constants {
     /// Speed of sound at 0°C in dry air (m/s)
@@ -41,9 +40,10 @@ pub mod constants {
 }
 
 /// Propagation medium types with distinct physical properties.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Medium {
     /// Air at given temperature and humidity
+    #[default]
     Air,
     /// Fresh water
     Water,
@@ -53,12 +53,6 @@ pub enum Medium {
     Aluminum,
     /// Custom medium with user-defined properties
     Custom,
-}
-
-impl Default for Medium {
-    fn default() -> Self {
-        Medium::Air
-    }
 }
 
 /// Properties of a propagation medium.
@@ -258,6 +252,7 @@ pub struct AtmosphericAbsorption {
     /// Temperature in Celsius
     temperature_c: f32,
     /// Relative humidity (0-100%)
+    #[allow(dead_code)]
     humidity_percent: f32,
     /// Atmospheric pressure in Pascals
     pressure_pa: f32,
@@ -310,16 +305,12 @@ impl AtmosphericAbsorption {
         let alpha_classic = 1.84e-11 * pressure_ratio.recip() * temp_ratio.sqrt() * f_sq;
 
         // Vibrational relaxation absorption for oxygen
-        let alpha_o = 0.01275
-            * (-2239.1 / temp_k).exp()
-            * (self.fr_o + f_sq / self.fr_o).recip()
-            * f_sq;
+        let alpha_o =
+            0.01275 * (-2239.1 / temp_k).exp() * (self.fr_o + f_sq / self.fr_o).recip() * f_sq;
 
         // Vibrational relaxation absorption for nitrogen
-        let alpha_n = 0.1068
-            * (-3352.0 / temp_k).exp()
-            * (self.fr_n + f_sq / self.fr_n).recip()
-            * f_sq;
+        let alpha_n =
+            0.1068 * (-3352.0 / temp_k).exp() * (self.fr_n + f_sq / self.fr_n).recip() * f_sq;
 
         // Total absorption in dB/m (convert from Np/m to dB/m: multiply by 8.686)
         8.686 * (alpha_classic + temp_ratio.powf(-2.5) * (alpha_o + alpha_n))
@@ -361,11 +352,8 @@ impl MultiBandDamping {
     ///
     /// Uses octave bands from 31.5 Hz to 16 kHz (standard ISO bands).
     pub fn from_environment(env: &Environment, time_step: f32, _cell_size: f32) -> Self {
-        let absorption = AtmosphericAbsorption::new(
-            env.temperature_c,
-            env.humidity_percent,
-            env.pressure_pa,
-        );
+        let absorption =
+            AtmosphericAbsorption::new(env.temperature_c, env.humidity_percent, env.pressure_pa);
 
         // ISO octave band center frequencies
         let center_frequencies: Vec<f32> = vec![

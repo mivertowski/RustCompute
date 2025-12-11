@@ -9,9 +9,10 @@ use crate::simulation::physics::{AcousticParams3D, Position3D};
 use rayon::prelude::*;
 
 /// Cell type for boundary conditions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CellType {
     /// Normal cell - wave propagates freely
+    #[default]
     Normal,
     /// Absorber - absorbs waves (anechoic boundary)
     Absorber,
@@ -19,12 +20,6 @@ pub enum CellType {
     Reflector,
     /// Obstacle - solid object (partial reflection)
     Obstacle,
-}
-
-impl Default for CellType {
-    fn default() -> Self {
-        CellType::Normal
-    }
 }
 
 /// 3D simulation grid using Structure of Arrays (SoA) layout.
@@ -210,12 +205,7 @@ impl SimulationGrid3D {
     }
 
     /// Create a rectangular obstacle.
-    pub fn create_obstacle(
-        &mut self,
-        min: Position3D,
-        max: Position3D,
-        cell_type: CellType,
-    ) {
+    pub fn create_obstacle(&mut self, min: Position3D, max: Position3D, cell_type: CellType) {
         let (x0, y0, z0) = min.to_grid_indices(self.params.cell_size);
         let (x1, y1, z1) = max.to_grid_indices(self.params.cell_size);
 
@@ -645,16 +635,10 @@ mod tests {
 
         // Check that boundary cells are absorbers
         assert_eq!(grid.cell_types[grid.index(0, 0, 0)], CellType::Absorber);
-        assert_eq!(
-            grid.cell_types[grid.index(31, 31, 31)],
-            CellType::Absorber
-        );
+        assert_eq!(grid.cell_types[grid.index(31, 31, 31)], CellType::Absorber);
 
         // Check interior cell
-        assert_eq!(
-            grid.cell_types[grid.index(16, 16, 16)],
-            CellType::Normal
-        );
+        assert_eq!(grid.cell_types[grid.index(16, 16, 16)], CellType::Normal);
     }
 
     #[test]

@@ -201,14 +201,17 @@ pub struct VolumeRenderer {
     /// Volume texture
     volume_texture: wgpu::Texture,
     /// Volume texture view
+    #[allow(dead_code)]
     volume_view: wgpu::TextureView,
     /// Texture sampler
+    #[allow(dead_code)]
     sampler: wgpu::Sampler,
     /// Parameters uniform buffer
     params_buffer: wgpu::Buffer,
     /// Bind group
     bind_group: wgpu::BindGroup,
     /// Bind group layout
+    #[allow(dead_code)]
     bind_group_layout: wgpu::BindGroupLayout,
     /// Volume parameters
     pub params: VolumeParams,
@@ -258,8 +261,10 @@ impl VolumeRenderer {
             ..Default::default()
         });
 
-        let mut params = VolumeParams::default();
-        params.grid_dims = [width as u32, height as u32, depth as u32, 0];
+        let params = VolumeParams {
+            grid_dims: [width as u32, height as u32, depth as u32, 0],
+            ..Default::default()
+        };
 
         let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("volume_params_buffer"),
@@ -435,7 +440,11 @@ impl VolumeRenderer {
     }
 
     /// Render the volume
-    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera_bind_group: &'a wgpu::BindGroup) {
+    pub fn render<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        camera_bind_group: &'a wgpu::BindGroup,
+    ) {
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, camera_bind_group, &[]);
         render_pass.set_bind_group(1, &self.bind_group, &[]);

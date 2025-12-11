@@ -6,8 +6,8 @@
 //! - Interaural Level Difference (ILD)
 //! - Head shadow effect
 
-use crate::simulation::physics::{constants, Orientation3D, Position3D};
 use crate::simulation::grid3d::SimulationGrid3D;
+use crate::simulation::physics::{constants, Orientation3D, Position3D};
 use std::collections::VecDeque;
 
 /// Virtual head for binaural audio capture.
@@ -143,8 +143,7 @@ impl VirtualHead {
         } else {
             // Source is to the left
             left_gain = 1.0;
-            right_gain =
-                1.0 - shadow_factor * ((-azimuth) / std::f32::consts::FRAC_PI_2).min(1.0);
+            right_gain = 1.0 - shadow_factor * ((-azimuth) / std::f32::consts::FRAC_PI_2).min(1.0);
         }
 
         (left_gain, right_gain)
@@ -218,10 +217,8 @@ impl BinauralMicrophone {
             let n = min_remove;
 
             // Simple averaging for now (could use better filter)
-            let left_sample: f32 =
-                self.accumulated_left.iter().take(n).sum::<f32>() / n as f32;
-            let right_sample: f32 =
-                self.accumulated_right.iter().take(n).sum::<f32>() / n as f32;
+            let left_sample: f32 = self.accumulated_left.iter().take(n).sum::<f32>() / n as f32;
+            let right_sample: f32 = self.accumulated_right.iter().take(n).sum::<f32>() / n as f32;
 
             // Add to output buffers
             if self.left_buffer.len() < self.buffer_size {
@@ -231,8 +228,10 @@ impl BinauralMicrophone {
 
             // Remove processed samples (always at least 1)
             let to_remove = min_remove.max(1);
-            self.accumulated_left.drain(0..to_remove.min(self.accumulated_left.len()));
-            self.accumulated_right.drain(0..to_remove.min(self.accumulated_right.len()));
+            self.accumulated_left
+                .drain(0..to_remove.min(self.accumulated_left.len()));
+            self.accumulated_right
+                .drain(0..to_remove.min(self.accumulated_right.len()));
         }
     }
 

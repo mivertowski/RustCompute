@@ -36,9 +36,6 @@ pub mod gpu_backend;
 #[cfg(feature = "cuda")]
 pub mod actor_backend;
 
-#[cfg(feature = "cuda-codegen")]
-pub mod kernels;
-
 pub use grid3d::{CellType, GridParams, SimulationGrid3D};
 pub use physics::{
     AcousticParams3D, AtmosphericAbsorption, Environment, Medium, MediumProperties,
@@ -88,12 +85,7 @@ pub struct SimulationEngine {
 
 impl SimulationEngine {
     /// Create a new simulation engine with CPU backend.
-    pub fn new_cpu(
-        width: usize,
-        height: usize,
-        depth: usize,
-        params: AcousticParams3D,
-    ) -> Self {
+    pub fn new_cpu(width: usize, height: usize, depth: usize, params: AcousticParams3D) -> Self {
         Self {
             grid: SimulationGrid3D::new(width, height, depth, params),
             use_gpu: false,
@@ -422,9 +414,12 @@ impl SimulationConfig {
         if self.prefer_gpu {
             match self.computation_method {
                 ComputationMethod::Stencil => {
-                    if let Ok(engine) =
-                        SimulationEngine::new_gpu(self.width, self.height, self.depth, params.clone())
-                    {
+                    if let Ok(engine) = SimulationEngine::new_gpu(
+                        self.width,
+                        self.height,
+                        self.depth,
+                        params.clone(),
+                    ) {
                         return engine;
                     }
                 }
@@ -466,12 +461,7 @@ mod tests {
 
     #[test]
     fn test_simulation_engine_cpu() {
-        let mut engine = SimulationEngine::new_cpu(
-            32,
-            32,
-            32,
-            AcousticParams3D::default(),
-        );
+        let mut engine = SimulationEngine::new_cpu(32, 32, 32, AcousticParams3D::default());
 
         engine.inject_impulse(16, 16, 16, 1.0);
         engine.step();
@@ -510,19 +500,13 @@ mod tests {
 
     #[test]
     fn test_computation_method_actor() {
-        let config = SimulationConfig::default()
-            .with_computation_method(ComputationMethod::Actor);
+        let config = SimulationConfig::default().with_computation_method(ComputationMethod::Actor);
         assert_eq!(config.computation_method, ComputationMethod::Actor);
     }
 
     #[test]
     fn test_engine_computation_method() {
-        let engine = SimulationEngine::new_cpu(
-            16,
-            16,
-            16,
-            AcousticParams3D::default(),
-        );
+        let engine = SimulationEngine::new_cpu(16, 16, 16, AcousticParams3D::default());
         assert_eq!(engine.computation_method(), ComputationMethod::Stencil);
     }
 }

@@ -39,8 +39,10 @@ impl WaveSim3DApp {
         // Initialize renderer
         let grid_size = engine.grid.physical_size();
         let grid_dimensions = engine.dimensions();
-        let renderer = pollster::block_on(async { Renderer3D::new(&window, grid_size, grid_dimensions).await })
-            .expect("Failed to create renderer");
+        let renderer = pollster::block_on(async {
+            Renderer3D::new(&window, grid_size, grid_dimensions).await
+        })
+        .expect("Failed to create renderer");
 
         Self {
             window,
@@ -73,8 +75,8 @@ impl WaveSim3DApp {
 
         // Run simulation steps if playing
         if self.gui_state.is_playing {
-            let steps = (self.gui_state.steps_per_frame as f32 * self.gui_state.simulation_speed)
-                as usize;
+            let steps =
+                (self.gui_state.steps_per_frame as f32 * self.gui_state.simulation_speed) as usize;
             for _ in 0..steps.max(1) {
                 // Update audio sources
                 for source in self.audio_system.sources.iter_mut() {
@@ -152,11 +154,9 @@ impl WaveSim3DApp {
         // For impulse, inject directly into grid
         if self.gui_state.source_type_idx == 0 {
             let pos = self.gui_state.source_position(grid_size);
-            self.engine.grid.inject_spherical_impulse(
-                pos,
-                self.gui_state.source_amplitude,
-                2.0,
-            );
+            self.engine
+                .grid
+                .inject_spherical_impulse(pos, self.gui_state.source_amplitude, 2.0);
         } else {
             // For continuous sources, add to audio system
             self.audio_system.add_source(source);

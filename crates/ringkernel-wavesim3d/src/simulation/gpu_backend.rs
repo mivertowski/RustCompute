@@ -206,13 +206,17 @@ impl GpuBackend3D {
             .map_err(|e| GpuError::CompileError(e.to_string()))?;
 
         device
-            .load_ptx(ptx, "fdtd3d", &[
-                "fdtd_3d_step",
-                "apply_boundary_conditions",
-                "swap_buffers",
-                "inject_impulse",
-                "inject_spherical_impulse",
-            ])
+            .load_ptx(
+                ptx,
+                "fdtd3d",
+                &[
+                    "fdtd_3d_step",
+                    "apply_boundary_conditions",
+                    "swap_buffers",
+                    "inject_impulse",
+                    "inject_spherical_impulse",
+                ],
+            )
             .map_err(|e| GpuError::CompileError(e.to_string()))?;
 
         let total_cells = grid.width * grid.height * grid.depth;

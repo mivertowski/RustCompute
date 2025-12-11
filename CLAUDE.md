@@ -79,6 +79,7 @@ The project is a Cargo workspace with these crates:
 - **`ringkernel-ecosystem`** - Integration utilities
 - **`ringkernel-audio-fft`** - Example application: GPU-accelerated audio FFT processing
 - **`ringkernel-wavesim`** - Example application: 2D acoustic wave simulation with GPU-accelerated FDTD and educational simulation modes
+- **`ringkernel-wavesim3d`** - Example application: 3D acoustic wave simulation with binaural audio and volumetric ray marching visualization
 - **`ringkernel-txmon`** - Showcase application: GPU-accelerated transaction monitoring with real-time fraud detection GUI
 - **`ringkernel-accnet`** - Showcase application: GPU-accelerated accounting network visualization
 - **`ringkernel-procint`** - Showcase application: GPU-accelerated process intelligence with DFG mining, pattern detection, and conformance checking
@@ -278,7 +279,7 @@ Main crate (`ringkernel`) features:
 
 ### Test Count Summary
 
-470+ tests across the workspace:
+520+ tests across the workspace:
 - ringkernel-core: 65 tests
 - ringkernel-cpu: 11 tests
 - ringkernel-cuda: 6 GPU execution tests
@@ -286,6 +287,7 @@ Main crate (`ringkernel`) features:
 - ringkernel-wgpu-codegen: 50 tests (types, intrinsics, transpiler, validation)
 - ringkernel-derive: 14 macro tests
 - ringkernel-wavesim: 49 tests (including educational modes)
+- ringkernel-wavesim3d: 48 tests (3D FDTD, binaural audio, volumetric rendering)
 - ringkernel-txmon: 40 tests (GPU types, batch kernel, stencil kernel, ring kernel backends)
 - ringkernel-procint: 77 tests (DFG construction, pattern detection, partial order, conformance checking)
 - k2k_integration: 11 tests

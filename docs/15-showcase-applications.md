@@ -6,7 +6,7 @@ nav_order: 16
 
 # Showcase Applications
 
-RingKernel includes four comprehensive showcase applications demonstrating GPU-accelerated computing with the actor model. Each showcases different aspects of the framework.
+RingKernel includes five comprehensive showcase applications demonstrating GPU-accelerated computing with the actor model. Each showcases different aspects of the framework.
 
 ---
 
@@ -38,6 +38,67 @@ cargo run -p ringkernel-wavesim --release
 ```
 
 Click anywhere on the canvas to inject wave impulses.
+
+---
+
+## WaveSim3D - 3D Acoustic Wave Simulation
+
+**Comprehensive 3D acoustic wave simulation** with realistic physics, binaural audio, and volumetric visualization.
+
+### Key Features
+
+- **Realistic 3D Physics**: Temperature-dependent speed of sound, ISO 9613-1 atmospheric absorption, multiple media (air, water, metal)
+- **3D FDTD Solver**: 7-point stencil Laplacian with CFL stability, absorbing boundary conditions
+- **Binaural Audio**: Virtual head with ITD/ILD modeling, realistic ear spacing (~17cm)
+- **Two GPU Computation Methods**:
+  - **Stencil**: Traditional shared memory tiling for maximum throughput
+  - **Actor**: Cell-as-actor paradigm with message-based halo exchange and HLC
+
+### Visualization
+
+- **Volumetric Ray Marching**: Real-time 3D pressure field rendering
+- **Slice Views**: XY, XZ, and YZ plane cuts through the volume
+- **Interactive Camera**: Orbit, pan, and zoom controls
+- **Source/Listener Markers**: Visual feedback for audio positioning
+
+### Audio Sources
+
+| Type | Description |
+|------|-------------|
+| Impulse | Click/clap transients |
+| Tone | Continuous sine wave |
+| Chirp | Frequency sweep |
+| Noise | White/pink noise |
+| Gaussian | Gaussian pulse |
+| WAV File | Audio file playback |
+
+### Performance
+
+| Grid Size | Backend | Performance |
+|-----------|---------|-------------|
+| 64³ cells | CPU (Rayon) | ~120 steps/sec |
+| 64³ cells | CUDA | ~2000 steps/sec |
+| 128³ cells | CUDA | ~400 steps/sec |
+
+### Run It
+
+```bash
+# CPU backend
+cargo run -p ringkernel-wavesim3d --release
+
+# With CUDA acceleration
+cargo run -p ringkernel-wavesim3d --release --features cuda
+```
+
+### Controls
+
+| Key | Action |
+|-----|--------|
+| Space | Play/Pause |
+| R | Reset simulation |
+| I | Inject impulse |
+| 1/2/3 | Toggle XY/XZ/YZ slice |
+| Mouse | Orbit/Pan/Zoom camera |
 
 ---
 
@@ -166,24 +227,25 @@ cargo run -p ringkernel-procint --bin procint-benchmark --release
 
 ## Common Patterns Across Showcases
 
-All four applications demonstrate RingKernel's core capabilities:
+All five applications demonstrate RingKernel's core capabilities:
 
-| Pattern | WaveSim | TxMon | AccNet | ProcInt |
-|---------|---------|-------|--------|---------|
-| GPU Actor Model | Tile actors | Ring kernels | Analysis actors | DFG/Pattern kernels |
-| K2K Messaging | Halo exchange | Multi-stage pipeline | Network analysis | Kernel coordination |
-| Real-time GUI | egui + glow | egui dashboard | egui graph canvas | egui DFG + Timeline |
-| Multi-backend | CPU/CUDA/WGPU | CPU/CUDA | CPU/CUDA | CPU/CUDA |
-| HLC Timestamps | Tile ordering | Transaction ordering | Event ordering | Trace ordering |
+| Pattern | WaveSim | WaveSim3D | TxMon | AccNet | ProcInt |
+|---------|---------|-----------|-------|--------|---------|
+| GPU Actor Model | Tile actors | Cell actors | Ring kernels | Analysis actors | DFG/Pattern kernels |
+| K2K Messaging | Halo exchange | 3D halo exchange | Multi-stage pipeline | Network analysis | Kernel coordination |
+| Real-time GUI | iced canvas | wgpu + egui | iced dashboard | egui graph canvas | egui DFG + Timeline |
+| Multi-backend | CPU/CUDA/WGPU | CPU/CUDA | CPU/CUDA | CPU/CUDA | CPU/CUDA |
+| HLC Timestamps | Tile ordering | Cell ordering | Transaction ordering | Event ordering | Trace ordering |
+| Visualization | 2D pressure | 3D volume + slices | Alerts dashboard | Network graph | DFG + Timeline |
 
 ### Build All Showcases
 
 ```bash
 # All showcases, CPU only
-cargo build -p ringkernel-wavesim -p ringkernel-txmon -p ringkernel-accnet -p ringkernel-procint --release
+cargo build -p ringkernel-wavesim -p ringkernel-wavesim3d -p ringkernel-txmon -p ringkernel-accnet -p ringkernel-procint --release
 
 # With CUDA support
-cargo build -p ringkernel-wavesim -p ringkernel-txmon -p ringkernel-accnet -p ringkernel-procint --release --features cuda
+cargo build -p ringkernel-wavesim -p ringkernel-wavesim3d -p ringkernel-txmon -p ringkernel-accnet -p ringkernel-procint --release --features cuda
 ```
 
 ---

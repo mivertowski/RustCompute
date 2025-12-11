@@ -41,7 +41,9 @@ use super::grid3d::{CellType, GridParams, SimulationGrid3D};
 use std::sync::Arc;
 
 #[cfg(feature = "cuda")]
-use cudarc::driver::{CudaDevice, CudaSlice, DeviceRepr, LaunchAsync, LaunchConfig, ValidAsZeroBits};
+use cudarc::driver::{
+    CudaDevice, CudaSlice, DeviceRepr, LaunchAsync, LaunchConfig, ValidAsZeroBits,
+};
 #[cfg(feature = "cuda")]
 use cudarc::nvrtc;
 
@@ -1104,7 +1106,8 @@ impl ActorGpuBackend3D {
                 .get_func("actor_wavesim", "init_inbox_headers")
                 .ok_or_else(|| ActorError::LaunchError("init_inbox_headers not found".into()))?;
 
-            let blocks = (total_cells + config.block_size as usize - 1) / config.block_size as usize;
+            let blocks =
+                (total_cells + config.block_size as usize - 1) / config.block_size as usize;
             let launch_config = LaunchConfig {
                 block_dim: (config.block_size, 1, 1),
                 grid_dim: (blocks as u32, 1, 1),
@@ -1115,11 +1118,7 @@ impl ActorGpuBackend3D {
                 init_kernel
                     .launch(
                         launch_config,
-                        (
-                            &inbox_headers,
-                            total_cells as u32,
-                            config.inbox_capacity,
-                        ),
+                        (&inbox_headers, total_cells as u32, config.inbox_capacity),
                     )
                     .map_err(|e| ActorError::LaunchError(e.to_string()))?;
             }
@@ -1168,8 +1167,8 @@ impl ActorGpuBackend3D {
             .get_func("actor_wavesim", "cell_actor_kernel")
             .ok_or_else(|| ActorError::LaunchError("cell_actor_kernel not found".into()))?;
 
-        let blocks =
-            (self.total_cells + self.config.block_size as usize - 1) / self.config.block_size as usize;
+        let blocks = (self.total_cells + self.config.block_size as usize - 1)
+            / self.config.block_size as usize;
         let launch_config = LaunchConfig {
             block_dim: (self.config.block_size, 1, 1),
             grid_dim: (blocks as u32, 1, 1),
@@ -1230,8 +1229,8 @@ impl ActorGpuBackend3D {
             .htod_sync_copy(&grid.pressure_prev)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
-        let blocks =
-            (self.total_cells + self.config.block_size as usize - 1) / self.config.block_size as usize;
+        let blocks = (self.total_cells + self.config.block_size as usize - 1)
+            / self.config.block_size as usize;
         let launch_config = LaunchConfig {
             block_dim: (self.config.block_size, 1, 1),
             grid_dim: (blocks as u32, 1, 1),
@@ -1301,8 +1300,8 @@ impl ActorGpuBackend3D {
             .get_func("actor_wavesim", "init_cell_states")
             .ok_or_else(|| ActorError::LaunchError("init_cell_states not found".into()))?;
 
-        let blocks =
-            (self.total_cells + self.config.block_size as usize - 1) / self.config.block_size as usize;
+        let blocks = (self.total_cells + self.config.block_size as usize - 1)
+            / self.config.block_size as usize;
         let launch_config = LaunchConfig {
             block_dim: (self.config.block_size, 1, 1),
             grid_dim: (blocks as u32, 1, 1),
@@ -1338,8 +1337,8 @@ impl ActorGpuBackend3D {
             .get_func("actor_wavesim", "init_inbox_headers")
             .ok_or_else(|| ActorError::LaunchError("init_inbox_headers not found".into()))?;
 
-        let blocks =
-            (self.total_cells + self.config.block_size as usize - 1) / self.config.block_size as usize;
+        let blocks = (self.total_cells + self.config.block_size as usize - 1)
+            / self.config.block_size as usize;
         let launch_config = LaunchConfig {
             block_dim: (self.config.block_size, 1, 1),
             grid_dim: (blocks as u32, 1, 1),
@@ -1467,21 +1466,33 @@ mod tests {
     fn test_halo_message_size() {
         // HaloMessage: 40 bytes (6x u32/f32 + 2x u64)
         let size = std::mem::size_of::<HaloMessage>();
-        assert!(size >= 40, "HaloMessage should be at least 40 bytes, got {}", size);
+        assert!(
+            size >= 40,
+            "HaloMessage should be at least 40 bytes, got {}",
+            size
+        );
     }
 
     #[test]
     fn test_cell_actor_state_size() {
         // CellActorState: 64 bytes
         let size = std::mem::size_of::<CellActorState>();
-        assert!(size >= 56, "CellActorState should be at least 56 bytes, got {}", size);
+        assert!(
+            size >= 56,
+            "CellActorState should be at least 56 bytes, got {}",
+            size
+        );
     }
 
     #[test]
     fn test_actor_tile_control_size() {
         // ActorTileControl: varies based on padding
         let size = std::mem::size_of::<ActorTileControl>();
-        assert!(size >= 104, "ActorTileControl should be at least 104 bytes, got {}", size);
+        assert!(
+            size >= 104,
+            "ActorTileControl should be at least 104 bytes, got {}",
+            size
+        );
     }
 
     #[test]
@@ -1521,8 +1532,7 @@ mod tests {
 
     #[test]
     fn test_halo_message_creation() {
-        let msg = HaloMessage::new(0, 1, Direction3D::East, 1.5, 1.2)
-            .with_hlc(1000, 5);
+        let msg = HaloMessage::new(0, 1, Direction3D::East, 1.5, 1.2).with_hlc(1000, 5);
 
         assert_eq!(msg.source_idx, 0);
         assert_eq!(msg.dest_idx, 1);

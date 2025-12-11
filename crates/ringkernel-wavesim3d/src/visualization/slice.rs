@@ -6,20 +6,15 @@ use super::{ColorMap, Vertex3D};
 use crate::simulation::SimulationGrid3D;
 
 /// Which axis the slice is perpendicular to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SliceAxis {
     /// XY plane (perpendicular to Z)
+    #[default]
     XY,
     /// XZ plane (perpendicular to Y)
     XZ,
     /// YZ plane (perpendicular to X)
     YZ,
-}
-
-impl Default for SliceAxis {
-    fn default() -> Self {
-        SliceAxis::XY
-    }
 }
 
 /// Configuration for a slice through the volume.

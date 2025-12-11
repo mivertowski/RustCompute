@@ -35,9 +35,12 @@ A comprehensive 3D acoustic wave simulation with realistic physics, binaural aud
 - **WAV file I/O** for recording and playback
 
 ### GPU Acceleration
+- **Two computation methods**:
+  - **Stencil**: Traditional GPU stencil computation with shared memory tiling
+  - **Actor**: Novel cell-as-actor paradigm with message-based halo exchange and HLC
 - **CUDA backend** for NVIDIA GPUs
 - **CPU fallback** with Rayon parallelization
-- Efficient 3D packed stencil kernel
+- **Volumetric ray marching** for real-time 3D pressure field visualization
 
 ### 3D Visualization
 - **wgpu-based rendering** (Vulkan, Metal, DX12)
@@ -92,6 +95,8 @@ let config = SimulationConfig {
         ..Default::default()
     },
     prefer_gpu: true,
+    computation_method: ComputationMethod::Stencil, // or ComputationMethod::Actor
+    ..Default::default()
 };
 
 let mut engine = config.build();

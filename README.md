@@ -234,11 +234,12 @@ cargo run -p ringkernel --example wgpu_hello --features wgpu
 
 ## Showcase Applications
 
-RingKernel includes four comprehensive showcase applications demonstrating GPU-accelerated computing.
+RingKernel includes five comprehensive showcase applications demonstrating GPU-accelerated computing.
 
 | App | Description | Run Command |
 |-----|-------------|-------------|
 | **WaveSim** | 2D acoustic wave simulation with FDTD | `cargo run -p ringkernel-wavesim --release` |
+| **WaveSim3D** | 3D acoustic wave simulation with binaural audio | `cargo run -p ringkernel-wavesim3d --release` |
 | **TxMon** | Real-time transaction monitoring | `cargo run -p ringkernel-txmon --release` |
 | **AccNet** | Accounting network analytics | `cargo run -p ringkernel-accnet --release` |
 | **ProcInt** | Process intelligence with DFG mining | `cargo run -p ringkernel-procint --release` |
@@ -259,6 +260,7 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 | `ringkernel-cuda-codegen` | Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL |
 | `ringkernel-wgpu-codegen` | Rust-to-WGSL transpiler for writing GPU kernels in Rust DSL (WebGPU) |
 | `ringkernel-wavesim` | 2D wave simulation demo with tile-based FDTD and educational modes |
+| `ringkernel-wavesim3d` | 3D acoustic wave simulation with binaural audio and volumetric rendering |
 | `ringkernel-txmon` | Transaction monitoring showcase with GPU-accelerated fraud detection |
 | `ringkernel-accnet` | Accounting network analytics with fraud detection and GAAP compliance |
 | `ringkernel-procint` | Process intelligence with DFG mining, pattern detection, conformance checking |
@@ -266,7 +268,7 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 ## Testing
 
 ```bash
-# Run all tests (470+ tests)
+# Run all tests (520+ tests)
 cargo test --workspace
 
 # CUDA backend tests (requires NVIDIA GPU)

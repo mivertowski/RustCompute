@@ -21,7 +21,13 @@ fn main() {
     let num_steps = 100;
 
     println!("Configuration:");
-    println!("  Grid: {}×{}×{} = {} cells", width, height, depth, width * height * depth);
+    println!(
+        "  Grid: {}×{}×{} = {} cells",
+        width,
+        height,
+        depth,
+        width * height * depth
+    );
     println!("  Steps: {}", num_steps);
     println!();
 
@@ -41,8 +47,10 @@ fn main() {
         start.elapsed()
     };
     println!("  CPU time: {:?}", cpu_time);
-    println!("  CPU throughput: {:.2} Mcells/s",
-        (width * height * depth * num_steps) as f64 / cpu_time.as_secs_f64() / 1e6);
+    println!(
+        "  CPU throughput: {:.2} Mcells/s",
+        (width * height * depth * num_steps) as f64 / cpu_time.as_secs_f64() / 1e6
+    );
     println!();
 
     // GPU Stencil benchmark
@@ -66,9 +74,14 @@ fn main() {
                 let gpu_time = start.elapsed();
 
                 println!("  GPU Stencil time: {:?}", gpu_time);
-                println!("  GPU Stencil throughput: {:.2} Mcells/s",
-                    (width * height * depth * num_steps) as f64 / gpu_time.as_secs_f64() / 1e6);
-                println!("  Speedup vs CPU: {:.1}x", cpu_time.as_secs_f64() / gpu_time.as_secs_f64());
+                println!(
+                    "  GPU Stencil throughput: {:.2} Mcells/s",
+                    (width * height * depth * num_steps) as f64 / gpu_time.as_secs_f64() / 1e6
+                );
+                println!(
+                    "  Speedup vs CPU: {:.1}x",
+                    cpu_time.as_secs_f64() / gpu_time.as_secs_f64()
+                );
             }
             Err(e) => {
                 println!("  GPU Stencil not available: {}", e);
@@ -100,9 +113,14 @@ fn main() {
             let actor_time = start.elapsed();
 
             println!("  GPU Actor time: {:?}", actor_time);
-            println!("  GPU Actor throughput: {:.2} Mcells/s",
-                (width * height * depth * num_steps) as f64 / actor_time.as_secs_f64() / 1e6);
-            println!("  Speedup vs CPU: {:.1}x", cpu_time.as_secs_f64() / actor_time.as_secs_f64());
+            println!(
+                "  GPU Actor throughput: {:.2} Mcells/s",
+                (width * height * depth * num_steps) as f64 / actor_time.as_secs_f64() / 1e6
+            );
+            println!(
+                "  Speedup vs CPU: {:.1}x",
+                cpu_time.as_secs_f64() / actor_time.as_secs_f64()
+            );
 
             // Print actor stats
             if let Some(stats) = engine.actor_stats() {
@@ -110,7 +128,10 @@ fn main() {
                 println!("Actor Statistics:");
                 println!("  Total cells: {}", stats.total_cells);
                 println!("  Inbox capacity: {}", stats.inbox_capacity);
-                println!("  Memory usage: {:.2} MB", stats.memory_usage_bytes as f64 / 1e6);
+                println!(
+                    "  Memory usage: {:.2} MB",
+                    stats.memory_usage_bytes as f64 / 1e6
+                );
             }
         } else {
             println!("  GPU Actor not available (falling back to CPU)");

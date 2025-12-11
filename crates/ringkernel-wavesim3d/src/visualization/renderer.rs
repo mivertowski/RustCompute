@@ -10,22 +10,17 @@ use crate::simulation::physics::Position3D;
 use wgpu::util::DeviceExt;
 
 /// Visualization mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VisualizationMode {
     /// Single slice view
     SingleSlice,
     /// Multiple orthogonal slices
     MultiSlice,
     /// Volume rendering (ray marching)
+    #[default]
     VolumeRender,
     /// Isosurface rendering
     Isosurface,
-}
-
-impl Default for VisualizationMode {
-    fn default() -> Self {
-        VisualizationMode::VolumeRender
-    }
 }
 
 /// Rendering configuration.
@@ -161,8 +156,10 @@ pub struct Renderer3D {
     /// Volume renderer
     volume_renderer: Option<VolumeRenderer>,
     /// Grid dimensions (cells)
+    #[allow(dead_code)]
     grid_dimensions: (usize, usize, usize),
     /// Camera bind group layout (for volume renderer)
+    #[allow(dead_code)]
     camera_bind_group_layout: wgpu::BindGroupLayout,
     /// Camera
     pub camera: Camera3D,
@@ -428,8 +425,7 @@ impl Renderer3D {
 
     /// Add a source marker.
     pub fn add_source(&mut self, position: Position3D, color: [f32; 4]) {
-        self.sources
-            .push(MarkerSphere::new(position, 0.1, color));
+        self.sources.push(MarkerSphere::new(position, 0.1, color));
     }
 
     /// Clear source markers.
@@ -540,13 +536,12 @@ impl Renderer3D {
         if self.config.auto_scale {
             self.slice_renderer.set_max_pressure(grid.max_pressure());
         } else {
-            self.slice_renderer.set_max_pressure(self.config.max_pressure);
+            self.slice_renderer
+                .set_max_pressure(self.config.max_pressure);
         }
 
         // Generate vertices
-        let slice_vertices = self
-            .slice_renderer
-            .generate_vertices(grid, self.grid_size);
+        let slice_vertices = self.slice_renderer.generate_vertices(grid, self.grid_size);
 
         let mut line_vertices = Vec::new();
 

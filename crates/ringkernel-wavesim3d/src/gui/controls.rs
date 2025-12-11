@@ -251,7 +251,11 @@ impl SimulationControls {
 
         ui.horizontal(|ui| {
             if ui
-                .button(if self.state.is_playing { "⏸ Pause" } else { "▶ Play" })
+                .button(if self.state.is_playing {
+                    "⏸ Pause"
+                } else {
+                    "▶ Play"
+                })
                 .clicked()
             {
                 self.state.is_playing = !self.state.is_playing;
@@ -263,7 +267,10 @@ impl SimulationControls {
 
         ui.horizontal(|ui| {
             ui.label("Speed:");
-            ui.add(egui::Slider::new(&mut self.state.simulation_speed, 0.1..=5.0));
+            ui.add(egui::Slider::new(
+                &mut self.state.simulation_speed,
+                0.1..=5.0,
+            ));
         });
 
         ui.horizontal(|ui| {
@@ -283,12 +290,18 @@ impl SimulationControls {
 
         ui.horizontal(|ui| {
             ui.label("Temperature (°C):");
-            ui.add(egui::Slider::new(&mut self.state.temperature_c, -20.0..=40.0));
+            ui.add(egui::Slider::new(
+                &mut self.state.temperature_c,
+                -20.0..=40.0,
+            ));
         });
 
         ui.horizontal(|ui| {
             ui.label("Humidity (%):");
-            ui.add(egui::Slider::new(&mut self.state.humidity_percent, 0.0..=100.0));
+            ui.add(egui::Slider::new(
+                &mut self.state.humidity_percent,
+                0.0..=100.0,
+            ));
         });
 
         ui.horizontal(|ui| {
@@ -343,14 +356,20 @@ impl SimulationControls {
 
         ui.horizontal(|ui| {
             ui.label("Amplitude:");
-            ui.add(egui::Slider::new(&mut self.state.source_amplitude, 0.1..=5.0));
+            ui.add(egui::Slider::new(
+                &mut self.state.source_amplitude,
+                0.1..=5.0,
+            ));
         });
 
         if self.state.source_type_idx == 1 {
             // Tone
             ui.horizontal(|ui| {
                 ui.label("Frequency (Hz):");
-                ui.add(egui::Slider::new(&mut self.state.source_frequency, 20.0..=2000.0).logarithmic(true));
+                ui.add(
+                    egui::Slider::new(&mut self.state.source_frequency, 20.0..=2000.0)
+                        .logarithmic(true),
+                );
             });
         }
 
@@ -380,7 +399,10 @@ impl SimulationControls {
 
         ui.horizontal(|ui| {
             ui.label("Yaw (°):");
-            ui.add(egui::Slider::new(&mut self.state.listener_yaw, -180.0..=180.0));
+            ui.add(egui::Slider::new(
+                &mut self.state.listener_yaw,
+                -180.0..=180.0,
+            ));
         });
     }
 
@@ -411,7 +433,9 @@ impl SimulationControls {
         if !self.state.auto_scale {
             ui.horizontal(|ui| {
                 ui.label("Max pressure:");
-                ui.add(egui::Slider::new(&mut self.state.max_pressure, 0.1..=10.0).logarithmic(true));
+                ui.add(
+                    egui::Slider::new(&mut self.state.max_pressure, 0.1..=10.0).logarithmic(true),
+                );
             });
         }
 

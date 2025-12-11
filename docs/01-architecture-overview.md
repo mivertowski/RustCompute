@@ -13,14 +13,17 @@ RingKernel is under active development. The core runtime, CPU backend, CUDA back
 **Working today:**
 - Runtime creation and kernel lifecycle management
 - CPU backend (fully functional)
-- CUDA backend (verified with real PTX kernels, ~75M elements/sec)
+- CUDA backend (verified with real PTX kernels, ~93B elements/sec)
 - WebGPU backend (cross-platform via wgpu)
 - Message passing infrastructure (queues, serialization, HLC timestamps)
 - Pub/Sub messaging with topic wildcards
 - K2K (kernel-to-kernel) direct messaging
 - Telemetry and metrics collection
 - Rust-to-CUDA transpiler (ringkernel-cuda-codegen)
-- 11 working examples + WaveSim showcase app
+- Rust-to-WGSL transpiler (ringkernel-wgpu-codegen)
+- 20+ working examples
+- 5 showcase applications: WaveSim, WaveSim3D, TxMon, AccNet, ProcInt
+- 520+ tests across the workspace
 
 **In progress:**
 - Metal backend (scaffolded)

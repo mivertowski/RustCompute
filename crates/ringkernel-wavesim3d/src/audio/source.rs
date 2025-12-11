@@ -13,10 +13,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub enum SourceType {
     /// Single impulse (delta function)
-    Impulse {
-        amplitude: f32,
-        fired: bool,
-    },
+    Impulse { amplitude: f32, fired: bool },
     /// Continuous sinusoidal tone
     Tone {
         frequency_hz: f32,
@@ -261,11 +258,16 @@ impl AudioSource {
                     // Paul Kellet's pink noise filter
                     state[0] = 0.99886 * state[0] + white * 0.0555179;
                     state[1] = 0.99332 * state[1] + white * 0.0750759;
-                    state[2] = 0.96900 * state[2] + white * 0.1538520;
+                    state[2] = 0.96900 * state[2] + white * 0.153_852;
                     state[3] = 0.86650 * state[3] + white * 0.3104856;
                     state[4] = 0.55000 * state[4] + white * 0.5329522;
                     state[5] = -0.7616 * state[5] - white * 0.0168980;
-                    let pink = state[0] + state[1] + state[2] + state[3] + state[4] + state[5]
+                    let pink = state[0]
+                        + state[1]
+                        + state[2]
+                        + state[3]
+                        + state[4]
+                        + state[5]
                         + state[6]
                         + white * 0.5362;
                     state[6] = white * 0.115926;
@@ -512,7 +514,12 @@ mod tests {
         let mut manager = SourceManager::new();
 
         let id1 = manager.add(AudioSource::impulse(0, Position3D::origin(), 1.0));
-        let id2 = manager.add(AudioSource::tone(0, Position3D::new(1.0, 0.0, 0.0), 440.0, 0.5));
+        let id2 = manager.add(AudioSource::tone(
+            0,
+            Position3D::new(1.0, 0.0, 0.0),
+            440.0,
+            0.5,
+        ));
 
         assert_eq!(manager.len(), 2);
 
@@ -531,8 +538,7 @@ mod tests {
 
     #[test]
     fn test_gaussian_pulse() {
-        let mut source =
-            AudioSource::gaussian_pulse(0, Position3D::origin(), 0.005, 0.001, 1.0);
+        let mut source = AudioSource::gaussian_pulse(0, Position3D::origin(), 0.005, 0.001, 1.0);
         let dt = 0.0001;
 
         let mut max_val = 0.0_f32;
