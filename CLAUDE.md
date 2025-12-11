@@ -193,14 +193,15 @@ let cuda_code = transpile_ring_kernel(&handler, &config)?;
 ```
 
 **DSL Features:**
-- Block/grid indices: `block_idx_x()`, `thread_idx_x()`, `block_dim_x()`, `grid_dim_x()`, etc.
+- Block/grid indices: `block_idx_x()`, `thread_idx_x()`, `block_dim_x()`, `grid_dim_x()`, `warp_size()`, etc.
 - Control flow: `if/else`, `match` → switch/case, early `return`
 - Loops: `for i in 0..n`, `while cond`, `loop` with `break`/`continue`
-- Stencil intrinsics: `pos.north(buf)`, `pos.south(buf)`, `pos.east(buf)`, `pos.west(buf)`, `pos.at(buf, dx, dy)`
+- Stencil intrinsics (2D): `pos.north(buf)`, `pos.south(buf)`, `pos.east(buf)`, `pos.west(buf)`, `pos.at(buf, dx, dy)`
+- Stencil intrinsics (3D): `pos.up(buf)`, `pos.down(buf)`, `pos.at(buf, dx, dy, dz)` for volumetric kernels
 - Shared memory: `__shared__` arrays and tiles with `SharedMemoryConfig`
 - Struct literals: `Point { x: 1.0, y: 2.0 }` → C compound literals
 - Reference expressions: `&arr[idx]` → pointer to element with automatic `->` operator for field access
-- 45+ GPU intrinsics (atomics, warp ops, sync, math)
+- 120+ GPU intrinsics across 13 categories (synchronization, atomics, math, trig, hyperbolic, exponential, classification, warp, bit manipulation, memory, special, index, timing)
 
 **Ring Kernel Features:**
 - Persistent message loop with ControlBlock lifecycle management
@@ -283,7 +284,7 @@ Main crate (`ringkernel`) features:
 - ringkernel-core: 65 tests
 - ringkernel-cpu: 11 tests
 - ringkernel-cuda: 6 GPU execution tests
-- ringkernel-cuda-codegen: 143 tests (loops, shared memory, ring kernels, K2K, reference expressions)
+- ringkernel-cuda-codegen: 171 tests (loops, shared memory, ring kernels, K2K, reference expressions, 120+ GPU intrinsics)
 - ringkernel-wgpu-codegen: 50 tests (types, intrinsics, transpiler, validation)
 - ringkernel-derive: 14 macro tests
 - ringkernel-wavesim: 49 tests (including educational modes)
