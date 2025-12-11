@@ -21,9 +21,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Material absorption modeling with frequency-dependent coefficients
   - Interactive 3D camera controls and visualization modes
 
+#### CUDA Codegen Intrinsics Expansion
+- Expanded GPU intrinsics from ~45 to **120+ operations** across 13 categories
+- **Atomic Operations** (11 ops): `atomic_add`, `atomic_sub`, `atomic_min`, `atomic_max`, `atomic_exchange`, `atomic_cas`, `atomic_and`, `atomic_or`, `atomic_xor`, `atomic_inc`, `atomic_dec`
+- **Synchronization** (7 ops): `sync_threads`, `sync_threads_count`, `sync_threads_and`, `sync_threads_or`, `thread_fence`, `thread_fence_block`, `thread_fence_system`
+- **Trigonometric** (11 ops): `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sincos`, `sinpi`, `cospi`
+- **Hyperbolic** (6 ops): `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`
+- **Exponential/Logarithmic** (18 ops): `exp`, `exp2`, `exp10`, `expm1`, `log`, `ln`, `log2`, `log10`, `log1p`, `pow`, `ldexp`, `scalbn`, `ilogb`, `erf`, `erfc`, `erfinv`, `erfcinv`, `lgamma`, `tgamma`
+- **Classification** (8 ops): `is_nan`, `is_infinite`, `is_finite`, `is_normal`, `signbit`, `nextafter`, `fdim`
+- **Warp Operations** (16 ops): `warp_active_mask`, `warp_shfl`, `warp_shfl_up`, `warp_shfl_down`, `warp_shfl_xor`, `warp_ballot`, `warp_all`, `warp_any`, `warp_match_any`, `warp_match_all`, `warp_reduce_add/min/max/and/or/xor`
+- **Bit Manipulation** (8 ops): `popc`, `clz`, `ctz`, `ffs`, `brev`, `byte_perm`, `funnel_shift_left`, `funnel_shift_right`
+- **Memory Operations** (3 ops): `ldg`, `prefetch_l1`, `prefetch_l2`
+- **Special Functions** (13 ops): `rcp`, `fast_div`, `saturate`, `j0`, `j1`, `jn`, `y0`, `y1`, `yn`, `normcdf`, `normcdfinv`, `cyl_bessel_i0`, `cyl_bessel_i1`
+- **Timing** (3 ops): `clock`, `clock64`, `nanosleep`
+- **3D Stencil Intrinsics**: `pos.up(buf)`, `pos.down(buf)`, `pos.at(buf, dx, dy, dz)` for volumetric kernels
+
 ### Changed
 - Added `required-features` to CUDA-only wavesim binaries to fix build without CUDA
 - Updated GitHub Actions release workflow with proper feature flags and Ubuntu version
+- Updated ringkernel-cuda-codegen tests from 143 to 171 tests
 
 ### Fixed
 - Fixed release workflow feature flags for showcase applications

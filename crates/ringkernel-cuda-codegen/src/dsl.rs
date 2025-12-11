@@ -160,21 +160,33 @@ pub fn sync_threads() {
 /// Transpiles to: `__syncthreads_count(predicate)`
 #[inline]
 pub fn sync_threads_count(predicate: bool) -> i32 {
-    if predicate { 1 } else { 0 }
+    if predicate {
+        1
+    } else {
+        0
+    }
 }
 
 /// Synchronize threads with AND of predicate.
 /// Transpiles to: `__syncthreads_and(predicate)`
 #[inline]
 pub fn sync_threads_and(predicate: bool) -> i32 {
-    if predicate { 1 } else { 0 }
+    if predicate {
+        1
+    } else {
+        0
+    }
 }
 
 /// Synchronize threads with OR of predicate.
 /// Transpiles to: `__syncthreads_or(predicate)`
 #[inline]
 pub fn sync_threads_or(predicate: bool) -> i32 {
-    if predicate { 1 } else { 0 }
+    if predicate {
+        1
+    } else {
+        0
+    }
 }
 
 /// Thread memory fence.
@@ -585,12 +597,12 @@ pub fn ilogb(x: f32) -> i32 {
 #[inline]
 pub fn erf(x: f32) -> f32 {
     // Approximation using Horner form
-    let a1 = 0.254829592_f32;
-    let a2 = -0.284496736_f32;
-    let a3 = 1.421413741_f32;
-    let a4 = -1.453152027_f32;
-    let a5 = 1.061405429_f32;
-    let p = 0.3275911_f32;
+    let a1 = 0.254_829_6_f32;
+    let a2 = -0.284_496_74_f32;
+    let a3 = 1.421_413_7_f32;
+    let a4 = -1.453_152_f32;
+    let a5 = 1.061_405_4_f32;
+    let p = 0.327_591_1_f32;
 
     let sign = if x < 0.0 { -1.0 } else { 1.0 };
     let x = x.abs();
@@ -654,7 +666,11 @@ pub fn nextafter(x: f32, y: f32) -> f32 {
 /// Floating-point difference. Transpiles to: `fdimf(x, y)`
 #[inline]
 pub fn fdim(x: f32, y: f32) -> f32 {
-    if x > y { x - y } else { 0.0 }
+    if x > y {
+        x - y
+    } else {
+        0.0
+    }
 }
 
 // ============================================================================
@@ -670,7 +686,11 @@ pub fn warp_active_mask() -> u32 {
 /// Warp ballot. Transpiles to: `__ballot_sync(mask, predicate)`
 #[inline]
 pub fn warp_ballot(_mask: u32, predicate: bool) -> u32 {
-    if predicate { 1 } else { 0 }
+    if predicate {
+        1
+    } else {
+        0
+    }
 }
 
 /// Warp all predicate. Transpiles to: `__all_sync(mask, predicate)`
@@ -788,19 +808,31 @@ pub fn leading_zeros(x: i32) -> i32 {
 /// Count trailing zeros. Transpiles to: `__ffs(x) - 1`
 #[inline]
 pub fn ctz(x: u32) -> i32 {
-    if x == 0 { 32 } else { x.trailing_zeros() as i32 }
+    if x == 0 {
+        32
+    } else {
+        x.trailing_zeros() as i32
+    }
 }
 
 /// Count trailing zeros (i32 version).
 #[inline]
 pub fn trailing_zeros(x: i32) -> i32 {
-    if x == 0 { 32 } else { (x as u32).trailing_zeros() as i32 }
+    if x == 0 {
+        32
+    } else {
+        (x as u32).trailing_zeros() as i32
+    }
 }
 
 /// Find first set bit (1-indexed, 0 if none). Transpiles to: `__ffs(x)`
 #[inline]
 pub fn ffs(x: u32) -> i32 {
-    if x == 0 { 0 } else { (x.trailing_zeros() + 1) as i32 }
+    if x == 0 {
+        0
+    } else {
+        (x.trailing_zeros() + 1) as i32
+    }
 }
 
 /// Bit reverse. Transpiles to: `__brev(x)`
@@ -1059,7 +1091,10 @@ mod tests {
     #[test]
     fn test_funnel_shift() {
         assert_eq!(funnel_shift_left(0xFFFF_0000, 0x0000_FFFF, 16), 0xFFFF_FFFF);
-        assert_eq!(funnel_shift_right(0xFFFF_0000, 0x0000_FFFF, 16), 0xFFFF_FFFF);
+        assert_eq!(
+            funnel_shift_right(0xFFFF_0000, 0x0000_FFFF, 16),
+            0xFFFF_FFFF
+        );
     }
 
     #[test]

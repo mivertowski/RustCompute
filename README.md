@@ -463,15 +463,16 @@ let cuda_code = transpile_ring_kernel(&handler, &config)?;
 ```
 
 **DSL Features:**
-- Thread/block indices: `thread_idx_x()`, `block_idx_x()`, `block_dim_x()`, `grid_dim_x()`
+- Thread/block indices: `thread_idx_x()`, `block_idx_x()`, `block_dim_x()`, `grid_dim_x()`, `warp_size()`
 - Control flow: `if/else`, `match` → switch/case, early `return`
 - Loops: `for i in 0..n`, `while cond`, `loop` with `break`/`continue`
-- Stencil patterns: `pos.north()`, `pos.south()`, `pos.east()`, `pos.west()`, `pos.at(dx, dy)`
+- Stencil patterns (2D): `pos.north()`, `pos.south()`, `pos.east()`, `pos.west()`, `pos.at(dx, dy)`
+- Stencil patterns (3D): `pos.up()`, `pos.down()`, `pos.at(dx, dy, dz)` for volumetric kernels
 - Shared memory: `__shared__` arrays and tiles
 - Struct literals: `Point { x: 1.0, y: 2.0 }` → C compound literals
 - Reference expressions: `&arr[idx]` → pointer with automatic `->` for field access
 - Type inference: Tracks pointer variables for correct accessor generation
-- 45+ GPU intrinsics (atomics, warp ops, sync, math)
+- **120+ GPU intrinsics** across 13 categories (atomics, warp ops, sync, math, trig, bit manipulation, memory, timing)
 
 **Ring Kernel Features:**
 - Persistent message loop with ControlBlock lifecycle

@@ -414,7 +414,7 @@ impl GpuIntrinsic {
             // Bit manipulation
             GpuIntrinsic::Popc => "__popc",
             GpuIntrinsic::Clz => "__clz",
-            GpuIntrinsic::Ctz => "__ffs",  // ffs returns 1 + ctz, but commonly used
+            GpuIntrinsic::Ctz => "__ffs", // ffs returns 1 + ctz, but commonly used
             GpuIntrinsic::Ffs => "__ffs",
             GpuIntrinsic::Brev => "__brev",
             GpuIntrinsic::BytePerm => "__byte_perm",
@@ -686,9 +686,18 @@ impl IntrinsicRegistry {
         // === Synchronization ===
         mappings.insert("sync_threads".to_string(), GpuIntrinsic::SyncThreads);
         mappings.insert("thread_fence".to_string(), GpuIntrinsic::ThreadFence);
-        mappings.insert("thread_fence_block".to_string(), GpuIntrinsic::ThreadFenceBlock);
-        mappings.insert("thread_fence_system".to_string(), GpuIntrinsic::ThreadFenceSystem);
-        mappings.insert("sync_threads_count".to_string(), GpuIntrinsic::SyncThreadsCount);
+        mappings.insert(
+            "thread_fence_block".to_string(),
+            GpuIntrinsic::ThreadFenceBlock,
+        );
+        mappings.insert(
+            "thread_fence_system".to_string(),
+            GpuIntrinsic::ThreadFenceSystem,
+        );
+        mappings.insert(
+            "sync_threads_count".to_string(),
+            GpuIntrinsic::SyncThreadsCount,
+        );
         mappings.insert("sync_threads_and".to_string(), GpuIntrinsic::SyncThreadsAnd);
         mappings.insert("sync_threads_or".to_string(), GpuIntrinsic::SyncThreadsOr);
 
@@ -823,8 +832,14 @@ impl IntrinsicRegistry {
         mappings.insert("brev".to_string(), GpuIntrinsic::Brev);
         mappings.insert("reverse_bits".to_string(), GpuIntrinsic::Brev);
         mappings.insert("byte_perm".to_string(), GpuIntrinsic::BytePerm);
-        mappings.insert("funnel_shift_left".to_string(), GpuIntrinsic::FunnelShiftLeft);
-        mappings.insert("funnel_shift_right".to_string(), GpuIntrinsic::FunnelShiftRight);
+        mappings.insert(
+            "funnel_shift_left".to_string(),
+            GpuIntrinsic::FunnelShiftLeft,
+        );
+        mappings.insert(
+            "funnel_shift_right".to_string(),
+            GpuIntrinsic::FunnelShiftRight,
+        );
 
         // === Memory operations ===
         mappings.insert("ldg".to_string(), GpuIntrinsic::Ldg);
@@ -1414,11 +1429,23 @@ mod tests {
         let registry = IntrinsicRegistry::new();
 
         // Test bitwise atomics
-        assert_eq!(registry.lookup("atomic_and"), Some(&GpuIntrinsic::AtomicAnd));
+        assert_eq!(
+            registry.lookup("atomic_and"),
+            Some(&GpuIntrinsic::AtomicAnd)
+        );
         assert_eq!(registry.lookup("atomic_or"), Some(&GpuIntrinsic::AtomicOr));
-        assert_eq!(registry.lookup("atomic_xor"), Some(&GpuIntrinsic::AtomicXor));
-        assert_eq!(registry.lookup("atomic_inc"), Some(&GpuIntrinsic::AtomicInc));
-        assert_eq!(registry.lookup("atomic_dec"), Some(&GpuIntrinsic::AtomicDec));
+        assert_eq!(
+            registry.lookup("atomic_xor"),
+            Some(&GpuIntrinsic::AtomicXor)
+        );
+        assert_eq!(
+            registry.lookup("atomic_inc"),
+            Some(&GpuIntrinsic::AtomicInc)
+        );
+        assert_eq!(
+            registry.lookup("atomic_dec"),
+            Some(&GpuIntrinsic::AtomicDec)
+        );
 
         // Test CUDA output
         assert_eq!(GpuIntrinsic::AtomicAnd.to_cuda_string(), "atomicAnd");
@@ -1506,28 +1533,67 @@ mod tests {
         let registry = IntrinsicRegistry::new();
 
         // Test warp reduce operations
-        assert_eq!(registry.lookup("warp_reduce_add"), Some(&GpuIntrinsic::WarpReduceAdd));
-        assert_eq!(registry.lookup("warp_reduce_min"), Some(&GpuIntrinsic::WarpReduceMin));
-        assert_eq!(registry.lookup("warp_reduce_max"), Some(&GpuIntrinsic::WarpReduceMax));
-        assert_eq!(registry.lookup("warp_reduce_and"), Some(&GpuIntrinsic::WarpReduceAnd));
-        assert_eq!(registry.lookup("warp_reduce_or"), Some(&GpuIntrinsic::WarpReduceOr));
-        assert_eq!(registry.lookup("warp_reduce_xor"), Some(&GpuIntrinsic::WarpReduceXor));
+        assert_eq!(
+            registry.lookup("warp_reduce_add"),
+            Some(&GpuIntrinsic::WarpReduceAdd)
+        );
+        assert_eq!(
+            registry.lookup("warp_reduce_min"),
+            Some(&GpuIntrinsic::WarpReduceMin)
+        );
+        assert_eq!(
+            registry.lookup("warp_reduce_max"),
+            Some(&GpuIntrinsic::WarpReduceMax)
+        );
+        assert_eq!(
+            registry.lookup("warp_reduce_and"),
+            Some(&GpuIntrinsic::WarpReduceAnd)
+        );
+        assert_eq!(
+            registry.lookup("warp_reduce_or"),
+            Some(&GpuIntrinsic::WarpReduceOr)
+        );
+        assert_eq!(
+            registry.lookup("warp_reduce_xor"),
+            Some(&GpuIntrinsic::WarpReduceXor)
+        );
 
         // Test CUDA output
-        assert_eq!(GpuIntrinsic::WarpReduceAdd.to_cuda_string(), "__reduce_add_sync");
-        assert_eq!(GpuIntrinsic::WarpReduceMin.to_cuda_string(), "__reduce_min_sync");
-        assert_eq!(GpuIntrinsic::WarpReduceMax.to_cuda_string(), "__reduce_max_sync");
+        assert_eq!(
+            GpuIntrinsic::WarpReduceAdd.to_cuda_string(),
+            "__reduce_add_sync"
+        );
+        assert_eq!(
+            GpuIntrinsic::WarpReduceMin.to_cuda_string(),
+            "__reduce_min_sync"
+        );
+        assert_eq!(
+            GpuIntrinsic::WarpReduceMax.to_cuda_string(),
+            "__reduce_max_sync"
+        );
     }
 
     #[test]
     fn test_warp_match_intrinsics() {
         let registry = IntrinsicRegistry::new();
 
-        assert_eq!(registry.lookup("warp_match_any"), Some(&GpuIntrinsic::WarpMatchAny));
-        assert_eq!(registry.lookup("warp_match_all"), Some(&GpuIntrinsic::WarpMatchAll));
+        assert_eq!(
+            registry.lookup("warp_match_any"),
+            Some(&GpuIntrinsic::WarpMatchAny)
+        );
+        assert_eq!(
+            registry.lookup("warp_match_all"),
+            Some(&GpuIntrinsic::WarpMatchAll)
+        );
 
-        assert_eq!(GpuIntrinsic::WarpMatchAny.to_cuda_string(), "__match_any_sync");
-        assert_eq!(GpuIntrinsic::WarpMatchAll.to_cuda_string(), "__match_all_sync");
+        assert_eq!(
+            GpuIntrinsic::WarpMatchAny.to_cuda_string(),
+            "__match_any_sync"
+        );
+        assert_eq!(
+            GpuIntrinsic::WarpMatchAll.to_cuda_string(),
+            "__match_all_sync"
+        );
     }
 
     #[test]
@@ -1556,11 +1622,23 @@ mod tests {
     fn test_funnel_shift_intrinsics() {
         let registry = IntrinsicRegistry::new();
 
-        assert_eq!(registry.lookup("funnel_shift_left"), Some(&GpuIntrinsic::FunnelShiftLeft));
-        assert_eq!(registry.lookup("funnel_shift_right"), Some(&GpuIntrinsic::FunnelShiftRight));
+        assert_eq!(
+            registry.lookup("funnel_shift_left"),
+            Some(&GpuIntrinsic::FunnelShiftLeft)
+        );
+        assert_eq!(
+            registry.lookup("funnel_shift_right"),
+            Some(&GpuIntrinsic::FunnelShiftRight)
+        );
 
-        assert_eq!(GpuIntrinsic::FunnelShiftLeft.to_cuda_string(), "__funnelshift_l");
-        assert_eq!(GpuIntrinsic::FunnelShiftRight.to_cuda_string(), "__funnelshift_r");
+        assert_eq!(
+            GpuIntrinsic::FunnelShiftLeft.to_cuda_string(),
+            "__funnelshift_l"
+        );
+        assert_eq!(
+            GpuIntrinsic::FunnelShiftRight.to_cuda_string(),
+            "__funnelshift_r"
+        );
     }
 
     #[test]
@@ -1569,8 +1647,14 @@ mod tests {
 
         assert_eq!(registry.lookup("ldg"), Some(&GpuIntrinsic::Ldg));
         assert_eq!(registry.lookup("load_global"), Some(&GpuIntrinsic::Ldg));
-        assert_eq!(registry.lookup("prefetch_l1"), Some(&GpuIntrinsic::PrefetchL1));
-        assert_eq!(registry.lookup("prefetch_l2"), Some(&GpuIntrinsic::PrefetchL2));
+        assert_eq!(
+            registry.lookup("prefetch_l1"),
+            Some(&GpuIntrinsic::PrefetchL1)
+        );
+        assert_eq!(
+            registry.lookup("prefetch_l2"),
+            Some(&GpuIntrinsic::PrefetchL2)
+        );
 
         assert_eq!(GpuIntrinsic::Ldg.to_cuda_string(), "__ldg");
         assert_eq!(GpuIntrinsic::PrefetchL1.to_cuda_string(), "__prefetch_l1");
@@ -1647,8 +1731,14 @@ mod tests {
 
     #[test]
     fn test_3d_stencil_intrinsics() {
-        assert_eq!(StencilIntrinsic::from_method_name("up"), Some(StencilIntrinsic::Up));
-        assert_eq!(StencilIntrinsic::from_method_name("down"), Some(StencilIntrinsic::Down));
+        assert_eq!(
+            StencilIntrinsic::from_method_name("up"),
+            Some(StencilIntrinsic::Up)
+        );
+        assert_eq!(
+            StencilIntrinsic::from_method_name("down"),
+            Some(StencilIntrinsic::Down)
+        );
 
         // Test 3D only flag
         assert!(StencilIntrinsic::Up.is_3d_only());
@@ -1670,20 +1760,41 @@ mod tests {
         assert_eq!(up.to_cuda_index_3d("p", "18", "324", "idx"), "p[idx - 324]");
 
         let down = StencilIntrinsic::Down;
-        assert_eq!(down.to_cuda_index_3d("p", "18", "324", "idx"), "p[idx + 324]");
+        assert_eq!(
+            down.to_cuda_index_3d("p", "18", "324", "idx"),
+            "p[idx + 324]"
+        );
     }
 
     #[test]
     fn test_sync_intrinsics() {
         let registry = IntrinsicRegistry::new();
 
-        assert_eq!(registry.lookup("sync_threads_count"), Some(&GpuIntrinsic::SyncThreadsCount));
-        assert_eq!(registry.lookup("sync_threads_and"), Some(&GpuIntrinsic::SyncThreadsAnd));
-        assert_eq!(registry.lookup("sync_threads_or"), Some(&GpuIntrinsic::SyncThreadsOr));
+        assert_eq!(
+            registry.lookup("sync_threads_count"),
+            Some(&GpuIntrinsic::SyncThreadsCount)
+        );
+        assert_eq!(
+            registry.lookup("sync_threads_and"),
+            Some(&GpuIntrinsic::SyncThreadsAnd)
+        );
+        assert_eq!(
+            registry.lookup("sync_threads_or"),
+            Some(&GpuIntrinsic::SyncThreadsOr)
+        );
 
-        assert_eq!(GpuIntrinsic::SyncThreadsCount.to_cuda_string(), "__syncthreads_count");
-        assert_eq!(GpuIntrinsic::SyncThreadsAnd.to_cuda_string(), "__syncthreads_and");
-        assert_eq!(GpuIntrinsic::SyncThreadsOr.to_cuda_string(), "__syncthreads_or");
+        assert_eq!(
+            GpuIntrinsic::SyncThreadsCount.to_cuda_string(),
+            "__syncthreads_count"
+        );
+        assert_eq!(
+            GpuIntrinsic::SyncThreadsAnd.to_cuda_string(),
+            "__syncthreads_and"
+        );
+        assert_eq!(
+            GpuIntrinsic::SyncThreadsOr.to_cuda_string(),
+            "__syncthreads_or"
+        );
     }
 
     #[test]

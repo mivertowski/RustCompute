@@ -56,8 +56,9 @@ extern "C" __global__ void saxpy(
 For stencil computations (e.g., FDTD, convolutions), use the `GridPos` abstraction:
 
 ```rust
-use ringkernel_cuda_codegen::{transpile_stencil_kernel, StencilConfig};
+use ringkernel_cuda_codegen::{transpile_stencil_kernel, StencilConfig, Grid};
 
+// 2D stencil kernel
 let kernel: syn::ItemFn = parse_quote! {
     fn fdtd(p: &[f32], p_prev: &mut [f32], c2: f32, pos: GridPos) {
         let lap = pos.north(p) + pos.south(p) + pos.east(p) + pos.west(p)
@@ -67,19 +68,39 @@ let kernel: syn::ItemFn = parse_quote! {
 };
 
 let config = StencilConfig::new("fdtd")
+    .with_grid(Grid::Grid2D)
     .with_tile_size(16, 16)
     .with_halo(1);
 
 let cuda_code = transpile_stencil_kernel(&kernel, &config)?;
+
+// 3D stencil kernel (for volumetric simulations)
+let kernel_3d: syn::ItemFn = parse_quote! {
+    fn laplacian_3d(p: &[f32], out: &mut [f32], pos: GridPos) {
+        let lap = pos.north(p) + pos.south(p) + pos.east(p) + pos.west(p)
+                  + pos.up(p) + pos.down(p) - 6.0 * p[pos.idx()];
+        out[pos.idx()] = lap;
+    }
+};
+
+let config_3d = StencilConfig::new("laplacian")
+    .with_grid(Grid::Grid3D)
+    .with_tile_size(8, 8)
+    .with_halo(1);
 ```
 
-**Stencil Intrinsics:**
+**Stencil Intrinsics (2D):**
 - `pos.idx()` - Current cell linear index
-- `pos.north(buf)` - Access cell above
-- `pos.south(buf)` - Access cell below
-- `pos.east(buf)` - Access cell to the right
-- `pos.west(buf)` - Access cell to the left
+- `pos.north(buf)` - Access cell above (Y+)
+- `pos.south(buf)` - Access cell below (Y-)
+- `pos.east(buf)` - Access cell to the right (X+)
+- `pos.west(buf)` - Access cell to the left (X-)
 - `pos.at(buf, dx, dy)` - Access cell at relative offset
+
+**Stencil Intrinsics (3D):**
+- `pos.up(buf)` - Access cell above (Z+)
+- `pos.down(buf)` - Access cell below (Z-)
+- `pos.at(buf, dx, dy, dz)` - 3D relative offset access
 
 ## Ring Kernels
 
@@ -258,43 +279,124 @@ fn process_batch(transactions: &[GpuTransaction], alerts: &mut [GpuAlert], n: i3
 
 ## GPU Intrinsics
 
-### Thread/Block Indices
+The transpiler supports **120+ GPU intrinsics** across 13 categories.
 
-- `thread_idx_x()`, `thread_idx_y()`, `thread_idx_z()`
-- `block_idx_x()`, `block_idx_y()`, `block_idx_z()`
-- `block_dim_x()`, `block_dim_y()`, `block_dim_z()`
-- `grid_dim_x()`, `grid_dim_y()`, `grid_dim_z()`
+### Thread/Block Indices (13 ops)
 
-### Synchronization
+- `thread_idx_x()`, `thread_idx_y()`, `thread_idx_z()` → `threadIdx.x/y/z`
+- `block_idx_x()`, `block_idx_y()`, `block_idx_z()` → `blockIdx.x/y/z`
+- `block_dim_x()`, `block_dim_y()`, `block_dim_z()` → `blockDim.x/y/z`
+- `grid_dim_x()`, `grid_dim_y()`, `grid_dim_z()` → `gridDim.x/y/z`
+- `warp_size()` → `warpSize`
+
+### Synchronization (7 ops)
 
 - `sync_threads()` → `__syncthreads()`
+- `sync_threads_count(pred)` → `__syncthreads_count()`
+- `sync_threads_and(pred)` → `__syncthreads_and()`
+- `sync_threads_or(pred)` → `__syncthreads_or()`
 - `thread_fence()` → `__threadfence()`
 - `thread_fence_block()` → `__threadfence_block()`
+- `thread_fence_system()` → `__threadfence_system()`
 
-### Atomics
+### Atomic Operations (11 ops)
 
-- `atomic_add(ptr, val)` → `atomicAdd(ptr, val)`
-- `atomic_sub(ptr, val)` → `atomicSub(ptr, val)`
-- `atomic_min(ptr, val)` → `atomicMin(ptr, val)`
-- `atomic_max(ptr, val)` → `atomicMax(ptr, val)`
-- `atomic_exchange(ptr, val)` → `atomicExch(ptr, val)`
-- `atomic_cas(ptr, compare, val)` → `atomicCAS(ptr, compare, val)`
+- `atomic_add(ptr, val)` → `atomicAdd`
+- `atomic_sub(ptr, val)` → `atomicSub`
+- `atomic_min(ptr, val)` → `atomicMin`
+- `atomic_max(ptr, val)` → `atomicMax`
+- `atomic_exchange(ptr, val)` → `atomicExch`
+- `atomic_cas(ptr, compare, val)` → `atomicCAS`
+- `atomic_and(ptr, val)` → `atomicAnd`
+- `atomic_or(ptr, val)` → `atomicOr`
+- `atomic_xor(ptr, val)` → `atomicXor`
+- `atomic_inc(ptr, val)` → `atomicInc` (increment with wrap)
+- `atomic_dec(ptr, val)` → `atomicDec` (decrement with wrap)
 
-### Math Functions
+### Math Functions (16 ops)
 
-- `sqrt()`, `abs()`, `floor()`, `ceil()`, `round()`
-- `sin()`, `cos()`, `tan()`, `exp()`, `log()`
-- `powf()`, `min()`, `max()`, `mul_add()` (FMA)
+- `sqrt()`, `rsqrt()` - Square root, reciprocal sqrt
+- `abs()`, `fabs()` - Absolute value
+- `floor()`, `ceil()`, `round()`, `trunc()` - Rounding
+- `fma()`, `mul_add()` - Fused multiply-add
+- `fmin()`, `fmax()` - Minimum, maximum
+- `fmod()`, `remainder()` - Modulo operations
+- `copysign()`, `cbrt()`, `hypot()`
 
-### Warp Operations
+### Trigonometric Functions (11 ops)
 
-- `warp_shuffle(val, lane)` → `__shfl_sync(FULL_MASK, val, lane)`
-- `warp_shuffle_up(val, delta)` → `__shfl_up_sync(...)`
-- `warp_shuffle_down(val, delta)` → `__shfl_down_sync(...)`
-- `warp_shuffle_xor(val, mask)` → `__shfl_xor_sync(...)`
-- `warp_ballot(pred)` → `__ballot_sync(...)`
-- `warp_all(pred)` → `__all_sync(...)`
-- `warp_any(pred)` → `__any_sync(...)`
+- `sin()`, `cos()`, `tan()` - Basic trig
+- `asin()`, `acos()`, `atan()`, `atan2()` - Inverse trig
+- `sincos()` - Combined sine and cosine
+- `sinpi()`, `cospi()` - Sin/cos of π*x
+
+### Hyperbolic Functions (6 ops)
+
+- `sinh()`, `cosh()`, `tanh()` - Hyperbolic
+- `asinh()`, `acosh()`, `atanh()` - Inverse hyperbolic
+
+### Exponential and Logarithmic (18 ops)
+
+- `exp()`, `exp2()`, `exp10()`, `expm1()` - Exponentials
+- `log()`, `ln()`, `log2()`, `log10()`, `log1p()` - Logarithms
+- `pow()`, `powf()`, `powi()` - Power
+- `ldexp()`, `scalbn()`, `ilogb()` - Exponent manipulation
+- `erf()`, `erfc()`, `erfinv()`, `erfcinv()` - Error functions
+- `lgamma()`, `tgamma()` - Gamma functions
+
+### Classification Functions (8 ops)
+
+- `is_nan()`, `isnan()` → `isnan`
+- `is_infinite()`, `isinf()` → `isinf`
+- `is_finite()`, `isfinite()` → `isfinite`
+- `is_normal()`, `isnormal()` → `isnormal`
+- `signbit()`, `nextafter()`, `fdim()`
+
+### Warp Operations (16 ops)
+
+- `warp_active_mask()` → `__activemask()`
+- `warp_shfl(mask, val, lane)` → `__shfl_sync`
+- `warp_shfl_up(mask, val, delta)` → `__shfl_up_sync`
+- `warp_shfl_down(mask, val, delta)` → `__shfl_down_sync`
+- `warp_shfl_xor(mask, val, lane_mask)` → `__shfl_xor_sync`
+- `warp_ballot(mask, pred)` → `__ballot_sync`
+- `warp_all(mask, pred)` → `__all_sync`
+- `warp_any(mask, pred)` → `__any_sync`
+- `warp_match_any(mask, val)` → `__match_any_sync` (Volta+)
+- `warp_match_all(mask, val)` → `__match_all_sync` (Volta+)
+- `warp_reduce_add/min/max/and/or/xor(mask, val)` → `__reduce_*_sync` (SM 8.0+)
+
+### Bit Manipulation (8 ops)
+
+- `popc()`, `popcount()`, `count_ones()` → `__popc`
+- `clz()`, `leading_zeros()` → `__clz`
+- `ctz()`, `trailing_zeros()` → `__ffs - 1`
+- `ffs()` → `__ffs`
+- `brev()`, `reverse_bits()` → `__brev`
+- `byte_perm()` → `__byte_perm`
+- `funnel_shift_left()`, `funnel_shift_right()` → `__funnelshift_l/r`
+
+### Memory Operations (3 ops)
+
+- `ldg(ptr)`, `load_global(ptr)` → `__ldg`
+- `prefetch_l1(ptr)` → `__prefetch_l1`
+- `prefetch_l2(ptr)` → `__prefetch_l2`
+
+### Special Functions (13 ops)
+
+- `rcp()`, `recip()` → `__frcp_rn` - Fast reciprocal
+- `fast_div()` → `__fdividef` - Fast division
+- `saturate()`, `clamp_01()` → `__saturatef` - Saturate to [0,1]
+- `j0()`, `j1()`, `jn()` - Bessel functions of first kind
+- `y0()`, `y1()`, `yn()` - Bessel functions of second kind
+- `normcdf()`, `normcdfinv()` - Normal CDF
+- `cyl_bessel_i0()`, `cyl_bessel_i1()` - Cylindrical Bessel
+
+### Clock and Timing (3 ops)
+
+- `clock()` → `clock()` - 32-bit clock counter
+- `clock64()` → `clock64()` - 64-bit clock counter
+- `nanosleep(ns)` → `__nanosleep` - Sleep for nanoseconds
 
 ## Ring Kernel Intrinsics
 
@@ -356,7 +458,7 @@ See the `/examples/cuda-codegen/` directory for the full source code.
 
 ## Testing
 
-The crate includes 143 tests covering all features:
+The crate includes 171 tests covering all features:
 
 ```bash
 cargo test -p ringkernel-cuda-codegen

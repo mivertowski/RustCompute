@@ -814,10 +814,7 @@ impl CudaTranspiler {
         })?;
 
         let buffer_width = config.buffer_width().to_string();
-        let buffer_slice = format!(
-            "{}",
-            config.buffer_width() * config.buffer_height()
-        );
+        let buffer_slice = format!("{}", config.buffer_width() * config.buffer_height());
         let is_3d = config.grid == crate::stencil::Grid::Grid3D;
 
         let intrinsic = StencilIntrinsic::from_method_name(method).ok_or_else(|| {
