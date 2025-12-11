@@ -64,6 +64,8 @@ default = ["cpu"]
 cpu = ["ringkernel/cpu"]
 cuda = ["ringkernel/cuda", "dep:ringkernel-cuda", "dep:cudarc"]
 cuda-codegen = ["cuda", "dep:ringkernel-cuda-codegen", "dep:syn", "ringkernel-derive/cuda-codegen"]
+# Cooperative groups for true grid-wide sync (requires nvcc at build time)
+cooperative = ["cuda", "ringkernel-cuda/cooperative"]
 audio-output = ["dep:cpal", "dep:rustfft"]
 
 [[bin]]

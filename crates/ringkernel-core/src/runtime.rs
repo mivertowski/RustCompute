@@ -164,6 +164,9 @@ pub struct LaunchOptions {
     pub shared_memory_size: usize,
     /// Whether to activate immediately after launch.
     pub auto_activate: bool,
+    /// Enable cooperative groups for grid-wide synchronization.
+    /// Requires GPU support for cooperative kernel launch.
+    pub cooperative: bool,
 }
 
 impl Default for LaunchOptions {
@@ -176,6 +179,7 @@ impl Default for LaunchOptions {
             output_queue_capacity: 1024,
             shared_memory_size: 0,
             auto_activate: true,
+            cooperative: false,
         }
     }
 }
@@ -232,6 +236,16 @@ impl LaunchOptions {
     /// Set the block size (threads per block).
     pub fn with_block_size(mut self, block_size: u32) -> Self {
         self.block_size = block_size;
+        self
+    }
+
+    /// Enable cooperative groups for grid-wide synchronization.
+    ///
+    /// When enabled, the kernel will be launched cooperatively, allowing
+    /// all blocks to synchronize via `grid.sync()`. Requires GPU support
+    /// and nvcc at build time.
+    pub fn with_cooperative(mut self, cooperative: bool) -> Self {
+        self.cooperative = cooperative;
         self
     }
 

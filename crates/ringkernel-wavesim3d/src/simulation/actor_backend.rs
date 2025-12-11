@@ -142,15 +142,16 @@ impl Direction3D {
 /// This is the primary message type for actor-to-actor communication.
 /// Each cell sends its pressure to neighbors, and receives pressure from neighbors.
 ///
-/// Layout in GPU memory (40 bytes):
+/// MUST match CUDA struct exactly! Layout (40 bytes):
 /// - source_idx: u32 (4)
 /// - dest_idx: u32 (4)
-/// - direction: u32 (4)
+/// - direction: u8 (1)
+/// - _pad: [u8; 3] (3)
 /// - pressure: f32 (4)
 /// - pressure_prev: f32 (4)
-/// - _pad: u32 (4)
 /// - hlc_physical: u64 (8)
 /// - hlc_logical: u64 (8)
+/// Total: 36 bytes data, padded to 40 for u64 alignment
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct HaloMessage {
@@ -158,14 +159,14 @@ pub struct HaloMessage {
     pub source_idx: u32,
     /// Destination cell linear index.
     pub dest_idx: u32,
-    /// Direction from source to destination (stored as u32 for alignment).
-    pub direction: u32,
+    /// Direction from source to destination.
+    pub direction: u8,
+    /// Padding for alignment.
+    pub _pad: [u8; 3],
     /// Current pressure value at source cell.
     pub pressure: f32,
     /// Previous pressure value at source cell.
     pub pressure_prev: f32,
-    /// Padding for alignment.
-    pub _pad: u32,
     /// HLC physical timestamp (microseconds).
     pub hlc_physical: u64,
     /// HLC logical counter.
@@ -184,10 +185,10 @@ impl HaloMessage {
         Self {
             source_idx,
             dest_idx,
-            direction: direction as u32,
+            direction: direction as u8,
             pressure,
             pressure_prev,
-            _pad: 0,
+            _pad: [0; 3],
             hlc_physical: 0,
             hlc_logical: 0,
         }
@@ -206,24 +207,31 @@ impl HaloMessage {
 /// Each cell actor maintains its own state and processes messages
 /// to update its pressure values.
 ///
-/// Layout (64 bytes total):
+/// IMPORTANT: This struct MUST match the CUDA struct layout exactly!
+/// Layout (64 bytes total, aligned to 64):
 /// - pressure: f32 (4)
 /// - pressure_prev: f32 (4)
-/// - cell_type: u32 (4)
+/// - cell_type: u8 (1)
+/// - halos_received: u8 (1)
+/// - _pad: [u8; 2] (2)
 /// - reflection_coeff: f32 (4)
 /// - hlc_physical: u64 (8)
 /// - hlc_logical: u64 (8)
 /// - timestep: u64 (8)
 /// - neighbor_pressures: [f32; 6] (24)
 #[derive(Debug, Clone, Copy)]
-#[repr(C)]
+#[repr(C, align(64))]
 pub struct CellActorState {
     /// Current pressure value.
     pub pressure: f32,
     /// Previous pressure value (for FDTD leapfrog).
     pub pressure_prev: f32,
     /// Cell type (0=normal, 1=absorber, 2=reflector, 3=obstacle).
-    pub cell_type: u32,
+    pub cell_type: u8,
+    /// Number of halo messages received this step.
+    pub halos_received: u8,
+    /// Padding for alignment.
+    pub _pad: [u8; 2],
     /// Reflection coefficient (for boundary cells).
     pub reflection_coeff: f32,
     /// HLC physical timestamp.
@@ -263,6 +271,8 @@ impl Default for CellActorState {
             pressure: 0.0,
             pressure_prev: 0.0,
             cell_type: 0,
+            halos_received: 0,
+            _pad: [0; 2],
             reflection_coeff: 1.0,
             hlc_physical: 0,
             hlc_logical: 0,
@@ -271,6 +281,28 @@ impl Default for CellActorState {
         }
     }
 }
+
+/// Inbox header for message queues.
+/// MUST match the CUDA InboxHeader struct exactly.
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C, align(32))]
+pub struct InboxHeader {
+    /// Head pointer (write position).
+    pub head: u64,
+    /// Tail pointer (read position).
+    pub tail: u64,
+    /// Capacity of the inbox buffer.
+    pub capacity: u32,
+    /// Mask for modulo operations (capacity - 1).
+    pub mask: u32,
+    /// Padding to 32 bytes.
+    pub _pad: [u8; 8],
+}
+
+#[cfg(feature = "cuda")]
+unsafe impl DeviceRepr for InboxHeader {}
+#[cfg(feature = "cuda")]
+unsafe impl ValidAsZeroBits for InboxHeader {}
 
 // ============================================================================
 // Actor Control Block
@@ -528,31 +560,34 @@ pub fn generate_cell_actor_kernel() -> String {
 // Actors communicate via message passing (halo exchange) instead of
 // shared memory access, following the actor model paradigm.
 
-// Halo message structure (32 bytes, aligned)
-struct __align__(32) HaloMessage {
-    unsigned int source_idx;
-    unsigned int dest_idx;
-    unsigned char direction;
-    unsigned char _pad[3];
-    float pressure;
-    float pressure_prev;
-    unsigned long long hlc_physical;
-    unsigned long long hlc_logical;
+// Halo message structure (40 bytes)
+// MUST match Rust HaloMessage struct exactly!
+struct HaloMessage {
+    unsigned int source_idx;      // 4 bytes, offset 0
+    unsigned int dest_idx;        // 4 bytes, offset 4
+    unsigned char direction;      // 1 byte, offset 8
+    unsigned char _pad[3];        // 3 bytes padding, offset 9
+    float pressure;               // 4 bytes, offset 12
+    float pressure_prev;          // 4 bytes, offset 16
+    unsigned long long hlc_physical;  // 8 bytes, offset 24 (aligned)
+    unsigned long long hlc_logical;   // 8 bytes, offset 32
+    // Total: 40 bytes
 };
 
 // Cell actor state (64 bytes, aligned)
+// MUST match Rust CellActorState struct exactly!
 struct __align__(64) CellActorState {
-    float pressure;
-    float pressure_prev;
-    unsigned char cell_type;
-    unsigned char halos_received;
-    unsigned char _pad[2];
-    float reflection_coeff;
-    unsigned long long hlc_physical;
-    unsigned long long hlc_logical;
-    unsigned long long timestep;
-    float neighbor_pressures[6];  // W, E, S, N, D, U
-    unsigned char _reserved[8];
+    float pressure;               // 4 bytes, offset 0
+    float pressure_prev;          // 4 bytes, offset 4
+    unsigned char cell_type;      // 1 byte, offset 8
+    unsigned char halos_received; // 1 byte, offset 9
+    unsigned char _pad[2];        // 2 bytes, offset 10
+    float reflection_coeff;       // 4 bytes, offset 12
+    unsigned long long hlc_physical;  // 8 bytes, offset 16
+    unsigned long long hlc_logical;   // 8 bytes, offset 24
+    unsigned long long timestep;      // 8 bytes, offset 32
+    float neighbor_pressures[6];  // 24 bytes, offset 40
+    // Total: 64 bytes
 };
 
 // Tile control block (128 bytes, aligned)
@@ -995,7 +1030,7 @@ pub struct ActorGpuBackend3D {
     /// Cell actor states.
     cell_states: CudaSlice<CellActorState>,
     /// Inbox headers (one per cell).
-    inbox_headers: CudaSlice<u8>, // InboxHeader, 32 bytes each
+    inbox_headers: CudaSlice<InboxHeader>,
     /// Inbox buffers (messages for each cell).
     inbox_buffers: CudaSlice<HaloMessage>,
     /// Tile control block.
@@ -1055,6 +1090,8 @@ impl ActorGpuBackend3D {
                     CellType::Reflector => 2,
                     CellType::Obstacle => 3,
                 },
+                halos_received: 0,
+                _pad: [0; 2],
                 reflection_coeff: grid.reflection_coeff[i],
                 hlc_physical: 0,
                 hlc_logical: 0,
@@ -1067,9 +1104,8 @@ impl ActorGpuBackend3D {
             .htod_sync_copy(&initial_states)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
-        // Allocate inbox headers (32 bytes each for InboxHeader)
-        let inbox_header_size = 32; // sizeof(InboxHeader)
-        let inbox_headers_data: Vec<u8> = vec![0u8; total_cells * inbox_header_size];
+        // Allocate inbox headers (InboxHeader struct, 32 bytes each)
+        let inbox_headers_data: Vec<InboxHeader> = vec![InboxHeader::default(); total_cells];
         let inbox_headers = device
             .htod_sync_copy(&inbox_headers_data)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
@@ -1464,22 +1500,33 @@ mod tests {
 
     #[test]
     fn test_halo_message_size() {
-        // HaloMessage: 40 bytes (6x u32/f32 + 2x u64)
+        // HaloMessage: 40 bytes (36 bytes data + padding for u64 alignment)
         let size = std::mem::size_of::<HaloMessage>();
-        assert!(
-            size >= 40,
-            "HaloMessage should be at least 40 bytes, got {}",
+        assert_eq!(
+            size, 40,
+            "HaloMessage should be exactly 40 bytes, got {}",
             size
         );
     }
 
     #[test]
     fn test_cell_actor_state_size() {
-        // CellActorState: 64 bytes
+        // CellActorState: 64 bytes aligned
         let size = std::mem::size_of::<CellActorState>();
-        assert!(
-            size >= 56,
-            "CellActorState should be at least 56 bytes, got {}",
+        assert_eq!(
+            size, 64,
+            "CellActorState should be exactly 64 bytes, got {}",
+            size
+        );
+    }
+
+    #[test]
+    fn test_inbox_header_size() {
+        // InboxHeader: 32 bytes aligned
+        let size = std::mem::size_of::<InboxHeader>();
+        assert_eq!(
+            size, 32,
+            "InboxHeader should be exactly 32 bytes, got {}",
             size
         );
     }
@@ -1536,7 +1583,7 @@ mod tests {
 
         assert_eq!(msg.source_idx, 0);
         assert_eq!(msg.dest_idx, 1);
-        assert_eq!(msg.direction, Direction3D::East as u32);
+        assert_eq!(msg.direction, Direction3D::East as u8);
         assert_eq!(msg.pressure, 1.5);
         assert_eq!(msg.pressure_prev, 1.2);
         assert_eq!(msg.hlc_physical, 1000);

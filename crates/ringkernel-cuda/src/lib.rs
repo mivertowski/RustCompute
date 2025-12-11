@@ -41,6 +41,8 @@ mod memory;
 mod runtime;
 #[cfg(feature = "cuda")]
 mod stencil;
+#[cfg(feature = "cooperative")]
+pub mod cooperative;
 
 #[cfg(feature = "cuda")]
 pub use device::CudaDevice;

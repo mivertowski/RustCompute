@@ -36,6 +36,9 @@ pub mod gpu_backend;
 #[cfg(feature = "cuda")]
 pub mod actor_backend;
 
+#[cfg(feature = "cuda")]
+pub mod block_actor_backend;
+
 pub use grid3d::{CellType, GridParams, SimulationGrid3D};
 pub use physics::{
     AcousticParams3D, AtmosphericAbsorption, Environment, Medium, MediumProperties,
@@ -45,6 +48,11 @@ pub use physics::{
 #[cfg(feature = "cuda")]
 pub use actor_backend::{
     ActorBackendConfig, ActorError, ActorStats, CellActorState, Direction3D, HaloMessage,
+};
+
+#[cfg(feature = "cuda")]
+pub use block_actor_backend::{
+    BlockActorConfig, BlockActorError, BlockActorGpuBackend, BlockActorStats,
 };
 
 /// Computation method for GPU-accelerated simulation.
@@ -65,6 +73,15 @@ pub enum ComputationMethod {
     /// This method demonstrates the actor model on GPUs but may have
     /// higher overhead than stencil computation.
     Actor,
+
+    /// Block-based actor computation (hybrid approach).
+    /// Each 8×8×8 block of cells is a single actor (512 cells per actor).
+    /// - Intra-block: Fast stencil computation with shared memory
+    /// - Inter-block: Double-buffered message passing (no atomics)
+    ///
+    /// Combines actor model benefits with stencil performance.
+    /// Expected: 10-50× faster than per-cell Actor method.
+    BlockActor,
 }
 
 /// Simulation engine that manages grid updates and GPU/CPU dispatch.
@@ -81,6 +98,9 @@ pub struct SimulationEngine {
     /// Actor GPU backend
     #[cfg(feature = "cuda")]
     pub actor_gpu: Option<actor_backend::ActorGpuBackend3D>,
+    /// Block actor GPU backend
+    #[cfg(feature = "cuda")]
+    pub block_actor_gpu: Option<block_actor_backend::BlockActorGpuBackend>,
 }
 
 impl SimulationEngine {
@@ -94,6 +114,8 @@ impl SimulationEngine {
             gpu: None,
             #[cfg(feature = "cuda")]
             actor_gpu: None,
+            #[cfg(feature = "cuda")]
+            block_actor_gpu: None,
         }
     }
 
@@ -114,6 +136,7 @@ impl SimulationEngine {
             computation_method: ComputationMethod::Stencil,
             gpu: Some(gpu),
             actor_gpu: None,
+            block_actor_gpu: None,
         })
     }
 
@@ -138,6 +161,32 @@ impl SimulationEngine {
             computation_method: ComputationMethod::Actor,
             gpu: None,
             actor_gpu: Some(actor_gpu),
+            block_actor_gpu: None,
+        })
+    }
+
+    /// Create a new simulation engine with GPU backend using block actor model.
+    ///
+    /// This uses a hybrid approach where each 8×8×8 block of cells is a single actor.
+    /// Intra-block computation uses fast stencil, inter-block uses double-buffered messaging.
+    #[cfg(feature = "cuda")]
+    pub fn new_gpu_block_actor(
+        width: usize,
+        height: usize,
+        depth: usize,
+        params: AcousticParams3D,
+        config: block_actor_backend::BlockActorConfig,
+    ) -> Result<Self, block_actor_backend::BlockActorError> {
+        let grid = SimulationGrid3D::new(width, height, depth, params);
+        let block_actor_gpu = block_actor_backend::BlockActorGpuBackend::new(&grid, config)?;
+
+        Ok(Self {
+            grid,
+            use_gpu: true,
+            computation_method: ComputationMethod::BlockActor,
+            gpu: None,
+            actor_gpu: None,
+            block_actor_gpu: Some(block_actor_gpu),
         })
     }
 
@@ -156,6 +205,14 @@ impl SimulationEngine {
                 ComputationMethod::Actor => {
                     if let Some(ref mut actor_gpu) = self.actor_gpu {
                         if actor_gpu.step(&mut self.grid, 1).is_ok() {
+                            return;
+                        }
+                    }
+                }
+                ComputationMethod::BlockActor => {
+                    if let Some(ref mut block_actor_gpu) = self.block_actor_gpu {
+                        // Use fused kernel for better performance (single kernel launch)
+                        if block_actor_gpu.step_fused(&mut self.grid, 1).is_ok() {
                             return;
                         }
                     }
@@ -186,6 +243,9 @@ impl SimulationEngine {
             if let Some(ref mut actor_gpu) = self.actor_gpu {
                 let _ = actor_gpu.reset(&self.grid);
             }
+            if let Some(ref mut block_actor_gpu) = self.block_actor_gpu {
+                let _ = block_actor_gpu.reset(&self.grid);
+            }
         }
     }
 
@@ -200,6 +260,9 @@ impl SimulationEngine {
             }
             if let Some(ref mut actor_gpu) = self.actor_gpu {
                 let _ = actor_gpu.upload_pressure(&self.grid);
+            }
+            if let Some(ref mut block_actor_gpu) = self.block_actor_gpu {
+                let _ = block_actor_gpu.upload_pressure(&self.grid);
             }
         }
     }
@@ -243,6 +306,17 @@ impl SimulationEngine {
                     }
                     self.use_gpu = self.actor_gpu.is_some();
                 }
+                ComputationMethod::BlockActor => {
+                    if self.block_actor_gpu.is_none() {
+                        if let Ok(block_actor_gpu) = block_actor_backend::BlockActorGpuBackend::new(
+                            &self.grid,
+                            block_actor_backend::BlockActorConfig::default(),
+                        ) {
+                            self.block_actor_gpu = Some(block_actor_gpu);
+                        }
+                    }
+                    self.use_gpu = self.block_actor_gpu.is_some();
+                }
             }
         } else {
             self.use_gpu = false;
@@ -266,6 +340,7 @@ impl SimulationEngine {
             match self.computation_method {
                 ComputationMethod::Stencil => self.use_gpu && self.gpu.is_some(),
                 ComputationMethod::Actor => self.use_gpu && self.actor_gpu.is_some(),
+                ComputationMethod::BlockActor => self.use_gpu && self.block_actor_gpu.is_some(),
             }
         }
         #[cfg(not(feature = "cuda"))]
@@ -294,6 +369,11 @@ impl SimulationEngine {
                         let _ = actor_gpu.download_pressure(&mut self.grid);
                     }
                 }
+                ComputationMethod::BlockActor => {
+                    if let Some(ref block_actor_gpu) = self.block_actor_gpu {
+                        let _ = block_actor_gpu.download_pressure(&mut self.grid);
+                    }
+                }
             }
         }
     }
@@ -302,6 +382,12 @@ impl SimulationEngine {
     #[cfg(feature = "cuda")]
     pub fn actor_stats(&self) -> Option<actor_backend::ActorStats> {
         self.actor_gpu.as_ref().map(|gpu| gpu.stats())
+    }
+
+    /// Get block actor backend statistics (if using block actor method).
+    #[cfg(feature = "cuda")]
+    pub fn block_actor_stats(&self) -> Option<block_actor_backend::BlockActorStats> {
+        self.block_actor_gpu.as_ref().map(|gpu| gpu.stats())
     }
 }
 
@@ -325,6 +411,9 @@ pub struct SimulationConfig {
     /// Actor backend configuration (for Actor method)
     #[cfg(feature = "cuda")]
     pub actor_config: actor_backend::ActorBackendConfig,
+    /// Block actor backend configuration (for BlockActor method)
+    #[cfg(feature = "cuda")]
+    pub block_actor_config: block_actor_backend::BlockActorConfig,
 }
 
 impl Default for SimulationConfig {
@@ -339,6 +428,8 @@ impl Default for SimulationConfig {
             computation_method: ComputationMethod::Stencil,
             #[cfg(feature = "cuda")]
             actor_config: actor_backend::ActorBackendConfig::default(),
+            #[cfg(feature = "cuda")]
+            block_actor_config: block_actor_backend::BlockActorConfig::default(),
         }
     }
 }
@@ -430,6 +521,17 @@ impl SimulationConfig {
                         self.depth,
                         params.clone(),
                         self.actor_config,
+                    ) {
+                        return engine;
+                    }
+                }
+                ComputationMethod::BlockActor => {
+                    if let Ok(engine) = SimulationEngine::new_gpu_block_actor(
+                        self.width,
+                        self.height,
+                        self.depth,
+                        params.clone(),
+                        self.block_actor_config,
                     ) {
                         return engine;
                     }
