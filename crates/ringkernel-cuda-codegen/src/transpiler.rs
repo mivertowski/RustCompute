@@ -814,10 +814,23 @@ impl CudaTranspiler {
         })?;
 
         let buffer_width = config.buffer_width().to_string();
+        let buffer_slice = format!(
+            "{}",
+            config.buffer_width() * config.buffer_height()
+        );
+        let is_3d = config.grid == crate::stencil::Grid::Grid3D;
 
         let intrinsic = StencilIntrinsic::from_method_name(method).ok_or_else(|| {
             TranspileError::Unsupported(format!("Unknown stencil intrinsic: {method}"))
         })?;
+
+        // Check if 3D intrinsic used in non-3D kernel
+        if intrinsic.is_3d_only() && !is_3d {
+            return Err(TranspileError::Unsupported(format!(
+                "3D stencil intrinsic '{}' requires Grid3D configuration",
+                method
+            )));
+        }
 
         match intrinsic {
             StencilIntrinsic::Index => {
@@ -835,25 +848,49 @@ impl CudaTranspiler {
                     ));
                 }
                 let buffer = self.transpile_expr(&args[0])?;
-                Ok(intrinsic.to_cuda_index_2d(&buffer, &buffer_width, "idx"))
+                if is_3d {
+                    Ok(intrinsic.to_cuda_index_3d(&buffer, &buffer_width, &buffer_slice, "idx"))
+                } else {
+                    Ok(intrinsic.to_cuda_index_2d(&buffer, &buffer_width, "idx"))
+                }
             }
-            StencilIntrinsic::At => {
-                // pos.at(buf, dx, dy) -> buf[idx + dy * buffer_width + dx]
-                if args.len() < 3 {
+            StencilIntrinsic::Up | StencilIntrinsic::Down => {
+                // 3D intrinsics: pos.up(buf) -> buf[idx - buffer_slice]
+                if args.is_empty() {
                     return Err(TranspileError::Unsupported(
-                        "at() requires buffer, dx, dy arguments".into(),
+                        "3D stencil accessor requires buffer argument".into(),
                     ));
                 }
                 let buffer = self.transpile_expr(&args[0])?;
-                let dx = self.transpile_expr(&args[1])?;
-                let dy = self.transpile_expr(&args[2])?;
-                Ok(format!("{buffer}[idx + ({dy}) * {buffer_width} + ({dx})]"))
+                Ok(intrinsic.to_cuda_index_3d(&buffer, &buffer_width, &buffer_slice, "idx"))
             }
-            StencilIntrinsic::Up | StencilIntrinsic::Down => {
-                // 3D intrinsics
-                Err(TranspileError::Unsupported(
-                    "3D stencil intrinsics not yet implemented".into(),
-                ))
+            StencilIntrinsic::At => {
+                // 2D: pos.at(buf, dx, dy) -> buf[idx + dy * buffer_width + dx]
+                // 3D: pos.at(buf, dx, dy, dz) -> buf[idx + dz * buffer_slice + dy * buffer_width + dx]
+                if is_3d {
+                    if args.len() < 4 {
+                        return Err(TranspileError::Unsupported(
+                            "at() in 3D requires buffer, dx, dy, dz arguments".into(),
+                        ));
+                    }
+                    let buffer = self.transpile_expr(&args[0])?;
+                    let dx = self.transpile_expr(&args[1])?;
+                    let dy = self.transpile_expr(&args[2])?;
+                    let dz = self.transpile_expr(&args[3])?;
+                    Ok(format!(
+                        "{buffer}[idx + ({dz}) * {buffer_slice} + ({dy}) * {buffer_width} + ({dx})]"
+                    ))
+                } else {
+                    if args.len() < 3 {
+                        return Err(TranspileError::Unsupported(
+                            "at() requires buffer, dx, dy arguments".into(),
+                        ));
+                    }
+                    let buffer = self.transpile_expr(&args[0])?;
+                    let dx = self.transpile_expr(&args[1])?;
+                    let dy = self.transpile_expr(&args[2])?;
+                    Ok(format!("{buffer}[idx + ({dy}) * {buffer_width} + ({dx})]"))
+                }
             }
         }
     }
