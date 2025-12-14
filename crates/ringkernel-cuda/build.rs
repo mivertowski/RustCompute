@@ -8,7 +8,7 @@
 
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
@@ -93,10 +93,13 @@ fn find_nvcc() -> Option<PathBuf> {
 }
 
 /// Compile cooperative kernels to PTX.
-fn compile_cooperative_kernels(nvcc: &PathBuf, out_dir: &PathBuf) -> Result<(), String> {
+fn compile_cooperative_kernels(nvcc: &Path, out_dir: &Path) -> Result<(), String> {
     // Get the CUDA source from the crate source directory
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let cuda_src_path = manifest_dir.join("src").join("cuda").join("cooperative_kernels.cu");
+    let cuda_src_path = manifest_dir
+        .join("src")
+        .join("cuda")
+        .join("cooperative_kernels.cu");
 
     if !cuda_src_path.exists() {
         return Err(format!("CUDA source not found: {:?}", cuda_src_path));
@@ -124,31 +127,38 @@ fn compile_cooperative_kernels(nvcc: &PathBuf, out_dir: &PathBuf) -> Result<(), 
         .map_err(|e| format!("Failed to execute nvcc: {}", e))?;
 
     if !status.success() {
-        return Err(format!("nvcc compilation failed with exit code: {:?}", status.code()));
+        return Err(format!(
+            "nvcc compilation failed with exit code: {:?}",
+            status.code()
+        ));
     }
 
     // Read PTX and generate Rust code
-    let ptx_content = fs::read_to_string(&ptx_file)
-        .map_err(|e| format!("Failed to read PTX: {}", e))?;
+    let ptx_content =
+        fs::read_to_string(&ptx_file).map_err(|e| format!("Failed to read PTX: {}", e))?;
 
     // Write the Rust code with embedded PTX
     let rust_file = out_dir.join("cooperative_kernels.rs");
-    write_rust_code(&rust_file, &ptx_content, true, "Cooperative groups compiled successfully with nvcc")
-        .map_err(|e| format!("Failed to write Rust bindings: {}", e))?;
+    write_rust_code(
+        &rust_file,
+        &ptx_content,
+        true,
+        "Cooperative groups compiled successfully with nvcc",
+    )
+    .map_err(|e| format!("Failed to write Rust bindings: {}", e))?;
 
     Ok(())
 }
 
 /// Generate stub when nvcc is not available.
-fn generate_stub(out_dir: &PathBuf, reason: &str) {
+fn generate_stub(out_dir: &Path, reason: &str) {
     let rust_file = out_dir.join("cooperative_kernels.rs");
-    write_rust_code(&rust_file, "", false, reason)
-        .expect("Failed to write Rust stub");
+    write_rust_code(&rust_file, "", false, reason).expect("Failed to write Rust stub");
 }
 
 /// Write the Rust code with PTX constant.
 fn write_rust_code(
-    path: &PathBuf,
+    path: &Path,
     ptx: &str,
     has_support: bool,
     message: &str,
@@ -169,12 +179,18 @@ fn write_rust_code(
     code.push_str("\"####;\n\n");
 
     code.push_str("/// Check if cooperative groups support was compiled.\n");
-    code.push_str(&format!("pub const HAS_COOPERATIVE_SUPPORT: bool = {};\n\n", has_support));
+    code.push_str(&format!(
+        "pub const HAS_COOPERATIVE_SUPPORT: bool = {};\n\n",
+        has_support
+    ));
 
     code.push_str("/// Build-time message about cooperative support.\n");
     // Escape quotes in message
     let escaped_message = message.replace('\\', "\\\\").replace('"', "\\\"");
-    code.push_str(&format!("pub const COOPERATIVE_BUILD_MESSAGE: &str = \"{}\";\n", escaped_message));
+    code.push_str(&format!(
+        "pub const COOPERATIVE_BUILD_MESSAGE: &str = \"{}\";\n",
+        escaped_message
+    ));
 
     fs::write(path, code)
 }

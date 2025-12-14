@@ -34,14 +34,12 @@ pub enum KernelType {
 /// Generate all CUDA kernels for transaction monitoring.
 #[cfg(feature = "cuda-codegen")]
 pub fn generate_all_kernels() -> Result<Vec<GeneratedKernel>, String> {
-    let mut kernels = Vec::new();
-
-    kernels.push(generate_batch_kernel()?);
-    kernels.push(generate_ring_kernel()?);
-    kernels.push(generate_velocity_stencil_kernel()?);
-    kernels.push(generate_network_pattern_stencil_kernel()?);
-
-    Ok(kernels)
+    Ok(vec![
+        generate_batch_kernel()?,
+        generate_ring_kernel()?,
+        generate_velocity_stencil_kernel()?,
+        generate_network_pattern_stencil_kernel()?,
+    ])
 }
 
 /// Generate the high-throughput batch processing kernel.

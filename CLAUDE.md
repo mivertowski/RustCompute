@@ -58,6 +58,12 @@ cargo run -p ringkernel-procint --release
 
 # Run process intelligence benchmark
 cargo run -p ringkernel-procint --bin procint-benchmark --release
+
+# Run wavesim3d with cooperative groups (requires nvcc)
+cargo run -p ringkernel-wavesim3d --release --features cooperative
+
+# Run wavesim3d benchmark
+cargo run -p ringkernel-wavesim3d --bin wavesim3d-benchmark --release --features cuda
 ```
 
 ## Architecture
@@ -70,7 +76,7 @@ The project is a Cargo workspace with these crates:
 - **`ringkernel-core`** - Core traits and types (RingMessage, MessageQueue, HlcTimestamp, ControlBlock, RingContext, RingKernelRuntime, K2K messaging, PubSub)
 - **`ringkernel-derive`** - Proc macros: `#[derive(RingMessage)]`, `#[ring_kernel]`, `#[derive(GpuType)]`
 - **`ringkernel-cpu`** - CPU backend implementation (always available, used for testing/fallback)
-- **`ringkernel-cuda`** - NVIDIA CUDA backend (feature-gated)
+- **`ringkernel-cuda`** - NVIDIA CUDA backend with cooperative groups support (feature-gated)
 - **`ringkernel-wgpu`** - WebGPU cross-platform backend (feature-gated)
 - **`ringkernel-metal`** - Apple Metal backend (feature-gated, macOS only, scaffolded)
 - **`ringkernel-codegen`** - GPU kernel code generation
@@ -79,7 +85,7 @@ The project is a Cargo workspace with these crates:
 - **`ringkernel-ecosystem`** - Integration utilities
 - **`ringkernel-audio-fft`** - Example application: GPU-accelerated audio FFT processing
 - **`ringkernel-wavesim`** - Example application: 2D acoustic wave simulation with GPU-accelerated FDTD and educational simulation modes
-- **`ringkernel-wavesim3d`** - Example application: 3D acoustic wave simulation with binaural audio and volumetric ray marching visualization
+- **`ringkernel-wavesim3d`** - Example application: 3D acoustic wave simulation with binaural audio, block actor backend (8×8×8), and volumetric ray marching visualization
 - **`ringkernel-txmon`** - Showcase application: GPU-accelerated transaction monitoring with real-time fraud detection GUI
 - **`ringkernel-accnet`** - Showcase application: GPU-accelerated accounting network visualization
 - **`ringkernel-procint`** - Showcase application: GPU-accelerated process intelligence with DFG mining, pattern detection, and conformance checking
@@ -270,6 +276,9 @@ Main crate (`ringkernel`) features:
 - `metal` - Apple Metal backend
 - `all-backends` - All GPU backends
 
+CUDA-specific features:
+- `cooperative` - Enable CUDA cooperative groups for grid-wide synchronization (`grid.sync()`). Requires nvcc at build time for PTX compilation.
+
 ## Testing Patterns
 
 - Unit tests in each crate's `src/` using `#[cfg(test)]`
@@ -359,7 +368,7 @@ Crate publishing order:
 1. **Tier 1** (no deps): core, cuda-codegen, wgpu-codegen
 2. **Tier 2** (depends on core): derive, cpu, cuda, wgpu, metal, codegen, ecosystem, audio-fft
 3. **Tier 3** (main crate): ringkernel
-4. **Tier 4** (applications): wavesim, txmon, accnet, procint
+4. **Tier 4** (applications): wavesim, wavesim3d, txmon, accnet, procint
 
 ## Important Patterns
 

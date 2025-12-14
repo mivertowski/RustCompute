@@ -109,7 +109,7 @@ pub struct GpuMonitoringConfig {
 impl Default for GpuMonitoringConfig {
     fn default() -> Self {
         Self {
-            amount_threshold: 10_000_00,
+            amount_threshold: 1_000_000,
             velocity_threshold: 10,
             structuring_threshold_pct: 90,
             structuring_min_velocity: 3,

@@ -237,6 +237,7 @@ impl WgpuMessageQueue {
     }
 
     /// Get payloads binding.
+    #[allow(dead_code)]
     pub fn payloads_binding(&self) -> wgpu::BindingResource<'_> {
         self.payloads.as_entire_binding()
     }

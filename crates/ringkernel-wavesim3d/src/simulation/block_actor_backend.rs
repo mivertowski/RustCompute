@@ -18,14 +18,14 @@ use super::grid3d::{CellType, SimulationGrid3D};
 use std::sync::Arc;
 
 #[cfg(feature = "cuda")]
-use cudarc::driver::{CudaDevice, CudaSlice, DeviceRepr, LaunchAsync, LaunchConfig, ValidAsZeroBits};
+use cudarc::driver::{
+    CudaDevice, CudaSlice, DeviceRepr, LaunchAsync, LaunchConfig, ValidAsZeroBits,
+};
 #[cfg(feature = "cuda")]
 use cudarc::nvrtc;
 
 #[cfg(feature = "cooperative")]
-use ringkernel_cuda::cooperative::{
-    has_cooperative_support, CooperativeKernel, kernels,
-};
+use ringkernel_cuda::cooperative::{has_cooperative_support, kernels, CooperativeKernel};
 
 /// Block size for the hybrid actor model.
 /// 8×8×8 = 512 cells per block provides good balance between:
@@ -51,7 +51,9 @@ impl std::fmt::Display for BlockActorError {
             BlockActorError::CompileError(msg) => write!(f, "Block actor compile error: {}", msg),
             BlockActorError::LaunchError(msg) => write!(f, "Block actor launch error: {}", msg),
             BlockActorError::MemoryError(msg) => write!(f, "Block actor memory error: {}", msg),
-            BlockActorError::GridSizeError(msg) => write!(f, "Block actor grid size error: {}", msg),
+            BlockActorError::GridSizeError(msg) => {
+                write!(f, "Block actor grid size error: {}", msg)
+            }
         }
     }
 }
@@ -236,7 +238,7 @@ impl Default for BlockActorConfig {
     fn default() -> Self {
         Self {
             cuda_block_size: 256,
-            use_persistent_kernel: true,  // Enable by default
+            use_persistent_kernel: true, // Enable by default
         }
     }
 }
@@ -1057,7 +1059,8 @@ extern "C" __global__ void persistent_fdtd(
         grid.sync();
     }
 }
-"#.to_string()
+"#
+    .to_string()
 }
 
 /// Block-based actor GPU backend for 3D wave simulation.
@@ -1090,9 +1093,9 @@ impl BlockActorGpuBackend {
     /// Create a new block-based actor backend.
     pub fn new(grid: &SimulationGrid3D, config: BlockActorConfig) -> Result<Self, BlockActorError> {
         // Calculate block dimensions (round up)
-        let blocks_x = (grid.width + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        let blocks_y = (grid.height + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        let blocks_z = (grid.depth + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let blocks_x = grid.width.div_ceil(BLOCK_SIZE);
+        let blocks_y = grid.height.div_ceil(BLOCK_SIZE);
+        let blocks_z = grid.depth.div_ceil(BLOCK_SIZE);
         let num_blocks = blocks_x * blocks_y * blocks_z;
 
         let params = BlockGridParams {
@@ -1134,7 +1137,10 @@ impl BlockActorGpuBackend {
         let (cooperative_available, cooperative_kernel) = if config.use_persistent_kernel {
             match Self::try_load_cooperative_kernel(&device) {
                 Ok(kernel) => {
-                    println!("Cooperative kernel loaded: max {} concurrent blocks", kernel.max_concurrent_blocks());
+                    println!(
+                        "Cooperative kernel loaded: max {} concurrent blocks",
+                        kernel.max_concurrent_blocks()
+                    );
                     (true, Some(kernel))
                 }
                 Err(e) => {
@@ -1187,11 +1193,13 @@ impl BlockActorGpuBackend {
     /// Try to load pre-compiled cooperative kernel.
     /// Returns Ok(kernel) if cooperative groups are supported, Err otherwise.
     #[cfg(feature = "cooperative")]
-    fn try_load_cooperative_kernel(_device: &Arc<CudaDevice>) -> Result<CooperativeKernel, BlockActorError> {
+    fn try_load_cooperative_kernel(
+        _device: &Arc<CudaDevice>,
+    ) -> Result<CooperativeKernel, BlockActorError> {
         // Check if cooperative support was compiled at build time
         if !has_cooperative_support() {
             return Err(BlockActorError::CompileError(
-                "Cooperative kernel PTX not available (nvcc not found at build time)".into()
+                "Cooperative kernel PTX not available (nvcc not found at build time)".into(),
             ));
         }
 
@@ -1208,9 +1216,13 @@ impl BlockActorGpuBackend {
     /// Check if cooperative kernel mode is available.
     pub fn is_cooperative_available(&self) -> bool {
         #[cfg(feature = "cooperative")]
-        { self.cooperative_kernel.is_some() }
+        {
+            self.cooperative_kernel.is_some()
+        }
         #[cfg(not(feature = "cooperative"))]
-        { false }
+        {
+            false
+        }
     }
 
     /// Backwards compatibility alias.
@@ -1221,7 +1233,11 @@ impl BlockActorGpuBackend {
     /// Perform simulation steps using fused kernel (extract + compute in single launch).
     /// This reduces kernel launch overhead by 50% compared to the standard step.
     /// Note: Works correctly when all blocks can run concurrently on the GPU.
-    pub fn step_fused(&mut self, grid: &mut SimulationGrid3D, num_steps: u32) -> Result<(), BlockActorError> {
+    pub fn step_fused(
+        &mut self,
+        grid: &mut SimulationGrid3D,
+        num_steps: u32,
+    ) -> Result<(), BlockActorError> {
         let launch_config = LaunchConfig {
             block_dim: (self.config.cuda_block_size, 1, 1),
             grid_dim: (self.num_blocks as u32, 1, 1),
@@ -1248,7 +1264,13 @@ impl BlockActorGpuBackend {
                 fused_kernel
                     .launch(
                         launch_config,
-                        (&self.blocks, &self.ghost_a, &self.ghost_b, &params_gpu, use_buffer_b),
+                        (
+                            &self.blocks,
+                            &self.ghost_a,
+                            &self.ghost_b,
+                            &params_gpu,
+                            use_buffer_b,
+                        ),
                     )
                     .map_err(|e| BlockActorError::LaunchError(e.to_string()))?;
             }
@@ -1286,7 +1308,11 @@ impl BlockActorGpuBackend {
     /// - cooperative feature enabled
     /// - Grid size fits within max concurrent blocks
     #[cfg(feature = "cooperative")]
-    pub fn step_cooperative(&mut self, grid: &mut SimulationGrid3D, num_steps: u32) -> Result<(), BlockActorError> {
+    pub fn step_cooperative(
+        &mut self,
+        grid: &mut SimulationGrid3D,
+        num_steps: u32,
+    ) -> Result<(), BlockActorError> {
         let kernel = self.cooperative_kernel.as_ref().ok_or_else(|| {
             BlockActorError::LaunchError("Cooperative kernel not available".into())
         })?;
@@ -1315,11 +1341,17 @@ impl BlockActorGpuBackend {
     /// Returns None if cooperative support is not available.
     #[cfg(feature = "cooperative")]
     pub fn max_cooperative_blocks(&self) -> Option<u32> {
-        self.cooperative_kernel.as_ref().map(|k| k.max_concurrent_blocks())
+        self.cooperative_kernel
+            .as_ref()
+            .map(|k| k.max_concurrent_blocks())
     }
 
     /// Perform simulation steps (standard two-kernel approach).
-    pub fn step(&mut self, grid: &mut SimulationGrid3D, num_steps: u32) -> Result<(), BlockActorError> {
+    pub fn step(
+        &mut self,
+        grid: &mut SimulationGrid3D,
+        num_steps: u32,
+    ) -> Result<(), BlockActorError> {
         let launch_config = LaunchConfig {
             block_dim: (self.config.cuda_block_size, 1, 1),
             grid_dim: (self.num_blocks as u32, 1, 1),
@@ -1514,7 +1546,13 @@ impl BlockActorGpuBackend {
     }
 
     /// Inject impulse on GPU.
-    pub fn inject_impulse(&mut self, x: u32, y: u32, z: u32, amplitude: f32) -> Result<(), BlockActorError> {
+    pub fn inject_impulse(
+        &mut self,
+        x: u32,
+        y: u32,
+        z: u32,
+        amplitude: f32,
+    ) -> Result<(), BlockActorError> {
         let kernel = self
             .device
             .get_func("block_actor", "inject_impulse_block")
@@ -1533,7 +1571,10 @@ impl BlockActorGpuBackend {
 
         unsafe {
             kernel
-                .launch(launch_config, (&self.blocks, x, y, z, amplitude, &params_gpu))
+                .launch(
+                    launch_config,
+                    (&self.blocks, x, y, z, amplitude, &params_gpu),
+                )
                 .map_err(|e| BlockActorError::LaunchError(e.to_string()))?;
         }
 

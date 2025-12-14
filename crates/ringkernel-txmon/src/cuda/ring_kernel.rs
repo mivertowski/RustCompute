@@ -160,9 +160,11 @@ pub enum KernelState {
 impl RingKernelHandle {
     /// Create a new ring kernel handle.
     pub fn new(kernel_id: String, config: RingKernelConfig) -> Self {
-        let mut control = ControlBlock::default();
-        control.input_mask = config.queue_capacity - 1;
-        control.output_mask = config.queue_capacity - 1;
+        let control = ControlBlock {
+            input_mask: config.queue_capacity - 1,
+            output_mask: config.queue_capacity - 1,
+            ..Default::default()
+        };
 
         Self {
             kernel_id,

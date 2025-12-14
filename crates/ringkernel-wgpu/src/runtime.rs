@@ -113,11 +113,7 @@ impl RingKernelRuntime for WgpuRuntime {
     }
 
     fn is_backend_available(&self, backend: Backend) -> bool {
-        match backend {
-            Backend::Wgpu => true,
-            Backend::Cpu => true,
-            _ => false,
-        }
+        matches!(backend, Backend::Wgpu | Backend::Cpu)
     }
 
     async fn launch(&self, kernel_id: &str, options: LaunchOptions) -> Result<KernelHandle> {

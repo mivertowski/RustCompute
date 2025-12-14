@@ -316,8 +316,8 @@ impl TileGpuCompute {
 
             // Dispatch enough workgroups to cover tile interior
             // Workgroup size is 16x16, so for 16x16 tile we need 1x1 workgroups
-            let workgroups_x = (self.tile_size + 15) / 16;
-            let workgroups_y = (self.tile_size + 15) / 16;
+            let workgroups_x = self.tile_size.div_ceil(16);
+            let workgroups_y = self.tile_size.div_ceil(16);
             pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 
@@ -577,8 +577,8 @@ impl TileGpuComputePool {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
 
-            let workgroups_x = (self.tile_size + 15) / 16;
-            let workgroups_y = (self.tile_size + 15) / 16;
+            let workgroups_x = self.tile_size.div_ceil(16);
+            let workgroups_y = self.tile_size.div_ceil(16);
             pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 

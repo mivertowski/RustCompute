@@ -63,14 +63,12 @@ impl KernelSource {
 /// Generate all CUDA kernels for process intelligence.
 #[cfg(feature = "cuda")]
 pub fn generate_all_kernels() -> Result<Vec<KernelSource>, String> {
-    let mut kernels = Vec::new();
-
-    kernels.push(generate_dfg_batch_kernel()?);
-    kernels.push(generate_pattern_batch_kernel()?);
-    kernels.push(generate_partial_order_stencil_kernel()?);
-    kernels.push(generate_dfg_ring_kernel()?);
-
-    Ok(kernels)
+    Ok(vec![
+        generate_dfg_batch_kernel()?,
+        generate_pattern_batch_kernel()?,
+        generate_partial_order_stencil_kernel()?,
+        generate_dfg_ring_kernel()?,
+    ])
 }
 
 /// Generate DFG construction batch kernel.

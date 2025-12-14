@@ -321,6 +321,7 @@ pub struct StencilPatternBackend {
     velocity_grid_previous: VelocityGrid,
     network_grid_current: NetworkGrid,
     network_grid_previous: NetworkGrid,
+    #[allow(dead_code)]
     anomaly_scores: Vec<f32>,
 }
 

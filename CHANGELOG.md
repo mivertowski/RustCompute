@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2025-12-14
+
+### Added
+
+#### Cooperative Groups Support
+- **Grid-wide GPU synchronization** via CUDA cooperative groups (`grid.sync()`)
+- **`cuLaunchCooperativeKernel` driver API interop** - Direct FFI calls to CUDA driver for true cooperative launch
+- **Build-time PTX compilation** - `build.rs` with nvcc detection and automatic kernel compilation
+- **`cooperative` feature flag** for `ringkernel-cuda` and `ringkernel-wavesim3d`
+- **`cooperative` field in `LaunchOptions`** for cooperative launch mode
+
+#### Block Actor Backend (WaveSim3D)
+- **8×8×8 block-based actor model** - Hybrid approach combining stencil and actor patterns
+  - Intra-block: Fast stencil computation with shared memory
+  - Inter-block: Double-buffered message passing (no atomics)
+- **`BlockActorGpuBackend`** with `step_fused()` for single-kernel-launch execution
+- **Performance**: 8,165 Mcells/s (59.6× faster than per-cell actors)
+- **Grid size validation** with `max_cooperative_blocks` (144 on RTX 4090)
+
+#### New Computation Method
+- **`ComputationMethod::BlockActor`** - Third GPU computation method for wavesim3d
+  - Combines actor model benefits with stencil performance
+  - 10-50× faster than per-cell Actor method
+
+### Changed
+- Added `CooperativeKernel` wrapper in `ringkernel-cuda::cooperative` module
+- Added cooperative kernel infrastructure to wavesim3d benchmark
+
 ## [0.1.2] - 2025-12-11
 
 ### Added
@@ -146,7 +174,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLAUDE.md with build commands and architecture overview
 - Code examples for all major features
 
-[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/mivertowski/RustCompute/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/mivertowski/RustCompute/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/mivertowski/RustCompute/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/mivertowski/RustCompute/releases/tag/v0.1.0

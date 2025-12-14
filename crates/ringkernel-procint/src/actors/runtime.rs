@@ -80,12 +80,12 @@ impl GpuActorRuntime {
         // Check for CUDA (simplified check)
         #[cfg(feature = "cuda")]
         {
-            return Some(DeviceInfo {
+            Some(DeviceInfo {
                 name: "CUDA Device".to_string(),
                 backend: GpuBackend::Cuda,
                 memory_mb: 8192,
                 compute_capability: "8.6".to_string(),
-            });
+            })
         }
 
         #[cfg(not(feature = "cuda"))]

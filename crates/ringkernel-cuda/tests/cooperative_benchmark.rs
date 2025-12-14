@@ -4,9 +4,7 @@
 
 #![cfg(feature = "cooperative")]
 
-use ringkernel_cuda::cooperative::{
-    has_cooperative_support, CooperativeKernel, kernels,
-};
+use ringkernel_cuda::cooperative::{has_cooperative_support, kernels, CooperativeKernel};
 
 #[test]
 #[ignore] // Requires CUDA GPU
@@ -21,15 +19,17 @@ fn test_cooperative_fdtd_kernel() {
     println!("╚══════════════════════════════════════════════════════════════════╝\n");
 
     // Create device using ringkernel-cuda's wrapper
-    let rk_device = ringkernel_cuda::CudaDevice::new(0)
-        .expect("Failed to create device");
+    let rk_device = ringkernel_cuda::CudaDevice::new(0).expect("Failed to create device");
 
     // Load pre-compiled cooperative kernel
     match CooperativeKernel::from_precompiled(&rk_device, kernels::COOP_PERSISTENT_FDTD, 256) {
         Ok(kernel) => {
             println!("✓ Loaded cooperative FDTD kernel: {}", kernel.func_name());
             println!("  Block size: {}", kernel.block_size());
-            println!("  Max concurrent blocks: {}", kernel.max_concurrent_blocks());
+            println!(
+                "  Max concurrent blocks: {}",
+                kernel.max_concurrent_blocks()
+            );
 
             // This kernel needs proper FDTD data structures to actually run
             // For now, just verify it loads successfully
@@ -54,8 +54,7 @@ fn test_grid_sync_correctness() {
     println!("╚══════════════════════════════════════════════════════════════════╝\n");
 
     // Load pre-compiled test kernel that uses grid.sync()
-    let rk_device = ringkernel_cuda::CudaDevice::new(0)
-        .expect("Failed to create device");
+    let rk_device = ringkernel_cuda::CudaDevice::new(0).expect("Failed to create device");
 
     match CooperativeKernel::from_precompiled(&rk_device, kernels::COOP_TEST_GRID_SYNC, 256) {
         Ok(kernel) => {

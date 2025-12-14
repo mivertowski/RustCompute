@@ -130,6 +130,7 @@ let options = LaunchOptions::default()
     .with_queue_capacity(4096)      // Must be power of 2
     .with_block_size(256)           // Threads per block
     .with_priority(priority::HIGH)
+    .with_cooperative(true)         // Enable grid-wide sync (CUDA cooperative groups)
     .without_auto_activate();
 ```
 
@@ -254,13 +255,13 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 | `ringkernel-core` | Core traits, types, HLC, K2K, PubSub |
 | `ringkernel-derive` | Proc macros (`#[derive(RingMessage)]`, `#[ring_kernel]`) |
 | `ringkernel-cpu` | CPU backend |
-| `ringkernel-cuda` | NVIDIA CUDA backend |
+| `ringkernel-cuda` | NVIDIA CUDA backend with cooperative groups support |
 | `ringkernel-wgpu` | WebGPU backend |
 | `ringkernel-codegen` | GPU kernel code generation |
 | `ringkernel-cuda-codegen` | Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL |
 | `ringkernel-wgpu-codegen` | Rust-to-WGSL transpiler for writing GPU kernels in Rust DSL (WebGPU) |
 | `ringkernel-wavesim` | 2D wave simulation demo with tile-based FDTD and educational modes |
-| `ringkernel-wavesim3d` | 3D acoustic wave simulation with binaural audio and volumetric rendering |
+| `ringkernel-wavesim3d` | 3D acoustic wave simulation with binaural audio, block actor backend, and volumetric rendering |
 | `ringkernel-txmon` | Transaction monitoring showcase with GPU-accelerated fraud detection |
 | `ringkernel-accnet` | Accounting network analytics with fraud detection and GAAP compliance |
 | `ringkernel-procint` | Process intelligence with DFG mining, pattern detection, conformance checking |
@@ -509,6 +510,7 @@ let wgsl_code = transpile_ring_kernel(&handler, &config)?;
 - Metal backend is not yet implemented
 - WebGPU lacks 64-bit atomics (WGSL limitation)
 - Persistent kernel mode requires CUDA compute capability 7.0+
+- Cooperative groups (`grid.sync()`) requires CUDA compute capability 6.0+ and `cooperative` feature flag
 
 ## License
 

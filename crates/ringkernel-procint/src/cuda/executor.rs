@@ -9,7 +9,7 @@ use super::{KernelSource, KernelType};
 use super::LaunchConfig;
 
 #[cfg(feature = "cuda")]
-use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig as CudaLaunchConfig};
+use cudarc::driver::{CudaDevice, LaunchAsync, LaunchConfig as CudaLaunchConfig};
 #[cfg(feature = "cuda")]
 use std::sync::Arc;
 
@@ -362,7 +362,7 @@ impl KernelExecutor {
 
         // Launch configuration
         let block_size = 256u32;
-        let grid_size = (pair_count as u32 + block_size - 1) / block_size;
+        let grid_size = (pair_count as u32).div_ceil(block_size);
 
         let config = CudaLaunchConfig {
             grid_dim: (grid_size, 1, 1),
@@ -415,12 +415,13 @@ impl KernelExecutor {
                     let total_dur = result_durations[idx];
                     let avg_dur = total_dur as f32 / freq as f32;
 
-                    let mut edge = GpuDFGEdge::default();
-                    edge.source_activity = src as u32;
-                    edge.target_activity = tgt as u32;
-                    edge.frequency = freq;
-                    edge.avg_duration_ms = avg_dur;
-                    edges.push(edge);
+                    edges.push(GpuDFGEdge {
+                        source_activity: src as u32,
+                        target_activity: tgt as u32,
+                        frequency: freq,
+                        avg_duration_ms: avg_dur,
+                        ..Default::default()
+                    });
                 }
             }
         }
@@ -499,7 +500,7 @@ impl KernelExecutor {
 
         // Launch configuration
         let block_size = 256u32;
-        let grid_size = (n as u32 + block_size - 1) / block_size;
+        let grid_size = (n as u32).div_ceil(block_size);
 
         let config = CudaLaunchConfig {
             grid_dim: (grid_size, 1, 1),
@@ -626,10 +627,8 @@ impl KernelExecutor {
             // Pad to 16 elements for consistent GPU buffer sizes
             let mut start_times_padded = vec![0u64; 16];
             let mut end_times_padded = vec![0u64; 16];
-            for i in 0..n {
-                start_times_padded[i] = start_times[i];
-                end_times_padded[i] = end_times[i];
-            }
+            start_times_padded[..n].copy_from_slice(&start_times);
+            end_times_padded[..n].copy_from_slice(&end_times);
 
             // HtoD transfers
             let d_start_times = device
@@ -849,7 +848,7 @@ impl KernelExecutor {
 
         // Launch configuration
         let block_size = 256u32;
-        let grid_size = (num_traces as u32 + block_size - 1) / block_size;
+        let grid_size = (num_traces as u32).div_ceil(block_size);
 
         let config = CudaLaunchConfig {
             grid_dim: (grid_size, 1, 1),

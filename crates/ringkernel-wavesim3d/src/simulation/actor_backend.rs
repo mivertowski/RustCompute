@@ -151,6 +151,7 @@ impl Direction3D {
 /// - pressure_prev: f32 (4)
 /// - hlc_physical: u64 (8)
 /// - hlc_logical: u64 (8)
+///
 /// Total: 36 bytes data, padded to 40 for u64 alignment
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -365,6 +366,7 @@ pub struct ActorTileControl {
 
 impl ActorTileControl {
     /// Create a new tile control block.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         tile_x: u32,
         tile_y: u32,
@@ -1142,8 +1144,7 @@ impl ActorGpuBackend3D {
                 .get_func("actor_wavesim", "init_inbox_headers")
                 .ok_or_else(|| ActorError::LaunchError("init_inbox_headers not found".into()))?;
 
-            let blocks =
-                (total_cells + config.block_size as usize - 1) / config.block_size as usize;
+            let blocks = total_cells.div_ceil(config.block_size as usize);
             let launch_config = LaunchConfig {
                 block_dim: (config.block_size, 1, 1),
                 grid_dim: (blocks as u32, 1, 1),
@@ -1203,8 +1204,7 @@ impl ActorGpuBackend3D {
             .get_func("actor_wavesim", "cell_actor_kernel")
             .ok_or_else(|| ActorError::LaunchError("cell_actor_kernel not found".into()))?;
 
-        let blocks = (self.total_cells + self.config.block_size as usize - 1)
-            / self.config.block_size as usize;
+        let blocks = self.total_cells.div_ceil(self.config.block_size as usize);
         let launch_config = LaunchConfig {
             block_dim: (self.config.block_size, 1, 1),
             grid_dim: (blocks as u32, 1, 1),
@@ -1265,8 +1265,7 @@ impl ActorGpuBackend3D {
             .htod_sync_copy(&grid.pressure_prev)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
-        let blocks = (self.total_cells + self.config.block_size as usize - 1)
-            / self.config.block_size as usize;
+        let blocks = self.total_cells.div_ceil(self.config.block_size as usize);
         let launch_config = LaunchConfig {
             block_dim: (self.config.block_size, 1, 1),
             grid_dim: (blocks as u32, 1, 1),
@@ -1336,8 +1335,7 @@ impl ActorGpuBackend3D {
             .get_func("actor_wavesim", "init_cell_states")
             .ok_or_else(|| ActorError::LaunchError("init_cell_states not found".into()))?;
 
-        let blocks = (self.total_cells + self.config.block_size as usize - 1)
-            / self.config.block_size as usize;
+        let blocks = self.total_cells.div_ceil(self.config.block_size as usize);
         let launch_config = LaunchConfig {
             block_dim: (self.config.block_size, 1, 1),
             grid_dim: (blocks as u32, 1, 1),
@@ -1373,8 +1371,7 @@ impl ActorGpuBackend3D {
             .get_func("actor_wavesim", "init_inbox_headers")
             .ok_or_else(|| ActorError::LaunchError("init_inbox_headers not found".into()))?;
 
-        let blocks = (self.total_cells + self.config.block_size as usize - 1)
-            / self.config.block_size as usize;
+        let blocks = self.total_cells.div_ceil(self.config.block_size as usize);
         let launch_config = LaunchConfig {
             block_dim: (self.config.block_size, 1, 1),
             grid_dim: (blocks as u32, 1, 1),

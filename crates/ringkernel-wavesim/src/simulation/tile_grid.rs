@@ -718,7 +718,7 @@ impl TileKernelGrid {
 
         // Create GPU buffers for each tile
         let mut tile_buffers = HashMap::new();
-        for (tile_coords, _) in &self.tiles {
+        for tile_coords in self.tiles.keys() {
             let buffers = pool.create_tile_buffers();
             tile_buffers.insert(*tile_coords, buffers);
         }
@@ -904,7 +904,7 @@ impl TileKernelGrid {
         // Build halo messages for all tiles
         let mut halo_messages: Vec<(KernelId, HaloDirection, Vec<f32>)> = Vec::new();
 
-        for ((tx, ty), _tile) in &self.tiles {
+        for (tx, ty) in self.tiles.keys() {
             if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
                 // Extract halos based on tile's neighbors
                 let tile = self.tiles.get(&(*tx, *ty)).unwrap();
@@ -969,7 +969,7 @@ impl TileKernelGrid {
         // TODO: Add GPU kernel for boundary reflection
 
         // Phase 4: Compute FDTD on GPU for all tiles
-        for ((tx, ty), _tile) in &self.tiles {
+        for (tx, ty) in self.tiles.keys() {
             if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
                 state.backend.fdtd_step(buffers, &fdtd_params)?;
             }

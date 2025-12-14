@@ -281,7 +281,7 @@ impl GpuExecutor {
 
         // Calculate grid dimensions
         let block_size = 256u32;
-        let grid_size = ((n as u32) + block_size - 1) / block_size;
+        let grid_size = (n as u32).div_ceil(block_size);
 
         // Launch kernel
         let cfg = cudarc::driver::LaunchConfig {
@@ -362,7 +362,7 @@ impl GpuExecutor {
 
         // Calculate grid dimensions
         let block_size = 256u32;
-        let grid_size = ((n_flows as u32) + block_size - 1) / block_size;
+        let grid_size = (n_flows as u32).div_ceil(block_size);
 
         // Launch kernel
         let cfg = cudarc::driver::LaunchConfig {
@@ -426,7 +426,7 @@ impl GpuExecutor {
 
         // Calculate grid dimensions
         let block_size = 256u32;
-        let grid_size = ((n_flows as u32) + block_size - 1) / block_size;
+        let grid_size = (n_flows as u32).div_ceil(block_size);
 
         // Launch kernel
         let cfg = cudarc::driver::LaunchConfig {
@@ -619,7 +619,7 @@ impl GpuExecutor {
                     value /= 10.0;
                 }
                 let first_digit = value as usize;
-                if first_digit >= 1 && first_digit <= 9 {
+                if (1..=9).contains(&first_digit) {
                     _digit_counts[first_digit - 1] += 1;
                 }
             }

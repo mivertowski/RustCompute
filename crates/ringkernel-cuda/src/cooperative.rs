@@ -29,10 +29,10 @@
 use std::ffi::c_void;
 use std::sync::Arc;
 
+use cudarc::driver::sys as cuda_sys;
 use cudarc::driver::CudaDevice as CudarcDevice;
 use cudarc::driver::CudaFunction;
 use cudarc::driver::LaunchAsync;
-use cudarc::driver::sys as cuda_sys;
 
 use ringkernel_core::error::{Result, RingKernelError};
 
@@ -64,9 +64,10 @@ pub unsafe fn launch_cooperative_kernel(
     let lib = cuda_sys::lib();
 
     // Call cuLaunchCooperativeKernel
-    let coop_fn = lib.cuLaunchCooperativeKernel.as_ref().map_err(|_| {
-        cudarc::driver::DriverError(cuda_sys::CUresult::CUDA_ERROR_NOT_SUPPORTED)
-    })?;
+    let coop_fn = lib
+        .cuLaunchCooperativeKernel
+        .as_ref()
+        .map_err(|_| cudarc::driver::DriverError(cuda_sys::CUresult::CUDA_ERROR_NOT_SUPPORTED))?;
 
     let result = coop_fn(
         func,
@@ -140,9 +141,7 @@ pub fn check_cooperative_support(device: &CudaDevice) -> Result<()> {
     // Check if cooperative launch is supported
     let supports_coop = device
         .inner()
-        .attribute(
-            cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COOPERATIVE_LAUNCH,
-        )
+        .attribute(cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COOPERATIVE_LAUNCH)
         .unwrap_or(0);
 
     if supports_coop == 0 {
@@ -210,9 +209,7 @@ impl CooperativeKernel {
         device
             .inner()
             .load_ptx(ptx_code, module_name, &[func_name])
-            .map_err(|e| {
-                RingKernelError::LaunchFailed(format!("PTX load failed: {}", e))
-            })?;
+            .map_err(|e| RingKernelError::LaunchFailed(format!("PTX load failed: {}", e)))?;
 
         // Get function handle (safe wrapper for occupancy queries)
         let func = device
@@ -483,11 +480,8 @@ mod tests {
             return;
         }
 
-        let kernel = CooperativeKernel::from_precompiled(
-            &device,
-            kernels::COOP_PERSISTENT_FDTD,
-            256,
-        );
+        let kernel =
+            CooperativeKernel::from_precompiled(&device, kernels::COOP_PERSISTENT_FDTD, 256);
 
         match kernel {
             Ok(k) => {

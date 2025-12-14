@@ -253,10 +253,9 @@ fn benchmark_batch_kernel(gen_config: &GeneratorConfig, duration: Duration) -> B
     // Warmup
     for _ in 0..10 {
         let (transactions, profiles) = generator.generate_batch();
-        let gpu_txs: Vec<GpuTransaction> =
-            transactions.iter().map(|t| convert_to_gpu_tx(t)).collect();
+        let gpu_txs: Vec<GpuTransaction> = transactions.iter().map(convert_to_gpu_tx).collect();
         let gpu_profiles: Vec<GpuCustomerProfile> =
-            profiles.iter().map(|p| convert_to_gpu_profile(p)).collect();
+            profiles.iter().map(convert_to_gpu_profile).collect();
         let _ = backend.process_batch(&gpu_txs, &gpu_profiles);
     }
 
@@ -268,10 +267,9 @@ fn benchmark_batch_kernel(gen_config: &GeneratorConfig, duration: Duration) -> B
 
     while start.elapsed() < duration {
         let (transactions, profiles) = generator.generate_batch();
-        let gpu_txs: Vec<GpuTransaction> =
-            transactions.iter().map(|t| convert_to_gpu_tx(t)).collect();
+        let gpu_txs: Vec<GpuTransaction> = transactions.iter().map(convert_to_gpu_tx).collect();
         let gpu_profiles: Vec<GpuCustomerProfile> =
-            profiles.iter().map(|p| convert_to_gpu_profile(p)).collect();
+            profiles.iter().map(convert_to_gpu_profile).collect();
         let alerts = backend.process_batch(&gpu_txs, &gpu_profiles);
 
         total_transactions += transactions.len() as u64;
@@ -312,8 +310,7 @@ fn benchmark_stencil_kernel(gen_config: &GeneratorConfig, duration: Duration) ->
     // Warmup
     for _ in 0..10 {
         let (transactions, _profiles) = generator.generate_batch();
-        let gpu_txs: Vec<GpuTransaction> =
-            transactions.iter().map(|t| convert_to_gpu_tx(t)).collect();
+        let gpu_txs: Vec<GpuTransaction> = transactions.iter().map(convert_to_gpu_tx).collect();
         backend.add_transactions(&gpu_txs);
         let _ = backend.detect_all();
     }
@@ -326,8 +323,7 @@ fn benchmark_stencil_kernel(gen_config: &GeneratorConfig, duration: Duration) ->
 
     while start.elapsed() < duration {
         let (transactions, _profiles) = generator.generate_batch();
-        let gpu_txs: Vec<GpuTransaction> =
-            transactions.iter().map(|t| convert_to_gpu_tx(t)).collect();
+        let gpu_txs: Vec<GpuTransaction> = transactions.iter().map(convert_to_gpu_tx).collect();
 
         backend.add_transactions(&gpu_txs);
         let result = backend.detect_all();
@@ -435,7 +431,7 @@ EXIT:
         .map_err(|e| format!("Failed to copy y: {}", e))?;
 
     let block_size = 256u32;
-    let grid_size = ((n as u32) + block_size - 1) / block_size;
+    let grid_size = (n as u32).div_ceil(block_size);
     let cfg = LaunchConfig {
         grid_dim: (grid_size, 1, 1),
         block_dim: (block_size, 1, 1),
@@ -549,7 +545,7 @@ fn benchmark_cuda_codegen(duration: Duration) -> Result<BenchmarkResult, String>
         .map_err(|e| format!("Failed to copy output: {}", e))?;
 
     let block_size = 256u32;
-    let grid_size = ((n as u32) + block_size - 1) / block_size;
+    let grid_size = (n as u32).div_ceil(block_size);
     let cfg = LaunchConfig {
         grid_dim: (grid_size, 1, 1),
         block_dim: (block_size, 1, 1),

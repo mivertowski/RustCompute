@@ -278,9 +278,9 @@ impl GpuBackend3D {
         // Calculate launch configuration for 3D kernel
         let block_size = (8u32, 8u32, 4u32); // 256 threads per block
         let grid_size = (
-            (self.params.width + block_size.0 - 1) / block_size.0,
-            (self.params.height + block_size.1 - 1) / block_size.1,
-            (self.params.depth + block_size.2 - 1) / block_size.2,
+            self.params.width.div_ceil(block_size.0),
+            self.params.height.div_ceil(block_size.1),
+            self.params.depth.div_ceil(block_size.2),
         );
 
         let config_3d = LaunchConfig {
@@ -311,7 +311,7 @@ impl GpuBackend3D {
         }
 
         // Apply boundary conditions
-        let boundary_blocks = (self.total_cells + 255) / 256;
+        let boundary_blocks = self.total_cells.div_ceil(256);
         let config_1d = LaunchConfig {
             block_dim: (256, 1, 1),
             grid_dim: (boundary_blocks as u32, 1, 1),
@@ -427,9 +427,9 @@ impl GpuBackend3D {
 
         let block_size = (8u32, 8u32, 4u32);
         let grid_size = (
-            (self.params.width + block_size.0 - 1) / block_size.0,
-            (self.params.height + block_size.1 - 1) / block_size.1,
-            (self.params.depth + block_size.2 - 1) / block_size.2,
+            self.params.width.div_ceil(block_size.0),
+            self.params.height.div_ceil(block_size.1),
+            self.params.depth.div_ceil(block_size.2),
         );
 
         let config = LaunchConfig {

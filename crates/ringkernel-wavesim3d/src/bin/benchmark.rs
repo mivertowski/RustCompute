@@ -54,7 +54,8 @@ fn main() {
 
     #[cfg(feature = "cuda")]
     {
-        let mut results: Vec<(&str, f64, f64)> = vec![("CPU", cpu_time.as_secs_f64() * 1000.0, cpu_throughput)];
+        let mut results: Vec<(&str, f64, f64)> =
+            vec![("CPU", cpu_time.as_secs_f64() * 1000.0, cpu_throughput)];
 
         // GPU Stencil benchmark
         println!("Running GPU Stencil benchmark...");
@@ -73,7 +74,8 @@ fn main() {
                 let start = Instant::now();
                 engine.step_n(num_steps);
                 let gpu_time = start.elapsed();
-                let gpu_throughput = (width * height * depth * num_steps) as f64 / gpu_time.as_secs_f64() / 1e6;
+                let gpu_throughput =
+                    (width * height * depth * num_steps) as f64 / gpu_time.as_secs_f64() / 1e6;
 
                 println!("  GPU Stencil time: {:?}", gpu_time);
                 println!("  GPU Stencil throughput: {:.2} Mcells/s", gpu_throughput);
@@ -81,7 +83,11 @@ fn main() {
                     "  Speedup vs CPU: {:.1}x",
                     cpu_time.as_secs_f64() / gpu_time.as_secs_f64()
                 );
-                results.push(("GPU Stencil", gpu_time.as_secs_f64() * 1000.0, gpu_throughput));
+                results.push((
+                    "GPU Stencil",
+                    gpu_time.as_secs_f64() * 1000.0,
+                    gpu_throughput,
+                ));
             }
             Err(e) => {
                 println!("  GPU Stencil not available: {}", e);
@@ -111,10 +117,14 @@ fn main() {
             let start = Instant::now();
             engine.step_n(num_steps);
             let block_actor_time = start.elapsed();
-            let block_throughput = (width * height * depth * num_steps) as f64 / block_actor_time.as_secs_f64() / 1e6;
+            let block_throughput =
+                (width * height * depth * num_steps) as f64 / block_actor_time.as_secs_f64() / 1e6;
 
             println!("  GPU Block Actor time: {:?}", block_actor_time);
-            println!("  GPU Block Actor throughput: {:.2} Mcells/s", block_throughput);
+            println!(
+                "  GPU Block Actor throughput: {:.2} Mcells/s",
+                block_throughput
+            );
             println!(
                 "  Speedup vs CPU: {:.1}x",
                 cpu_time.as_secs_f64() / block_actor_time.as_secs_f64()
@@ -124,8 +134,10 @@ fn main() {
             if let Some(stats) = engine.block_actor_stats() {
                 println!();
                 println!("Block Actor Statistics:");
-                println!("  Blocks: {} ({} × {} × {})", stats.num_blocks,
-                    stats.block_dims.0, stats.block_dims.1, stats.block_dims.2);
+                println!(
+                    "  Blocks: {} ({} × {} × {})",
+                    stats.num_blocks, stats.block_dims.0, stats.block_dims.1, stats.block_dims.2
+                );
                 println!("  Cells per block: {}", stats.cells_per_block);
                 println!("  Total cells: {}", stats.total_cells);
                 println!(
@@ -133,7 +145,11 @@ fn main() {
                     stats.memory_usage_bytes as f64 / 1e6
                 );
             }
-            results.push(("GPU Block Actor", block_actor_time.as_secs_f64() * 1000.0, block_throughput));
+            results.push((
+                "GPU Block Actor",
+                block_actor_time.as_secs_f64() * 1000.0,
+                block_throughput,
+            ));
         } else {
             println!("  GPU Block Actor not available (falling back to CPU)");
         }
@@ -161,7 +177,8 @@ fn main() {
             let start = Instant::now();
             engine.step_n(num_steps);
             let actor_time = start.elapsed();
-            let actor_throughput = (width * height * depth * num_steps) as f64 / actor_time.as_secs_f64() / 1e6;
+            let actor_throughput =
+                (width * height * depth * num_steps) as f64 / actor_time.as_secs_f64() / 1e6;
 
             println!("  GPU Actor time: {:?}", actor_time);
             println!("  GPU Actor throughput: {:.2} Mcells/s", actor_throughput);
@@ -181,7 +198,11 @@ fn main() {
                     stats.memory_usage_bytes as f64 / 1e6
                 );
             }
-            results.push(("GPU Actor (per-cell)", actor_time.as_secs_f64() * 1000.0, actor_throughput));
+            results.push((
+                "GPU Actor (per-cell)",
+                actor_time.as_secs_f64() * 1000.0,
+                actor_throughput,
+            ));
         } else {
             println!("  GPU Actor not available (falling back to CPU)");
         }
@@ -203,10 +224,19 @@ fn main() {
 
         // Calculate Block Actor vs Actor improvement
         if results.len() >= 3 {
-            let block_throughput = results.iter().find(|(n, _, _)| *n == "GPU Block Actor").map(|(_, _, t)| *t);
-            let actor_throughput = results.iter().find(|(n, _, _)| *n == "GPU Actor (per-cell)").map(|(_, _, t)| *t);
+            let block_throughput = results
+                .iter()
+                .find(|(n, _, _)| *n == "GPU Block Actor")
+                .map(|(_, _, t)| *t);
+            let actor_throughput = results
+                .iter()
+                .find(|(n, _, _)| *n == "GPU Actor (per-cell)")
+                .map(|(_, _, t)| *t);
             if let (Some(block_t), Some(actor_t)) = (block_throughput, actor_throughput) {
-                println!("\nBlock Actor vs Per-Cell Actor: {:.1}x faster", block_t / actor_t);
+                println!(
+                    "\nBlock Actor vs Per-Cell Actor: {:.1}x faster",
+                    block_t / actor_t
+                );
             }
         }
     }
@@ -226,8 +256,13 @@ fn main() {
         let coop_steps = 100;
 
         println!("Configuration for cooperative test:");
-        println!("  Grid: {}×{}×{} = {} cells", coop_width, coop_height, coop_depth,
-            coop_width * coop_height * coop_depth);
+        println!(
+            "  Grid: {}×{}×{} = {} cells",
+            coop_width,
+            coop_height,
+            coop_depth,
+            coop_width * coop_height * coop_depth
+        );
         println!("  Blocks: 5×5×5 = 125 (within 144 limit)");
         println!("  Steps: {}", coop_steps);
         println!();
@@ -267,7 +302,9 @@ fn main() {
             let start = Instant::now();
             engine.step_n(coop_steps);
             let coop_time = start.elapsed();
-            let coop_throughput = (coop_width * coop_height * coop_depth * coop_steps) as f64 / coop_time.as_secs_f64() / 1e6;
+            let coop_throughput = (coop_width * coop_height * coop_depth * coop_steps) as f64
+                / coop_time.as_secs_f64()
+                / 1e6;
 
             println!("Results:");
             println!("  Time: {:?}", coop_time);
