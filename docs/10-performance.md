@@ -304,4 +304,69 @@ fn verify_layouts() {
 
 ---
 
+## Persistent vs Traditional GPU Kernels
+
+The choice between persistent GPU actors and traditional kernel launches depends on your workload characteristics.
+
+### Interactive Benchmark Results (RTX Ada)
+
+| Operation | Traditional | Persistent | Winner |
+|-----------|-------------|------------|--------|
+| **Inject command** | 317 µs | 0.03 µs | **Persistent 11,327x** |
+| Query state | 0.01 µs | 0.01 µs | Tie |
+| Single compute step | 3.2 µs | 163 µs | Traditional 51x |
+| **Mixed workload** | 40.5 ms | 15.3 ms | **Persistent 2.7x** |
+
+### Why the Dramatic Difference?
+
+**Traditional kernel overhead per command:**
+```
+cudaMemcpy(H→D)  ~20-50µs
+cudaLaunchKernel ~10-30µs
+cudaDeviceSynchronize ~5-20µs
+cudaMemcpy(D→H)  ~20-50µs
+─────────────────────────────
+Total: ~50-150µs per command
+```
+
+**Persistent kernel overhead per command:**
+```
+Write to mapped memory  ~10-50ns
+Spin-poll response      ~1-5µs (depends on kernel load)
+─────────────────────────────
+Total: ~1-10µs per command
+```
+
+### When to Use Each Approach
+
+| Scenario | Best Choice | Reasoning |
+|----------|-------------|-----------|
+| Batch simulation (10,000 steps) | Traditional | Amortize launch overhead across many steps |
+| Real-time GUI (60 FPS) | **Persistent** | 2.7x more operations per 16ms frame |
+| Interactive debugging | **Persistent** | Instant command injection (0.03µs) |
+| Dynamic parameter changes | **Persistent** | No kernel relaunch needed |
+| Pure compute throughput | Traditional | Lower per-step overhead |
+| Multiple small commands | **Persistent** | Avoid repeated launch overhead |
+
+### Frame Budget Analysis (60 FPS)
+
+At 60 FPS, you have 16.67ms per frame for all operations:
+
+| Approach | Max Interactive Ops/Frame | Use Case |
+|----------|---------------------------|----------|
+| Traditional | 123 ops | Batch-oriented, compute-heavy |
+| **Persistent** | **327 ops** | Interactive, command-heavy |
+
+### Run the Benchmark
+
+```bash
+# Interactive benchmark (latency comparison)
+cargo run -p ringkernel-wavesim3d --bin interactive-benchmark --release --features cuda-codegen
+
+# Throughput benchmark (cells/second comparison)
+cargo run -p ringkernel-wavesim3d --bin wavesim3d-benchmark --release --features cuda-codegen
+```
+
+---
+
 ## Next: [Ecosystem Integration](./11-ecosystem.md)

@@ -62,8 +62,11 @@ cargo run -p ringkernel-procint --bin procint-benchmark --release
 # Run wavesim3d with cooperative groups (requires nvcc)
 cargo run -p ringkernel-wavesim3d --release --features cooperative
 
-# Run wavesim3d benchmark (GPU actor comparison)
+# Run wavesim3d throughput benchmark (GPU actor comparison)
 cargo run -p ringkernel-wavesim3d --bin wavesim3d-benchmark --release --features cuda-codegen
+
+# Run wavesim3d interactive benchmark (persistent vs traditional latency)
+cargo run -p ringkernel-wavesim3d --bin interactive-benchmark --release --features cuda-codegen
 
 # Run wavesim3d persistent actor test
 cargo run -p ringkernel-wavesim3d --example test_persistent --release --features cuda-codegen
@@ -275,14 +278,32 @@ let stats = sim.stats();                 // Read from mapped memory
 sim.shutdown()?;                         // Graceful termination
 ```
 
-**Benchmark Results (RTX Ada, 64³ grid):**
+**Throughput Benchmark Results (RTX Ada, 64³ grid):**
 | Method | Throughput | vs CPU |
 |--------|-----------|--------|
 | GPU Stencil | 78,046 Mcells/s | 280.6x |
 | GPU Persistent | 18.2 Mcells/s | 1.2x |
 | CPU (Rayon) | 278 Mcells/s | 1.0x |
 
-The persistent actor model excels in interactive/long-running simulations with dynamic topology, not raw compute-bound FDTD.
+**Interactive Benchmark Results (Persistent vs Traditional):**
+| Operation | Traditional | Persistent | Winner |
+|-----------|-------------|------------|--------|
+| **Inject (send command)** | 317 µs | 0.03 µs | **Persistent 11,327x** |
+| Query (read state) | 0.01 µs | 0.01 µs | Tie |
+| Single step (compute) | 3.2 µs | 163 µs | Traditional 51x |
+| **Mixed workload** | 40.5 ms | 15.3 ms | **Persistent 2.7x** |
+
+**When to Use Each Approach:**
+
+| Use Case | Best Approach | Why |
+|----------|---------------|-----|
+| Batch compute (1000s of steps) | Traditional | Lower per-step overhead |
+| Interactive commands | **Persistent** | 11,327x faster command injection |
+| Real-time GUI (60 FPS) | **Persistent** | 2.7x more ops per 16ms frame |
+| Dynamic topology | **Persistent** | No kernel relaunch needed |
+| Pure FDTD/matrix math | Traditional | Maximum throughput |
+
+The persistent actor model excels at **interactive command latency**—commands are written to mapped memory without kernel launch overhead. Traditional kernels excel at **batch compute** (running thousands of steps at once).
 
 ### WGSL Code Generation (ringkernel-wgpu-codegen)
 

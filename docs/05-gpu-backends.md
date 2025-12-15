@@ -426,6 +426,64 @@ fn ring_kernel(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 ---
 
+## Persistent vs Traditional Kernel Patterns
+
+RingKernel supports two fundamentally different GPU execution models, each optimized for different workloads.
+
+### Traditional Kernels (Launch-per-Command)
+
+```
+Host                              GPU
+  │                                │
+  ├─── cudaMemcpy(H→D) ───────────>│ (20-50µs)
+  ├─── cudaLaunchKernel ──────────>│ (10-30µs)
+  │                                ├── Compute
+  │<── cudaDeviceSynchronize ──────┤ (5-20µs)
+  │<── cudaMemcpy(D→H) ────────────┤ (20-50µs)
+  │                                │
+```
+
+**Best for:** Batch processing, compute-bound workloads, running 1000s of steps at once.
+
+### Persistent Kernels (Actor Model)
+
+```
+Host                              GPU
+  │                                │
+  ├─── Launch kernel (once) ──────>│ ← Single launch
+  │                                ├── Persistent loop
+  │    ┌─────────────────────────┐ │
+  │    │ for each command:       │ │
+  ├────┤  Write to mapped mem ───┼─┤ (~10-50ns)
+  │<───┤  Poll response ─────────┼─┤ (~1-5µs)
+  │    └─────────────────────────┘ │
+  │                                │
+  ├─── Terminate signal ──────────>│
+  │                                │
+```
+
+**Best for:** Interactive applications, real-time GUIs, dynamic parameter changes, command-heavy workloads.
+
+### Performance Comparison (RTX Ada)
+
+| Operation | Traditional | Persistent | Speedup |
+|-----------|-------------|------------|---------|
+| Inject command | 317 µs | 0.03 µs | **11,327x** |
+| Single compute step | 3.2 µs | 163 µs | Traditional 51x |
+| Mixed workload (300 ops) | 40.5 ms | 15.3 ms | **Persistent 2.7x** |
+
+### Decision Guide
+
+| Your Workload | Recommended | Why |
+|---------------|-------------|-----|
+| Run 10,000 simulation steps | Traditional | Launch overhead amortized |
+| Real-time GUI at 60 FPS | **Persistent** | 2.7x more ops per frame |
+| Interactive parameter tuning | **Persistent** | 0.03µs command latency |
+| Batch matrix operations | Traditional | Maximum compute throughput |
+| Game physics with user input | **Persistent** | Instant response to inputs |
+
+---
+
 ## Backend Selection
 
 ```rust

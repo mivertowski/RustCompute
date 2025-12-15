@@ -72,13 +72,26 @@ Click anywhere on the canvas to inject wave impulses.
 | Gaussian | Gaussian pulse |
 | WAV File | Audio file playback |
 
-### Performance
+### Throughput Performance
 
 | Grid Size | Backend | Performance |
 |-----------|---------|-------------|
 | 64³ cells | CPU (Rayon) | ~120 steps/sec |
 | 64³ cells | CUDA | ~2000 steps/sec |
 | 128³ cells | CUDA | ~400 steps/sec |
+
+### Interactive Performance (Persistent vs Traditional)
+
+The interactive benchmark demonstrates when persistent GPU actors excel:
+
+| Operation | Traditional | Persistent | Winner |
+|-----------|-------------|------------|--------|
+| **Inject command** | 317 µs | 0.03 µs | **Persistent 11,327x** |
+| Query state | 0.01 µs | 0.01 µs | Tie |
+| Single step | 3.2 µs | 163 µs | Traditional 51x |
+| **Mixed workload** | 40.5 ms | 15.3 ms | **Persistent 2.7x** |
+
+**Key insight:** Persistent actors excel at **interactive command latency**. Commands are written directly to mapped memory without kernel launch overhead. For real-time 60 FPS applications, persistent actors allow **2.7x more operations per frame**.
 
 ### Run It
 
@@ -88,6 +101,12 @@ cargo run -p ringkernel-wavesim3d --release
 
 # With CUDA acceleration
 cargo run -p ringkernel-wavesim3d --release --features cuda
+
+# Throughput benchmark (cells/second)
+cargo run -p ringkernel-wavesim3d --bin wavesim3d-benchmark --release --features cuda-codegen
+
+# Interactive benchmark (latency comparison)
+cargo run -p ringkernel-wavesim3d --bin interactive-benchmark --release --features cuda-codegen
 ```
 
 ### Controls
