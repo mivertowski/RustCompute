@@ -76,3 +76,7 @@ path = "src/bin/wavesim3d.rs"
 name = "wavesim3d-benchmark"
 path = "src/bin/benchmark.rs"
 required-features = ["cuda"]
+
+[[bin]]
+name = "interactive-benchmark"
+path = "src/bin/interactive_benchmark.rs"

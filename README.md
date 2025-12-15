@@ -368,9 +368,23 @@ The `ringkernel-wavesim3d` crate provides 3D acoustic wave simulation with binau
 
 The persistent actor model's value is in complex scenarios with dynamic topology, irregular communication patterns, or long-running interactive simulations—not raw compute-bound FDTD where traditional stencil kernels excel.
 
+**Interactive Benchmark Results (Persistent vs Traditional):**
+
+| Operation | Traditional | Persistent | Winner |
+|-----------|-------------|------------|--------|
+| **Inject (send command)** | 317 µs | 0.03 µs | **Persistent 11,327x** |
+| Query (read state) | 0.01 µs | 0.01 µs | Tie |
+| Single step (compute) | 3.2 µs | 163 µs | Traditional 51x |
+| **Mixed workload** | 40.5 ms | 15.3 ms | **Persistent 2.7x** |
+
+**Key Insight:** Persistent actors excel at **interactive command latency**—commands are written to mapped memory without kernel launch overhead. Traditional kernels excel at **batch compute** (running thousands of steps at once). For real-time applications at 60 FPS (16.67ms/frame), persistent actors allow **2.7x more interactive operations per frame**.
+
 ```bash
 # Run WaveSim3D benchmark
 cargo run -p ringkernel-wavesim3d --bin wavesim3d-benchmark --release --features cuda-codegen
+
+# Run interactive benchmark (persistent vs traditional)
+cargo run -p ringkernel-wavesim3d --bin interactive-benchmark --release --features cuda-codegen
 
 # Run WaveSim3D GUI
 cargo run -p ringkernel-wavesim3d --bin wavesim3d --release --features cuda

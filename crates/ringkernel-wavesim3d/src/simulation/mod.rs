@@ -507,6 +507,25 @@ impl SimulationEngine {
     pub fn persistent_stats(&self) -> Option<persistent_backend::PersistentBackendStats> {
         self.persistent_gpu.as_ref().map(|gpu| gpu.stats())
     }
+
+    /// Get pressure value at a specific grid cell.
+    ///
+    /// Note: If using GPU, this reads from the CPU grid which may be stale.
+    /// Call `sync_from_gpu()` first to get latest values.
+    pub fn pressure_at(&self, x: usize, y: usize, z: usize) -> f32 {
+        let (width, height, depth) = self.grid.dimensions();
+        if x < width && y < height && z < depth {
+            let idx = x + y * width + z * width * height;
+            self.grid.pressure.get(idx).copied().unwrap_or(0.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// Get reference to the underlying grid.
+    pub fn grid(&self) -> &grid3d::SimulationGrid3D {
+        &self.grid
+    }
 }
 
 /// Configuration for creating a simulation.
