@@ -167,6 +167,9 @@ pub struct LaunchOptions {
     /// Enable cooperative groups for grid-wide synchronization.
     /// Requires GPU support for cooperative kernel launch.
     pub cooperative: bool,
+    /// Enable K2K (kernel-to-kernel) messaging.
+    /// Allocates routing table and inbox buffers on GPU.
+    pub enable_k2k: bool,
 }
 
 impl Default for LaunchOptions {
@@ -180,6 +183,7 @@ impl Default for LaunchOptions {
             shared_memory_size: 0,
             auto_activate: true,
             cooperative: false,
+            enable_k2k: false,
         }
     }
 }
@@ -246,6 +250,15 @@ impl LaunchOptions {
     /// and nvcc at build time.
     pub fn with_cooperative(mut self, cooperative: bool) -> Self {
         self.cooperative = cooperative;
+        self
+    }
+
+    /// Enable K2K (kernel-to-kernel) messaging.
+    ///
+    /// When enabled, allocates routing table and inbox buffers on GPU
+    /// for direct kernel-to-kernel communication without host intervention.
+    pub fn with_k2k(mut self, enable: bool) -> Self {
+        self.enable_k2k = enable;
         self
     }
 

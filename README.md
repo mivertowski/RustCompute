@@ -260,8 +260,8 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 | `ringkernel-codegen` | GPU kernel code generation |
 | `ringkernel-cuda-codegen` | Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL |
 | `ringkernel-wgpu-codegen` | Rust-to-WGSL transpiler for writing GPU kernels in Rust DSL (WebGPU) |
-| `ringkernel-wavesim` | 2D wave simulation demo with tile-based FDTD and educational modes |
-| `ringkernel-wavesim3d` | 3D acoustic wave simulation with binaural audio, block actor backend, and volumetric rendering |
+| `ringkernel-wavesim` | 2D wave simulation with tile-based FDTD, ring kernel actors with K2K messaging, and educational modes |
+| `ringkernel-wavesim3d` | 3D acoustic wave simulation with binaural audio, persistent GPU actors (H2K/K2H messaging, K2K halo exchange, cooperative groups), and volumetric rendering |
 | `ringkernel-txmon` | Transaction monitoring showcase with GPU-accelerated fraud detection |
 | `ringkernel-accnet` | Accounting network analytics with fraud detection and GAAP compliance |
 | `ringkernel-procint` | Process intelligence with DFG mining, pattern detection, conformance checking |
@@ -269,7 +269,7 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 ## Testing
 
 ```bash
-# Run all tests (520+ tests)
+# Run all tests (550+ tests)
 cargo test --workspace
 
 # CUDA backend tests (requires NVIDIA GPU)
@@ -344,6 +344,37 @@ cargo run -p ringkernel-wavesim --bin bench_packed --release --features cuda
 ```
 
 See [WaveSim PERFORMANCE.md](crates/ringkernel-wavesim/PERFORMANCE.md) for detailed analysis.
+
+### WaveSim3D Showcase Application
+
+The `ringkernel-wavesim3d` crate provides 3D acoustic wave simulation with binaural audio, demonstrating **truly persistent GPU actors**:
+
+**GPU Actor Benchmark Results (64³ grid, 100 steps):**
+
+| Method | Time | Throughput | vs CPU |
+|--------|------|-----------|--------|
+| CPU (Rayon) | 94 ms | 278 Mcells/s | 1.0x |
+| **GPU Stencil** | 0.34 ms | **78,046 Mcells/s** | **280.6x** |
+| GPU Block Actor | 1,748 ms | 15 Mcells/s | 0.1x |
+| **GPU Persistent** | 76 ms | 18.2 Mcells/s | **1.2x** |
+| GPU Actor (per-cell) | 2,772 ms | 9.5 Mcells/s | 0.03x |
+
+**Key Features:**
+- **Persistent GPU Actors** - Single kernel launch runs for entire simulation lifetime
+- **H2K/K2H Messaging** - Host↔Kernel communication via mapped memory queues
+- **K2K Halo Exchange** - Kernel-to-kernel tile boundary communication on device
+- **Cooperative Groups** - Grid-wide synchronization via `grid.sync()`
+- **Binaural Audio** - Real-time 3D spatial audio from pressure field
+
+The persistent actor model's value is in complex scenarios with dynamic topology, irregular communication patterns, or long-running interactive simulations—not raw compute-bound FDTD where traditional stencil kernels excel.
+
+```bash
+# Run WaveSim3D benchmark
+cargo run -p ringkernel-wavesim3d --bin wavesim3d-benchmark --release --features cuda-codegen
+
+# Run WaveSim3D GUI
+cargo run -p ringkernel-wavesim3d --bin wavesim3d --release --features cuda
+```
 
 ### TxMon Showcase Application
 
@@ -457,8 +488,11 @@ let handler: syn::ItemFn = parse_quote! {
 let config = RingKernelConfig::new("processor")
     .with_block_size(128)
     .with_queue_capacity(1024)
-    .with_hlc(true)   // Hybrid Logical Clocks
-    .with_k2k(true);  // Kernel-to-Kernel messaging
+    .with_envelope_format(true)  // 256-byte MessageHeader + payload
+    .with_hlc(true)              // Hybrid Logical Clocks
+    .with_k2k(true)              // Kernel-to-Kernel messaging
+    .with_kernel_id(1000)        // Kernel identity for routing
+    .with_hlc_node_id(42);       // HLC node ID
 
 let cuda_code = transpile_ring_kernel(&handler, &config)?;
 ```
@@ -477,9 +511,11 @@ let cuda_code = transpile_ring_kernel(&handler, &config)?;
 
 **Ring Kernel Features:**
 - Persistent message loop with ControlBlock lifecycle
+- **Envelope-based message serialization** with 256-byte MessageHeader
+- Message header validation (magic number, correlation ID)
 - RingContext method inlining (`ctx.thread_id()` → `threadIdx.x`)
-- HLC operations: `hlc_tick()`, `hlc_now()`, `hlc_update()`
-- K2K messaging: `k2k_send()`, `k2k_try_recv()`, `k2k_peek()`
+- HLC operations with timestamp propagation: `hlc_tick()`, `hlc_now()`, `hlc_update()`
+- K2K messaging with envelope format: `k2k_send_envelope()`, `k2k_try_recv_envelope()`
 - Queue intrinsics: `enqueue_response()`, `input_queue_empty()`
 
 ### WGSL-Specific Notes
@@ -511,6 +547,7 @@ let wgsl_code = transpile_ring_kernel(&handler, &config)?;
 - WebGPU lacks 64-bit atomics (WGSL limitation)
 - Persistent kernel mode requires CUDA compute capability 7.0+
 - Cooperative groups (`grid.sync()`) requires CUDA compute capability 6.0+ and `cooperative` feature flag
+- Cooperative kernel launch limited to 48-512 concurrent blocks (GPU-dependent); larger grids require software synchronization
 
 ## License
 

@@ -131,6 +131,10 @@ pub enum RingKernelError {
     #[error("memory pool exhausted")]
     PoolExhausted,
 
+    /// Invalid index (out of bounds).
+    #[error("invalid index: {0}")]
+    InvalidIndex(usize),
+
     /// Generic memory error.
     #[error("memory error: {0}")]
     MemoryError(String),

@@ -40,6 +40,7 @@ pub mod dsl;
 pub mod handler;
 mod intrinsics;
 pub mod loops;
+pub mod persistent_fdtd;
 pub mod ring_kernel;
 pub mod shared;
 mod stencil;
@@ -54,6 +55,7 @@ pub use handler::{
 };
 pub use intrinsics::{GpuIntrinsic, IntrinsicRegistry, RingKernelIntrinsic, StencilIntrinsic};
 pub use loops::{LoopPattern, RangeInfo};
+pub use persistent_fdtd::{generate_persistent_fdtd_kernel, PersistentFdtdConfig};
 pub use ring_kernel::{
     generate_control_block_struct, generate_hlc_struct, generate_k2k_structs, RingKernelConfig,
 };

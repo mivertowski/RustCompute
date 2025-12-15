@@ -1,13 +1,15 @@
 //! CUDA memory management for RingKernel.
 
 use std::cell::UnsafeCell;
+use std::ffi::c_void;
 
+use cudarc::driver::sys as cuda_sys;
 use cudarc::driver::{CudaSlice, DevicePtr};
 
 use ringkernel_core::control::ControlBlock;
 use ringkernel_core::error::{Result, RingKernelError};
 use ringkernel_core::memory::GpuBuffer;
-use ringkernel_core::message::MessageHeader;
+use ringkernel_core::message::{MessageEnvelope, MessageHeader};
 
 use crate::device::CudaDevice;
 
@@ -55,6 +57,78 @@ impl CudaBuffer {
     /// Get mutable reference for uploads.
     pub fn as_mut_slice(&mut self) -> &mut CudaSlice<u8> {
         self.data.get_mut()
+    }
+
+    /// Copy data from host to device at a specific offset.
+    ///
+    /// Uses the CUDA driver API directly for offset-based transfers.
+    pub fn copy_from_host_at(&self, data: &[u8], offset: usize) -> Result<()> {
+        if offset + data.len() > self.size {
+            return Err(RingKernelError::AllocationFailed {
+                size: offset + data.len(),
+                reason: format!(
+                    "offset {} + len {} exceeds buffer size {}",
+                    offset,
+                    data.len(),
+                    self.size
+                ),
+            });
+        }
+
+        let dst_ptr = self.device_ptr() + offset as u64;
+
+        // Safety: We've validated bounds, and the CUDA driver handles the transfer.
+        unsafe {
+            let result = cuda_sys::lib().cuMemcpyHtoD_v2(
+                dst_ptr,
+                data.as_ptr() as *const c_void,
+                data.len(),
+            );
+            if result != cuda_sys::CUresult::CUDA_SUCCESS {
+                return Err(RingKernelError::TransferFailed(format!(
+                    "cuMemcpyHtoD_v2 failed: {:?}",
+                    result
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Copy data from device to host at a specific offset.
+    ///
+    /// Uses the CUDA driver API directly for offset-based transfers.
+    pub fn copy_to_host_at(&self, data: &mut [u8], offset: usize) -> Result<()> {
+        if offset + data.len() > self.size {
+            return Err(RingKernelError::AllocationFailed {
+                size: offset + data.len(),
+                reason: format!(
+                    "offset {} + len {} exceeds buffer size {}",
+                    offset,
+                    data.len(),
+                    self.size
+                ),
+            });
+        }
+
+        let src_ptr = self.device_ptr() + offset as u64;
+
+        // Safety: We've validated bounds, and the CUDA driver handles the transfer.
+        unsafe {
+            let result = cuda_sys::lib().cuMemcpyDtoH_v2(
+                data.as_mut_ptr() as *mut c_void,
+                src_ptr,
+                data.len(),
+            );
+            if result != cuda_sys::CUresult::CUDA_SUCCESS {
+                return Err(RingKernelError::TransferFailed(format!(
+                    "cuMemcpyDtoH_v2 failed: {:?}",
+                    result
+                )));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -229,6 +303,84 @@ impl CudaMessageQueue {
     /// Total memory used.
     pub fn total_size(&self) -> usize {
         self.headers.size() + self.payloads.size()
+    }
+
+    /// Write a message envelope to a specific slot.
+    ///
+    /// Writes the header to the headers buffer and payload to the payloads buffer.
+    pub fn write_envelope(&self, slot: usize, envelope: &MessageEnvelope) -> Result<()> {
+        if slot >= self.capacity {
+            return Err(RingKernelError::InvalidIndex(slot));
+        }
+
+        if envelope.payload.len() > self.max_payload_size {
+            return Err(RingKernelError::AllocationFailed {
+                size: envelope.payload.len(),
+                reason: format!(
+                    "payload size {} exceeds max {}",
+                    envelope.payload.len(),
+                    self.max_payload_size
+                ),
+            });
+        }
+
+        // Write header (256 bytes per header)
+        let header_offset = slot * std::mem::size_of::<MessageHeader>();
+        let header_bytes = unsafe {
+            std::slice::from_raw_parts(
+                &envelope.header as *const MessageHeader as *const u8,
+                std::mem::size_of::<MessageHeader>(),
+            )
+        };
+        self.headers.copy_from_host_at(header_bytes, header_offset)?;
+
+        // Write payload
+        if !envelope.payload.is_empty() {
+            let payload_offset = slot * self.max_payload_size;
+            self.payloads
+                .copy_from_host_at(&envelope.payload, payload_offset)?;
+        }
+
+        Ok(())
+    }
+
+    /// Read a message envelope from a specific slot.
+    ///
+    /// Reads the header and then the payload based on header.payload_size.
+    pub fn read_envelope(&self, slot: usize) -> Result<MessageEnvelope> {
+        if slot >= self.capacity {
+            return Err(RingKernelError::InvalidIndex(slot));
+        }
+
+        // Read header
+        let header_offset = slot * std::mem::size_of::<MessageHeader>();
+        let mut header_bytes = [0u8; std::mem::size_of::<MessageHeader>()];
+        self.headers.copy_to_host_at(&mut header_bytes, header_offset)?;
+
+        // Safety: MessageHeader is repr(C) and we read the correct size
+        let header: MessageHeader =
+            unsafe { std::ptr::read(header_bytes.as_ptr() as *const MessageHeader) };
+
+        // Validate payload size
+        let payload_size = header.payload_size as usize;
+        if payload_size > self.max_payload_size {
+            return Err(RingKernelError::AllocationFailed {
+                size: payload_size,
+                reason: format!(
+                    "header payload_size {} exceeds max {}",
+                    payload_size, self.max_payload_size
+                ),
+            });
+        }
+
+        // Read payload
+        let mut payload = vec![0u8; payload_size];
+        if payload_size > 0 {
+            let payload_offset = slot * self.max_payload_size;
+            self.payloads.copy_to_host_at(&mut payload, payload_offset)?;
+        }
+
+        Ok(MessageEnvelope { header, payload })
     }
 }
 

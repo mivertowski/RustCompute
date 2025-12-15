@@ -39,6 +39,12 @@ pub mod actor_backend;
 #[cfg(feature = "cuda")]
 pub mod block_actor_backend;
 
+#[cfg(all(feature = "cuda", feature = "cuda-codegen"))]
+pub mod persistent_backend;
+
+#[cfg(feature = "cuda-codegen")]
+pub mod kernels3d;
+
 pub use grid3d::{CellType, GridParams, SimulationGrid3D};
 pub use physics::{
     AcousticParams3D, AtmosphericAbsorption, Environment, Medium, MediumProperties,
@@ -54,6 +60,9 @@ pub use actor_backend::{
 pub use block_actor_backend::{
     BlockActorConfig, BlockActorError, BlockActorGpuBackend, BlockActorStats,
 };
+
+#[cfg(all(feature = "cuda", feature = "cuda-codegen"))]
+pub use persistent_backend::{PersistentBackend, PersistentBackendConfig, PersistentBackendError, PersistentBackendStats};
 
 /// Computation method for GPU-accelerated simulation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -82,6 +91,17 @@ pub enum ComputationMethod {
     /// Combines actor model benefits with stencil performance.
     /// Expected: 10-50× faster than per-cell Actor method.
     BlockActor,
+
+    /// Truly persistent GPU actor paradigm.
+    /// A single kernel runs for the entire simulation lifetime:
+    /// - H2K (Host→Kernel) command messaging via mapped memory
+    /// - K2H (Kernel→Host) response messaging
+    /// - K2K halo exchange between blocks on device memory
+    /// - Grid-wide synchronization via cooperative groups
+    ///
+    /// No kernel launch overhead per step - commands control simulation
+    /// from host while GPU runs continuously.
+    Persistent,
 }
 
 /// Simulation engine that manages grid updates and GPU/CPU dispatch.
@@ -101,6 +121,9 @@ pub struct SimulationEngine {
     /// Block actor GPU backend
     #[cfg(feature = "cuda")]
     pub block_actor_gpu: Option<block_actor_backend::BlockActorGpuBackend>,
+    /// Persistent GPU backend (true GPU actor with single kernel launch)
+    #[cfg(all(feature = "cuda", feature = "cuda-codegen"))]
+    pub persistent_gpu: Option<persistent_backend::PersistentBackend>,
 }
 
 impl SimulationEngine {
@@ -116,6 +139,8 @@ impl SimulationEngine {
             actor_gpu: None,
             #[cfg(feature = "cuda")]
             block_actor_gpu: None,
+            #[cfg(all(feature = "cuda", feature = "cuda-codegen"))]
+            persistent_gpu: None,
         }
     }
 
@@ -137,6 +162,8 @@ impl SimulationEngine {
             gpu: Some(gpu),
             actor_gpu: None,
             block_actor_gpu: None,
+            #[cfg(feature = "cuda-codegen")]
+            persistent_gpu: None,
         })
     }
 
@@ -162,6 +189,8 @@ impl SimulationEngine {
             gpu: None,
             actor_gpu: Some(actor_gpu),
             block_actor_gpu: None,
+            #[cfg(feature = "cuda-codegen")]
+            persistent_gpu: None,
         })
     }
 
@@ -187,6 +216,38 @@ impl SimulationEngine {
             gpu: None,
             actor_gpu: None,
             block_actor_gpu: Some(block_actor_gpu),
+            #[cfg(feature = "cuda-codegen")]
+            persistent_gpu: None,
+        })
+    }
+
+    /// Create a new simulation engine with persistent GPU backend.
+    ///
+    /// This uses the truly persistent GPU actor paradigm where a single kernel
+    /// runs for the entire simulation lifetime. Commands are sent via H2K queue
+    /// and the kernel processes them continuously.
+    #[cfg(all(feature = "cuda", feature = "cuda-codegen"))]
+    pub fn new_gpu_persistent(
+        width: usize,
+        height: usize,
+        depth: usize,
+        params: AcousticParams3D,
+        config: persistent_backend::PersistentBackendConfig,
+    ) -> Result<Self, persistent_backend::PersistentBackendError> {
+        let grid = SimulationGrid3D::new(width, height, depth, params);
+        let persistent_gpu = persistent_backend::PersistentBackend::new(&grid, config)?;
+
+        Ok(Self {
+            grid,
+            use_gpu: true,
+            computation_method: ComputationMethod::Persistent,
+            #[cfg(feature = "cuda")]
+            gpu: None,
+            #[cfg(feature = "cuda")]
+            actor_gpu: None,
+            #[cfg(feature = "cuda")]
+            block_actor_gpu: None,
+            persistent_gpu: Some(persistent_gpu),
         })
     }
 
@@ -217,6 +278,19 @@ impl SimulationEngine {
                         }
                     }
                 }
+                #[cfg(feature = "cuda-codegen")]
+                ComputationMethod::Persistent => {
+                    if let Some(ref mut persistent_gpu) = self.persistent_gpu {
+                        // Persistent kernel runs continuously - just request one step
+                        if persistent_gpu.step(&mut self.grid, 1).is_ok() {
+                            return;
+                        }
+                    }
+                }
+                #[cfg(not(feature = "cuda-codegen"))]
+                ComputationMethod::Persistent => {
+                    // Fall through to CPU when cuda-codegen not enabled
+                }
             }
         }
 
@@ -246,6 +320,10 @@ impl SimulationEngine {
             if let Some(ref mut block_actor_gpu) = self.block_actor_gpu {
                 let _ = block_actor_gpu.reset(&self.grid);
             }
+            #[cfg(feature = "cuda-codegen")]
+            if let Some(ref mut persistent_gpu) = self.persistent_gpu {
+                let _ = persistent_gpu.reset(&self.grid);
+            }
         }
     }
 
@@ -263,6 +341,11 @@ impl SimulationEngine {
             }
             if let Some(ref mut block_actor_gpu) = self.block_actor_gpu {
                 let _ = block_actor_gpu.upload_pressure(&self.grid);
+            }
+            #[cfg(feature = "cuda-codegen")]
+            if let Some(ref mut persistent_gpu) = self.persistent_gpu {
+                // Persistent kernel receives impulse via H2K message queue
+                let _ = persistent_gpu.inject_impulse(x as u32, y as u32, z as u32, amplitude);
             }
         }
     }
@@ -317,6 +400,23 @@ impl SimulationEngine {
                     }
                     self.use_gpu = self.block_actor_gpu.is_some();
                 }
+                #[cfg(feature = "cuda-codegen")]
+                ComputationMethod::Persistent => {
+                    if self.persistent_gpu.is_none() {
+                        if let Ok(persistent_gpu) = persistent_backend::PersistentBackend::new(
+                            &self.grid,
+                            persistent_backend::PersistentBackendConfig::default(),
+                        ) {
+                            self.persistent_gpu = Some(persistent_gpu);
+                        }
+                    }
+                    self.use_gpu = self.persistent_gpu.is_some();
+                }
+                #[cfg(not(feature = "cuda-codegen"))]
+                ComputationMethod::Persistent => {
+                    // Persistent method requires cuda-codegen feature
+                    self.use_gpu = false;
+                }
             }
         } else {
             self.use_gpu = false;
@@ -341,6 +441,10 @@ impl SimulationEngine {
                 ComputationMethod::Stencil => self.use_gpu && self.gpu.is_some(),
                 ComputationMethod::Actor => self.use_gpu && self.actor_gpu.is_some(),
                 ComputationMethod::BlockActor => self.use_gpu && self.block_actor_gpu.is_some(),
+                #[cfg(feature = "cuda-codegen")]
+                ComputationMethod::Persistent => self.use_gpu && self.persistent_gpu.is_some(),
+                #[cfg(not(feature = "cuda-codegen"))]
+                ComputationMethod::Persistent => false,
             }
         }
         #[cfg(not(feature = "cuda"))]
@@ -374,6 +478,14 @@ impl SimulationEngine {
                         let _ = block_actor_gpu.download_pressure(&mut self.grid);
                     }
                 }
+                #[cfg(feature = "cuda-codegen")]
+                ComputationMethod::Persistent => {
+                    if let Some(ref persistent_gpu) = self.persistent_gpu {
+                        let _ = persistent_gpu.download_pressure(&mut self.grid);
+                    }
+                }
+                #[cfg(not(feature = "cuda-codegen"))]
+                ComputationMethod::Persistent => {}
             }
         }
     }
@@ -388,6 +500,12 @@ impl SimulationEngine {
     #[cfg(feature = "cuda")]
     pub fn block_actor_stats(&self) -> Option<block_actor_backend::BlockActorStats> {
         self.block_actor_gpu.as_ref().map(|gpu| gpu.stats())
+    }
+
+    /// Get persistent backend statistics (if using persistent method).
+    #[cfg(all(feature = "cuda", feature = "cuda-codegen"))]
+    pub fn persistent_stats(&self) -> Option<persistent_backend::PersistentBackendStats> {
+        self.persistent_gpu.as_ref().map(|gpu| gpu.stats())
     }
 }
 
@@ -414,6 +532,9 @@ pub struct SimulationConfig {
     /// Block actor backend configuration (for BlockActor method)
     #[cfg(feature = "cuda")]
     pub block_actor_config: block_actor_backend::BlockActorConfig,
+    /// Persistent backend configuration (for Persistent method)
+    #[cfg(all(feature = "cuda", feature = "cuda-codegen"))]
+    pub persistent_config: persistent_backend::PersistentBackendConfig,
 }
 
 impl Default for SimulationConfig {
@@ -430,6 +551,8 @@ impl Default for SimulationConfig {
             actor_config: actor_backend::ActorBackendConfig::default(),
             #[cfg(feature = "cuda")]
             block_actor_config: block_actor_backend::BlockActorConfig::default(),
+            #[cfg(all(feature = "cuda", feature = "cuda-codegen"))]
+            persistent_config: persistent_backend::PersistentBackendConfig::default(),
         }
     }
 }
@@ -535,6 +658,23 @@ impl SimulationConfig {
                     ) {
                         return engine;
                     }
+                }
+                #[cfg(feature = "cuda-codegen")]
+                ComputationMethod::Persistent => {
+                    if let Ok(engine) = SimulationEngine::new_gpu_persistent(
+                        self.width,
+                        self.height,
+                        self.depth,
+                        params.clone(),
+                        self.persistent_config,
+                    ) {
+                        return engine;
+                    }
+                }
+                #[cfg(not(feature = "cuda-codegen"))]
+                ComputationMethod::Persistent => {
+                    // Persistent method requires cuda-codegen feature
+                    // Fall through to CPU
                 }
             }
         }

@@ -114,7 +114,8 @@ impl HandlerSignature {
                     _ => continue,
                 };
 
-                let rust_type = quote::quote!(#pat_type.ty).to_string();
+                let ty = &pat_type.ty;
+                let rust_type = quote::quote!(#ty).to_string();
                 let kind = Self::classify_param(&param_name, &pat_type.ty);
 
                 if kind == HandlerParamKind::Context {
@@ -291,11 +292,18 @@ impl Default for HandlerCodegenConfig {
 /// Generate message deserialization code.
 ///
 /// This generates code to cast the input buffer pointer to the message type.
+/// When envelope format is used, msg_ptr points to the payload (after header).
 pub fn generate_message_deser(message_type: &str, config: &HandlerCodegenConfig) -> String {
     let mut code = String::new();
     let indent = &config.indent;
 
     writeln!(code, "{}// Deserialize message from buffer", indent).unwrap();
+    writeln!(
+        code,
+        "{}// msg_ptr points to payload data (after MessageHeader when using envelopes)",
+        indent
+    )
+    .unwrap();
     writeln!(
         code,
         "{}{}* {} = ({}*)msg_ptr;",
@@ -306,7 +314,65 @@ pub fn generate_message_deser(message_type: &str, config: &HandlerCodegenConfig)
     code
 }
 
-/// Generate response serialization code.
+/// Generate message deserialization code for envelope format with header access.
+///
+/// This provides access to both the message header and typed payload.
+pub fn generate_envelope_message_deser(
+    message_type: &str,
+    config: &HandlerCodegenConfig,
+) -> String {
+    let mut code = String::new();
+    let indent = &config.indent;
+
+    writeln!(code, "{}// Message envelope deserialization", indent).unwrap();
+    writeln!(
+        code,
+        "{}// msg_header provides: message_id, correlation_id, source_kernel, timestamp, etc.",
+        indent
+    )
+    .unwrap();
+    writeln!(
+        code,
+        "{}{}* {} = ({}*)msg_ptr;  // Typed payload",
+        indent, message_type, config.message_var, message_type
+    )
+    .unwrap();
+    writeln!(code).unwrap();
+    writeln!(
+        code,
+        "{}// Access header fields:",
+        indent
+    )
+    .unwrap();
+    writeln!(
+        code,
+        "{}// - msg_header->message_id     (unique message ID)",
+        indent
+    )
+    .unwrap();
+    writeln!(
+        code,
+        "{}// - msg_header->correlation_id (for request-response matching)",
+        indent
+    )
+    .unwrap();
+    writeln!(
+        code,
+        "{}// - msg_header->source_kernel  (sender kernel ID, 0 = host)",
+        indent
+    )
+    .unwrap();
+    writeln!(
+        code,
+        "{}// - msg_header->timestamp      (HLC timestamp of send)",
+        indent
+    )
+    .unwrap();
+
+    code
+}
+
+/// Generate response serialization code (legacy raw format).
 ///
 /// This generates code to copy the response to the output buffer.
 pub fn generate_response_ser(response_type: &str, config: &HandlerCodegenConfig) -> String {
@@ -314,7 +380,7 @@ pub fn generate_response_ser(response_type: &str, config: &HandlerCodegenConfig)
     let indent = &config.indent;
 
     writeln!(code).unwrap();
-    writeln!(code, "{}// Serialize response to output buffer", indent).unwrap();
+    writeln!(code, "{}// Serialize response to output buffer (raw format)", indent).unwrap();
     writeln!(
         code,
         "{}unsigned long long _out_idx = atomicAdd(&control->output_head, 1) & control->output_mask;",
@@ -326,6 +392,106 @@ pub fn generate_response_ser(response_type: &str, config: &HandlerCodegenConfig)
         indent, config.response_var, response_type
     )
     .unwrap();
+
+    code
+}
+
+/// Generate response serialization code for envelope format.
+///
+/// This creates a complete response envelope with header and payload,
+/// properly routing the response back to the sender.
+pub fn generate_envelope_response_ser(
+    response_type: &str,
+    config: &HandlerCodegenConfig,
+) -> String {
+    let mut code = String::new();
+    let indent = &config.indent;
+
+    writeln!(code).unwrap();
+    writeln!(code, "{}// Serialize response envelope to output buffer", indent).unwrap();
+    writeln!(
+        code,
+        "{}unsigned long long _out_idx = atomicAdd(&control->output_head, 1) & control->output_mask;",
+        indent
+    ).unwrap();
+    writeln!(
+        code,
+        "{}unsigned char* resp_envelope = &output_buffer[_out_idx * RESP_SIZE];",
+        indent
+    ).unwrap();
+    writeln!(code).unwrap();
+    writeln!(
+        code,
+        "{}// Build response header from request header",
+        indent
+    ).unwrap();
+    writeln!(
+        code,
+        "{}MessageHeader* resp_header = (MessageHeader*)resp_envelope;",
+        indent
+    ).unwrap();
+    writeln!(
+        code,
+        "{}message_create_response_header(",
+        indent
+    ).unwrap();
+    writeln!(
+        code,
+        "{}    resp_header,",
+        indent
+    ).unwrap();
+    writeln!(
+        code,
+        "{}    msg_header,              // Request header (for correlation)",
+        indent
+    ).unwrap();
+    writeln!(
+        code,
+        "{}    KERNEL_ID,               // This kernel's ID",
+        indent
+    ).unwrap();
+    writeln!(
+        code,
+        "{}    sizeof({}),   // Payload size",
+        indent, response_type
+    ).unwrap();
+    writeln!(
+        code,
+        "{}    hlc_physical,            // Current HLC",
+        indent
+    ).unwrap();
+    writeln!(
+        code,
+        "{}    hlc_logical,",
+        indent
+    ).unwrap();
+    writeln!(
+        code,
+        "{}    HLC_NODE_ID",
+        indent
+    ).unwrap();
+    writeln!(
+        code,
+        "{});",
+        indent
+    ).unwrap();
+    writeln!(code).unwrap();
+    writeln!(
+        code,
+        "{}// Copy response payload after header",
+        indent
+    ).unwrap();
+    writeln!(
+        code,
+        "{}memcpy(resp_envelope + MESSAGE_HEADER_SIZE, &{}, sizeof({}));",
+        indent, config.response_var, response_type
+    ).unwrap();
+    writeln!(code).unwrap();
+    writeln!(
+        code,
+        "{}__threadfence();  // Ensure write is visible",
+        indent
+    ).unwrap();
 
     code
 }

@@ -151,6 +151,62 @@ impl CudaRuntime {
     pub fn k2k_broker(&self) -> Option<&Arc<K2KBroker>> {
         self.k2k_broker.as_ref()
     }
+
+    /// Connect two kernels for GPU-direct K2K messaging.
+    ///
+    /// Creates a unidirectional route from source to target kernel.
+    /// Messages sent from source will be delivered directly to target's
+    /// inbox on the GPU without host intervention.
+    ///
+    /// Both kernels must have been launched with `enable_k2k: true`.
+    pub fn connect_k2k(&self, source_id: &KernelId, target_id: &KernelId) -> Result<()> {
+        let kernels = self.kernels.read();
+
+        let source = kernels.get(source_id).ok_or_else(|| {
+            RingKernelError::KernelNotFound(source_id.to_string())
+        })?;
+
+        let target = kernels.get(target_id).ok_or_else(|| {
+            RingKernelError::KernelNotFound(target_id.to_string())
+        })?;
+
+        // Get K2K buffers
+        let source_buffers = source.k2k_buffers().ok_or_else(|| {
+            RingKernelError::K2KError(format!(
+                "Source kernel {} does not have K2K enabled",
+                source_id
+            ))
+        })?;
+
+        let target_buffers = target.k2k_buffers().ok_or_else(|| {
+            RingKernelError::K2KError(format!(
+                "Target kernel {} does not have K2K enabled",
+                target_id
+            ))
+        })?;
+
+        // Find next available route slot
+        // For now, we just use a simple counter based on current connections
+        // A more sophisticated approach would track used slots per kernel
+        let slot = 0; // TODO: Track and find available slots
+
+        // Add route from source to target
+        source_buffers.add_route(slot, target_buffers, target.kernel_id_num())?;
+
+        tracing::info!(
+            source = %source_id,
+            target = %target_id,
+            slot = slot,
+            "Connected GPU K2K route"
+        );
+
+        Ok(())
+    }
+
+    /// Get a kernel by ID (internal use).
+    pub fn get_cuda_kernel(&self, kernel_id: &KernelId) -> Option<Arc<CudaKernel>> {
+        self.kernels.read().get(kernel_id).cloned()
+    }
 }
 
 #[async_trait]

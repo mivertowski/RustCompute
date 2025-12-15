@@ -18,6 +18,7 @@ use ringkernel_core::telemetry::KernelMetrics;
 use ringkernel_core::types::KernelMode;
 
 use crate::device::CudaDevice;
+use crate::k2k_gpu::CudaK2KBuffers;
 use crate::memory::{CudaControlBlock, CudaMessageQueue};
 
 /// CUDA kernel handle.
@@ -55,6 +56,8 @@ pub struct CudaKernel {
     kernel_fn: Option<CudaFunction>,
     /// Whether the kernel has been launched on the GPU.
     gpu_launched: AtomicBool,
+    /// K2K messaging buffers (if enabled).
+    k2k_buffers: Option<CudaK2KBuffers>,
 }
 
 impl CudaKernel {
@@ -66,6 +69,14 @@ impl CudaKernel {
         let control_block = CudaControlBlock::new(&device)?;
         let input_queue = CudaMessageQueue::new(&device, input_capacity, 4096)?;
         let output_queue = CudaMessageQueue::new(&device, output_capacity, 4096)?;
+
+        // Allocate K2K buffers if enabled
+        let k2k_buffers = if options.enable_k2k {
+            // Default K2K config: 64 inbox slots, 256-byte messages, 8 routes
+            Some(CudaK2KBuffers::new(&device, 64, 256, 8)?)
+        } else {
+            None
+        };
 
         Ok(Self {
             id: KernelId::new(id),
@@ -83,6 +94,7 @@ impl CudaKernel {
             terminate_notify: Notify::new(),
             kernel_fn: None,
             gpu_launched: AtomicBool::new(false),
+            k2k_buffers,
         })
     }
 
@@ -90,6 +102,16 @@ impl CudaKernel {
     #[allow(dead_code)]
     pub fn kernel_id(&self) -> &KernelId {
         &self.id
+    }
+
+    /// Get the numeric kernel ID.
+    pub fn kernel_id_num(&self) -> u64 {
+        self.id_num
+    }
+
+    /// Get K2K buffers if enabled.
+    pub fn k2k_buffers(&self) -> Option<&CudaK2KBuffers> {
+        self.k2k_buffers.as_ref()
     }
 
     /// Load and compile the kernel PTX.
@@ -278,23 +300,51 @@ impl KernelHandleInner for CudaKernel {
     }
 
     async fn send_envelope(&self, envelope: MessageEnvelope) -> Result<()> {
-        // TODO: Copy envelope to input queue on GPU
-        // For CUDA, this would involve:
-        // 1. Write header to headers buffer
-        // 2. Write payload to payloads buffer
-        // 3. Update tail index in control block
-        // 4. Signal kernel if needed
+        // Read current control block to check queue state
+        let cb = self.control_block.read().read()?;
 
-        let _ = envelope; // Suppress unused warning for now
+        // Check if queue is full
+        let queue_size = cb.input_head.wrapping_sub(cb.input_tail);
+        if queue_size >= cb.input_capacity as u64 {
+            return Err(RingKernelError::QueueFull {
+                capacity: cb.input_capacity as usize,
+            });
+        }
+
+        // Calculate slot index (using mask for power-of-2 wrap)
+        let slot = (cb.input_head & cb.input_mask as u64) as usize;
+
+        // Write envelope to input queue on GPU
+        self.input_queue.write_envelope(slot, &envelope)?;
+
+        // Update head pointer in control block
+        {
+            let cb_lock = self.control_block.write();
+            let mut cb = cb_lock.read()?;
+            cb.input_head = cb.input_head.wrapping_add(1);
+            cb_lock.write(&cb)?;
+        }
+
         self.message_counter.fetch_add(1, Ordering::Relaxed);
-
         Ok(())
     }
 
     async fn receive(&self) -> Result<MessageEnvelope> {
-        // TODO: Read from output queue - for now just wait
-        self.terminate_notify.notified().await;
-        Err(RingKernelError::QueueEmpty)
+        loop {
+            match self.try_receive() {
+                Ok(envelope) => return Ok(envelope),
+                Err(RingKernelError::QueueEmpty) => {
+                    // Check if kernel has terminated
+                    let cb = self.control_block.read().read()?;
+                    if cb.has_terminated() {
+                        return Err(RingKernelError::KernelTerminated(self.id.to_string()));
+                    }
+                    // Wait a bit before polling again
+                    tokio::time::sleep(Duration::from_micros(100)).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     async fn receive_timeout(&self, timeout: Duration) -> Result<MessageEnvelope> {
@@ -306,8 +356,29 @@ impl KernelHandleInner for CudaKernel {
     }
 
     fn try_receive(&self) -> Result<MessageEnvelope> {
-        // TODO: Non-blocking read from output queue
-        Err(RingKernelError::QueueEmpty)
+        // Read current control block to check queue state
+        let cb = self.control_block.read().read()?;
+
+        // Check if queue is empty
+        if cb.output_head == cb.output_tail {
+            return Err(RingKernelError::QueueEmpty);
+        }
+
+        // Calculate slot index (using mask for power-of-2 wrap)
+        let slot = (cb.output_tail & cb.output_mask as u64) as usize;
+
+        // Read envelope from output queue on GPU
+        let envelope = self.output_queue.read_envelope(slot)?;
+
+        // Update tail pointer in control block
+        {
+            let cb_lock = self.control_block.write();
+            let mut cb = cb_lock.read()?;
+            cb.output_tail = cb.output_tail.wrapping_add(1);
+            cb_lock.write(&cb)?;
+        }
+
+        Ok(envelope)
     }
 
     async fn receive_correlated(

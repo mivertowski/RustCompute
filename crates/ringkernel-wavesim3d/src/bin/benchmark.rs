@@ -5,6 +5,7 @@
 //! - GPU Stencil method
 //! - GPU Actor method (per-cell actors)
 //! - GPU Block Actor method (hybrid block-based actors)
+//! - GPU Persistent method (true persistent kernel actor)
 
 use ringkernel_wavesim3d::simulation::{
     AcousticParams3D, ComputationMethod, Environment, SimulationConfig, SimulationEngine,
@@ -154,6 +155,90 @@ fn main() {
             println!("  GPU Block Actor not available (falling back to CPU)");
         }
         println!();
+
+        // GPU Persistent benchmark (true persistent kernel actor)
+        #[cfg(feature = "cuda-codegen")]
+        {
+            println!("Running GPU Persistent benchmark...");
+            println!("  (Single persistent kernel - true GPU native actor paradigm)");
+
+            // Use smaller grid for persistent - must fit cooperative limits (48 blocks max)
+            // 24×24×24 with 8×8×8 tiles = 3×3×3 = 27 blocks
+            let persistent_width = 24;
+            let persistent_height = 24;
+            let persistent_depth = 24;
+
+            let persistent_config = SimulationConfig {
+                width: persistent_width,
+                height: persistent_height,
+                depth: persistent_depth,
+                cell_size: 0.1,
+                prefer_gpu: true,
+                computation_method: ComputationMethod::Persistent,
+                ..Default::default()
+            };
+
+            let mut engine = persistent_config.build();
+            if engine.is_using_gpu() && engine.computation_method() == ComputationMethod::Persistent {
+                engine.inject_impulse(persistent_width / 2, persistent_height / 2, persistent_depth / 2, 1.0);
+
+                // Warm up
+                engine.step_n(10);
+
+                let start = Instant::now();
+                engine.step_n(num_steps);
+                let persistent_time = start.elapsed();
+                let persistent_throughput =
+                    (persistent_width * persistent_height * persistent_depth * num_steps) as f64 / persistent_time.as_secs_f64() / 1e6;
+
+                println!("  Grid: {}×{}×{} (fits cooperative limits)", persistent_width, persistent_height, persistent_depth);
+                println!("  GPU Persistent time: {:?}", persistent_time);
+                println!(
+                    "  GPU Persistent throughput: {:.2} Mcells/s",
+                    persistent_throughput
+                );
+
+                // Print persistent stats
+                if let Some(stats) = engine.persistent_stats() {
+                    println!();
+                    println!("Persistent Kernel Statistics:");
+                    println!("  Current step: {}", stats.current_step);
+                    println!("  Total energy: {:.6}", stats.total_energy);
+                    println!("  Messages processed: {}", stats.messages_processed);
+                    println!("  K2K sent: {}", stats.k2k_sent);
+                    println!("  K2K received: {}", stats.k2k_received);
+                    println!("  Kernel running: {}", stats.is_running);
+                }
+
+                // For comparison, show normalized throughput vs same-size CPU
+                let cpu_small_time = {
+                    let mut cpu_engine = SimulationEngine::new_cpu(
+                        persistent_width,
+                        persistent_height,
+                        persistent_depth,
+                        AcousticParams3D::new(Environment::default(), 0.1),
+                    );
+                    cpu_engine.inject_impulse(persistent_width / 2, persistent_height / 2, persistent_depth / 2, 1.0);
+                    let start = Instant::now();
+                    cpu_engine.step_n(num_steps);
+                    start.elapsed()
+                };
+                println!(
+                    "  Speedup vs CPU (same grid): {:.1}x",
+                    cpu_small_time.as_secs_f64() / persistent_time.as_secs_f64()
+                );
+
+                results.push((
+                    "GPU Persistent",
+                    persistent_time.as_secs_f64() * 1000.0,
+                    persistent_throughput,
+                ));
+            } else {
+                println!("  GPU Persistent not available (falling back to CPU)");
+                println!("  Requires cuda-codegen feature and nvcc compiler");
+            }
+            println!();
+        }
 
         // GPU Actor benchmark (per-cell)
         println!("Running GPU Actor (per-cell) benchmark...");

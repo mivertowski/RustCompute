@@ -65,6 +65,13 @@ pub struct RingKernelConfig {
     pub cooperative_groups: bool,
     /// Nanosleep duration when idle (0 to spin).
     pub idle_sleep_ns: u32,
+    /// Use MessageEnvelope format (256-byte header + payload).
+    /// When enabled, messages in queues are full envelopes with headers.
+    pub use_envelope_format: bool,
+    /// Kernel numeric ID (for response routing).
+    pub kernel_id_num: u64,
+    /// HLC node ID for this kernel.
+    pub hlc_node_id: u64,
 }
 
 impl Default for RingKernelConfig {
@@ -79,6 +86,9 @@ impl Default for RingKernelConfig {
             response_size: 64,
             cooperative_groups: false,
             idle_sleep_ns: 1000,
+            use_envelope_format: true, // Default to envelope format for proper serialization
+            kernel_id_num: 0,
+            hlc_node_id: 0,
         }
     }
 }
@@ -133,6 +143,25 @@ impl RingKernelConfig {
         self
     }
 
+    /// Enable or disable MessageEnvelope format.
+    /// When enabled, messages use the 256-byte header + payload format.
+    pub fn with_envelope_format(mut self, enabled: bool) -> Self {
+        self.use_envelope_format = enabled;
+        self
+    }
+
+    /// Set the kernel numeric ID (for K2K routing and response headers).
+    pub fn with_kernel_id(mut self, id: u64) -> Self {
+        self.kernel_id_num = id;
+        self
+    }
+
+    /// Set the HLC node ID for this kernel.
+    pub fn with_hlc_node_id(mut self, node_id: u64) -> Self {
+        self.hlc_node_id = node_id;
+        self
+    }
+
     /// Generate the kernel function name.
     pub fn kernel_name(&self) -> String {
         format!("ring_kernel_{}", self.id)
@@ -175,20 +204,65 @@ impl RingKernelConfig {
         writeln!(code, "{}int warp_id = threadIdx.x / 32;", indent).unwrap();
         writeln!(code).unwrap();
 
+        // Kernel ID constant
+        writeln!(code, "{}// Kernel identity", indent).unwrap();
+        writeln!(
+            code,
+            "{}const unsigned long long KERNEL_ID = {}ULL;",
+            indent, self.kernel_id_num
+        )
+        .unwrap();
+        writeln!(
+            code,
+            "{}const unsigned long long HLC_NODE_ID = {}ULL;",
+            indent, self.hlc_node_id
+        )
+        .unwrap();
+        writeln!(code).unwrap();
+
         // Message size constants
         writeln!(code, "{}// Message buffer constants", indent).unwrap();
-        writeln!(
-            code,
-            "{}const unsigned int MSG_SIZE = {};",
-            indent, self.message_size
-        )
-        .unwrap();
-        writeln!(
-            code,
-            "{}const unsigned int RESP_SIZE = {};",
-            indent, self.response_size
-        )
-        .unwrap();
+        if self.use_envelope_format {
+            // With envelope format, MSG_SIZE is envelope size (header + payload)
+            writeln!(
+                code,
+                "{}const unsigned int PAYLOAD_SIZE = {};  // User payload size",
+                indent, self.message_size
+            )
+            .unwrap();
+            writeln!(
+                code,
+                "{}const unsigned int MSG_SIZE = MESSAGE_HEADER_SIZE + PAYLOAD_SIZE;  // Full envelope",
+                indent
+            )
+            .unwrap();
+            writeln!(
+                code,
+                "{}const unsigned int RESP_PAYLOAD_SIZE = {};",
+                indent, self.response_size
+            )
+            .unwrap();
+            writeln!(
+                code,
+                "{}const unsigned int RESP_SIZE = MESSAGE_HEADER_SIZE + RESP_PAYLOAD_SIZE;",
+                indent
+            )
+            .unwrap();
+        } else {
+            // Legacy: raw message data
+            writeln!(
+                code,
+                "{}const unsigned int MSG_SIZE = {};",
+                indent, self.message_size
+            )
+            .unwrap();
+            writeln!(
+                code,
+                "{}const unsigned int RESP_SIZE = {};",
+                indent, self.response_size
+            )
+            .unwrap();
+        }
         writeln!(
             code,
             "{}const unsigned int QUEUE_MASK = {};",
@@ -285,10 +359,89 @@ impl RingKernelConfig {
         .unwrap();
         writeln!(
             code,
-            "{}    unsigned char* msg_ptr = &input_buffer[msg_idx * MSG_SIZE];",
+            "{}    unsigned char* envelope_ptr = &input_buffer[msg_idx * MSG_SIZE];",
             indent
         )
         .unwrap();
+
+        if self.use_envelope_format {
+            // Envelope format: parse header and get payload pointer
+            writeln!(code).unwrap();
+            writeln!(code, "{}    // Parse message envelope", indent).unwrap();
+            writeln!(
+                code,
+                "{}    MessageHeader* msg_header = message_get_header(envelope_ptr);",
+                indent
+            )
+            .unwrap();
+            writeln!(
+                code,
+                "{}    unsigned char* msg_ptr = message_get_payload(envelope_ptr);",
+                indent
+            )
+            .unwrap();
+            writeln!(code).unwrap();
+            writeln!(
+                code,
+                "{}    // Validate message (skip invalid)",
+                indent
+            )
+            .unwrap();
+            writeln!(
+                code,
+                "{}    if (!message_header_validate(msg_header)) {{",
+                indent
+            )
+            .unwrap();
+            writeln!(
+                code,
+                "{}        atomicAdd(&control->input_tail, 1);",
+                indent
+            )
+            .unwrap();
+            writeln!(
+                code,
+                "{}        atomicAdd(&control->last_error, 1);  // Track errors",
+                indent
+            )
+            .unwrap();
+            writeln!(code, "{}        continue;", indent).unwrap();
+            writeln!(code, "{}    }}", indent).unwrap();
+
+            // Update HLC from incoming message timestamp
+            if self.enable_hlc {
+                writeln!(code).unwrap();
+                writeln!(
+                    code,
+                    "{}    // Update HLC from message timestamp",
+                    indent
+                )
+                .unwrap();
+                writeln!(
+                    code,
+                    "{}    if (msg_header->timestamp.physical > hlc_physical) {{",
+                    indent
+                )
+                .unwrap();
+                writeln!(
+                    code,
+                    "{}        hlc_physical = msg_header->timestamp.physical;",
+                    indent
+                )
+                .unwrap();
+                writeln!(code, "{}        hlc_logical = 0;", indent).unwrap();
+                writeln!(code, "{}    }}", indent).unwrap();
+                writeln!(code, "{}    hlc_logical++;", indent).unwrap();
+            }
+        } else {
+            // Legacy raw format
+            writeln!(
+                code,
+                "{}    unsigned char* msg_ptr = envelope_ptr;  // Raw message data",
+                indent
+            )
+            .unwrap();
+        }
         writeln!(code).unwrap();
 
         code
@@ -372,6 +525,12 @@ impl RingKernelConfig {
 
         if self.enable_hlc {
             code.push_str(&generate_hlc_struct());
+            code.push('\n');
+        }
+
+        // MessageEnvelope structs (requires HLC for HlcTimestamp)
+        if self.use_envelope_format {
+            code.push_str(&generate_message_envelope_structs());
             code.push('\n');
         }
 
@@ -462,32 +621,154 @@ struct HlcState {
     unsigned long long physical;
     unsigned long long logical;
 };
+
+// HLC timestamp (24 bytes)
+struct __align__(8) HlcTimestamp {
+    unsigned long long physical;
+    unsigned long long logical;
+    unsigned long long node_id;
+};
+"#
+    .to_string()
+}
+
+/// Generate CUDA MessageEnvelope structs matching ringkernel-core layout.
+///
+/// This generates the GPU-side structures that match the Rust `MessageHeader`
+/// and `MessageEnvelope` types, enabling proper serialization between host and device.
+pub fn generate_message_envelope_structs() -> String {
+    r#"// Magic number for message validation
+#define MESSAGE_MAGIC 0x52494E474B45524E ULL  // "RINGKERN"
+#define MESSAGE_VERSION 1
+#define MESSAGE_HEADER_SIZE 256
+#define MAX_PAYLOAD_SIZE (64 * 1024)
+
+// Message priority levels
+#define PRIORITY_LOW 0
+#define PRIORITY_NORMAL 1
+#define PRIORITY_HIGH 2
+#define PRIORITY_CRITICAL 3
+
+// Message header structure (256 bytes, cache-line aligned)
+// Matches ringkernel_core::message::MessageHeader exactly
+struct __align__(64) MessageHeader {
+    // Magic number for validation (0xRINGKERN)
+    unsigned long long magic;
+    // Header version
+    unsigned int version;
+    // Message flags
+    unsigned int flags;
+    // Unique message identifier
+    unsigned long long message_id;
+    // Correlation ID for request-response
+    unsigned long long correlation_id;
+    // Source kernel ID (0 for host)
+    unsigned long long source_kernel;
+    // Destination kernel ID (0 for host)
+    unsigned long long dest_kernel;
+    // Message type discriminator
+    unsigned long long message_type;
+    // Priority level
+    unsigned char priority;
+    // Reserved for alignment
+    unsigned char _reserved1[7];
+    // Payload size in bytes
+    unsigned long long payload_size;
+    // Checksum of payload (CRC32)
+    unsigned int checksum;
+    // Reserved for alignment
+    unsigned int _reserved2;
+    // HLC timestamp when message was created
+    HlcTimestamp timestamp;
+    // Deadline timestamp (0 = no deadline)
+    HlcTimestamp deadline;
+    // Reserved for future use (104 bytes total: 32+32+32+8)
+    unsigned char _reserved3[104];
+};
+
+// Validate message header
+__device__ inline int message_header_validate(const MessageHeader* header) {
+    return header->magic == MESSAGE_MAGIC &&
+           header->version <= MESSAGE_VERSION &&
+           header->payload_size <= MAX_PAYLOAD_SIZE;
+}
+
+// Get payload pointer from header
+__device__ inline unsigned char* message_get_payload(unsigned char* envelope_ptr) {
+    return envelope_ptr + MESSAGE_HEADER_SIZE;
+}
+
+// Get header from envelope pointer
+__device__ inline MessageHeader* message_get_header(unsigned char* envelope_ptr) {
+    return (MessageHeader*)envelope_ptr;
+}
+
+// Create a response header based on request
+__device__ inline void message_create_response_header(
+    MessageHeader* response,
+    const MessageHeader* request,
+    unsigned long long this_kernel_id,
+    unsigned long long payload_size,
+    unsigned long long hlc_physical,
+    unsigned long long hlc_logical,
+    unsigned long long hlc_node_id
+) {
+    response->magic = MESSAGE_MAGIC;
+    response->version = MESSAGE_VERSION;
+    response->flags = 0;
+    // Generate new message ID (simple increment from request)
+    response->message_id = request->message_id + 0x100000000ULL;
+    // Preserve correlation ID for request-response matching
+    response->correlation_id = request->correlation_id != 0
+        ? request->correlation_id
+        : request->message_id;
+    response->source_kernel = this_kernel_id;
+    response->dest_kernel = request->source_kernel;  // Response goes back to sender
+    response->message_type = request->message_type + 1;  // Convention: response type = request + 1
+    response->priority = request->priority;
+    response->payload_size = payload_size;
+    response->checksum = 0;  // TODO: compute checksum
+    response->timestamp.physical = hlc_physical;
+    response->timestamp.logical = hlc_logical;
+    response->timestamp.node_id = hlc_node_id;
+    response->deadline.physical = 0;
+    response->deadline.logical = 0;
+    response->deadline.node_id = 0;
+}
+
+// Calculate total envelope size
+__device__ inline unsigned int message_envelope_size(const MessageHeader* header) {
+    return MESSAGE_HEADER_SIZE + (unsigned int)header->payload_size;
+}
 "#
     .to_string()
 }
 
 /// Generate CUDA K2K routing structs and helper functions.
 pub fn generate_k2k_structs() -> String {
-    r#"// Kernel-to-kernel routing table entry
+    r#"// Kernel-to-kernel routing table entry (48 bytes)
+// Matches ringkernel_cuda::k2k_gpu::K2KRouteEntry
 struct K2KRoute {
     unsigned long long target_kernel_id;
-    unsigned char* target_inbox;
-    unsigned long long* target_head;
-    unsigned long long* target_tail;
+    unsigned long long target_inbox;      // device pointer
+    unsigned long long target_head;       // device pointer to head
+    unsigned long long target_tail;       // device pointer to tail
     unsigned int capacity;
     unsigned int mask;
     unsigned int msg_size;
+    unsigned int _pad;
 };
 
-// K2K routing table
+// K2K routing table (8 + 48*16 = 776 bytes)
 struct K2KRoutingTable {
     unsigned int num_routes;
     unsigned int _pad;
     K2KRoute routes[16];  // Max 16 K2K connections
 };
 
-// K2K inbox header (at start of k2k_inbox buffer)
-struct K2KInboxHeader {
+// K2K inbox header (64 bytes, cache-line aligned)
+// Matches ringkernel_cuda::k2k_gpu::K2KInboxHeader
+struct __align__(64) K2KInboxHeader {
     unsigned long long head;
     unsigned long long tail;
     unsigned int capacity;
@@ -496,7 +777,72 @@ struct K2KInboxHeader {
     unsigned int _pad;
 };
 
-// Send a message to another kernel
+// Send a message envelope to another kernel via K2K
+// The entire envelope (header + payload) is copied to the target's inbox
+__device__ inline int k2k_send_envelope(
+    K2KRoutingTable* routes,
+    unsigned long long target_id,
+    unsigned long long source_kernel_id,
+    const void* payload_ptr,
+    unsigned int payload_size,
+    unsigned long long message_type,
+    unsigned long long hlc_physical,
+    unsigned long long hlc_logical,
+    unsigned long long hlc_node_id
+) {
+    // Find route for target
+    for (unsigned int i = 0; i < routes->num_routes; i++) {
+        if (routes->routes[i].target_kernel_id == target_id) {
+            K2KRoute* route = &routes->routes[i];
+
+            // Calculate total envelope size
+            unsigned int envelope_size = MESSAGE_HEADER_SIZE + payload_size;
+            if (envelope_size > route->msg_size) {
+                return -1;  // Message too large
+            }
+
+            // Atomically claim a slot in target's inbox
+            unsigned long long* target_head_ptr = (unsigned long long*)route->target_head;
+            unsigned long long slot = atomicAdd(target_head_ptr, 1);
+            unsigned int idx = (unsigned int)(slot & route->mask);
+
+            // Calculate destination pointer
+            unsigned char* dest = ((unsigned char*)route->target_inbox) +
+                                  sizeof(K2KInboxHeader) + idx * route->msg_size;
+
+            // Build message header
+            MessageHeader* header = (MessageHeader*)dest;
+            header->magic = MESSAGE_MAGIC;
+            header->version = MESSAGE_VERSION;
+            header->flags = 0;
+            header->message_id = (source_kernel_id << 32) | (slot & 0xFFFFFFFF);
+            header->correlation_id = 0;
+            header->source_kernel = source_kernel_id;
+            header->dest_kernel = target_id;
+            header->message_type = message_type;
+            header->priority = PRIORITY_NORMAL;
+            header->payload_size = payload_size;
+            header->checksum = 0;
+            header->timestamp.physical = hlc_physical;
+            header->timestamp.logical = hlc_logical;
+            header->timestamp.node_id = hlc_node_id;
+            header->deadline.physical = 0;
+            header->deadline.logical = 0;
+            header->deadline.node_id = 0;
+
+            // Copy payload after header
+            if (payload_size > 0 && payload_ptr != NULL) {
+                memcpy(dest + MESSAGE_HEADER_SIZE, payload_ptr, payload_size);
+            }
+
+            __threadfence();  // Ensure write is visible
+            return 1;  // Success
+        }
+    }
+    return 0;  // Route not found
+}
+
+// Legacy k2k_send for raw message data (no envelope)
 __device__ inline int k2k_send(
     K2KRoutingTable* routes,
     unsigned long long target_id,
@@ -509,16 +855,16 @@ __device__ inline int k2k_send(
             K2KRoute* route = &routes->routes[i];
 
             // Atomically claim a slot in target's inbox
-            unsigned long long slot = atomicAdd(route->target_head, 1);
+            unsigned long long* target_head_ptr = (unsigned long long*)route->target_head;
+            unsigned long long slot = atomicAdd(target_head_ptr, 1);
             unsigned int idx = (unsigned int)(slot & route->mask);
 
             // Copy message to target inbox
-            memcpy(
-                route->target_inbox + idx * route->msg_size,
-                msg_ptr,
-                msg_size < route->msg_size ? msg_size : route->msg_size
-            );
+            unsigned char* dest = ((unsigned char*)route->target_inbox) +
+                                  sizeof(K2KInboxHeader) + idx * route->msg_size;
+            memcpy(dest, msg_ptr, msg_size < route->msg_size ? msg_size : route->msg_size);
 
+            __threadfence();
             return 1;  // Success
         }
     }
@@ -528,10 +874,42 @@ __device__ inline int k2k_send(
 // Check if there are K2K messages in inbox
 __device__ inline int k2k_has_message(unsigned char* k2k_inbox) {
     K2KInboxHeader* header = (K2KInboxHeader*)k2k_inbox;
-    return atomicAdd(&header->head, 0) != atomicAdd(&header->tail, 0);
+    unsigned long long head = atomicAdd(&header->head, 0);
+    unsigned long long tail = atomicAdd(&header->tail, 0);
+    return head != tail;
 }
 
-// Try to receive a K2K message
+// Try to receive a K2K message envelope
+// Returns pointer to MessageHeader if available, NULL otherwise
+__device__ inline MessageHeader* k2k_try_recv_envelope(unsigned char* k2k_inbox) {
+    K2KInboxHeader* header = (K2KInboxHeader*)k2k_inbox;
+
+    unsigned long long head = atomicAdd(&header->head, 0);
+    unsigned long long tail = atomicAdd(&header->tail, 0);
+
+    if (head == tail) {
+        return NULL;  // No messages
+    }
+
+    // Get message pointer
+    unsigned int idx = (unsigned int)(tail & header->mask);
+    unsigned char* data_start = k2k_inbox + sizeof(K2KInboxHeader);
+    MessageHeader* msg_header = (MessageHeader*)(data_start + idx * header->msg_size);
+
+    // Validate header
+    if (!message_header_validate(msg_header)) {
+        // Invalid message, skip it
+        atomicAdd(&header->tail, 1);
+        return NULL;
+    }
+
+    // Advance tail (consume message)
+    atomicAdd(&header->tail, 1);
+
+    return msg_header;
+}
+
+// Legacy k2k_try_recv for raw data
 __device__ inline void* k2k_try_recv(unsigned char* k2k_inbox) {
     K2KInboxHeader* header = (K2KInboxHeader*)k2k_inbox;
 
@@ -553,6 +931,23 @@ __device__ inline void* k2k_try_recv(unsigned char* k2k_inbox) {
 }
 
 // Peek at next K2K message without consuming
+__device__ inline MessageHeader* k2k_peek_envelope(unsigned char* k2k_inbox) {
+    K2KInboxHeader* header = (K2KInboxHeader*)k2k_inbox;
+
+    unsigned long long head = atomicAdd(&header->head, 0);
+    unsigned long long tail = atomicAdd(&header->tail, 0);
+
+    if (head == tail) {
+        return NULL;  // No messages
+    }
+
+    unsigned int idx = (unsigned int)(tail & header->mask);
+    unsigned char* data_start = k2k_inbox + sizeof(K2KInboxHeader);
+
+    return (MessageHeader*)(data_start + idx * header->msg_size);
+}
+
+// Legacy k2k_peek
 __device__ inline void* k2k_peek(unsigned char* k2k_inbox) {
     K2KInboxHeader* header = (K2KInboxHeader*)k2k_inbox;
 
@@ -901,7 +1296,7 @@ mod tests {
             "Should have K2KRoutingTable struct"
         );
         assert!(
-            k2k_code.contains("struct K2KInboxHeader"),
+            k2k_code.contains("K2KInboxHeader"),
             "Should have K2KInboxHeader struct"
         );
 

@@ -62,8 +62,11 @@ cargo run -p ringkernel-procint --bin procint-benchmark --release
 # Run wavesim3d with cooperative groups (requires nvcc)
 cargo run -p ringkernel-wavesim3d --release --features cooperative
 
-# Run wavesim3d benchmark
-cargo run -p ringkernel-wavesim3d --bin wavesim3d-benchmark --release --features cuda
+# Run wavesim3d benchmark (GPU actor comparison)
+cargo run -p ringkernel-wavesim3d --bin wavesim3d-benchmark --release --features cuda-codegen
+
+# Run wavesim3d persistent actor test
+cargo run -p ringkernel-wavesim3d --example test_persistent --release --features cuda-codegen
 ```
 
 ## Architecture
@@ -84,8 +87,8 @@ The project is a Cargo workspace with these crates:
 - **`ringkernel-wgpu-codegen`** - Rust-to-WGSL transpiler for writing GPU kernels in Rust DSL (WebGPU backend)
 - **`ringkernel-ecosystem`** - Integration utilities
 - **`ringkernel-audio-fft`** - Example application: GPU-accelerated audio FFT processing
-- **`ringkernel-wavesim`** - Example application: 2D acoustic wave simulation with GPU-accelerated FDTD and educational simulation modes
-- **`ringkernel-wavesim3d`** - Example application: 3D acoustic wave simulation with binaural audio, block actor backend (8×8×8), and volumetric ray marching visualization
+- **`ringkernel-wavesim`** - Example application: 2D acoustic wave simulation with GPU-accelerated FDTD, tile-based ring kernel actors, and educational simulation modes
+- **`ringkernel-wavesim3d`** - Example application: 3D acoustic wave simulation with binaural audio, **persistent GPU actors** (H2K/K2H messaging, K2K halo exchange, cooperative groups), and volumetric ray marching visualization
 - **`ringkernel-txmon`** - Showcase application: GPU-accelerated transaction monitoring with real-time fraud detection GUI
 - **`ringkernel-accnet`** - Showcase application: GPU-accelerated accounting network visualization
 - **`ringkernel-procint`** - Showcase application: GPU-accelerated process intelligence with DFG mining, pattern detection, and conformance checking
@@ -192,11 +195,21 @@ let handler: syn::ItemFn = parse_quote! {
 let config = RingKernelConfig::new("processor")
     .with_block_size(128)
     .with_queue_capacity(1024)
-    .with_hlc(true)   // Enable Hybrid Logical Clocks
-    .with_k2k(true);  // Enable Kernel-to-Kernel messaging
+    .with_envelope_format(true)  // 256-byte MessageHeader + payload
+    .with_hlc(true)              // Enable Hybrid Logical Clocks
+    .with_k2k(true)              // Enable Kernel-to-Kernel messaging
+    .with_kernel_id(1000)        // Kernel identity for routing
+    .with_hlc_node_id(42);       // HLC node ID
 
 let cuda_code = transpile_ring_kernel(&handler, &config)?;
 ```
+
+**Envelope Format Features (New):**
+- `MessageHeader` (256 bytes, 64-byte aligned) matching Rust `#[repr(C)]` layout
+- Magic number validation (`0x52494E474B45524E` = "RINGKERN")
+- HLC timestamp propagation from incoming messages
+- Correlation ID preservation for request/response tracking
+- Source/destination kernel routing
 
 **DSL Features:**
 - Block/grid indices: `block_idx_x()`, `thread_idx_x()`, `block_dim_x()`, `grid_dim_x()`, `warp_size()`, etc.
@@ -211,11 +224,65 @@ let cuda_code = transpile_ring_kernel(&handler, &config)?;
 
 **Ring Kernel Features:**
 - Persistent message loop with ControlBlock lifecycle management
+- Envelope-based message serialization with 256-byte headers
 - RingContext method inlining (`ctx.thread_id()` → `threadIdx.x`)
 - HLC clock operations: `hlc_tick()`, `hlc_update()`, `hlc_now()`
-- K2K messaging: `k2k_send()`, `k2k_try_recv()`, `k2k_peek()`, `k2k_pending_count()`
+- K2K messaging with envelope format: `k2k_send_envelope()`, `k2k_try_recv_envelope()`, `k2k_peek_envelope()`
 - Queue intrinsics: `enqueue_response()`, `input_queue_empty()`, etc.
+- Message header validation and correlation ID tracking
 - Automatic termination handling and cleanup
+
+#### 4. Persistent FDTD Kernels (True Persistent GPU Actors)
+
+The `ringkernel-cuda-codegen` crate includes `persistent_fdtd.rs` for generating truly persistent GPU kernels that run for the entire simulation lifetime:
+
+```rust
+use ringkernel_cuda_codegen::persistent_fdtd::{generate_persistent_fdtd_kernel, PersistentFdtdConfig};
+
+let config = PersistentFdtdConfig::new("persistent_fdtd3d")
+    .with_tile_size(8, 8, 8)
+    .with_cooperative(true)       // Use cooperative groups for grid.sync()
+    .with_progress_interval(100); // Report progress every 100 steps
+
+let cuda_code = generate_persistent_fdtd_kernel(&config);
+// Compile with: nvcc -ptx -arch=native -std=c++17 -rdc=true
+```
+
+**Persistent GPU Actor Architecture:**
+- **H2K/K2H Messaging** - Host↔Kernel lock-free SPSC queues via CUDA mapped memory
+- **K2K Halo Exchange** - Kernel-to-kernel tile boundary communication on device memory
+- **Cooperative Groups** - Grid-wide synchronization via `cg::grid_group::sync()`
+- **PersistentControlBlock** (256 bytes) - Lifecycle management in mapped memory
+
+**Key Structures:**
+- `PersistentControlBlock` - 256-byte control block with step counters, physics params, sync barriers
+- `H2KMessage` (64 bytes) - Commands: RunSteps, Terminate, InjectImpulse, GetProgress
+- `K2HMessage` (64 bytes) - Responses: Ack, Progress, Error, Terminated, Energy
+- `K2KRouteEntry` - Neighbor block IDs for 3D halo exchange routing
+
+**Runtime Integration (`ringkernel-cuda/src/persistent.rs`):**
+```rust
+use ringkernel_cuda::persistent::{PersistentSimulation, PersistentSimulationConfig};
+
+let config = PersistentSimulationConfig::new(width, height, depth)
+    .with_tile_size(8, 8, 8)
+    .with_acoustics(speed_of_sound, cell_size, damping);
+
+let mut sim = PersistentSimulation::new(&device, config)?;
+sim.start(&ptx, "persistent_fdtd3d")?;  // Single kernel launch
+sim.run_steps(100)?;                     // Send command via control block
+let stats = sim.stats();                 // Read from mapped memory
+sim.shutdown()?;                         // Graceful termination
+```
+
+**Benchmark Results (RTX Ada, 64³ grid):**
+| Method | Throughput | vs CPU |
+|--------|-----------|--------|
+| GPU Stencil | 78,046 Mcells/s | 280.6x |
+| GPU Persistent | 18.2 Mcells/s | 1.2x |
+| CPU (Rayon) | 278 Mcells/s | 1.0x |
+
+The persistent actor model excels in interactive/long-running simulations with dynamic topology, not raw compute-bound FDTD.
 
 ### WGSL Code Generation (ringkernel-wgpu-codegen)
 
@@ -289,15 +356,15 @@ CUDA-specific features:
 
 ### Test Count Summary
 
-520+ tests across the workspace:
+550+ tests across the workspace:
 - ringkernel-core: 65 tests
 - ringkernel-cpu: 11 tests
 - ringkernel-cuda: 6 GPU execution tests
-- ringkernel-cuda-codegen: 171 tests (loops, shared memory, ring kernels, K2K, reference expressions, 120+ GPU intrinsics)
+- ringkernel-cuda-codegen: 183 tests (171 unit + 12 integration; loops, shared memory, ring kernels, K2K, envelope format, reference expressions, 120+ GPU intrinsics)
 - ringkernel-wgpu-codegen: 50 tests (types, intrinsics, transpiler, validation)
 - ringkernel-derive: 14 macro tests
-- ringkernel-wavesim: 49 tests (including educational modes)
-- ringkernel-wavesim3d: 48 tests (3D FDTD, binaural audio, volumetric rendering)
+- ringkernel-wavesim: 63 tests (including educational modes, tile actor kernels, envelope format)
+- ringkernel-wavesim3d: 72 tests (3D FDTD, binaural audio, volumetric rendering, block actor kernels, ring kernel actors)
 - ringkernel-txmon: 40 tests (GPU types, batch kernel, stencil kernel, ring kernel backends)
 - ringkernel-procint: 77 tests (DFG construction, pattern detection, partial order, conformance checking)
 - k2k_integration: 11 tests

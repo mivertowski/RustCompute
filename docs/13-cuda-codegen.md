@@ -121,8 +121,11 @@ let handler: syn::ItemFn = parse_quote! {
 let config = RingKernelConfig::new("processor")
     .with_block_size(128)
     .with_queue_capacity(1024)
-    .with_hlc(true)
-    .with_k2k(true);
+    .with_envelope_format(true)  // 256-byte MessageHeader + payload
+    .with_hlc(true)              // Enable Hybrid Logical Clocks
+    .with_k2k(true)              // Enable K2K messaging
+    .with_kernel_id(1000)        // Kernel identity for routing
+    .with_hlc_node_id(42);       // HLC node ID
 
 let cuda_code = transpile_ring_kernel(&handler, &config)?;
 ```
@@ -135,9 +138,29 @@ let cuda_code = transpile_ring_kernel(&handler, &config)?;
 | `queue_capacity` | 1024 | Input/output queue size (must be power of 2) |
 | `enable_hlc` | true | Enable Hybrid Logical Clocks |
 | `enable_k2k` | false | Enable kernel-to-kernel messaging |
-| `message_size` | 64 | Message buffer element size |
-| `response_size` | 64 | Response buffer element size |
+| `use_envelope_format` | true | Use MessageEnvelope format (256-byte header + payload) |
+| `kernel_id` | 0 | Kernel identity for K2K routing |
+| `hlc_node_id` | 0 | HLC node ID for timestamp generation |
+| `message_size` | 64 | Message payload size (not including header) |
+| `response_size` | 64 | Response payload size (not including header) |
 | `idle_sleep_ns` | 1000 | Nanosleep duration when idle |
+
+### Envelope Format
+
+When `use_envelope_format(true)` is set, the generated kernel uses the `MessageEnvelope` format compatible with the RingKernel runtime:
+
+- **MessageHeader** (256 bytes, 64-byte aligned):
+  - Magic number validation (`0x52494E474B45524E` = "RINGKERN")
+  - Message ID and correlation ID for request/response tracking
+  - Source/destination kernel IDs for routing
+  - HLC timestamps for causal ordering
+  - Payload size and checksum
+
+- **Generated helper functions**:
+  - `message_get_header(envelope_ptr)` - Extract header from envelope
+  - `message_get_payload(envelope_ptr)` - Get payload pointer
+  - `message_header_validate(header)` - Validate magic number
+  - `message_create_response_header(...)` - Create response with correlation
 
 ### RingContext Methods
 
@@ -423,11 +446,17 @@ The transpiler supports **120+ GPU intrinsics** across 13 categories.
 
 ### K2K Operations
 
+**Standard K2K (raw messages):**
 - `k2k_send(target_id, &msg)` - Send message to another kernel
 - `k2k_try_recv()` - Try to receive K2K message
 - `k2k_peek()` - Peek at next message without consuming
 - `k2k_has_message()` - Check if K2K messages pending
 - `k2k_pending_count()` - Get count of pending messages
+
+**Envelope-aware K2K (when `use_envelope_format(true)`):**
+- `k2k_send_envelope(target_id, envelope_ptr)` - Send envelope with headers
+- `k2k_try_recv_envelope()` - Receive envelope with header validation
+- `k2k_peek_envelope()` - Peek at next envelope without consuming
 
 ## Validation Modes
 
@@ -458,11 +487,18 @@ See the `/examples/cuda-codegen/` directory for the full source code.
 
 ## Testing
 
-The crate includes 171 tests covering all features:
+The crate includes 183 tests (171 unit + 12 integration) covering all features:
 
 ```bash
 cargo test -p ringkernel-cuda-codegen
 ```
+
+**Test Categories:**
+- Global kernel transpilation (types, intrinsics, control flow)
+- Stencil kernel generation (GridPos, tile configs)
+- Ring kernel actors (ControlBlock, message loop, HLC)
+- Envelope format (MessageHeader, serialization, K2K)
+- 120+ GPU intrinsics across 13 categories
 
 ## Benchmark Results
 

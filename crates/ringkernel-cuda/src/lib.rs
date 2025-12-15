@@ -36,9 +36,15 @@ pub mod cooperative;
 #[cfg(feature = "cuda")]
 mod device;
 #[cfg(feature = "cuda")]
+pub mod driver_api;
+#[cfg(feature = "cuda")]
+pub mod k2k_gpu;
+#[cfg(feature = "cuda")]
 mod kernel;
 #[cfg(feature = "cuda")]
 mod memory;
+#[cfg(feature = "cuda")]
+pub mod persistent;
 #[cfg(feature = "cuda")]
 mod runtime;
 #[cfg(feature = "cuda")]

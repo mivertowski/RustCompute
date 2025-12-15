@@ -93,11 +93,46 @@ let handler: syn::ItemFn = parse_quote! {
 let config = RingKernelConfig::new("processor")
     .with_block_size(128)
     .with_queue_capacity(1024)
-    .with_hlc(true)   // Hybrid Logical Clocks
-    .with_k2k(true);  // Kernel-to-kernel messaging
+    .with_hlc(true)           // Hybrid Logical Clocks
+    .with_k2k(true)           // Kernel-to-kernel messaging
+    .with_envelope_format(true)  // MessageEnvelope serialization
+    .with_kernel_id(1)        // Kernel ID for routing
+    .with_hlc_node_id(1);     // HLC node ID
 
 let cuda_code = transpile_ring_kernel(&handler, &config)?;
 ```
+
+### Envelope Format
+
+When `with_envelope_format(true)` is enabled, messages use a standardized `MessageEnvelope` format:
+
+```c
+// MessageHeader (256 bytes, cache-aligned)
+typedef struct __align__(256) {
+    uint32_t magic;           // 0xCAFEBABE
+    uint32_t version;         // Protocol version
+    uint64_t type_id;         // Message type identifier
+    uint64_t envelope_id;     // Unique envelope ID
+    uint64_t correlation_id;  // Request/response correlation
+    uint64_t source_kernel;   // Source kernel ID
+    uint64_t target_kernel;   // Target kernel ID
+    uint64_t hlc_wall;        // HLC wall clock
+    uint64_t hlc_logical;     // HLC logical counter
+    uint32_t hlc_node;        // HLC node ID
+    uint32_t priority;        // Message priority
+    uint32_t payload_size;    // Payload size in bytes
+    uint32_t flags;           // Message flags
+    uint8_t reserved[168];    // Padding to 256 bytes
+} MessageHeader;
+
+// MessageEnvelope = header + payload
+```
+
+This enables:
+- Automatic HLC timestamp propagation across kernels
+- Kernel-to-kernel routing with source/target tracking
+- Correlation ID for request/response patterns
+- Priority-based message ordering
 
 ## DSL Reference
 
@@ -243,8 +278,15 @@ let cuda_code = transpile_ring_kernel(&handler, &config)?;
 - `messages_processed()`, `input_queue_size()`, `output_queue_size()`
 - `input_queue_empty()`, `output_queue_empty()`, `enqueue_response(&resp)`
 - `hlc_tick()`, `hlc_update(ts)`, `hlc_now()` - HLC operations
-- `k2k_send(target, &msg)`, `k2k_try_recv()` - K2K messaging
+
+### K2K Messaging (Envelope-Aware)
+- `k2k_send(target, &msg)` - Send message to target kernel
+- `k2k_send_envelope(&envelope)` - Send full envelope with routing
+- `k2k_try_recv()` - Non-blocking receive
+- `k2k_try_recv_envelope()` - Receive with envelope metadata
 - `k2k_has_message()`, `k2k_peek()`, `k2k_pending_count()`
+- `k2k_get_source_kernel()` - Get source kernel ID from envelope
+- `k2k_get_correlation_id()` - Get correlation ID for request/response
 
 ## Type Mapping
 
@@ -286,7 +328,7 @@ The transpiler supports **120+ GPU intrinsics** across 13 categories:
 cargo test -p ringkernel-cuda-codegen
 ```
 
-The crate includes 171 tests covering all kernel types, intrinsics, and language features.
+The crate includes 183 tests covering all kernel types, intrinsics, envelope format, and language features.
 
 ## License
 
