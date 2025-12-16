@@ -70,6 +70,12 @@ cargo run -p ringkernel-wavesim3d --bin interactive-benchmark --release --featur
 
 # Run wavesim3d persistent actor test
 cargo run -p ringkernel-wavesim3d --example test_persistent --release --features cuda-codegen
+
+# Run ecosystem tests
+cargo test -p ringkernel-ecosystem --features "persistent,actix,tower,axum,grpc"
+
+# Run ecosystem example (Axum REST API)
+cargo run -p ringkernel-ecosystem --example axum_persistent_api --features "axum,persistent"
 ```
 
 ## Architecture
@@ -88,7 +94,7 @@ The project is a Cargo workspace with these crates:
 - **`ringkernel-codegen`** - GPU kernel code generation
 - **`ringkernel-cuda-codegen`** - Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL
 - **`ringkernel-wgpu-codegen`** - Rust-to-WGSL transpiler for writing GPU kernels in Rust DSL (WebGPU backend)
-- **`ringkernel-ecosystem`** - Integration utilities
+- **`ringkernel-ecosystem`** - Ecosystem integrations with **persistent GPU actor support** (Actix `GpuPersistentActor`, Axum REST/SSE, Tower `PersistentKernelService`, gRPC streaming)
 - **`ringkernel-audio-fft`** - Example application: GPU-accelerated audio FFT processing
 - **`ringkernel-wavesim`** - Example application: 2D acoustic wave simulation with GPU-accelerated FDTD, tile-based ring kernel actors, and educational simulation modes
 - **`ringkernel-wavesim3d`** - Example application: 3D acoustic wave simulation with binaural audio, **persistent GPU actors** (H2K/K2H messaging, K2K halo exchange, cooperative groups), and volumetric ray marching visualization
@@ -367,6 +373,39 @@ Main crate (`ringkernel`) features:
 CUDA-specific features:
 - `cooperative` - Enable CUDA cooperative groups for grid-wide synchronization (`grid.sync()`). Requires nvcc at build time for PTX compilation.
 
+Ecosystem crate (`ringkernel-ecosystem`) features:
+- `persistent` - Core persistent GPU kernel traits (backend-agnostic)
+- `persistent-cuda` - CUDA implementation of `PersistentHandle` via `CudaPersistentHandle`
+- `actix` - Actix actor framework bridge with `GpuPersistentActor`
+- `tower` - Tower service middleware with `PersistentKernelService`
+- `axum` - Axum web framework with `PersistentGpuState` and REST/SSE endpoints
+- `grpc` - gRPC server with streaming RPCs via Tonic
+- `persistent-full` - Full persistent ecosystem (CUDA + all web frameworks)
+
+### Ecosystem Integrations (ringkernel-ecosystem)
+
+The ecosystem crate provides web framework integrations with **11,327x faster command injection** (~0.03µs vs ~317µs):
+
+```rust
+// Actix actor with persistent GPU kernel
+use ringkernel_ecosystem::actix::{GpuPersistentActor, RunStepsCmd, InjectCmd};
+let actor = GpuPersistentActor::new(handle, config).start();
+actor.send(RunStepsCmd::new(1000)).await?;
+
+// Axum REST API
+use ringkernel_ecosystem::axum::{PersistentGpuState, PersistentAxumConfig};
+let state = PersistentGpuState::new(handle, PersistentAxumConfig::default());
+let app = Router::new().merge(state.routes());
+
+// Tower service with middleware
+use ringkernel_ecosystem::tower::{PersistentKernelService, PersistentServiceBuilder};
+let service = PersistentServiceBuilder::new(handle).build();
+
+// CUDA bridge for real GPU kernels
+use ringkernel_ecosystem::cuda_bridge::CudaPersistentHandle;
+let handle = CudaPersistentHandle::new(simulation, "fdtd_3d");
+```
+
 ## Testing Patterns
 
 - Unit tests in each crate's `src/` using `#[cfg(test)]`
@@ -377,13 +416,14 @@ CUDA-specific features:
 
 ### Test Count Summary
 
-550+ tests across the workspace:
+580+ tests across the workspace:
 - ringkernel-core: 65 tests
 - ringkernel-cpu: 11 tests
 - ringkernel-cuda: 6 GPU execution tests
 - ringkernel-cuda-codegen: 183 tests (171 unit + 12 integration; loops, shared memory, ring kernels, K2K, envelope format, reference expressions, 120+ GPU intrinsics)
 - ringkernel-wgpu-codegen: 50 tests (types, intrinsics, transpiler, validation)
 - ringkernel-derive: 14 macro tests
+- ringkernel-ecosystem: 30 tests (persistent handle, CUDA bridge, Actix, Axum, Tower, gRPC integrations)
 - ringkernel-wavesim: 63 tests (including educational modes, tile actor kernels, envelope format)
 - ringkernel-wavesim3d: 72 tests (3D FDTD, binaural audio, volumetric rendering, block actor kernels, ring kernel actors)
 - ringkernel-txmon: 40 tests (GPU types, batch kernel, stencil kernel, ring kernel backends)

@@ -373,7 +373,10 @@ fn test_k2k_inbox_header_operations() {
 
     // Simulate adding messages
     header.head = 10;
-    assert!(!header.is_empty(), "Header with messages should not be empty");
+    assert!(
+        !header.is_empty(),
+        "Header with messages should not be empty"
+    );
     assert_eq!(header.size(), 10, "Size should be 10");
 
     // Simulate consuming messages
@@ -411,7 +414,10 @@ fn test_k2k_route_entry() {
         _padding: 0,
     };
 
-    assert!(!entry.is_empty(), "Entry with kernel_id should not be empty");
+    assert!(
+        !entry.is_empty(),
+        "Entry with kernel_id should not be empty"
+    );
     assert_eq!(entry.target_kernel_id, 42);
     assert_eq!(entry.capacity, 64);
 
@@ -425,8 +431,8 @@ fn test_k2k_buffers_creation() {
 
     let device = CudaDevice::new(0).expect("Failed to create device");
 
-    let buffers =
-        CudaK2KBuffers::new(&device, 64, 256, MAX_K2K_ROUTES).expect("Failed to create K2K buffers");
+    let buffers = CudaK2KBuffers::new(&device, 64, 256, MAX_K2K_ROUTES)
+        .expect("Failed to create K2K buffers");
 
     assert_eq!(buffers.inbox_capacity(), 64);
     assert_eq!(buffers.msg_size(), 256);
@@ -514,7 +520,10 @@ fn test_k2k_connection_manager() {
 
     assert!(manager.get(1).is_some(), "Kernel 1 should be registered");
     assert!(manager.get(2).is_some(), "Kernel 2 should be registered");
-    assert!(manager.get(3).is_none(), "Kernel 3 should not be registered");
+    assert!(
+        manager.get(3).is_none(),
+        "Kernel 3 should not be registered"
+    );
 
     // Connect kernel 1 -> kernel 2
     manager.connect(1, 2).expect("Failed to connect 1 -> 2");
@@ -590,7 +599,10 @@ async fn test_runtime_k2k_disabled() {
         .expect("Failed to create runtime");
 
     assert!(!runtime.is_k2k_enabled(), "K2K should be disabled");
-    assert!(runtime.k2k_broker().is_none(), "K2K broker should not exist");
+    assert!(
+        runtime.k2k_broker().is_none(),
+        "K2K broker should not exist"
+    );
 
     runtime.shutdown().await.expect("Failed to shutdown");
     println!("Runtime with K2K disabled verified");

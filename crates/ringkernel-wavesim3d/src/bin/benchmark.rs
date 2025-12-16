@@ -179,8 +179,14 @@ fn main() {
             };
 
             let mut engine = persistent_config.build();
-            if engine.is_using_gpu() && engine.computation_method() == ComputationMethod::Persistent {
-                engine.inject_impulse(persistent_width / 2, persistent_height / 2, persistent_depth / 2, 1.0);
+            if engine.is_using_gpu() && engine.computation_method() == ComputationMethod::Persistent
+            {
+                engine.inject_impulse(
+                    persistent_width / 2,
+                    persistent_height / 2,
+                    persistent_depth / 2,
+                    1.0,
+                );
 
                 // Warm up
                 engine.step_n(10);
@@ -189,9 +195,14 @@ fn main() {
                 engine.step_n(num_steps);
                 let persistent_time = start.elapsed();
                 let persistent_throughput =
-                    (persistent_width * persistent_height * persistent_depth * num_steps) as f64 / persistent_time.as_secs_f64() / 1e6;
+                    (persistent_width * persistent_height * persistent_depth * num_steps) as f64
+                        / persistent_time.as_secs_f64()
+                        / 1e6;
 
-                println!("  Grid: {}×{}×{} (fits cooperative limits)", persistent_width, persistent_height, persistent_depth);
+                println!(
+                    "  Grid: {}×{}×{} (fits cooperative limits)",
+                    persistent_width, persistent_height, persistent_depth
+                );
                 println!("  GPU Persistent time: {:?}", persistent_time);
                 println!(
                     "  GPU Persistent throughput: {:.2} Mcells/s",
@@ -218,7 +229,12 @@ fn main() {
                         persistent_depth,
                         AcousticParams3D::new(Environment::default(), 0.1),
                     );
-                    cpu_engine.inject_impulse(persistent_width / 2, persistent_height / 2, persistent_depth / 2, 1.0);
+                    cpu_engine.inject_impulse(
+                        persistent_width / 2,
+                        persistent_height / 2,
+                        persistent_depth / 2,
+                        1.0,
+                    );
                     let start = Instant::now();
                     cpu_engine.step_n(num_steps);
                     start.elapsed()

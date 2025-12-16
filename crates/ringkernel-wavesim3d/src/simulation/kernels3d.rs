@@ -21,9 +21,7 @@
 //! ```
 
 #[cfg(feature = "cuda-codegen")]
-use ringkernel_cuda_codegen::{
-    transpile_global_kernel, transpile_ring_kernel, RingKernelConfig,
-};
+use ringkernel_cuda_codegen::{transpile_global_kernel, transpile_ring_kernel, RingKernelConfig};
 
 // ============================================================================
 // Block Size Constants
@@ -445,10 +443,7 @@ mod tests {
         let source = generate_fdtd3d_stencil_kernel();
 
         // Check basic structure
-        assert!(
-            source.contains("fdtd3d_stencil"),
-            "Missing kernel name"
-        );
+        assert!(source.contains("fdtd3d_stencil"), "Missing kernel name");
         assert!(
             source.contains("__global__"),
             "Missing __global__ qualifier"
@@ -476,10 +471,7 @@ mod tests {
         let source = generate_block_actor_kernels();
 
         // Check header
-        assert!(
-            source.contains("Block-Based Actor"),
-            "Missing header"
-        );
+        assert!(source.contains("Block-Based Actor"), "Missing header");
 
         // Check structures
         assert!(
@@ -534,10 +526,7 @@ mod tests {
             source.contains("ring_kernel_block_actor"),
             "Missing ring kernel function"
         );
-        assert!(
-            source.contains("ControlBlock"),
-            "Missing ControlBlock"
-        );
+        assert!(source.contains("ControlBlock"), "Missing ControlBlock");
 
         // Verify no errors
         assert!(
@@ -555,14 +544,8 @@ mod tests {
         let source = generate_block_ring_actor_kernel(100, 10);
 
         // Check kernel identity
-        assert!(
-            source.contains("KERNEL_ID = 100"),
-            "Missing KERNEL_ID"
-        );
-        assert!(
-            source.contains("HLC_NODE_ID = 10"),
-            "Missing HLC_NODE_ID"
-        );
+        assert!(source.contains("KERNEL_ID = 100"), "Missing KERNEL_ID");
+        assert!(source.contains("HLC_NODE_ID = 10"), "Missing HLC_NODE_ID");
 
         // Check envelope format
         assert!(

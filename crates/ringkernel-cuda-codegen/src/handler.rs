@@ -338,12 +338,7 @@ pub fn generate_envelope_message_deser(
     )
     .unwrap();
     writeln!(code).unwrap();
-    writeln!(
-        code,
-        "{}// Access header fields:",
-        indent
-    )
-    .unwrap();
+    writeln!(code, "{}// Access header fields:", indent).unwrap();
     writeln!(
         code,
         "{}// - msg_header->message_id     (unique message ID)",
@@ -380,7 +375,12 @@ pub fn generate_response_ser(response_type: &str, config: &HandlerCodegenConfig)
     let indent = &config.indent;
 
     writeln!(code).unwrap();
-    writeln!(code, "{}// Serialize response to output buffer (raw format)", indent).unwrap();
+    writeln!(
+        code,
+        "{}// Serialize response to output buffer (raw format)",
+        indent
+    )
+    .unwrap();
     writeln!(
         code,
         "{}unsigned long long _out_idx = atomicAdd(&control->output_head, 1) & control->output_mask;",
@@ -408,7 +408,12 @@ pub fn generate_envelope_response_ser(
     let indent = &config.indent;
 
     writeln!(code).unwrap();
-    writeln!(code, "{}// Serialize response envelope to output buffer", indent).unwrap();
+    writeln!(
+        code,
+        "{}// Serialize response envelope to output buffer",
+        indent
+    )
+    .unwrap();
     writeln!(
         code,
         "{}unsigned long long _out_idx = atomicAdd(&control->output_head, 1) & control->output_mask;",
@@ -418,80 +423,65 @@ pub fn generate_envelope_response_ser(
         code,
         "{}unsigned char* resp_envelope = &output_buffer[_out_idx * RESP_SIZE];",
         indent
-    ).unwrap();
+    )
+    .unwrap();
     writeln!(code).unwrap();
     writeln!(
         code,
         "{}// Build response header from request header",
         indent
-    ).unwrap();
+    )
+    .unwrap();
     writeln!(
         code,
         "{}MessageHeader* resp_header = (MessageHeader*)resp_envelope;",
         indent
-    ).unwrap();
-    writeln!(
-        code,
-        "{}message_create_response_header(",
-        indent
-    ).unwrap();
-    writeln!(
-        code,
-        "{}    resp_header,",
-        indent
-    ).unwrap();
+    )
+    .unwrap();
+    writeln!(code, "{}message_create_response_header(", indent).unwrap();
+    writeln!(code, "{}    resp_header,", indent).unwrap();
     writeln!(
         code,
         "{}    msg_header,              // Request header (for correlation)",
         indent
-    ).unwrap();
+    )
+    .unwrap();
     writeln!(
         code,
         "{}    KERNEL_ID,               // This kernel's ID",
         indent
-    ).unwrap();
+    )
+    .unwrap();
     writeln!(
         code,
         "{}    sizeof({}),   // Payload size",
         indent, response_type
-    ).unwrap();
+    )
+    .unwrap();
     writeln!(
         code,
         "{}    hlc_physical,            // Current HLC",
         indent
-    ).unwrap();
-    writeln!(
-        code,
-        "{}    hlc_logical,",
-        indent
-    ).unwrap();
-    writeln!(
-        code,
-        "{}    HLC_NODE_ID",
-        indent
-    ).unwrap();
-    writeln!(
-        code,
-        "{});",
-        indent
-    ).unwrap();
+    )
+    .unwrap();
+    writeln!(code, "{}    hlc_logical,", indent).unwrap();
+    writeln!(code, "{}    HLC_NODE_ID", indent).unwrap();
+    writeln!(code, "{});", indent).unwrap();
     writeln!(code).unwrap();
-    writeln!(
-        code,
-        "{}// Copy response payload after header",
-        indent
-    ).unwrap();
+    writeln!(code, "{}// Copy response payload after header", indent).unwrap();
     writeln!(
         code,
         "{}memcpy(resp_envelope + MESSAGE_HEADER_SIZE, &{}, sizeof({}));",
         indent, config.response_var, response_type
-    ).unwrap();
+    )
+    .unwrap();
     writeln!(code).unwrap();
     writeln!(
         code,
         "{}__threadfence();  // Ensure write is visible",
         indent
-    ).unwrap();
+    )
+    .unwrap();
 
     code
 }

@@ -280,7 +280,11 @@ impl CudaTranspiler {
             if !type_name.is_empty() {
                 if config.use_envelope_format {
                     // Envelope format: cast msg_ptr to typed payload
-                    writeln!(output, "        // Message deserialization (envelope format)").unwrap();
+                    writeln!(
+                        output,
+                        "        // Message deserialization (envelope format)"
+                    )
+                    .unwrap();
                     writeln!(
                         output,
                         "        // msg_header contains: message_id, correlation_id, source_kernel, timestamp"
@@ -325,7 +329,11 @@ impl CudaTranspiler {
             writeln!(output).unwrap();
             if config.use_envelope_format {
                 // Envelope format: create full response envelope with header
-                writeln!(output, "        // Response serialization (envelope format)").unwrap();
+                writeln!(
+                    output,
+                    "        // Response serialization (envelope format)"
+                )
+                .unwrap();
                 writeln!(
                     output,
                     "        unsigned long long _out_idx = atomicAdd(&control->output_head, 1) & control->output_mask;"

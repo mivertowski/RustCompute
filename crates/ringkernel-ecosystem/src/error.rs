@@ -65,6 +65,31 @@ pub enum EcosystemError {
     #[cfg(feature = "candle")]
     #[error("Candle error: {0}")]
     Candle(String),
+
+    /// Persistent kernel error (for persistent integration).
+    #[cfg(feature = "persistent")]
+    #[error("Persistent kernel error: {0}")]
+    Persistent(String),
+
+    /// Command queue full.
+    #[cfg(feature = "persistent")]
+    #[error("Command queue full")]
+    QueueFull,
+
+    /// Kernel not running.
+    #[cfg(feature = "persistent")]
+    #[error("Kernel not running: {0}")]
+    KernelNotRunning(String),
+
+    /// Command failed with error code.
+    #[cfg(feature = "persistent")]
+    #[error("Command failed (code {code}): {message}")]
+    CommandFailed {
+        /// Error code from kernel.
+        code: u32,
+        /// Error message.
+        message: String,
+    },
 }
 
 /// Result type for ecosystem operations.

@@ -103,8 +103,8 @@ impl DirectPtxModule {
         let _ = device.inner();
 
         // PTX must be null-terminated for CUDA driver API
-        let ptx_cstring = if ptx.ends_with('\0') {
-            CString::new(&ptx[..ptx.len() - 1])
+        let ptx_cstring = if let Some(stripped) = ptx.strip_suffix('\0') {
+            CString::new(stripped)
         } else {
             CString::new(ptx)
         }
@@ -243,9 +243,7 @@ impl DirectCooperativeKernel {
         // Get number of SMs
         let num_sms = device
             .inner()
-            .attribute(
-                cuda_sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
-            )
+            .attribute(cuda_sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
             .map_err(|e| RingKernelError::BackendError(format!("Failed to get SM count: {}", e)))?;
 
         Ok((max_blocks_per_sm as u32) * (num_sms as u32))
@@ -477,7 +475,9 @@ mod tests {
 
         let device = CudaDevice::new(0).expect("Failed to create device");
         let module = DirectPtxModule::load_ptx(&device, ptx).expect("Failed to load PTX");
-        let func = module.get_function("test_kernel").expect("Failed to get function");
+        let func = module
+            .get_function("test_kernel")
+            .expect("Failed to get function");
         assert!(!func.is_null());
     }
 }

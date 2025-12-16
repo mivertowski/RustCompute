@@ -273,7 +273,8 @@ fn generate_device_functions(config: &PersistentFdtdConfig) -> String {
     let mut code = String::new();
 
     // Software grid barrier (fallback when cooperative not available)
-    code.push_str(r#"
+    code.push_str(
+        r#"
 // ============================================================================
 // SYNCHRONIZATION FUNCTIONS
 // ============================================================================
@@ -304,10 +305,12 @@ __device__ void software_grid_sync(
     __syncthreads();
 }
 
-"#);
+"#,
+    );
 
     // H2K/K2H queue operations
-    code.push_str(r#"
+    code.push_str(
+        r#"
 // ============================================================================
 // MESSAGE QUEUE OPERATIONS
 // ============================================================================
@@ -385,7 +388,8 @@ __device__ bool k2h_send(
     return true;
 }
 
-"#);
+"#,
+    );
 
     // Halo exchange functions
     code.push_str(&format!(
@@ -765,7 +769,8 @@ pub fn compile_persistent_fdtd_to_ptx(config: &PersistentFdtdConfig) -> Result<S
     let cuda_file = temp_dir.join("persistent_fdtd.cu");
     let ptx_file = temp_dir.join("persistent_fdtd.ptx");
 
-    std::fs::write(&cuda_file, &cuda_code).map_err(|e| format!("Failed to write CUDA file: {}", e))?;
+    std::fs::write(&cuda_file, &cuda_code)
+        .map_err(|e| format!("Failed to write CUDA file: {}", e))?;
 
     // Compile with nvcc
     // Use -arch=native to automatically detect the GPU architecture
@@ -780,7 +785,7 @@ pub fn compile_persistent_fdtd_to_ptx(config: &PersistentFdtdConfig) -> Result<S
     ];
 
     if config.use_cooperative {
-        args.push("-rdc=true".to_string());  // Required for cooperative groups
+        args.push("-rdc=true".to_string()); // Required for cooperative groups
     }
 
     let output = Command::new("nvcc")
@@ -827,7 +832,7 @@ mod tests {
     #[test]
     fn test_shared_mem_calculation() {
         let config = PersistentFdtdConfig::default(); // 8x8x8
-        // With halo: 10x10x10 = 1000 floats = 4000 bytes
+                                                      // With halo: 10x10x10 = 1000 floats = 4000 bytes
         assert_eq!(config.shared_mem_size(), 4000);
     }
 
@@ -897,8 +902,7 @@ mod tests {
 
     #[test]
     fn test_generate_kernel_halo_exchange() {
-        let config = PersistentFdtdConfig::new("test")
-            .with_tile_size(8, 8, 8);
+        let config = PersistentFdtdConfig::new("test").with_tile_size(8, 8, 8);
 
         let code = generate_persistent_fdtd_kernel(&config);
 

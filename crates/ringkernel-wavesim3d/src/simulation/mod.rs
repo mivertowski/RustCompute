@@ -62,7 +62,9 @@ pub use block_actor_backend::{
 };
 
 #[cfg(all(feature = "cuda", feature = "cuda-codegen"))]
-pub use persistent_backend::{PersistentBackend, PersistentBackendConfig, PersistentBackendError, PersistentBackendStats};
+pub use persistent_backend::{
+    PersistentBackend, PersistentBackendConfig, PersistentBackendError, PersistentBackendStats,
+};
 
 /// Computation method for GPU-accelerated simulation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

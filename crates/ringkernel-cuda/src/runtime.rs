@@ -162,13 +162,13 @@ impl CudaRuntime {
     pub fn connect_k2k(&self, source_id: &KernelId, target_id: &KernelId) -> Result<()> {
         let kernels = self.kernels.read();
 
-        let source = kernels.get(source_id).ok_or_else(|| {
-            RingKernelError::KernelNotFound(source_id.to_string())
-        })?;
+        let source = kernels
+            .get(source_id)
+            .ok_or_else(|| RingKernelError::KernelNotFound(source_id.to_string()))?;
 
-        let target = kernels.get(target_id).ok_or_else(|| {
-            RingKernelError::KernelNotFound(target_id.to_string())
-        })?;
+        let target = kernels
+            .get(target_id)
+            .ok_or_else(|| RingKernelError::KernelNotFound(target_id.to_string()))?;
 
         // Get K2K buffers
         let source_buffers = source.k2k_buffers().ok_or_else(|| {

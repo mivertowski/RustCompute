@@ -332,7 +332,8 @@ impl CudaMessageQueue {
                 std::mem::size_of::<MessageHeader>(),
             )
         };
-        self.headers.copy_from_host_at(header_bytes, header_offset)?;
+        self.headers
+            .copy_from_host_at(header_bytes, header_offset)?;
 
         // Write payload
         if !envelope.payload.is_empty() {
@@ -355,7 +356,8 @@ impl CudaMessageQueue {
         // Read header
         let header_offset = slot * std::mem::size_of::<MessageHeader>();
         let mut header_bytes = [0u8; std::mem::size_of::<MessageHeader>()];
-        self.headers.copy_to_host_at(&mut header_bytes, header_offset)?;
+        self.headers
+            .copy_to_host_at(&mut header_bytes, header_offset)?;
 
         // Safety: MessageHeader is repr(C) and we read the correct size
         let header: MessageHeader =
@@ -377,7 +379,8 @@ impl CudaMessageQueue {
         let mut payload = vec![0u8; payload_size];
         if payload_size > 0 {
             let payload_offset = slot * self.max_payload_size;
-            self.payloads.copy_to_host_at(&mut payload, payload_offset)?;
+            self.payloads
+                .copy_to_host_at(&mut payload, payload_offset)?;
         }
 
         Ok(MessageEnvelope { header, payload })

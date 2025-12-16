@@ -1,11 +1,10 @@
 //! Test persistent backend creation and execution
-use ringkernel_wavesim3d::simulation::{
-    AcousticParams3D, Environment,
-    grid3d::SimulationGrid3D,
-};
+use ringkernel_wavesim3d::simulation::{grid3d::SimulationGrid3D, AcousticParams3D, Environment};
 
 #[cfg(all(feature = "cuda", feature = "cuda-codegen"))]
-use ringkernel_wavesim3d::simulation::persistent_backend::{PersistentBackend, PersistentBackendConfig};
+use ringkernel_wavesim3d::simulation::persistent_backend::{
+    PersistentBackend, PersistentBackendConfig,
+};
 
 fn main() {
     println!("Testing Persistent Backend Creation and Execution...\n");
@@ -47,8 +46,10 @@ fn main() {
                 // Small delay for kernel to initialize
                 std::thread::sleep(std::time::Duration::from_millis(100));
                 let stats = backend.stats();
-                println!("  After 100ms - current_step: {}, steps_remaining: {}",
-                    stats.current_step, stats.steps_remaining);
+                println!(
+                    "  After 100ms - current_step: {}, steps_remaining: {}",
+                    stats.current_step, stats.steps_remaining
+                );
 
                 // Test running steps - first batch
                 println!("\nRunning 10 steps (batch 1)...");

@@ -207,6 +207,7 @@ impl<T: Copy + Send + Sync> CudaMappedBuffer<T> {
     /// Caller must ensure no concurrent GPU access to this element,
     /// or use atomic operations for synchronization.
     #[inline]
+    #[allow(clippy::mut_from_ref)] // Intentional: raw pointer to GPU-mapped memory
     pub unsafe fn get_mut(&self, index: usize) -> Option<&mut T> {
         if index < self.len {
             Some(&mut *self.host_ptr.add(index))
@@ -258,6 +259,7 @@ impl<T: Copy + Send + Sync> CudaMappedBuffer<T> {
     ///
     /// Caller must ensure no concurrent GPU access.
     #[inline]
+    #[allow(clippy::mut_from_ref)] // Intentional: raw pointer to GPU-mapped memory
     pub unsafe fn as_mut_slice(&self) -> &mut [T] {
         std::slice::from_raw_parts_mut(self.host_ptr, self.len)
     }
@@ -542,7 +544,7 @@ impl Default for K2HMessage {
 /// Uses raw u64 fields accessed atomically through volatile/fence operations.
 /// Queue lives in mapped memory for CPU+GPU access.
 #[repr(C, align(128))]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct SpscQueueHeader {
     /// Write position (incremented by producer).
     pub head: u64,
@@ -554,18 +556,6 @@ pub struct SpscQueueHeader {
     pub mask: u32,
     /// Padding to cache line.
     pub _padding: [u64; 12],
-}
-
-impl Default for SpscQueueHeader {
-    fn default() -> Self {
-        Self {
-            head: 0,
-            tail: 0,
-            capacity: 0,
-            mask: 0,
-            _padding: [0; 12],
-        }
-    }
 }
 
 /// H2K message queue (host produces, kernel consumes).
@@ -931,9 +921,9 @@ impl PersistentSimulationConfig {
 
     /// Calculate number of blocks needed.
     pub fn num_blocks(&self) -> (usize, usize, usize) {
-        let bx = (self.grid_size.0 + self.tile_size.0 - 1) / self.tile_size.0;
-        let by = (self.grid_size.1 + self.tile_size.1 - 1) / self.tile_size.1;
-        let bz = (self.grid_size.2 + self.tile_size.2 - 1) / self.tile_size.2;
+        let bx = self.grid_size.0.div_ceil(self.tile_size.0);
+        let by = self.grid_size.1.div_ceil(self.tile_size.1);
+        let bz = self.grid_size.2.div_ceil(self.tile_size.2);
         (bx, by, bz)
     }
 
@@ -1084,6 +1074,7 @@ impl PersistentSimulation {
     }
 
     /// Initialize the K2K routing table.
+    #[allow(clippy::too_many_arguments)]
     fn init_routing_table(
         _device: &CudaDevice,
         routes_buffer: &CudaBuffer,
@@ -1174,19 +1165,21 @@ impl PersistentSimulation {
             self.config.tile_size.0 * self.config.tile_size.1 * self.config.tile_size.2;
 
         // Load cooperative kernel
-        let kernel =
-            DirectCooperativeKernel::from_ptx(&self.device, ptx, func_name, threads_per_block as u32)?;
+        let kernel = DirectCooperativeKernel::from_ptx(
+            &self.device,
+            ptx,
+            func_name,
+            threads_per_block as u32,
+        )?;
 
         // Check if grid fits cooperative limits
         let max_blocks = kernel.max_concurrent_blocks();
-        if total_blocks as u32 > max_blocks {
-            if self.config.use_cooperative {
-                return Err(RingKernelError::LaunchFailed(format!(
-                    "Grid size {} exceeds cooperative limit {}. Use software sync or smaller grid.",
-                    total_blocks, max_blocks
-                )));
-            }
-            // TODO: Fall back to software sync
+        if total_blocks as u32 > max_blocks && self.config.use_cooperative {
+            return Err(RingKernelError::LaunchFailed(format!(
+                "Grid size {} exceeds cooperative limit {}. Use software sync or smaller grid.",
+                total_blocks, max_blocks
+            )));
+            // TODO: Fall back to software sync when not using cooperative mode
         }
 
         // Configure launch
@@ -1236,7 +1229,9 @@ impl PersistentSimulation {
             self.control.write(0, cb);
             Ok(0) // Return dummy command ID since we're not using queue
         } else {
-            Err(RingKernelError::BackendError("Failed to read control block".to_string()))
+            Err(RingKernelError::BackendError(
+                "Failed to read control block".to_string(),
+            ))
         }
     }
 
@@ -1269,12 +1264,13 @@ impl PersistentSimulation {
 
     /// Read pressure field to host buffer.
     pub fn read_pressure(&self, output: &mut [f32]) -> Result<()> {
-        let cb = self.control.read(0).ok_or_else(|| {
-            RingKernelError::InvalidState {
+        let cb = self
+            .control
+            .read(0)
+            .ok_or_else(|| RingKernelError::InvalidState {
                 expected: "valid control block".to_string(),
                 actual: "read failed".to_string(),
-            }
-        })?;
+            })?;
 
         let buffer = if cb.current_buffer == 0 {
             &self.pressure_a
@@ -1285,7 +1281,7 @@ impl PersistentSimulation {
         let bytes = unsafe {
             std::slice::from_raw_parts_mut(
                 output.as_mut_ptr() as *mut u8,
-                output.len() * std::mem::size_of::<f32>(),
+                std::mem::size_of_val(output),
             )
         };
         buffer.copy_to_host(bytes)
@@ -1550,8 +1546,7 @@ mod tests {
         let config = PersistentSimulationConfig::new(40, 40, 40) // Small grid for cooperative
             .with_tile_size(8, 8, 8);
 
-        let sim =
-            PersistentSimulation::new(&device, config).expect("Failed to create simulation");
+        let sim = PersistentSimulation::new(&device, config).expect("Failed to create simulation");
 
         assert!(!sim.is_running());
         let stats = sim.stats();

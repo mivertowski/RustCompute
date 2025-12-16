@@ -41,12 +41,14 @@
 //! └─────────────────────────────────────────────────────────────────┘
 //! ```
 
-use ringkernel_cuda::CudaDevice;
+use ringkernel_core::error::RingKernelError;
 use ringkernel_cuda::persistent::{
     PersistentSimulation, PersistentSimulationConfig, PersistentSimulationStats, ResponseType,
 };
-use ringkernel_cuda_codegen::persistent_fdtd::{generate_persistent_fdtd_kernel, PersistentFdtdConfig};
-use ringkernel_core::error::RingKernelError;
+use ringkernel_cuda::CudaDevice;
+use ringkernel_cuda_codegen::persistent_fdtd::{
+    generate_persistent_fdtd_kernel, PersistentFdtdConfig,
+};
 use std::process::Command;
 use std::time::Duration;
 
@@ -74,7 +76,9 @@ impl std::fmt::Display for PersistentBackendError {
         match self {
             PersistentBackendError::DeviceError(s) => write!(f, "CUDA device error: {}", s),
             PersistentBackendError::SimulationError(s) => write!(f, "Simulation error: {}", s),
-            PersistentBackendError::CompilationError(s) => write!(f, "Kernel compilation error: {}", s),
+            PersistentBackendError::CompilationError(s) => {
+                write!(f, "Kernel compilation error: {}", s)
+            }
             PersistentBackendError::LaunchError(s) => write!(f, "Kernel launch error: {}", s),
             PersistentBackendError::CommandError(s) => write!(f, "Command error: {}", s),
             PersistentBackendError::ReadbackError(s) => write!(f, "Readback error: {}", s),

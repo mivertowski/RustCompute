@@ -381,12 +381,7 @@ impl RingKernelConfig {
             )
             .unwrap();
             writeln!(code).unwrap();
-            writeln!(
-                code,
-                "{}    // Validate message (skip invalid)",
-                indent
-            )
-            .unwrap();
+            writeln!(code, "{}    // Validate message (skip invalid)", indent).unwrap();
             writeln!(
                 code,
                 "{}    if (!message_header_validate(msg_header)) {{",
@@ -411,12 +406,7 @@ impl RingKernelConfig {
             // Update HLC from incoming message timestamp
             if self.enable_hlc {
                 writeln!(code).unwrap();
-                writeln!(
-                    code,
-                    "{}    // Update HLC from message timestamp",
-                    indent
-                )
-                .unwrap();
+                writeln!(code, "{}    // Update HLC from message timestamp", indent).unwrap();
                 writeln!(
                     code,
                     "{}    if (msg_header->timestamp.physical > hlc_physical) {{",

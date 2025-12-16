@@ -300,7 +300,8 @@ impl CudaK2KBuffers {
             )
         };
 
-        self.routing_table.copy_from_host_at(entry_bytes, entry_offset)?;
+        self.routing_table
+            .copy_from_host_at(entry_bytes, entry_offset)?;
 
         // Update route count
         let new_count = (slot + 1) as u32;
@@ -372,11 +373,17 @@ impl K2KConnectionManager {
         }
 
         let source_buffers = self.buffers.get(&source_id).ok_or_else(|| {
-            RingKernelError::K2KDestinationNotFound(format!("Source kernel {} not registered", source_id))
+            RingKernelError::K2KDestinationNotFound(format!(
+                "Source kernel {} not registered",
+                source_id
+            ))
         })?;
 
         let target_buffers = self.buffers.get(&target_id).ok_or_else(|| {
-            RingKernelError::K2KDestinationNotFound(format!("Target kernel {} not registered", target_id))
+            RingKernelError::K2KDestinationNotFound(format!(
+                "Target kernel {} not registered",
+                target_id
+            ))
         })?;
 
         // Add route in source's routing table
@@ -450,8 +457,8 @@ mod tests {
     #[ignore] // Requires CUDA hardware
     fn test_k2k_buffers_creation() {
         let device = CudaDevice::new(0).expect("Failed to create device");
-        let buffers =
-            CudaK2KBuffers::new(&device, 64, 256, MAX_K2K_ROUTES).expect("Failed to create buffers");
+        let buffers = CudaK2KBuffers::new(&device, 64, 256, MAX_K2K_ROUTES)
+            .expect("Failed to create buffers");
 
         assert_eq!(buffers.inbox_capacity(), 64);
         assert_eq!(buffers.msg_size(), 256);

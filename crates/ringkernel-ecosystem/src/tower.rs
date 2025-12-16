@@ -92,6 +92,7 @@ enum ServiceState {
     /// Service is ready to accept requests.
     Ready,
     /// Service is temporarily overloaded.
+    #[allow(dead_code)]
     Overloaded,
     /// Service is shutting down.
     ShuttingDown,
@@ -314,20 +315,27 @@ impl<R: RuntimeHandle> ServiceBuilder<R> {
 }
 
 /// Layer for creating RingKernel services.
+///
+/// Type parameters:
+/// - `R`: The runtime handle type
+/// - `Req`: The request message type
+/// - `Resp`: The response message type
 #[derive(Clone)]
-pub struct RingKernelLayer<R> {
+pub struct RingKernelLayer<R, Req, Resp> {
     runtime: R,
     kernel_id: KernelId,
     config: ServiceConfig,
+    _marker: PhantomData<(Req, Resp)>,
 }
 
-impl<R: RuntimeHandle> RingKernelLayer<R> {
+impl<R: RuntimeHandle, Req, Resp> RingKernelLayer<R, Req, Resp> {
     /// Create a new layer.
     pub fn new(runtime: R, kernel_id: impl Into<String>) -> Self {
         Self {
             runtime,
             kernel_id: KernelId::new(kernel_id),
             config: ServiceConfig::default(),
+            _marker: PhantomData,
         }
     }
 
@@ -337,13 +345,16 @@ impl<R: RuntimeHandle> RingKernelLayer<R> {
             runtime,
             kernel_id: KernelId::new(kernel_id),
             config,
+            _marker: PhantomData,
         }
     }
 }
 
-impl<R, S, Req, Resp> tower::Layer<S> for RingKernelLayer<R>
+impl<R, S, Req, Resp> tower::Layer<S> for RingKernelLayer<R, Req, Resp>
 where
     R: RuntimeHandle,
+    Req: Send + 'static,
+    Resp: Send + 'static,
 {
     type Service = RingKernelService<R, Req, Resp>;
 
@@ -353,6 +364,332 @@ where
             self.kernel_id.as_str(),
             self.config.clone(),
         )
+    }
+}
+
+// ============================================================================
+// PERSISTENT KERNEL SERVICE INTEGRATION
+// ============================================================================
+
+#[cfg(feature = "persistent")]
+pub use persistent_service::*;
+
+#[cfg(feature = "persistent")]
+mod persistent_service {
+    use super::*;
+    use crate::persistent::{
+        CommandId, PersistentCommand, PersistentConfig, PersistentHandle, PersistentStats,
+    };
+
+    /// Configuration for persistent Tower service.
+    #[derive(Debug, Clone, Default)]
+    pub struct PersistentServiceConfig {
+        /// Base service config.
+        pub base: ServiceConfig,
+        /// Persistent kernel config.
+        pub persistent: PersistentConfig,
+        /// Whether to wait for command acknowledgment.
+        pub wait_for_ack: bool,
+    }
+
+    impl PersistentServiceConfig {
+        /// Create a new configuration with default values.
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        /// Set whether to wait for command acknowledgment.
+        pub fn with_wait_for_ack(mut self, wait: bool) -> Self {
+            self.wait_for_ack = wait;
+            self
+        }
+    }
+
+    /// Tower service wrapping a persistent GPU kernel.
+    ///
+    /// Unlike `RingKernelService` which uses launch-per-request, this service
+    /// maintains a single long-running GPU kernel and injects commands
+    /// with ~0.03µs latency (vs ~317µs for traditional kernel launches).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use tower::ServiceBuilder;
+    /// use ringkernel_ecosystem::tower::PersistentKernelService;
+    ///
+    /// let service = ServiceBuilder::new()
+    ///     .timeout(Duration::from_secs(5))
+    ///     .rate_limit(10000, Duration::from_secs(1))
+    ///     .service(PersistentKernelService::new(handle));
+    /// ```
+    pub struct PersistentKernelService<H: PersistentHandle> {
+        /// Handle to the persistent kernel.
+        handle: Arc<H>,
+        /// Configuration.
+        config: PersistentServiceConfig,
+        /// Active request count.
+        active_requests: Arc<AtomicU64>,
+        /// Service state.
+        state: Arc<RwLock<ServiceState>>,
+    }
+
+    impl<H: PersistentHandle> PersistentKernelService<H> {
+        /// Create a new persistent kernel service.
+        pub fn new(handle: Arc<H>) -> Self {
+            Self::with_config(handle, PersistentServiceConfig::default())
+        }
+
+        /// Create a new persistent kernel service with custom configuration.
+        pub fn with_config(handle: Arc<H>, config: PersistentServiceConfig) -> Self {
+            Self {
+                handle,
+                config,
+                active_requests: Arc::new(AtomicU64::new(0)),
+                state: Arc::new(RwLock::new(ServiceState::Ready)),
+            }
+        }
+
+        /// Get the kernel ID.
+        pub fn kernel_id(&self) -> &str {
+            self.handle.kernel_id()
+        }
+
+        /// Check if the kernel is running.
+        pub fn is_running(&self) -> bool {
+            self.handle.is_running()
+        }
+
+        /// Get current statistics.
+        pub fn stats(&self) -> PersistentStats {
+            self.handle.stats()
+        }
+
+        /// Get current active request count.
+        pub fn active_requests(&self) -> u64 {
+            self.active_requests.load(Ordering::Relaxed)
+        }
+
+        /// Check if service is accepting requests.
+        pub fn is_accepting(&self) -> bool {
+            *self.state.read() == ServiceState::Ready
+                && self.handle.is_running()
+                && (self.active_requests.load(Ordering::Relaxed) as usize)
+                    < self.config.base.max_concurrency
+        }
+
+        /// Gracefully shut down the service.
+        pub fn shutdown(&self) {
+            *self.state.write() = ServiceState::ShuttingDown;
+        }
+    }
+
+    impl<H: PersistentHandle> Clone for PersistentKernelService<H> {
+        fn clone(&self) -> Self {
+            Self {
+                handle: self.handle.clone(),
+                config: self.config.clone(),
+                active_requests: self.active_requests.clone(),
+                state: self.state.clone(),
+            }
+        }
+    }
+
+    /// Request types for persistent kernel service.
+    #[derive(Debug, Clone)]
+    pub enum PersistentServiceRequest {
+        /// Run simulation steps.
+        RunSteps {
+            /// Number of steps to run.
+            count: u64,
+        },
+        /// Pause simulation.
+        Pause,
+        /// Resume simulation.
+        Resume,
+        /// Inject impulse at position.
+        Inject {
+            /// Position (x, y, z) to inject at.
+            position: (u32, u32, u32),
+            /// Value to inject.
+            value: f32,
+        },
+        /// Get current statistics.
+        GetStats,
+        /// Custom command.
+        Custom {
+            /// Custom command type ID.
+            type_id: u32,
+            /// Custom command payload.
+            payload: Vec<u8>,
+        },
+    }
+
+    impl From<PersistentServiceRequest> for PersistentCommand {
+        fn from(req: PersistentServiceRequest) -> Self {
+            match req {
+                PersistentServiceRequest::RunSteps { count } => {
+                    PersistentCommand::RunSteps { count }
+                }
+                PersistentServiceRequest::Pause => PersistentCommand::Pause,
+                PersistentServiceRequest::Resume => PersistentCommand::Resume,
+                PersistentServiceRequest::Inject { position, value } => {
+                    PersistentCommand::Inject { position, value }
+                }
+                PersistentServiceRequest::GetStats => PersistentCommand::GetStats,
+                PersistentServiceRequest::Custom { type_id, payload } => {
+                    PersistentCommand::Custom { type_id, payload }
+                }
+            }
+        }
+    }
+
+    /// Response types for persistent kernel service.
+    #[derive(Debug, Clone)]
+    pub struct PersistentServiceResponse {
+        /// Command ID for tracking.
+        pub command_id: CommandId,
+        /// Processing latency in nanoseconds.
+        pub latency_ns: u64,
+    }
+
+    impl<H: PersistentHandle + 'static> Service<PersistentServiceRequest>
+        for PersistentKernelService<H>
+    {
+        type Response = PersistentServiceResponse;
+        type Error = EcosystemError;
+        type Future = BoxFuture<'static, Result<Self::Response>>;
+
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<()>> {
+            let state = *self.state.read();
+            match state {
+                ServiceState::ShuttingDown => Poll::Ready(Err(EcosystemError::ServiceUnavailable(
+                    "Service is shutting down".to_string(),
+                ))),
+                ServiceState::Overloaded => Poll::Ready(Err(EcosystemError::ServiceUnavailable(
+                    "Service is overloaded".to_string(),
+                ))),
+                ServiceState::Ready => {
+                    if self.handle.is_running() {
+                        Poll::Ready(Ok(()))
+                    } else {
+                        Poll::Ready(Err(EcosystemError::KernelNotRunning(
+                            self.handle.kernel_id().to_string(),
+                        )))
+                    }
+                }
+            }
+        }
+
+        fn call(&mut self, req: PersistentServiceRequest) -> Self::Future {
+            let handle = self.handle.clone();
+            let active_requests = self.active_requests.clone();
+            let wait_for_ack = self.config.wait_for_ack;
+            let timeout = self.config.base.timeout;
+
+            // Increment active requests
+            active_requests.fetch_add(1, Ordering::Relaxed);
+
+            Box::pin(async move {
+                let start = std::time::Instant::now();
+
+                // Convert to persistent command and send
+                let cmd: PersistentCommand = req.into();
+                let cmd_id = match handle.send_command(cmd) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        active_requests.fetch_sub(1, Ordering::Relaxed);
+                        return Err(e);
+                    }
+                };
+
+                // Optionally wait for acknowledgment
+                if wait_for_ack {
+                    if let Err(e) = handle.wait_for_command(cmd_id, timeout).await {
+                        active_requests.fetch_sub(1, Ordering::Relaxed);
+                        return Err(e);
+                    }
+                }
+
+                // Decrement active requests
+                active_requests.fetch_sub(1, Ordering::Relaxed);
+
+                let latency_ns = start.elapsed().as_nanos() as u64;
+
+                Ok(PersistentServiceResponse {
+                    command_id: cmd_id,
+                    latency_ns,
+                })
+            })
+        }
+    }
+
+    /// Builder for constructing persistent kernel services.
+    pub struct PersistentServiceBuilder<H: PersistentHandle> {
+        handle: Arc<H>,
+        config: PersistentServiceConfig,
+    }
+
+    impl<H: PersistentHandle> PersistentServiceBuilder<H> {
+        /// Create a new service builder.
+        pub fn new(handle: Arc<H>) -> Self {
+            Self {
+                handle,
+                config: PersistentServiceConfig::default(),
+            }
+        }
+
+        /// Set the timeout.
+        pub fn timeout(mut self, timeout: Duration) -> Self {
+            self.config.base.timeout = timeout;
+            self
+        }
+
+        /// Set maximum concurrency.
+        pub fn max_concurrency(mut self, max: usize) -> Self {
+            self.config.base.max_concurrency = max;
+            self
+        }
+
+        /// Set whether to wait for acknowledgment.
+        pub fn wait_for_ack(mut self, wait: bool) -> Self {
+            self.config.wait_for_ack = wait;
+            self
+        }
+
+        /// Build the service.
+        pub fn build(self) -> PersistentKernelService<H> {
+            PersistentKernelService::with_config(self.handle, self.config)
+        }
+    }
+
+    /// Layer for creating persistent kernel services.
+    #[derive(Clone)]
+    pub struct PersistentKernelLayer<H: PersistentHandle> {
+        handle: Arc<H>,
+        config: PersistentServiceConfig,
+    }
+
+    impl<H: PersistentHandle> PersistentKernelLayer<H> {
+        /// Create a new layer.
+        pub fn new(handle: Arc<H>) -> Self {
+            Self {
+                handle,
+                config: PersistentServiceConfig::default(),
+            }
+        }
+
+        /// Create a new layer with custom configuration.
+        pub fn with_config(handle: Arc<H>, config: PersistentServiceConfig) -> Self {
+            Self { handle, config }
+        }
+    }
+
+    impl<H: PersistentHandle + 'static, S> tower::Layer<S> for PersistentKernelLayer<H> {
+        type Service = PersistentKernelService<H>;
+
+        fn layer(&self, _inner: S) -> Self::Service {
+            PersistentKernelService::with_config(self.handle.clone(), self.config.clone())
+        }
     }
 }
 
