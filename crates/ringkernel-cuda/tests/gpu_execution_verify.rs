@@ -2,8 +2,10 @@
 //!
 //! These tests verify that CUDA kernels actually execute on the GPU hardware
 //! by performing real computations and verifying results.
+//!
+//! Updated for cudarc 0.18.2 API.
 
-use cudarc::driver::{CudaDevice, DevicePtr, LaunchAsync, LaunchConfig};
+use cudarc::driver::{CudaContext, LaunchConfig, PushKernelArg};
 use cudarc::nvrtc::compile_ptx;
 
 /// CUDA C kernel that increments each element in an array by 1.
@@ -63,32 +65,56 @@ extern "C" __global__ void sum_reduction(const float* input, float* output, unsi
 }
 "#;
 
+/// Helper to check if CUDA is available
+fn cuda_device_count() -> i32 {
+    cudarc::driver::result::device::get_count().unwrap_or(0)
+}
+
+/// Helper to allocate and copy host data to device
+fn htod_copy<T: cudarc::driver::DeviceRepr + Clone + Unpin>(
+    stream: &std::sync::Arc<cudarc::driver::CudaStream>,
+    src: &[T],
+) -> Result<cudarc::driver::CudaSlice<T>, cudarc::driver::DriverError> {
+    // Safety: Allocating memory that will be immediately initialized
+    let mut dst = unsafe { stream.alloc::<T>(src.len())? };
+    stream.memcpy_htod(src, &mut dst)?;
+    Ok(dst)
+}
+
+/// Helper to copy device data to host
+fn dtoh_copy<T: cudarc::driver::DeviceRepr + Clone + Default>(
+    stream: &std::sync::Arc<cudarc::driver::CudaStream>,
+    src: &cudarc::driver::CudaSlice<T>,
+) -> Result<Vec<T>, cudarc::driver::DriverError> {
+    let mut dst = vec![T::default(); src.len()];
+    stream.memcpy_dtoh(src, &mut dst)?;
+    Ok(dst)
+}
+
 #[test]
 fn test_gpu_increment_kernel_execution() {
     // Skip if no CUDA device
-    let device_count = CudaDevice::count().unwrap_or(0);
+    let device_count = cuda_device_count();
     if device_count == 0 {
         println!("No CUDA devices found, skipping test");
         return;
     }
 
     println!("=== GPU Increment Kernel Execution Test ===");
-    let device = CudaDevice::new(0).expect("Failed to create CUDA device");
-    println!("Device created successfully");
+    let ctx = CudaContext::new(0).expect("Failed to create CUDA context");
+    let stream = ctx.default_stream();
+    println!("Context created successfully");
 
     // Compile CUDA C to PTX
     let ptx = compile_ptx(INCREMENT_KERNEL_CUDA).expect("Failed to compile CUDA kernel");
     println!("CUDA kernel compiled to PTX");
 
-    device
-        .load_ptx(ptx, "increment", &["increment_kernel"])
-        .expect("Failed to load PTX");
-    println!("PTX loaded successfully");
-
-    let kernel = device
-        .get_func("increment", "increment_kernel")
-        .expect("Failed to get kernel function");
-    println!("Kernel function retrieved");
+    // Load module and function (cudarc 0.18.2 API)
+    let module = ctx.load_module(ptx).expect("Failed to load PTX module");
+    let kernel = module
+        .load_function("increment_kernel")
+        .expect("Failed to load kernel function");
+    println!("PTX loaded and kernel function retrieved");
 
     // Prepare data on host: [0, 1, 2, 3, ..., 255]
     let n: u32 = 256;
@@ -96,14 +122,10 @@ fn test_gpu_increment_kernel_execution() {
     println!("Input data: first 10 = {:?}", &host_data[..10]);
 
     // Allocate and copy to device
-    let device_data = device
-        .htod_sync_copy(&host_data)
-        .expect("Failed to copy to device");
+    let device_data = htod_copy(&stream, &host_data).expect("Failed to copy to device");
+    println!("Data copied to device ({} elements)", device_data.len());
 
-    let device_ptr = *device_data.device_ptr();
-    println!("Device pointer: 0x{:x}", device_ptr);
-
-    // Launch kernel
+    // Launch kernel (cudarc 0.18.2 builder API)
     let config = LaunchConfig {
         grid_dim: (1, 1, 1),
         block_dim: (n, 1, 1),
@@ -112,20 +134,20 @@ fn test_gpu_increment_kernel_execution() {
 
     println!("Launching kernel with {} threads...", n);
     unsafe {
-        kernel
-            .clone()
-            .launch(config, (&device_data, n))
+        stream
+            .launch_builder(&kernel)
+            .arg(&device_data)
+            .arg(&n)
+            .launch(config)
             .expect("Kernel launch failed");
     }
 
     // Synchronize
-    device.synchronize().expect("Synchronize failed");
+    ctx.synchronize().expect("Synchronize failed");
     println!("Kernel execution completed");
 
     // Copy back to host
-    let result = device
-        .dtoh_sync_copy(&device_data)
-        .expect("Failed to copy from device");
+    let result = dtoh_copy(&stream, &device_data).expect("Failed to copy from device");
 
     println!("Output data: first 10 = {:?}", &result[..10]);
 
@@ -144,35 +166,29 @@ fn test_gpu_increment_kernel_execution() {
 
 #[test]
 fn test_gpu_multiply_kernel_execution() {
-    let device_count = CudaDevice::count().unwrap_or(0);
+    let device_count = cuda_device_count();
     if device_count == 0 {
         println!("No CUDA devices found, skipping test");
         return;
     }
 
     println!("\n=== GPU Multiply Kernel Execution Test ===");
-    let device = CudaDevice::new(0).expect("Failed to create CUDA device");
+    let ctx = CudaContext::new(0).expect("Failed to create CUDA context");
+    let stream = ctx.default_stream();
 
-    // Compile and load
+    // Compile and load (cudarc 0.18.2 API)
     let ptx = compile_ptx(MULTIPLY_KERNEL_CUDA).expect("Failed to compile CUDA kernel");
-    device
-        .load_ptx(ptx, "multiply", &["multiply_kernel"])
-        .expect("Failed to load PTX");
-
-    let kernel = device
-        .get_func("multiply", "multiply_kernel")
-        .expect("Failed to get kernel function");
+    let module = ctx.load_module(ptx).expect("Failed to load PTX module");
+    let kernel = module
+        .load_function("multiply_kernel")
+        .expect("Failed to load kernel function");
 
     // Prepare data: [1, 2, 3, 4, ..., 256]
     let n: u32 = 256;
     let host_data: Vec<u32> = (1..=n).collect();
     println!("Input data: first 10 = {:?}", &host_data[..10]);
 
-    let device_data = device
-        .htod_sync_copy(&host_data)
-        .expect("Failed to copy to device");
-
-    let _device_ptr = *device_data.device_ptr();
+    let device_data = htod_copy(&stream, &host_data).expect("Failed to copy to device");
 
     let config = LaunchConfig {
         grid_dim: (1, 1, 1),
@@ -182,16 +198,16 @@ fn test_gpu_multiply_kernel_execution() {
 
     println!("Launching multiply kernel...");
     unsafe {
-        kernel
-            .clone()
-            .launch(config, (&device_data, n))
+        stream
+            .launch_builder(&kernel)
+            .arg(&device_data)
+            .arg(&n)
+            .launch(config)
             .expect("Kernel launch failed");
     }
-    device.synchronize().expect("Synchronize failed");
+    ctx.synchronize().expect("Synchronize failed");
 
-    let result = device
-        .dtoh_sync_copy(&device_data)
-        .expect("Failed to copy from device");
+    let result = dtoh_copy(&stream, &device_data).expect("Failed to copy from device");
 
     println!("Output data: first 10 = {:?}", &result[..10]);
 
@@ -207,24 +223,22 @@ fn test_gpu_multiply_kernel_execution() {
 
 #[test]
 fn test_gpu_vector_addition() {
-    let device_count = CudaDevice::count().unwrap_or(0);
+    let device_count = cuda_device_count();
     if device_count == 0 {
         println!("No CUDA devices found, skipping test");
         return;
     }
 
     println!("\n=== GPU Vector Addition Test ===");
-    let device = CudaDevice::new(0).expect("Failed to create CUDA device");
+    let ctx = CudaContext::new(0).expect("Failed to create CUDA context");
+    let stream = ctx.default_stream();
 
-    // Compile and load
+    // Compile and load (cudarc 0.18.2 API)
     let ptx = compile_ptx(VECTOR_ADD_CUDA).expect("Failed to compile CUDA kernel");
-    device
-        .load_ptx(ptx, "vecadd", &["vector_add"])
-        .expect("Failed to load PTX");
-
-    let kernel = device
-        .get_func("vecadd", "vector_add")
-        .expect("Failed to get kernel function");
+    let module = ctx.load_module(ptx).expect("Failed to load PTX module");
+    let kernel = module
+        .load_function("vector_add")
+        .expect("Failed to load kernel function");
 
     // Prepare vectors
     let n: u32 = 1024;
@@ -236,9 +250,9 @@ fn test_gpu_vector_addition() {
     println!("B: first 5 = {:?}", &b[..5]);
 
     // Copy to device
-    let device_a = device.htod_sync_copy(&a).expect("Failed to copy A");
-    let device_b = device.htod_sync_copy(&b).expect("Failed to copy B");
-    let device_c = device.htod_sync_copy(&c).expect("Failed to copy C");
+    let device_a = htod_copy(&stream, &a).expect("Failed to copy A");
+    let device_b = htod_copy(&stream, &b).expect("Failed to copy B");
+    let device_c = htod_copy(&stream, &c).expect("Failed to copy C");
 
     let config = LaunchConfig {
         grid_dim: (n.div_ceil(256), 1, 1),
@@ -248,16 +262,18 @@ fn test_gpu_vector_addition() {
 
     println!("Launching vector add kernel with {} elements...", n);
     unsafe {
-        kernel
-            .clone()
-            .launch(config, (&device_a, &device_b, &device_c, n))
+        stream
+            .launch_builder(&kernel)
+            .arg(&device_a)
+            .arg(&device_b)
+            .arg(&device_c)
+            .arg(&n)
+            .launch(config)
             .expect("Kernel launch failed");
     }
-    device.synchronize().expect("Synchronize failed");
+    ctx.synchronize().expect("Synchronize failed");
 
-    let result = device
-        .dtoh_sync_copy(&device_c)
-        .expect("Failed to copy from device");
+    let result = dtoh_copy(&stream, &device_c).expect("Failed to copy from device");
 
     println!("C: first 5 = {:?}", &result[..5]);
 
@@ -291,17 +307,15 @@ fn test_ringkernel_control_block_modification() {
 
     println!("\n=== RingKernel Control Block Test ===");
 
-    // Create device using cudarc directly for this test
-    let device = CudaDevice::new(0).expect("Failed to create CUDA device");
+    // Create context using cudarc directly for this test
+    let ctx = CudaContext::new(0).expect("Failed to create CUDA context");
+    let stream = ctx.default_stream();
 
-    // Load the RingKernel PTX
+    // Load the RingKernel PTX (cudarc 0.18.2 API)
     let ptx = Ptx::from_src(RING_KERNEL_PTX_TEMPLATE);
-    device
-        .load_ptx(ptx, "ring_kernel", &["ring_kernel_main"])
-        .expect("Failed to load RingKernel PTX");
-
-    let kernel = device
-        .get_func("ring_kernel", "ring_kernel_main")
+    let module = ctx.load_module(ptx).expect("Failed to load RingKernel PTX");
+    let kernel = module
+        .load_function("ring_kernel_main")
         .expect("Failed to get kernel function");
 
     println!("RingKernel PTX loaded successfully");
@@ -309,24 +323,16 @@ fn test_ringkernel_control_block_modification() {
     // Create a control block buffer (128 bytes)
     // Layout: is_active (u32), should_terminate (u32), has_terminated (u32), ...
     let control_block = vec![0u32; 32]; // 128 bytes
-    let device_cb = device
-        .htod_sync_copy(&control_block)
-        .expect("Failed to copy control block");
+    let device_cb = htod_copy(&stream, &control_block).expect("Failed to copy control block");
 
-    let cb_ptr = *device_cb.device_ptr();
-
-    // Create dummy queue pointers (not used by current minimal kernel)
+    // Create dummy queue buffers (not used by current minimal kernel)
     let dummy_queue: Vec<u64> = vec![0; 16];
-    let device_input = device.htod_sync_copy(&dummy_queue).expect("copy");
-    let device_output = device.htod_sync_copy(&dummy_queue).expect("copy");
-    let input_ptr = *device_input.device_ptr();
-    let output_ptr = *device_output.device_ptr();
+    let device_input = htod_copy(&stream, &dummy_queue).expect("copy");
+    let device_output = htod_copy(&stream, &dummy_queue).expect("copy");
     let shared_ptr = 0u64;
 
     // Read initial state
-    let initial = device
-        .dtoh_sync_copy(&device_cb)
-        .expect("Failed to read initial state");
+    let initial = dtoh_copy(&stream, &device_cb).expect("Failed to read initial state");
     println!("Initial control block: has_terminated={}", initial[2]);
     assert_eq!(initial[2], 0, "has_terminated should be 0 initially");
 
@@ -338,17 +344,19 @@ fn test_ringkernel_control_block_modification() {
 
     println!("Launching RingKernel...");
     unsafe {
-        kernel
-            .clone()
-            .launch(config, (cb_ptr, input_ptr, output_ptr, shared_ptr))
+        stream
+            .launch_builder(&kernel)
+            .arg(&device_cb)
+            .arg(&device_input)
+            .arg(&device_output)
+            .arg(&shared_ptr)
+            .launch(config)
             .expect("Kernel launch failed");
     }
-    device.synchronize().expect("Synchronize failed");
+    ctx.synchronize().expect("Synchronize failed");
 
     // Read final state
-    let final_state = device
-        .dtoh_sync_copy(&device_cb)
-        .expect("Failed to read final state");
+    let final_state = dtoh_copy(&stream, &device_cb).expect("Failed to read final state");
     println!("Final control block: has_terminated={}", final_state[2]);
 
     // The RingKernel PTX sets has_terminated to 1
@@ -362,23 +370,21 @@ fn test_ringkernel_control_block_modification() {
 
 #[test]
 fn test_large_scale_gpu_computation() {
-    let device_count = CudaDevice::count().unwrap_or(0);
+    let device_count = cuda_device_count();
     if device_count == 0 {
         println!("No CUDA devices found, skipping test");
         return;
     }
 
     println!("\n=== Large Scale GPU Computation Test ===");
-    let device = CudaDevice::new(0).expect("Failed to create CUDA device");
+    let ctx = CudaContext::new(0).expect("Failed to create CUDA context");
+    let stream = ctx.default_stream();
 
     let ptx = compile_ptx(INCREMENT_KERNEL_CUDA).expect("Failed to compile CUDA kernel");
-    device
-        .load_ptx(ptx, "increment_large", &["increment_kernel"])
-        .expect("Failed to load PTX");
-
-    let kernel = device
-        .get_func("increment_large", "increment_kernel")
-        .expect("Failed to get kernel function");
+    let module = ctx.load_module(ptx).expect("Failed to load PTX module");
+    let kernel = module
+        .load_function("increment_kernel")
+        .expect("Failed to load kernel function");
 
     // Large array: 1 million elements
     let n: u32 = 1_000_000;
@@ -387,9 +393,7 @@ fn test_large_scale_gpu_computation() {
     println!("Processing {} elements on GPU...", n);
     let start = std::time::Instant::now();
 
-    let device_data = device
-        .htod_sync_copy(&host_data)
-        .expect("Failed to copy to device");
+    let device_data = htod_copy(&stream, &host_data).expect("Failed to copy to device");
     let htod_time = start.elapsed();
 
     // Use multiple blocks for large computation
@@ -404,18 +408,18 @@ fn test_large_scale_gpu_computation() {
 
     let kernel_start = std::time::Instant::now();
     unsafe {
-        kernel
-            .clone()
-            .launch(config, (&device_data, n))
+        stream
+            .launch_builder(&kernel)
+            .arg(&device_data)
+            .arg(&n)
+            .launch(config)
             .expect("Kernel launch failed");
     }
-    device.synchronize().expect("Synchronize failed");
+    ctx.synchronize().expect("Synchronize failed");
     let kernel_time = kernel_start.elapsed();
 
     let dtoh_start = std::time::Instant::now();
-    let result = device
-        .dtoh_sync_copy(&device_data)
-        .expect("Failed to copy from device");
+    let result = dtoh_copy(&stream, &device_data).expect("Failed to copy from device");
     let dtoh_time = dtoh_start.elapsed();
 
     let total_time = start.elapsed();
@@ -447,23 +451,21 @@ fn test_large_scale_gpu_computation() {
 
 #[test]
 fn test_gpu_sum_reduction() {
-    let device_count = CudaDevice::count().unwrap_or(0);
+    let device_count = cuda_device_count();
     if device_count == 0 {
         println!("No CUDA devices found, skipping test");
         return;
     }
 
     println!("\n=== GPU Sum Reduction Test ===");
-    let device = CudaDevice::new(0).expect("Failed to create CUDA device");
+    let ctx = CudaContext::new(0).expect("Failed to create CUDA context");
+    let stream = ctx.default_stream();
 
     let ptx = compile_ptx(REDUCTION_KERNEL_CUDA).expect("Failed to compile CUDA kernel");
-    device
-        .load_ptx(ptx, "reduction", &["sum_reduction"])
-        .expect("Failed to load PTX");
-
-    let kernel = device
-        .get_func("reduction", "sum_reduction")
-        .expect("Failed to get kernel function");
+    let module = ctx.load_module(ptx).expect("Failed to load PTX module");
+    let kernel = module
+        .load_function("sum_reduction")
+        .expect("Failed to load kernel function");
 
     // Create input: [1.0, 1.0, 1.0, ...] for easy verification
     let n: u32 = 1024;
@@ -472,17 +474,13 @@ fn test_gpu_sum_reduction() {
 
     println!("Computing sum of {} ones...", n);
 
-    let device_input = device
-        .htod_sync_copy(&host_data)
-        .expect("Failed to copy input");
+    let device_input = htod_copy(&stream, &host_data).expect("Failed to copy input");
 
     // Output: one partial sum per block
     let threads_per_block = 256u32;
     let blocks = n.div_ceil(threads_per_block);
     let partial_sums: Vec<f32> = vec![0.0; blocks as usize];
-    let device_output = device
-        .htod_sync_copy(&partial_sums)
-        .expect("Failed to copy output");
+    let device_output = htod_copy(&stream, &partial_sums).expect("Failed to copy output");
 
     let config = LaunchConfig {
         grid_dim: (blocks, 1, 1),
@@ -491,16 +489,17 @@ fn test_gpu_sum_reduction() {
     };
 
     unsafe {
-        kernel
-            .clone()
-            .launch(config, (&device_input, &device_output, n))
+        stream
+            .launch_builder(&kernel)
+            .arg(&device_input)
+            .arg(&device_output)
+            .arg(&n)
+            .launch(config)
             .expect("Kernel launch failed");
     }
-    device.synchronize().expect("Synchronize failed");
+    ctx.synchronize().expect("Synchronize failed");
 
-    let result = device
-        .dtoh_sync_copy(&device_output)
-        .expect("Failed to copy result");
+    let result = dtoh_copy(&stream, &device_output).expect("Failed to copy result");
 
     // Sum the partial results on CPU
     let total_sum: f32 = result.iter().sum();

@@ -101,7 +101,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 | Backend | Status | Platforms | Requirements |
 |---------|--------|-----------|--------------|
 | CPU | Stable | All | None |
-| CUDA | Stable | Linux, Windows | NVIDIA GPU, CUDA 12.x |
+| CUDA | Stable | Linux, Windows | NVIDIA GPU, CUDA 12.x, cudarc 0.18.2 |
 | WebGPU | Stable | All | Vulkan/Metal/DX12 capable GPU |
 | Metal | Planned | macOS, iOS | — |
 
@@ -255,7 +255,7 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 | `ringkernel-core` | Core traits, types, HLC, K2K, PubSub |
 | `ringkernel-derive` | Proc macros (`#[derive(RingMessage)]`, `#[ring_kernel]`) |
 | `ringkernel-cpu` | CPU backend |
-| `ringkernel-cuda` | NVIDIA CUDA backend with cooperative groups support |
+| `ringkernel-cuda` | NVIDIA CUDA backend with cooperative groups support (cudarc 0.18.2) |
 | `ringkernel-wgpu` | WebGPU backend |
 | `ringkernel-codegen` | GPU kernel code generation |
 | `ringkernel-cuda-codegen` | Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL |

@@ -4,8 +4,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use cudarc::driver::{CudaFunction, LaunchAsync, LaunchConfig};
+use cudarc::driver::{CudaFunction, CudaModule, LaunchConfig, PushKernelArg};
 use parking_lot::RwLock;
+use std::sync::Arc;
 use tokio::sync::Notify;
 
 use ringkernel_core::error::{Result, RingKernelError};
@@ -51,6 +52,9 @@ pub struct CudaKernel {
     created_at: Instant,
     /// Termination notifier.
     terminate_notify: Notify,
+    /// Kernel module.
+    #[allow(dead_code)]
+    kernel_module: Option<Arc<CudaModule>>,
     /// Kernel function.
     #[allow(dead_code)]
     kernel_fn: Option<CudaFunction>,
@@ -92,6 +96,7 @@ impl CudaKernel {
             message_counter: AtomicU64::new(0),
             created_at: Instant::now(),
             terminate_notify: Notify::new(),
+            kernel_module: None,
             kernel_fn: None,
             gpu_launched: AtomicBool::new(false),
             k2k_buffers,
@@ -119,19 +124,17 @@ impl CudaKernel {
         // Load PTX directly (PTX is already compiled assembly, not CUDA C)
         let ptx_code = cudarc::nvrtc::Ptx::from_src(ptx);
 
-        self.device
-            .inner()
-            .load_ptx(ptx_code, "ring_kernel", &["ring_kernel_main"])
-            .map_err(|e| RingKernelError::LaunchFailed(format!("PTX load failed: {}", e)))?;
-
-        let kernel_fn = self
+        let module = self
             .device
             .inner()
-            .get_func("ring_kernel", "ring_kernel_main")
-            .ok_or_else(|| {
-                RingKernelError::LaunchFailed("Kernel function not found".to_string())
-            })?;
+            .load_module(ptx_code)
+            .map_err(|e| RingKernelError::LaunchFailed(format!("PTX load failed: {}", e)))?;
 
+        let kernel_fn = module.load_function("ring_kernel_main").map_err(|e| {
+            RingKernelError::LaunchFailed(format!("Kernel function not found: {}", e))
+        })?;
+
+        self.kernel_module = Some(module);
         self.kernel_fn = Some(kernel_fn);
         *self.state.write() = KernelState::Launched;
 
@@ -159,11 +162,16 @@ impl CudaKernel {
             shared_mem_bytes: 0,
         };
 
-        // Launch kernel
+        // Launch kernel using stream-based API
         unsafe {
-            kernel_fn
-                .clone()
-                .launch(config, (control_ptr, input_ptr, output_ptr, shared_ptr))
+            self.device
+                .stream()
+                .launch_builder(kernel_fn)
+                .arg(&control_ptr)
+                .arg(&input_ptr)
+                .arg(&output_ptr)
+                .arg(&shared_ptr)
+                .launch(config)
                 .map_err(|e| {
                     RingKernelError::LaunchFailed(format!("Kernel launch failed: {}", e))
                 })?;

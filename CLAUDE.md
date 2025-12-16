@@ -500,6 +500,40 @@ Crate publishing order:
 
 ## Important Patterns
 
+**cudarc 0.18.2 API (Updated):**
+
+The CUDA backend uses cudarc 0.18.2 with the following patterns:
+
+```rust
+// Module loading (NEW in 0.18.2)
+let module = device.inner().load_module(ptx)?;  // Returns Arc<CudaModule>
+let func = module.load_function("kernel_name")?; // Load specific function
+
+// Kernel launch with builder pattern (NEW in 0.18.2)
+use cudarc::driver::PushKernelArg;
+unsafe {
+    stream
+        .launch_builder(&func)
+        .arg(&input_ptr)
+        .arg(&output_ptr)
+        .arg(&scalar_param)
+        .launch(cfg)?;
+}
+
+// Cooperative kernel launch (uses cudarc's result module)
+use cudarc::driver::result as cuda_result;
+unsafe {
+    cuda_result::launch_cooperative_kernel(
+        func, grid_dim, block_dim, shared_mem_bytes, stream, kernel_params
+    )?;
+}
+```
+
+Old API (cudarc 0.11) patterns that no longer work:
+- `device.load_ptx(ptx, module_name, &[func_names])` → Use `load_module()` + `load_function()`
+- `device.get_func(module_name, fn_name)` → Store functions at construction time
+- `func.launch(cfg, params)` → Use `stream.launch_builder(&func).arg(...).launch(cfg)`
+
 **Queue capacity must be power of 2:**
 ```rust
 // Correct

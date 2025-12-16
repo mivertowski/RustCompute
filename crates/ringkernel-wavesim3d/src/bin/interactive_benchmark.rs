@@ -26,6 +26,7 @@ fn main() {
     println!("  TRADITIONAL APPROACH (kernel launch per command)");
     println!("═══════════════════════════════════════════════════════════════════════════\n");
 
+    #[allow(unused_variables)]
     let traditional_results = run_traditional_benchmark();
 
     // Run persistent benchmark
@@ -54,6 +55,7 @@ fn main() {
 
 /// Results from a benchmark run
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Used conditionally with cuda-codegen feature
 struct BenchmarkResults {
     /// Name of the approach
     name: String,
@@ -373,6 +375,7 @@ fn run_persistent_benchmark() -> BenchmarkResults {
     }
 }
 
+#[allow(dead_code)]
 fn print_comparison(traditional: &BenchmarkResults, persistent: &BenchmarkResults) {
     println!("┌─────────────────────────┬──────────────────┬──────────────────┬──────────┐");
     println!("│ Operation               │ Traditional      │ Persistent       │ Speedup  │");

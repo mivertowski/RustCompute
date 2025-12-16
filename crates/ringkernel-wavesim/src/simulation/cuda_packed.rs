@@ -19,9 +19,11 @@
 //!
 //! Each tile is `(tile_size + 2)²` floats (18×18 = 324 floats for 16×16 tile).
 
+use cudarc::driver::{CudaFunction, CudaModule, PushKernelArg};
 use ringkernel_core::error::{Result, RingKernelError};
 use ringkernel_core::memory::GpuBuffer;
 use ringkernel_cuda::{CudaBuffer, CudaDevice};
+use std::sync::Arc;
 
 /// CUDA kernel source for packed tile FDTD.
 ///
@@ -38,6 +40,7 @@ fn get_cuda_packed_source() -> String {
 }
 
 /// Module name for loaded kernels.
+#[allow(dead_code)]
 const MODULE_NAME: &str = "fdtd_packed";
 
 /// Kernel function names.
@@ -46,6 +49,17 @@ const FN_FDTD_ALL_TILES: &str = "fdtd_all_tiles";
 const FN_READ_ALL_INTERIORS: &str = "read_all_interiors";
 const FN_INJECT_IMPULSE: &str = "inject_impulse";
 const FN_APPLY_BOUNDARY: &str = "apply_boundary_conditions";
+const FN_UPLOAD_TILE: &str = "upload_tile_data";
+
+/// Holds loaded kernel functions.
+struct PackedKernelFunctions {
+    exchange_halos: CudaFunction,
+    fdtd_all_tiles: CudaFunction,
+    read_all_interiors: CudaFunction,
+    inject_impulse: CudaFunction,
+    apply_boundary: CudaFunction,
+    upload_tile: CudaFunction,
+}
 
 /// Packed CUDA backend for tile-based FDTD simulation.
 ///
@@ -55,6 +69,13 @@ pub struct CudaPackedBackend {
     // Note: Cannot derive Debug due to CudaDevice/CudaBuffer not implementing it
     /// CUDA device.
     device: CudaDevice,
+
+    /// Loaded module (kept alive for function references).
+    #[allow(dead_code)]
+    module: Arc<CudaModule>,
+
+    /// Loaded kernel functions.
+    kernels: PackedKernelFunctions,
 
     /// Grid dimensions in tiles.
     tiles_x: u32,
@@ -158,20 +179,42 @@ impl CudaPackedBackend {
             RingKernelError::BackendError(format!("NVRTC compilation failed: {}", e))
         })?;
 
-        device
+        let module = device
             .inner()
-            .load_ptx(
-                ptx,
-                MODULE_NAME,
-                &[
-                    FN_EXCHANGE_HALOS,
-                    FN_FDTD_ALL_TILES,
-                    FN_READ_ALL_INTERIORS,
-                    FN_INJECT_IMPULSE,
-                    FN_APPLY_BOUNDARY,
-                ],
-            )
+            .load_module(ptx)
             .map_err(|e| RingKernelError::BackendError(format!("Failed to load PTX: {}", e)))?;
+
+        // Load all kernel functions
+        let exchange_halos = module.load_function(FN_EXCHANGE_HALOS).map_err(|e| {
+            RingKernelError::BackendError(format!("Failed to load {}: {}", FN_EXCHANGE_HALOS, e))
+        })?;
+        let fdtd_all_tiles = module.load_function(FN_FDTD_ALL_TILES).map_err(|e| {
+            RingKernelError::BackendError(format!("Failed to load {}: {}", FN_FDTD_ALL_TILES, e))
+        })?;
+        let read_all_interiors = module.load_function(FN_READ_ALL_INTERIORS).map_err(|e| {
+            RingKernelError::BackendError(format!(
+                "Failed to load {}: {}",
+                FN_READ_ALL_INTERIORS, e
+            ))
+        })?;
+        let inject_impulse = module.load_function(FN_INJECT_IMPULSE).map_err(|e| {
+            RingKernelError::BackendError(format!("Failed to load {}: {}", FN_INJECT_IMPULSE, e))
+        })?;
+        let apply_boundary = module.load_function(FN_APPLY_BOUNDARY).map_err(|e| {
+            RingKernelError::BackendError(format!("Failed to load {}: {}", FN_APPLY_BOUNDARY, e))
+        })?;
+        let upload_tile = module.load_function(FN_UPLOAD_TILE).map_err(|e| {
+            RingKernelError::BackendError(format!("Failed to load {}: {}", FN_UPLOAD_TILE, e))
+        })?;
+
+        let kernels = PackedKernelFunctions {
+            exchange_halos,
+            fdtd_all_tiles,
+            read_all_interiors,
+            inject_impulse,
+            apply_boundary,
+            upload_tile,
+        };
 
         // Allocate packed pressure buffers
         let packed_a = CudaBuffer::new(&device, total_buffer_size)?;
@@ -216,6 +259,8 @@ impl CudaPackedBackend {
 
         Ok(Self {
             device,
+            module,
+            kernels,
             tiles_x,
             tiles_y,
             tile_size,
@@ -310,16 +355,8 @@ impl CudaPackedBackend {
 
     /// Upload initial pressure data for a single tile.
     pub fn upload_tile(&self, tile_x: u32, tile_y: u32, pressure: &[f32]) -> Result<()> {
-        use cudarc::driver::LaunchAsync;
-
         let pressure_bytes: &[u8] = bytemuck::cast_slice(pressure);
         self.staging_buffer.copy_from_host(pressure_bytes)?;
-
-        let kernel = self
-            .device
-            .inner()
-            .get_func(MODULE_NAME, "upload_tile_data")
-            .ok_or_else(|| RingKernelError::BackendError("upload_tile_data not found".into()))?;
 
         let packed_ptr = if self.current_is_a {
             self.packed_a.device_ptr()
@@ -333,18 +370,17 @@ impl CudaPackedBackend {
             shared_mem_bytes: 0,
         };
 
+        let stream = self.device.stream();
         unsafe {
-            kernel.launch(
-                cfg,
-                (
-                    packed_ptr,
-                    self.staging_buffer.device_ptr(),
-                    tile_x as i32,
-                    tile_y as i32,
-                    self.tiles_x as i32,
-                    self.buffer_width as i32,
-                ),
-            )
+            stream
+                .launch_builder(&self.kernels.upload_tile)
+                .arg(&packed_ptr)
+                .arg(&self.staging_buffer.device_ptr())
+                .arg(&(tile_x as i32))
+                .arg(&(tile_y as i32))
+                .arg(&(self.tiles_x as i32))
+                .arg(&(self.buffer_width as i32))
+                .launch(cfg)
         }
         .map_err(|e| RingKernelError::BackendError(format!("Upload failed: {}", e)))?;
 
@@ -377,24 +413,16 @@ impl CudaPackedBackend {
     /// 3. FDTD kernel (computes wave equation for all tiles)
     /// 4. Buffer swap (just flips a flag)
     pub fn step(&mut self) -> Result<()> {
-        use cudarc::driver::LaunchAsync;
-
         let (curr_ptr, prev_ptr) = if self.current_is_a {
             (self.packed_a.device_ptr(), self.packed_b.device_ptr())
         } else {
             (self.packed_b.device_ptr(), self.packed_a.device_ptr())
         };
 
+        let stream = self.device.stream();
+
         // Phase 1: Exchange all halos (single kernel launch)
         if self.num_halo_copies > 0 {
-            let exchange_kernel = self
-                .device
-                .inner()
-                .get_func(MODULE_NAME, FN_EXCHANGE_HALOS)
-                .ok_or_else(|| {
-                    RingKernelError::BackendError("exchange_all_halos not found".into())
-                })?;
-
             let threads_per_block = 256u32;
             let num_blocks = self.num_halo_copies.div_ceil(threads_per_block);
 
@@ -405,27 +433,17 @@ impl CudaPackedBackend {
             };
 
             unsafe {
-                exchange_kernel.launch(
-                    cfg,
-                    (
-                        curr_ptr,
-                        self.halo_copies.device_ptr(),
-                        self.num_halo_copies as i32,
-                    ),
-                )
+                stream
+                    .launch_builder(&self.kernels.exchange_halos)
+                    .arg(&curr_ptr)
+                    .arg(&self.halo_copies.device_ptr())
+                    .arg(&(self.num_halo_copies as i32))
+                    .launch(cfg)
             }
             .map_err(|e| RingKernelError::BackendError(format!("Halo exchange failed: {}", e)))?;
         }
 
         // Phase 2: Apply boundary conditions
-        let boundary_kernel = self
-            .device
-            .inner()
-            .get_func(MODULE_NAME, FN_APPLY_BOUNDARY)
-            .ok_or_else(|| {
-                RingKernelError::BackendError("apply_boundary_conditions not found".into())
-            })?;
-
         let max_edge_threads = std::cmp::max(self.tiles_x, self.tiles_y) * self.tile_size;
 
         let boundary_cfg = cudarc::driver::LaunchConfig {
@@ -435,27 +453,19 @@ impl CudaPackedBackend {
         };
 
         unsafe {
-            boundary_kernel.launch(
-                boundary_cfg,
-                (
-                    curr_ptr,
-                    self.tiles_x as i32,
-                    self.tiles_y as i32,
-                    self.tile_size as i32,
-                    self.buffer_width as i32,
-                    0.95f32, // reflection coefficient (slight absorption)
-                ),
-            )
+            stream
+                .launch_builder(&self.kernels.apply_boundary)
+                .arg(&curr_ptr)
+                .arg(&(self.tiles_x as i32))
+                .arg(&(self.tiles_y as i32))
+                .arg(&(self.tile_size as i32))
+                .arg(&(self.buffer_width as i32))
+                .arg(&0.95f32) // reflection coefficient (slight absorption)
+                .launch(boundary_cfg)
         }
         .map_err(|e| RingKernelError::BackendError(format!("Boundary failed: {}", e)))?;
 
         // Phase 3: Compute FDTD for all tiles (single kernel launch)
-        let fdtd_kernel = self
-            .device
-            .inner()
-            .get_func(MODULE_NAME, FN_FDTD_ALL_TILES)
-            .ok_or_else(|| RingKernelError::BackendError("fdtd_all_tiles not found".into()))?;
-
         let fdtd_cfg = cudarc::driver::LaunchConfig {
             grid_dim: (self.tiles_x, self.tiles_y, 1),
             block_dim: (self.tile_size, self.tile_size, 1),
@@ -463,19 +473,17 @@ impl CudaPackedBackend {
         };
 
         unsafe {
-            fdtd_kernel.launch(
-                fdtd_cfg,
-                (
-                    curr_ptr,
-                    prev_ptr,
-                    self.tiles_x as i32,
-                    self.tiles_y as i32,
-                    self.tile_size as i32,
-                    self.buffer_width as i32,
-                    self.c2,
-                    self.damping,
-                ),
-            )
+            stream
+                .launch_builder(&self.kernels.fdtd_all_tiles)
+                .arg(&curr_ptr)
+                .arg(&prev_ptr)
+                .arg(&(self.tiles_x as i32))
+                .arg(&(self.tiles_y as i32))
+                .arg(&(self.tile_size as i32))
+                .arg(&(self.buffer_width as i32))
+                .arg(&self.c2)
+                .arg(&self.damping)
+                .launch(fdtd_cfg)
         }
         .map_err(|e| RingKernelError::BackendError(format!("FDTD failed: {}", e)))?;
 
@@ -497,8 +505,6 @@ impl CudaPackedBackend {
 
     /// Inject an impulse at the given global grid position.
     pub fn inject_impulse(&self, x: u32, y: u32, amplitude: f32) -> Result<()> {
-        use cudarc::driver::LaunchAsync;
-
         if x >= self.grid_width || y >= self.grid_height {
             return Ok(());
         }
@@ -507,12 +513,6 @@ impl CudaPackedBackend {
         let tile_y = y / self.tile_size;
         let local_x = x % self.tile_size;
         let local_y = y % self.tile_size;
-
-        let kernel = self
-            .device
-            .inner()
-            .get_func(MODULE_NAME, FN_INJECT_IMPULSE)
-            .ok_or_else(|| RingKernelError::BackendError("inject_impulse not found".into()))?;
 
         let curr_ptr = if self.current_is_a {
             self.packed_a.device_ptr()
@@ -526,20 +526,19 @@ impl CudaPackedBackend {
             shared_mem_bytes: 0,
         };
 
+        let stream = self.device.stream();
         unsafe {
-            kernel.launch(
-                cfg,
-                (
-                    curr_ptr,
-                    tile_x as i32,
-                    tile_y as i32,
-                    local_x as i32,
-                    local_y as i32,
-                    self.tiles_x as i32,
-                    self.buffer_width as i32,
-                    amplitude,
-                ),
-            )
+            stream
+                .launch_builder(&self.kernels.inject_impulse)
+                .arg(&curr_ptr)
+                .arg(&(tile_x as i32))
+                .arg(&(tile_y as i32))
+                .arg(&(local_x as i32))
+                .arg(&(local_y as i32))
+                .arg(&(self.tiles_x as i32))
+                .arg(&(self.buffer_width as i32))
+                .arg(&amplitude)
+                .launch(cfg)
         }
         .map_err(|e| RingKernelError::BackendError(format!("Impulse failed: {}", e)))?;
 
@@ -551,14 +550,6 @@ impl CudaPackedBackend {
     /// This is the only operation that transfers data from GPU to host.
     /// Call this only when you need to render the simulation.
     pub fn read_pressure_grid(&self) -> Result<Vec<f32>> {
-        use cudarc::driver::LaunchAsync;
-
-        let kernel = self
-            .device
-            .inner()
-            .get_func(MODULE_NAME, FN_READ_ALL_INTERIORS)
-            .ok_or_else(|| RingKernelError::BackendError("read_all_interiors not found".into()))?;
-
         let curr_ptr = if self.current_is_a {
             self.packed_a.device_ptr()
         } else {
@@ -575,20 +566,19 @@ impl CudaPackedBackend {
             shared_mem_bytes: 0,
         };
 
+        let stream = self.device.stream();
         unsafe {
-            kernel.launch(
-                cfg,
-                (
-                    curr_ptr,
-                    self.output_buffer.device_ptr(),
-                    self.tiles_x as i32,
-                    self.tiles_y as i32,
-                    self.tile_size as i32,
-                    self.buffer_width as i32,
-                    self.grid_width as i32,
-                    self.grid_height as i32,
-                ),
-            )
+            stream
+                .launch_builder(&self.kernels.read_all_interiors)
+                .arg(&curr_ptr)
+                .arg(&self.output_buffer.device_ptr())
+                .arg(&(self.tiles_x as i32))
+                .arg(&(self.tiles_y as i32))
+                .arg(&(self.tile_size as i32))
+                .arg(&(self.buffer_width as i32))
+                .arg(&(self.grid_width as i32))
+                .arg(&(self.grid_height as i32))
+                .launch(cfg)
         }
         .map_err(|e| RingKernelError::BackendError(format!("Read failed: {}", e)))?;
 

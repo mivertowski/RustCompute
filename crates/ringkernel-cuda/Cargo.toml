@@ -16,9 +16,8 @@ build = "build.rs"
 [dependencies]
 ringkernel-core = { workspace = true }
 
-# CUDA bindings - use cuda-12050 (API compatible with CUDA 13.0)
-# Note: cudarc 0.11.x doesn't support CUDA 13.0 yet, but 12.5 API is compatible
-cudarc = { version = "0.11", optional = true, features = ["cuda-12050"] }
+# CUDA bindings - auto-detect CUDA version from build system
+cudarc = { version = "0.18.2", optional = true, features = ["cuda-version-from-build-system"] }
 
 # Async runtime
 tokio = { workspace = true }
@@ -37,7 +36,7 @@ parking_lot = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
 # For GPU execution tests - needs cudarc directly
-cudarc = { version = "0.11", features = ["cuda-12050"] }
+cudarc = { version = "0.18.2", features = ["cuda-version-from-build-system"] }
 
 [features]
 default = []

@@ -136,7 +136,7 @@ pub fn is_cuda_available() -> bool {
     {
         // cudarc panics if CUDA libraries are not found, so we catch that
         std::panic::catch_unwind(|| {
-            cudarc::driver::CudaDevice::count()
+            cudarc::driver::CudaContext::device_count()
                 .map(|c| c > 0)
                 .unwrap_or(false)
         })
@@ -155,8 +155,10 @@ pub fn cuda_device_count() -> usize {
     #[cfg(feature = "cuda")]
     {
         // cudarc panics if CUDA libraries are not found, so we catch that
-        std::panic::catch_unwind(|| cudarc::driver::CudaDevice::count().unwrap_or(0) as usize)
-            .unwrap_or(0)
+        std::panic::catch_unwind(|| {
+            cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize
+        })
+        .unwrap_or(0)
     }
     #[cfg(not(feature = "cuda"))]
     {

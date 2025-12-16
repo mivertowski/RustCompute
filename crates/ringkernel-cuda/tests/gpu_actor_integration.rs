@@ -5,7 +5,7 @@
 //! - Phase 2: Safe cooperative launch via DirectPtxModule
 //! - Phase 3: K2K GPU buffers and connections
 
-use cudarc::driver::CudaDevice as CudarcDevice;
+use cudarc::driver::CudaContext;
 
 use ringkernel_core::control::ControlBlock;
 use ringkernel_core::hlc::HlcTimestamp;
@@ -22,7 +22,7 @@ use ringkernel_cuda::{CudaBuffer, CudaControlBlock, CudaDevice, CudaMessageQueue
 
 /// Helper to check if CUDA is available
 fn cuda_available() -> bool {
-    CudarcDevice::count().map(|c| c > 0).unwrap_or(false)
+    CudaContext::device_count().map(|c| c > 0).unwrap_or(false)
 }
 
 /// Helper to skip test if no CUDA

@@ -1,14 +1,18 @@
 //! Direct CUDA driver API access for safe cooperative kernel launch.
 //!
-//! This module bypasses cudarc's `CudaFunction` wrapper to avoid fragile struct layout
-//! assumptions when extracting the raw CUfunction handle for cooperative launch.
+//! This module provides direct PTX module loading via the CUDA driver API,
+//! enabling full control over cooperative kernel launch without relying on
+//! cudarc's internal CudaFunction struct layout.
 //!
-//! Instead of relying on cudarc's internal structure, we load PTX modules directly
-//! using the CUDA driver API.
+//! While cudarc 0.18+ provides `launch_cooperative`, this module is useful for:
+//! - Direct PTX loading with `cuModuleLoadData` (cleaner than going through cudarc)
+//! - Avoiding the transmute hack to extract CUfunction handles
+//! - Full control over persistent kernel lifecycles
 
 use std::ffi::{c_void, CString};
 use std::ptr;
 
+use cudarc::driver::result as cuda_result;
 use cudarc::driver::sys as cuda_sys;
 
 use ringkernel_core::error::{Result, RingKernelError};
@@ -36,9 +40,10 @@ impl Default for CooperativeLaunchConfig {
     }
 }
 
-/// Launch a kernel cooperatively using the CUDA driver API.
+/// Launch a kernel cooperatively using cudarc's result module.
 ///
-/// This calls `cuLaunchCooperativeKernel` directly, enabling true grid-wide
+/// This is a thin wrapper around cudarc's `result::launch_cooperative_kernel`,
+/// which calls `cuLaunchCooperativeKernel` directly, enabling true grid-wide
 /// synchronization via `grid.sync()` in cooperative groups.
 ///
 /// # Safety
@@ -54,31 +59,16 @@ unsafe fn launch_cooperative_kernel(
     shared_mem_bytes: u32,
     stream: cuda_sys::CUstream,
     kernel_params: &mut [*mut c_void],
-) -> std::result::Result<(), cudarc::driver::DriverError> {
-    // Access the CUDA driver library
-    let lib = cuda_sys::lib();
-
-    // Call cuLaunchCooperativeKernel
-    let coop_fn = lib
-        .cuLaunchCooperativeKernel
-        .as_ref()
-        .map_err(|_| cudarc::driver::DriverError(cuda_sys::CUresult::CUDA_ERROR_NOT_SUPPORTED))?;
-
-    let result = coop_fn(
+) -> std::result::Result<(), cuda_result::DriverError> {
+    // Use cudarc's native cooperative launch (added in 0.18.0)
+    cuda_result::launch_cooperative_kernel(
         func,
-        grid_dim.0,
-        grid_dim.1,
-        grid_dim.2,
-        block_dim.0,
-        block_dim.1,
-        block_dim.2,
+        grid_dim,
+        block_dim,
         shared_mem_bytes,
         stream,
-        kernel_params.as_mut_ptr(),
-    );
-
-    // Convert CUresult to Result
-    result.result()
+        kernel_params,
+    )
 }
 
 /// A PTX module loaded directly via the CUDA driver API.
@@ -116,8 +106,7 @@ impl DirectPtxModule {
 
         // Load the PTX using driver API
         unsafe {
-            let result =
-                cuda_sys::lib().cuModuleLoadData(&mut module, ptx_cstring.as_ptr() as *const _);
+            let result = cuda_sys::cuModuleLoadData(&mut module, ptx_cstring.as_ptr() as *const _);
 
             if result != cuda_sys::CUresult::CUDA_SUCCESS {
                 return Err(RingKernelError::LaunchFailed(format!(
@@ -144,7 +133,7 @@ impl DirectPtxModule {
 
         unsafe {
             let result =
-                cuda_sys::lib().cuModuleGetFunction(&mut func, self.module, name_cstring.as_ptr());
+                cuda_sys::cuModuleGetFunction(&mut func, self.module, name_cstring.as_ptr());
 
             if result != cuda_sys::CUresult::CUDA_SUCCESS {
                 return Err(RingKernelError::KernelNotFound(format!(
@@ -162,7 +151,7 @@ impl Drop for DirectPtxModule {
     fn drop(&mut self) {
         // Unload the module (ignore errors during cleanup)
         unsafe {
-            let _ = cuda_sys::lib().cuModuleUnload(self.module);
+            let _ = cuda_sys::cuModuleUnload(self.module);
         }
     }
 }
@@ -225,7 +214,7 @@ impl DirectCooperativeKernel {
         let mut max_blocks_per_sm: i32 = 0;
 
         unsafe {
-            let result = cuda_sys::lib().cuOccupancyMaxActiveBlocksPerMultiprocessor(
+            let result = cuda_sys::cuOccupancyMaxActiveBlocksPerMultiprocessor(
                 &mut max_blocks_per_sm,
                 func,
                 block_size as i32,
@@ -334,7 +323,7 @@ impl DirectCooperativeKernel {
     /// Synchronize after launch.
     pub fn synchronize(&self) -> Result<()> {
         unsafe {
-            let result = cuda_sys::lib().cuCtxSynchronize();
+            let result = cuda_sys::cuCtxSynchronize();
             if result != cuda_sys::CUresult::CUDA_SUCCESS {
                 return Err(RingKernelError::BackendError(format!(
                     "cuCtxSynchronize failed: {:?}",

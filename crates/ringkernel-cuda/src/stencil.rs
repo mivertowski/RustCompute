@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use cudarc::driver::{CudaContext, CudaFunction};
 use ringkernel_core::__private::{find_stencil_kernel, StencilKernelRegistration};
 use ringkernel_core::error::{Result, RingKernelError};
 
@@ -20,16 +21,20 @@ pub struct CompiledStencilKernel {
     pub tile_size: (u32, u32),
     /// Halo width.
     pub halo: u32,
-    /// The CUDA device.
-    device: Arc<cudarc::driver::CudaDevice>,
+    /// The CUDA context.
+    #[allow(dead_code)]
+    context: Arc<CudaContext>,
+    /// The loaded kernel function.
+    func: CudaFunction,
     /// Module name for function lookup.
+    #[allow(dead_code)]
     module_name: String,
 }
 
 impl CompiledStencilKernel {
     /// Compile a stencil kernel from its registration.
     pub fn from_registration(reg: &StencilKernelRegistration, device: &CudaDevice) -> Result<Self> {
-        let cuda_device = device.inner();
+        let cuda_context = device.inner();
 
         // Compile CUDA source to PTX using NVRTC
         let ptx = cudarc::nvrtc::compile_ptx(reg.cuda_source).map_err(|e| {
@@ -41,14 +46,17 @@ impl CompiledStencilKernel {
 
         // Load the PTX module
         let module_name = format!("stencil_{}", reg.id);
-        cuda_device
-            .load_ptx(ptx, &module_name, &[reg.id])
-            .map_err(|e| {
-                RingKernelError::CompilationError(format!(
-                    "Failed to load PTX for '{}': {}",
-                    reg.id, e
-                ))
-            })?;
+        let module = cuda_context.load_module(ptx).map_err(|e| {
+            RingKernelError::CompilationError(format!("Failed to load PTX for '{}': {}", reg.id, e))
+        })?;
+
+        // Get the function from the module
+        let func = module.load_function(reg.id).map_err(|e| {
+            RingKernelError::CompilationError(format!(
+                "Failed to load function '{}': {}",
+                reg.id, e
+            ))
+        })?;
 
         tracing::info!(
             kernel_id = %reg.id,
@@ -63,21 +71,15 @@ impl CompiledStencilKernel {
             grid: reg.grid.to_string(),
             tile_size: (reg.tile_width, reg.tile_height),
             halo: reg.halo,
-            device: cuda_device.clone(),
+            context: cuda_context.clone(),
+            func,
             module_name,
         })
     }
 
     /// Get the CUDA function for this kernel.
-    pub fn get_function(&self) -> Result<cudarc::driver::CudaFunction> {
-        self.device
-            .get_func(&self.module_name, &self.id)
-            .ok_or_else(|| {
-                RingKernelError::KernelNotFound(format!(
-                    "Function '{}' not found in module '{}'",
-                    self.id, self.module_name
-                ))
-            })
+    pub fn get_function(&self) -> &CudaFunction {
+        &self.func
     }
 
     /// Get the buffer width (tile + 2*halo).
@@ -147,32 +149,34 @@ impl StencilKernelLoader {
         tile_size: (u32, u32),
         halo: u32,
     ) -> Result<CompiledStencilKernel> {
-        let cuda_device = self.device.inner();
+        let cuda_context = self.device.inner();
 
         // Compile CUDA source to PTX
         let ptx = cudarc::nvrtc::compile_ptx(cuda_source).map_err(|e| {
             RingKernelError::CompilationError(format!("NVRTC compilation failed: {}", e))
         })?;
 
-        // Load the PTX module - cudarc requires &[&str] with 'static lifetime for function names
-        // We use the module name as both the module and function name
+        // Load the PTX module
         let module_name = format!("stencil_{}", kernel_id);
-        let kernel_id_owned = kernel_id.to_string();
-
-        // Use Box::leak to create 'static strings (acceptable for kernel registration)
-        let module_name_static: &'static str = Box::leak(module_name.clone().into_boxed_str());
-        let kernel_id_static: &'static str = Box::leak(kernel_id_owned.into_boxed_str());
-
-        cuda_device
-            .load_ptx(ptx, module_name_static, &[kernel_id_static])
+        let module = cuda_context
+            .load_module(ptx)
             .map_err(|e| RingKernelError::CompilationError(format!("Failed to load PTX: {}", e)))?;
+
+        // Get the function from the module
+        let func = module.load_function(kernel_id).map_err(|e| {
+            RingKernelError::CompilationError(format!(
+                "Failed to load function '{}': {}",
+                kernel_id, e
+            ))
+        })?;
 
         Ok(CompiledStencilKernel {
             id: kernel_id.to_string(),
             grid: "2d".to_string(),
             tile_size,
             halo,
-            device: cuda_device.clone(),
+            context: cuda_context.clone(),
+            func,
             module_name,
         })
     }

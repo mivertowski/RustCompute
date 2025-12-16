@@ -17,3 +17,8 @@ syn = { workspace = true, features = ["full", "visit", "extra-traits"] }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
 thiserror = { workspace = true }
+
+[features]
+default = []
+# Enable nvcc-related tests
+nvcc = []

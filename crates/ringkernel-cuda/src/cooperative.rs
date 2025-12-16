@@ -29,10 +29,9 @@
 use std::ffi::c_void;
 use std::sync::Arc;
 
+use cudarc::driver::result as cuda_result;
 use cudarc::driver::sys as cuda_sys;
-use cudarc::driver::CudaDevice as CudarcDevice;
-use cudarc::driver::CudaFunction;
-use cudarc::driver::LaunchAsync;
+use cudarc::driver::{CudaContext, CudaFunction, LaunchConfig};
 
 use ringkernel_core::error::{Result, RingKernelError};
 
@@ -43,7 +42,8 @@ include!(concat!(env!("OUT_DIR"), "/cooperative_kernels.rs"));
 
 /// Launch a kernel cooperatively using the CUDA driver API.
 ///
-/// This calls `cuLaunchCooperativeKernel` directly, enabling true grid-wide
+/// This is a thin wrapper around cudarc's `result::launch_cooperative_kernel`,
+/// which calls `cuLaunchCooperativeKernel` directly, enabling true grid-wide
 /// synchronization via `grid.sync()` in cooperative groups.
 ///
 /// # Safety
@@ -60,30 +60,15 @@ pub unsafe fn launch_cooperative_kernel(
     stream: cuda_sys::CUstream,
     kernel_params: &mut [*mut c_void],
 ) -> std::result::Result<(), cudarc::driver::DriverError> {
-    // Access the CUDA driver library
-    let lib = cuda_sys::lib();
-
-    // Call cuLaunchCooperativeKernel
-    let coop_fn = lib
-        .cuLaunchCooperativeKernel
-        .as_ref()
-        .map_err(|_| cudarc::driver::DriverError(cuda_sys::CUresult::CUDA_ERROR_NOT_SUPPORTED))?;
-
-    let result = coop_fn(
+    // Use cudarc's native cooperative launch (added in 0.18.0)
+    cuda_result::launch_cooperative_kernel(
         func,
-        grid_dim.0,
-        grid_dim.1,
-        grid_dim.2,
-        block_dim.0,
-        block_dim.1,
-        block_dim.2,
+        grid_dim,
+        block_dim,
         shared_mem_bytes,
         stream,
-        kernel_params.as_mut_ptr(),
-    );
-
-    // Convert CUresult to Result
-    result.result()
+        kernel_params,
+    )
 }
 
 /// Check if cooperative groups support is available.
@@ -156,12 +141,15 @@ pub fn check_cooperative_support(device: &CudaDevice) -> Result<()> {
 /// High-level wrapper for cooperative kernel loading and launching.
 ///
 /// Handles PTX loading, occupancy queries, and cooperative launch.
+/// Uses cudarc 0.18.2's native `launch_cooperative` support.
 pub struct CooperativeKernel {
-    /// Underlying cudarc device.
-    device: Arc<CudarcDevice>,
-    /// Loaded kernel function (for occupancy queries).
+    /// Underlying cudarc context.
+    context: Arc<CudaContext>,
+    /// Loaded kernel function (for occupancy queries and typed launch).
     func: CudaFunction,
-    /// Raw CUfunction handle for cooperative launch.
+    /// Raw CUfunction handle for raw parameter cooperative launch.
+    /// Note: CudaFunction.cu_function is pub(crate) in cudarc, so we extract it
+    /// via transmute. This is version-dependent but safer than bypassing cudarc entirely.
     cu_func: cuda_sys::CUfunction,
     /// Module name for identification.
     #[allow(dead_code)]
@@ -203,29 +191,26 @@ impl CooperativeKernel {
             ));
         }
 
-        // Load PTX
+        // Load PTX using cudarc 0.18's module API
         let ptx_code = cudarc::nvrtc::Ptx::from_src(ptx);
-
-        device
+        let module = device
             .inner()
-            .load_ptx(ptx_code, module_name, &[func_name])
+            .load_module(ptx_code)
             .map_err(|e| RingKernelError::LaunchFailed(format!("PTX load failed: {}", e)))?;
 
-        // Get function handle (safe wrapper for occupancy queries)
-        let func = device
-            .inner()
-            .get_func(module_name, func_name)
-            .ok_or_else(|| RingKernelError::KernelNotFound(func_name.to_string()))?;
+        // Get function handle from module
+        let func = module
+            .load_function(func_name)
+            .map_err(|e| RingKernelError::KernelNotFound(format!("{}: {}", func_name, e)))?;
 
-        // Get raw CUfunction handle for cooperative launch
-        // We extract it from CudaFunction using transmute since the field is pub(crate)
-        // The CudaFunction struct layout is: { cu_function: CUfunction, device: Arc<CudaDevice> }
-        // This is fragile but works for cudarc 0.11.x
+        // Get raw CUfunction handle for raw parameter cooperative launch.
+        // CudaFunction.cu_function is pub(crate) in cudarc 0.18, so we extract it via transmute.
+        // This is version-dependent but cudarc's internal layout is: { cu_function: CUfunction, ... }
         let cu_func = unsafe {
             #[repr(C)]
             struct CudaFunctionRepr {
                 cu_function: cuda_sys::CUfunction,
-                // device: Arc<CudaDevice> follows but we don't need it
+                // Other fields follow but we only need the first one
             }
 
             let func_repr: &CudaFunctionRepr = std::mem::transmute(&func);
@@ -251,7 +236,7 @@ impl CooperativeKernel {
         let max_blocks = max_blocks_per_sm * (num_sms as u32);
 
         Ok(Self {
-            device: Arc::clone(device.inner()),
+            context: Arc::clone(device.inner()),
             func,
             cu_func,
             module_name: module_name.to_string(),
@@ -304,25 +289,25 @@ impl CooperativeKernel {
         &self.func_name
     }
 
-    /// Launch the kernel cooperatively.
+    /// Launch the kernel cooperatively using raw parameters.
     ///
-    /// This performs a cooperative launch where all blocks must be able
-    /// to run concurrently. Grid-wide synchronization via `grid.sync()`
-    /// is guaranteed to work.
+    /// This performs a true cooperative launch via `cuLaunchCooperativeKernel`,
+    /// where all blocks must be able to run concurrently. Grid-wide synchronization
+    /// via `grid.sync()` is guaranteed to work.
+    ///
+    /// Uses cudarc 0.18.2's native cooperative launch support.
     ///
     /// # Safety
     ///
     /// - `kernel_params` must contain valid pointers matching the kernel signature
+    /// - Each element must point to the corresponding kernel argument
     /// - Grid size must not exceed `max_concurrent_blocks()`
     /// - The kernel must have been compiled with cooperative groups support
-    pub unsafe fn launch<Params>(
+    pub unsafe fn launch(
         &self,
         config: &CooperativeLaunchConfig,
-        params: Params,
-    ) -> Result<()>
-    where
-        CudaFunction: LaunchAsync<Params>,
-    {
+        kernel_params: &mut [*mut c_void],
+    ) -> Result<()> {
         // Validate grid size
         let total_blocks = config.grid_dim.0 * config.grid_dim.1 * config.grid_dim.2;
         if total_blocks > self.max_blocks {
@@ -333,63 +318,11 @@ impl CooperativeKernel {
             )));
         }
 
-        // Use cudarc's launch mechanism
-        // Note: This is a regular launch, not cooperative launch.
-        // For true cooperative launch, we'd need to use cuLaunchCooperativeKernel
-        // which requires direct driver API access.
-        //
-        // For now, this works because:
-        // 1. We validate that all blocks can run concurrently
-        // 2. The PTX contains grid.sync() which will work if blocks are concurrent
-        //
-        // TODO: Add true cooperative launch via driver API when cudarc exposes it
-        let launch_config = cudarc::driver::LaunchConfig {
-            grid_dim: config.grid_dim,
-            block_dim: config.block_dim,
-            shared_mem_bytes: config.shared_mem_bytes,
-        };
-
-        self.func
-            .clone()
-            .launch(launch_config, params)
-            .map_err(|e| {
-                RingKernelError::LaunchFailed(format!("Cooperative kernel launch failed: {:?}", e))
-            })?;
-
-        Ok(())
-    }
-
-    /// Launch with raw kernel parameters using TRUE cooperative launch.
-    ///
-    /// This calls `cuLaunchCooperativeKernel` directly, enabling true grid-wide
-    /// synchronization. Unlike the typed `launch()` method, this uses the
-    /// driver API directly for guaranteed cooperative behavior.
-    ///
-    /// # Safety
-    ///
-    /// - `kernel_params` must contain valid pointers matching the kernel signature
-    /// - Each element must point to the corresponding kernel argument
-    /// - Grid size must not exceed `max_concurrent_blocks()`
-    pub unsafe fn launch_cooperative_raw(
-        &self,
-        config: &CooperativeLaunchConfig,
-        kernel_params: &mut [*mut c_void],
-    ) -> Result<()> {
-        // Validate grid size
-        let total_blocks = config.grid_dim.0 * config.grid_dim.1 * config.grid_dim.2;
-        if total_blocks > self.max_blocks {
-            return Err(RingKernelError::LaunchFailed(format!(
-                "Grid size {} exceeds max concurrent blocks {} for cooperative launch.",
-                total_blocks, self.max_blocks
-            )));
-        }
-
-        // Get the device's default stream
-        // Note: cudarc's CudaDevice stores stream as pub(crate), so we use null for default stream
+        // Use cudarc's native cooperative launch (cudarc 0.18+)
+        // Get the default stream for cooperative launch
         let stream: cuda_sys::CUstream = std::ptr::null_mut();
 
-        // Call the true cooperative launch
-        launch_cooperative_kernel(
+        cuda_result::launch_cooperative_kernel(
             self.cu_func,
             config.grid_dim,
             config.block_dim,
@@ -404,25 +337,41 @@ impl CooperativeKernel {
         Ok(())
     }
 
-    /// Launch with raw kernel parameters (legacy fallback).
+    /// Launch with raw kernel parameters (alias for `launch`).
+    ///
+    /// This is kept for backwards compatibility. Use `launch()` directly.
     ///
     /// # Safety
     ///
-    /// Same as `launch_cooperative_raw`.
-    #[deprecated(note = "Use launch_cooperative_raw() for true cooperative launch")]
-    pub unsafe fn launch_raw(
+    /// Same as `launch`.
+    #[inline]
+    pub unsafe fn launch_cooperative_raw(
         &self,
         config: &CooperativeLaunchConfig,
         kernel_params: &mut [*mut c_void],
     ) -> Result<()> {
-        self.launch_cooperative_raw(config, kernel_params)
+        self.launch(config, kernel_params)
     }
 
     /// Synchronize device after launch.
     pub fn synchronize(&self) -> Result<()> {
-        self.device
+        self.context
             .synchronize()
             .map_err(|e| RingKernelError::BackendError(format!("Synchronize failed: {}", e)))
+    }
+
+    /// Get the underlying CudaFunction for advanced use cases.
+    pub fn cuda_function(&self) -> &CudaFunction {
+        &self.func
+    }
+
+    /// Get the cudarc launch config from our config.
+    pub fn to_launch_config(config: &CooperativeLaunchConfig) -> LaunchConfig {
+        LaunchConfig {
+            grid_dim: config.grid_dim,
+            block_dim: config.block_dim,
+            shared_mem_bytes: config.shared_mem_bytes,
+        }
     }
 }
 

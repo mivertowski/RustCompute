@@ -114,7 +114,7 @@ impl<T: Copy + Send + Sync> CudaMappedBuffer<T> {
 
         // Allocate pinned mapped memory
         unsafe {
-            let result = cuda_sys::lib().cuMemHostAlloc(
+            let result = cuda_sys::cuMemHostAlloc(
                 &mut host_ptr,
                 size_bytes,
                 cuda_sys::CU_MEMHOSTALLOC_DEVICEMAP | cuda_sys::CU_MEMHOSTALLOC_PORTABLE,
@@ -131,7 +131,7 @@ impl<T: Copy + Send + Sync> CudaMappedBuffer<T> {
         // Get device pointer for this mapped memory
         let mut device_ptr: u64 = 0;
         unsafe {
-            let result = cuda_sys::lib().cuMemHostGetDevicePointer_v2(
+            let result = cuda_sys::cuMemHostGetDevicePointer_v2(
                 &mut device_ptr,
                 host_ptr,
                 0, // flags (must be 0)
@@ -139,7 +139,7 @@ impl<T: Copy + Send + Sync> CudaMappedBuffer<T> {
 
             if result != cuda_sys::CUresult::CUDA_SUCCESS {
                 // Clean up host allocation
-                let _ = cuda_sys::lib().cuMemFreeHost(host_ptr);
+                let _ = cuda_sys::cuMemFreeHost(host_ptr);
                 return Err(RingKernelError::AllocationFailed {
                     size: size_bytes,
                     reason: format!("cuMemHostGetDevicePointer failed: {:?}", result),
@@ -271,7 +271,7 @@ impl<T: Copy + Send + Sync> Drop for CudaMappedBuffer<T> {
         let _ = self.device.inner();
 
         unsafe {
-            let _ = cuda_sys::lib().cuMemFreeHost(self.host_ptr as *mut c_void);
+            let _ = cuda_sys::cuMemFreeHost(self.host_ptr as *mut c_void);
         }
     }
 }

@@ -4,12 +4,13 @@ NVIDIA CUDA backend for RingKernel.
 
 ## Overview
 
-This crate provides GPU compute support for RingKernel using NVIDIA CUDA via the `cudarc` library. It implements the `RingKernelRuntime` trait for launching and managing persistent GPU kernels.
+This crate provides GPU compute support for RingKernel using NVIDIA CUDA via the `cudarc` library (v0.18.2). It implements the `RingKernelRuntime` trait for launching and managing persistent GPU kernels.
 
 ## Requirements
 
 - NVIDIA GPU with Compute Capability 7.0 or higher (Volta, Turing, Ampere, Ada, Hopper)
-- CUDA Toolkit 11.0 or later
+- CUDA Toolkit 12.x or later
+- cudarc 0.18.2 (managed via workspace)
 - Linux (native) or Windows (WSL2 with limitations)
 
 ## Features
@@ -61,6 +62,39 @@ let config = LaunchConfig {
 };
 
 kernel.launch(&config, &[&input_buf, &output_buf])?;
+```
+
+## cudarc 0.18.2 API
+
+This crate uses cudarc 0.18.2 with the builder pattern for kernel launches:
+
+```rust
+use cudarc::driver::{CudaModule, CudaFunction, PushKernelArg};
+
+// Load module and function
+let module = device.inner().load_module(ptx)?;
+let func = module.load_function("kernel_name")?;
+
+// Launch with builder pattern
+unsafe {
+    stream
+        .launch_builder(&func)
+        .arg(&input_ptr)
+        .arg(&output_ptr)
+        .launch(cfg)?;
+}
+```
+
+For cooperative kernel launches (grid-wide synchronization):
+
+```rust
+use cudarc::driver::result as cuda_result;
+
+unsafe {
+    cuda_result::launch_cooperative_kernel(
+        func, grid_dim, block_dim, shared_mem_bytes, stream, kernel_params
+    )?;
+}
 ```
 
 ## Exports

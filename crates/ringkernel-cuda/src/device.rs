@@ -1,14 +1,19 @@
 //! CUDA device management.
 
-use cudarc::driver::{CudaDevice as CudarcDevice, CudaSlice, DeviceRepr};
+use cudarc::driver::{CudaContext, CudaSlice, CudaStream};
 use std::sync::Arc;
+
+/// Type alias for Arc-wrapped CudaStream
+type StreamHandle = Arc<CudaStream>;
 
 use ringkernel_core::error::{Result, RingKernelError};
 
-/// Wrapper around cudarc CudaDevice with RingKernel utilities.
+/// Wrapper around cudarc CudaContext with RingKernel utilities.
 pub struct CudaDevice {
-    /// The underlying cudarc device.
-    inner: Arc<CudarcDevice>,
+    /// The underlying cudarc context.
+    inner: Arc<CudaContext>,
+    /// Default stream for operations.
+    stream: StreamHandle,
     /// Device ordinal.
     ordinal: usize,
     /// Device name.
@@ -22,7 +27,7 @@ pub struct CudaDevice {
 impl CudaDevice {
     /// Create a new CUDA device wrapper.
     pub fn new(ordinal: usize) -> Result<Self> {
-        let inner = CudarcDevice::new(ordinal).map_err(|e| {
+        let inner = CudaContext::new(ordinal).map_err(|e| {
             RingKernelError::BackendError(format!(
                 "Failed to create CUDA device {}: {}",
                 ordinal, e
@@ -34,30 +39,23 @@ impl CudaDevice {
         })?;
 
         // Get compute capability
-        let major = inner.attribute(cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)
-            .map_err(|e| RingKernelError::BackendError(format!("Failed to get compute capability: {}", e)))? as u32;
-        let minor = inner.attribute(cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR)
-            .map_err(|e| RingKernelError::BackendError(format!("Failed to get compute capability: {}", e)))? as u32;
+        let (major, minor) = inner.compute_capability().map_err(|e| {
+            RingKernelError::BackendError(format!("Failed to get compute capability: {}", e))
+        })?;
 
-        // Get total memory via device attribute (memory_total not directly available in newer cudarc)
-        let total_memory_attr = inner
-            .attribute(
-                cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_TOTAL_CONSTANT_MEMORY,
-            )
-            .unwrap_or(0) as usize;
-        // Use a reasonable fallback - actual memory queries work differently in newer cudarc
-        let total_memory = if total_memory_attr > 0 {
-            total_memory_attr
-        } else {
-            // Fallback: assume 8GB for modern GPUs
-            8 * 1024 * 1024 * 1024
-        };
+        // Create default stream
+        let stream = inner.default_stream();
+
+        // Get total memory - use a reasonable default for modern GPUs
+        // cudarc 0.18 doesn't expose direct memory query easily
+        let total_memory = 8 * 1024 * 1024 * 1024; // 8GB default
 
         Ok(Self {
             inner,
+            stream,
             ordinal,
             name,
-            compute_capability: (major, minor),
+            compute_capability: (major as u32, minor as u32),
             total_memory,
         })
     }
@@ -87,36 +85,54 @@ impl CudaDevice {
         self.compute_capability.0 >= 7
     }
 
-    /// Get the underlying cudarc device.
-    pub fn inner(&self) -> &Arc<CudarcDevice> {
+    /// Get the underlying cudarc context.
+    pub fn inner(&self) -> &Arc<CudaContext> {
         &self.inner
     }
 
+    /// Get the default stream.
+    pub fn stream(&self) -> &StreamHandle {
+        &self.stream
+    }
+
     /// Allocate device memory.
-    pub fn alloc<T: DeviceRepr>(&self, len: usize) -> Result<CudaSlice<T>> {
-        // Safety: alloc is unsafe in newer cudarc, but we're just allocating uninitialized memory
+    pub fn alloc<T: cudarc::driver::DeviceRepr>(&self, len: usize) -> Result<CudaSlice<T>> {
+        // Safety: Allocating uninitialized GPU memory is safe as long as we don't read
+        // from it before initializing. The caller is responsible for initialization.
         unsafe {
-            self.inner
+            self.stream
                 .alloc::<T>(len)
                 .map_err(|_| RingKernelError::OutOfMemory {
                     requested: len * std::mem::size_of::<T>(),
-                    available: 0, // We don't have easy access to free memory
+                    available: 0,
                 })
         }
     }
 
     /// Copy data from host to device.
-    pub fn htod_copy<T: DeviceRepr + Clone + Unpin>(&self, src: &[T]) -> Result<CudaSlice<T>> {
-        self.inner
-            .htod_copy(src.to_vec())
-            .map_err(|e| RingKernelError::TransferFailed(format!("HtoD copy failed: {}", e)))
+    pub fn htod_copy<T: cudarc::driver::DeviceRepr + Clone + Unpin>(
+        &self,
+        src: &[T],
+    ) -> Result<CudaSlice<T>> {
+        // Allocate device memory
+        let mut dst = self.alloc::<T>(src.len())?;
+        // Copy data
+        self.stream
+            .memcpy_htod(src, &mut dst)
+            .map_err(|e| RingKernelError::TransferFailed(format!("HtoD copy failed: {}", e)))?;
+        Ok(dst)
     }
 
     /// Copy data from device to host.
-    pub fn dtoh_copy<T: DeviceRepr + Clone>(&self, src: &CudaSlice<T>) -> Result<Vec<T>> {
-        self.inner
-            .dtoh_sync_copy(src)
-            .map_err(|e| RingKernelError::TransferFailed(format!("DtoH copy failed: {}", e)))
+    pub fn dtoh_copy<T: cudarc::driver::DeviceRepr + Clone + Default>(
+        &self,
+        src: &CudaSlice<T>,
+    ) -> Result<Vec<T>> {
+        let mut dst = vec![T::default(); src.len()];
+        self.stream
+            .memcpy_dtoh(src, &mut dst)
+            .map_err(|e| RingKernelError::TransferFailed(format!("DtoH copy failed: {}", e)))?;
+        Ok(dst)
     }
 
     /// Synchronize device.
@@ -131,6 +147,7 @@ impl Clone for CudaDevice {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
+            stream: self.inner.default_stream(),
             ordinal: self.ordinal,
             name: self.name.clone(),
             compute_capability: self.compute_capability,
@@ -170,7 +187,7 @@ impl From<&CudaDevice> for CudaDeviceInfo {
 /// Enumerate all CUDA devices.
 #[allow(dead_code)]
 pub fn enumerate_devices() -> Result<Vec<CudaDeviceInfo>> {
-    let count = CudarcDevice::count().map_err(|e| {
+    let count = CudaContext::device_count().map_err(|e| {
         RingKernelError::BackendError(format!("Failed to count CUDA devices: {}", e))
     })? as usize;
 

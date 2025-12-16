@@ -1,9 +1,7 @@
 //! CUDA memory management for RingKernel.
 
 use std::cell::UnsafeCell;
-use std::ffi::c_void;
 
-use cudarc::driver::sys as cuda_sys;
 use cudarc::driver::{CudaSlice, DevicePtr};
 
 use ringkernel_core::control::ControlBlock;
@@ -45,7 +43,11 @@ impl CudaBuffer {
     /// Get the device pointer.
     pub fn device_ptr(&self) -> u64 {
         // Safety: we only read the device pointer, not mutate the slice
-        unsafe { *(*self.data.get()).device_ptr() }
+        // In cudarc 0.18, device_ptr requires a stream but we just need the raw pointer
+        // We use the stored base address from the slice
+        let slice = unsafe { &*self.data.get() };
+        let (ptr, _guard) = slice.device_ptr(self.device.stream());
+        ptr
     }
 
     /// Get underlying slice for kernel launches.
@@ -61,7 +63,7 @@ impl CudaBuffer {
 
     /// Copy data from host to device at a specific offset.
     ///
-    /// Uses the CUDA driver API directly for offset-based transfers.
+    /// Uses cudarc's stream-based memcpy for offset transfers.
     pub fn copy_from_host_at(&self, data: &[u8], offset: usize) -> Result<()> {
         if offset + data.len() > self.size {
             return Err(RingKernelError::AllocationFailed {
@@ -75,29 +77,22 @@ impl CudaBuffer {
             });
         }
 
-        let dst_ptr = self.device_ptr() + offset as u64;
-
-        // Safety: We've validated bounds, and the CUDA driver handles the transfer.
-        unsafe {
-            let result = cuda_sys::lib().cuMemcpyHtoD_v2(
-                dst_ptr,
-                data.as_ptr() as *const c_void,
-                data.len(),
-            );
-            if result != cuda_sys::CUresult::CUDA_SUCCESS {
-                return Err(RingKernelError::TransferFailed(format!(
-                    "cuMemcpyHtoD_v2 failed: {:?}",
-                    result
-                )));
-            }
-        }
+        // Use cudarc's stream memcpy with offset via view
+        let slice = unsafe { &mut *self.data.get() };
+        let mut view = slice.slice_mut(offset..offset + data.len());
+        self.device
+            .stream()
+            .memcpy_htod(data, &mut view)
+            .map_err(|e| {
+                RingKernelError::TransferFailed(format!("HtoD copy at offset failed: {}", e))
+            })?;
 
         Ok(())
     }
 
     /// Copy data from device to host at a specific offset.
     ///
-    /// Uses the CUDA driver API directly for offset-based transfers.
+    /// Uses cudarc's stream-based memcpy for offset transfers.
     pub fn copy_to_host_at(&self, data: &mut [u8], offset: usize) -> Result<()> {
         if offset + data.len() > self.size {
             return Err(RingKernelError::AllocationFailed {
@@ -111,22 +106,12 @@ impl CudaBuffer {
             });
         }
 
-        let src_ptr = self.device_ptr() + offset as u64;
-
-        // Safety: We've validated bounds, and the CUDA driver handles the transfer.
-        unsafe {
-            let result = cuda_sys::lib().cuMemcpyDtoH_v2(
-                data.as_mut_ptr() as *mut c_void,
-                src_ptr,
-                data.len(),
-            );
-            if result != cuda_sys::CUresult::CUDA_SUCCESS {
-                return Err(RingKernelError::TransferFailed(format!(
-                    "cuMemcpyDtoH_v2 failed: {:?}",
-                    result
-                )));
-            }
-        }
+        // Use cudarc's stream memcpy with offset via view
+        let slice = unsafe { &*self.data.get() };
+        let view = slice.slice(offset..offset + data.len());
+        self.device.stream().memcpy_dtoh(&view, data).map_err(|e| {
+            RingKernelError::TransferFailed(format!("DtoH copy at offset failed: {}", e))
+        })?;
 
         Ok(())
     }
@@ -138,8 +123,8 @@ impl GpuBuffer for CudaBuffer {
     }
 
     fn device_ptr(&self) -> usize {
-        // Safety: we only read the device pointer
-        unsafe { *(*self.data.get()).device_ptr() as usize }
+        // Use the same method as CudaBuffer::device_ptr
+        CudaBuffer::device_ptr(self) as usize
     }
 
     fn copy_from_host(&self, data: &[u8]) -> Result<()> {
@@ -150,12 +135,11 @@ impl GpuBuffer for CudaBuffer {
             });
         }
 
-        // Safety: UnsafeCell allows interior mutability, and CUDA operations
-        // are serialized on the device, so concurrent access is not an issue.
+        // Use stream-based copy
         let slice = unsafe { &mut *self.data.get() };
         self.device
-            .inner()
-            .htod_sync_copy_into(data, slice)
+            .stream()
+            .memcpy_htod(data, slice)
             .map_err(|e| RingKernelError::TransferFailed(format!("HtoD copy failed: {}", e)))?;
 
         Ok(())
@@ -169,15 +153,13 @@ impl GpuBuffer for CudaBuffer {
             });
         }
 
-        // Safety: we only read from the slice
+        // Use stream-based copy
         let slice = unsafe { &*self.data.get() };
-        let host_data = self
-            .device
-            .inner()
-            .dtoh_sync_copy(slice)
+        self.device
+            .stream()
+            .memcpy_dtoh(slice, data)
             .map_err(|e| RingKernelError::TransferFailed(format!("DtoH copy failed: {}", e)))?;
 
-        data[..host_data.len()].copy_from_slice(&host_data);
         Ok(())
     }
 }
