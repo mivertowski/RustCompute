@@ -306,7 +306,9 @@ impl WaveSimApp {
             Message::SpeedChanged(speed) => {
                 self.speed_of_sound = speed;
                 let params = AcousticParams::new(speed, self.cell_size);
+                #[allow(unused_variables)]
                 let c2 = params.courant_number().powi(2);
+                #[allow(unused_variables)]
                 let damping = 1.0 - params.damping;
                 self.courant_number = params.courant_number();
 
@@ -374,7 +376,9 @@ impl WaveSimApp {
             Message::CellSizeChanged(size) => {
                 self.cell_size = size;
                 let params = AcousticParams::new(self.speed_of_sound, size);
+                #[allow(unused_variables)]
                 let c2 = params.courant_number().powi(2);
+                #[allow(unused_variables)]
                 let damping = 1.0 - params.damping;
                 self.courant_number = params.courant_number();
 
@@ -700,6 +704,7 @@ impl WaveSimApp {
     }
 
     /// Update canvas from flat pressure array.
+    #[allow(dead_code)]
     fn update_canvas_from_flat(&mut self, pressure: &[f32]) {
         let mut grid = Vec::with_capacity(self.grid_height as usize);
         for y in 0..self.grid_height as usize {

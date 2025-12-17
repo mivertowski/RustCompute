@@ -4,6 +4,10 @@
 //! by performing real computations and verifying results.
 //!
 //! Updated for cudarc 0.18.2 API.
+//!
+//! Run with: cargo test -p ringkernel-cuda --features cuda -- --nocapture
+
+#![cfg(feature = "cuda")]
 
 use cudarc::driver::{CudaContext, LaunchConfig, PushKernelArg};
 use cudarc::nvrtc::compile_ptx;

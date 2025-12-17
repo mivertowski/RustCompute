@@ -50,7 +50,7 @@ syn = { workspace = true, optional = true }
 criterion = { workspace = true }
 
 [features]
-default = ["cpu", "cuda", "simd"]
+default = ["cpu", "simd"]
 cpu = ["ringkernel/cpu"]
 cuda = ["ringkernel/cuda", "dep:ringkernel-cuda", "dep:cudarc", "dep:bytemuck"]
 cuda-codegen = ["cuda", "dep:ringkernel-cuda-codegen", "dep:syn", "ringkernel-derive/cuda-codegen"]

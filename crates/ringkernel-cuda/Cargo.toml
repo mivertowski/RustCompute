@@ -35,8 +35,9 @@ parking_lot = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
-# For GPU execution tests - needs cudarc directly
-cudarc = { version = "0.18.2", features = ["cuda-version-from-build-system"] }
+
+# Note: GPU execution tests require the `cuda` feature to be enabled.
+# Run with: cargo test -p ringkernel-cuda --features cuda
 
 [features]
 default = []

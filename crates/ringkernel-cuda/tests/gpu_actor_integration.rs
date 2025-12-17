@@ -4,6 +4,10 @@
 //! - Phase 1: Message queue operations (send_envelope, try_receive, receive)
 //! - Phase 2: Safe cooperative launch via DirectPtxModule
 //! - Phase 3: K2K GPU buffers and connections
+//!
+//! Run with: cargo test -p ringkernel-cuda --features cuda -- --nocapture
+
+#![cfg(feature = "cuda")]
 
 use cudarc::driver::CudaContext;
 

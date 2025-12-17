@@ -1,9 +1,10 @@
 //! Test persistent backend creation and execution
-use ringkernel_wavesim3d::simulation::{grid3d::SimulationGrid3D, AcousticParams3D, Environment};
 
 #[cfg(all(feature = "cuda", feature = "cuda-codegen"))]
-use ringkernel_wavesim3d::simulation::persistent_backend::{
-    PersistentBackend, PersistentBackendConfig,
+use ringkernel_wavesim3d::simulation::{
+    grid3d::SimulationGrid3D,
+    persistent_backend::{PersistentBackend, PersistentBackendConfig},
+    AcousticParams3D, Environment,
 };
 
 fn main() {

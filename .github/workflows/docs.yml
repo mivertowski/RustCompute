@@ -5,6 +5,8 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+# Note: CUDA features are opt-in (not default) so docs build succeeds without nvcc.
+
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read

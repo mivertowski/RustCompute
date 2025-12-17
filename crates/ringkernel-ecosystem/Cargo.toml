@@ -109,3 +109,8 @@ serde_json = { version = "1.0", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[[example]]
+name = "axum_persistent_api"
+path = "examples/axum_persistent_api.rs"
+required-features = ["persistent", "axum", "axum-sse"]
