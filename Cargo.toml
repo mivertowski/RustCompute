@@ -35,9 +35,9 @@ rust-version = "1.75"
 
 [workspace.dependencies]
 # Core dependencies
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.48", features = ["full"] }
 async-trait = "0.1"
-thiserror = "1.0"
+thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
@@ -53,8 +53,8 @@ atomic = "0.6"
 
 # GPU backends (optionality handled at crate level)
 cudarc = { version = "0.18.2", features = ["cuda-version-from-build-system"] }
-wgpu = "0.19"
-metal = "0.27"
+wgpu = "27.0"
+metal = "0.31"
 
 # Proc macro support
 syn = { version = "2.0", features = ["full", "extra-traits"] }

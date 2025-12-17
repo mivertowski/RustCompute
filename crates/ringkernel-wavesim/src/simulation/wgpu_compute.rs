@@ -286,7 +286,7 @@ pub struct WgpuTileBackend {
 impl WgpuTileBackend {
     /// Create a new WGPU tile backend.
     pub async fn new(tile_size: u32) -> Result<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
@@ -298,22 +298,20 @@ impl WgpuTileBackend {
                 force_fallback_adapter: false,
             })
             .await
-            .ok_or_else(|| {
-                RingKernelError::BackendUnavailable("No WebGPU adapter found".to_string())
+            .map_err(|e| {
+                RingKernelError::BackendUnavailable(format!("No WebGPU adapter found: {}", e))
             })?;
 
         let info = adapter.get_info();
         tracing::info!("WGPU tile backend: {} ({:?})", info.name, info.backend);
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("WaveSim WGPU Device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("WaveSim WGPU Device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                ..Default::default()
+            })
             .await
             .map_err(|e| {
                 RingKernelError::BackendError(format!("Failed to create device: {}", e))
@@ -375,7 +373,9 @@ impl WgpuTileBackend {
             label: Some("FDTD Pipeline"),
             layout: Some(&fdtd_pipeline_layout),
             module: &fdtd_module,
-            entry_point: "fdtd_step",
+            entry_point: Some("fdtd_step"),
+            compilation_options: Default::default(),
+            cache: None,
         });
 
         // Create extract halo pipeline
@@ -427,7 +427,9 @@ impl WgpuTileBackend {
             label: Some("Extract Halo Pipeline"),
             layout: Some(&extract_pipeline_layout),
             module: &fdtd_module,
-            entry_point: "extract_halo",
+            entry_point: Some("extract_halo"),
+            compilation_options: Default::default(),
+            cache: None,
         });
 
         // Create inject halo pipeline
@@ -484,7 +486,9 @@ impl WgpuTileBackend {
             label: Some("Inject Halo Pipeline"),
             layout: Some(&inject_pipeline_layout),
             module: &inject_module,
-            entry_point: "inject_halo",
+            entry_point: Some("inject_halo"),
+            compilation_options: Default::default(),
+            cache: None,
         });
 
         // Create read interior pipeline
@@ -540,7 +544,9 @@ impl WgpuTileBackend {
             label: Some("Read Interior Pipeline"),
             layout: Some(&read_pipeline_layout),
             module: &read_module,
-            entry_point: "read_interior",
+            entry_point: Some("read_interior"),
+            compilation_options: Default::default(),
+            cache: None,
         });
 
         Ok(Self {
@@ -775,7 +781,7 @@ impl TileGpuBackend for WgpuTileBackend {
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
         });
-        self.device.poll(wgpu::Maintain::Wait);
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         rx.recv()
             .unwrap()
             .map_err(|e| RingKernelError::TransferFailed(format!("Map failed: {:?}", e)))?;
@@ -951,7 +957,7 @@ impl TileGpuBackend for WgpuTileBackend {
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
         });
-        self.device.poll(wgpu::Maintain::Wait);
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         rx.recv()
             .unwrap()
             .map_err(|e| RingKernelError::TransferFailed(format!("Map failed: {:?}", e)))?;
@@ -965,7 +971,7 @@ impl TileGpuBackend for WgpuTileBackend {
     }
 
     fn synchronize(&self) -> Result<()> {
-        self.device.poll(wgpu::Maintain::Wait);
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         Ok(())
     }
 }

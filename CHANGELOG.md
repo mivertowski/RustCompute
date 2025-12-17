@@ -35,6 +35,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `CooperativeKernel` wrapper in `ringkernel-cuda::cooperative` module
 - Added cooperative kernel infrastructure to wavesim3d benchmark
 
+#### Dependency Updates
+- **tokio**: 1.35 → 1.48 (improved task scheduling, better cancellation handling)
+- **thiserror**: 1.0 → 2.0 (updated derive macros)
+- **wgpu**: 0.19 → 27.0 (Arc-based resource tracking, 40%+ performance improvement)
+  - Migrated to new Instance/Adapter/Device creation API
+  - Updated pipeline descriptors with `entry_point: Option<&str>`, `compilation_options`, `cache`
+  - Renamed `ImageCopyTexture` → `TexelCopyTextureInfo`, `ImageDataLayout` → `TexelCopyBufferLayout`
+  - Updated `device.poll()` to use `PollType::wait_indefinitely()`
+- **winit**: 0.29 → 0.30 (new window creation API)
+- **egui/egui-wgpu/egui-winit**: 0.27 → 0.31 (updated for wgpu 27 compatibility)
+- **glam**: 0.27 → 0.29 (linear algebra updates)
+- **metal**: 0.27 → 0.31 (Apple GPU backend updates)
+- **axum**: 0.7 → 0.8 (improved routing, better error handling)
+- **tower**: 0.4 → 0.5 (service abstraction updates)
+- **tonic**: 0.11 → 0.14 (better gRPC streaming, improved health checking)
+- **prost**: 0.12 → 0.14 (protobuf updates to match tonic)
+- **actix-rt**: 2.9 → 2.10
+- **rayon**: 1.10 → 1.11 (requires MSRV 1.80)
+- **arrow**: 52 → 54 (columnar data updates)
+- **polars**: 0.39 → 0.46 (DataFrame updates)
+
+#### Deferred Updates
+- **iced**: Kept at 0.13 (0.14 requires major application API rewrite)
+- **rkyv**: Kept at 0.7 (0.8 has incompatible data format, requires significant migration)
+
 ## [0.1.2] - 2025-12-11
 
 ### Added

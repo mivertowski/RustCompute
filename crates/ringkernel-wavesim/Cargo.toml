@@ -30,7 +30,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 # Parallel processing
-rayon = "1.10"
+rayon = "1.11"
 
 # Random number generation (for educational chaotic mode)
 rand = "0.8"

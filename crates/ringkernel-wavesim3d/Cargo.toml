@@ -21,11 +21,11 @@ inventory = { workspace = true }
 
 # 3D Rendering
 wgpu = { workspace = true }
-winit = "0.29"
-egui = "0.27"
-egui-wgpu = "0.27"
-egui-winit = "0.27"
-glam = "0.27"  # 3D math (Vec3, Mat4, Quat)
+winit = "0.30"
+egui = "0.31"
+egui-wgpu = "0.31"
+egui-winit = "0.31"
+glam = "0.29"  # 3D math (Vec3, Mat4, Quat)
 bytemuck = { version = "1.24", features = ["derive"] }
 half = "2.4"  # f16 support for volume textures
 pollster = "0.3"  # Blocking async runtime for wgpu init
@@ -38,7 +38,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 # Parallel processing
-rayon = "1.10"
+rayon = "1.11"
 
 # Random number generation
 rand = "0.8"

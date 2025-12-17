@@ -102,7 +102,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 |---------|--------|-----------|--------------|
 | CPU | Stable | All | None |
 | CUDA | Stable | Linux, Windows | NVIDIA GPU, CUDA 12.x, cudarc 0.18.2 |
-| WebGPU | Stable | All | Vulkan/Metal/DX12 capable GPU |
+| WebGPU | Stable | All | Vulkan/Metal/DX12 capable GPU, wgpu 27.0 |
 | Metal | Planned | macOS, iOS | — |
 
 ## Core Concepts

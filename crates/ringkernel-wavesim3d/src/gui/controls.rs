@@ -306,7 +306,7 @@ impl SimulationControls {
 
         ui.horizontal(|ui| {
             ui.label("Medium:");
-            egui::ComboBox::from_id_source("medium_select")
+            egui::ComboBox::from_id_salt("medium_select")
                 .selected_text(match self.state.medium {
                     Medium::Air => "Air",
                     Medium::Water => "Water",
@@ -328,7 +328,7 @@ impl SimulationControls {
 
         ui.horizontal(|ui| {
             ui.label("Type:");
-            egui::ComboBox::from_id_source("source_type")
+            egui::ComboBox::from_id_salt("source_type")
                 .selected_text(self.state.source_type_name())
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut self.state.source_type_idx, 0, "Impulse");
@@ -411,7 +411,7 @@ impl SimulationControls {
 
         ui.horizontal(|ui| {
             ui.label("Color map:");
-            egui::ComboBox::from_id_source("color_map")
+            egui::ComboBox::from_id_salt("color_map")
                 .selected_text(match self.state.color_map_idx {
                     0 => "Blue-White-Red",
                     1 => "Cool-Warm",

@@ -17,7 +17,7 @@ use std::time::Instant;
 use winit::event::{ElementState, Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::window::{Window, WindowBuilder};
+use winit::window::Window;
 
 /// Application state.
 struct WaveSim3DApp {
@@ -304,11 +304,13 @@ fn main() {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
 
     // Create window
+    let window_attributes = Window::default_attributes()
+        .with_title("WaveSim3D - 3D Acoustic Wave Simulation")
+        .with_inner_size(winit::dpi::LogicalSize::new(1280, 800));
+    #[allow(deprecated)]
     let window = Arc::new(
-        WindowBuilder::new()
-            .with_title("WaveSim3D - 3D Acoustic Wave Simulation")
-            .with_inner_size(winit::dpi::LogicalSize::new(1280, 800))
-            .build(&event_loop)
+        event_loop
+            .create_window(window_attributes)
             .expect("Failed to create window"),
     );
 
@@ -321,6 +323,7 @@ fn main() {
     use std::time::Duration;
     let frame_duration = Duration::from_millis(16); // ~60fps
 
+    #[allow(deprecated)]
     event_loop
         .run(move |event, elwt| {
             match event {

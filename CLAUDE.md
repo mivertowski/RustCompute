@@ -565,3 +565,83 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // ...
 }
 ```
+
+**wgpu 27.0 API (Updated):**
+
+The WebGPU backend uses wgpu 27.0 with Arc-based resource tracking:
+
+```rust
+// Instance creation (takes reference now)
+let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    backends: wgpu::Backends::all(),
+    ..Default::default()
+});
+
+// Adapter request (returns Result, not Option)
+let adapter = instance
+    .request_adapter(&wgpu::RequestAdapterOptions { ... })
+    .await
+    .map_err(|e| format!("No adapter: {}", e))?;
+
+// Device request (use ..Default::default() for new fields)
+let (device, queue) = adapter
+    .request_device(&wgpu::DeviceDescriptor {
+        label: Some("device"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::default(),
+        ..Default::default()  // memory_hints, etc.
+    })
+    .await?;
+
+// Pipeline creation (entry_point is now Option, add compilation_options and cache)
+let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    vertex: wgpu::VertexState {
+        module: &shader,
+        entry_point: Some("vs_main"),  // Option<&str> now
+        compilation_options: Default::default(),
+        buffers: &[...],
+    },
+    fragment: Some(wgpu::FragmentState {
+        entry_point: Some("fs_main"),
+        compilation_options: Default::default(),
+        ...
+    }),
+    cache: None,  // New required field
+    ...
+});
+
+// Texture copy (renamed types)
+queue.write_texture(
+    wgpu::TexelCopyTextureInfo { ... },  // was ImageCopyTexture
+    &data,
+    wgpu::TexelCopyBufferLayout { ... }, // was ImageDataLayout
+    size,
+);
+
+// Device polling (returns Result now)
+let _ = device.poll(wgpu::PollType::wait_indefinitely());
+```
+
+## Dependency Versions
+
+Key workspace dependencies (as of v0.1.3):
+
+| Category | Package | Version | Notes |
+|----------|---------|---------|-------|
+| **Runtime** | tokio | 1.48 | Full async runtime |
+| **Runtime** | rayon | 1.11 | Parallel iterators |
+| **Error** | thiserror | 2.0 | Derive macros |
+| **GPU** | cudarc | 0.18.2 | CUDA bindings |
+| **GPU** | wgpu | 27.0 | WebGPU (Arc-based) |
+| **GPU** | metal | 0.31 | Apple Metal |
+| **Web** | axum | 0.8 | HTTP framework |
+| **Web** | tower | 0.5 | Service abstractions |
+| **gRPC** | tonic | 0.14 | gRPC framework |
+| **gRPC** | prost | 0.14 | Protobuf |
+| **Serialize** | rkyv | 0.7 | Zero-copy |
+| **GUI** | iced | 0.13 | Elm-style GUI |
+| **GUI** | egui | 0.31 | Immediate mode GUI |
+| **GUI** | winit | 0.30 | Window management |
+| **Math** | glam | 0.29 | Linear algebra |
+| **Data** | arrow | 54 | Columnar data |
+| **Data** | polars | 0.46 | DataFrames |

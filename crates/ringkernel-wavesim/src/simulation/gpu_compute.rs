@@ -190,7 +190,9 @@ impl TileGpuCompute {
             label: Some("Tile FDTD Pipeline"),
             layout: Some(&pipeline_layout),
             module: &shader_module,
-            entry_point: "fdtd_step",
+            entry_point: Some("fdtd_step"),
+            compilation_options: Default::default(),
+            cache: None,
         });
 
         // Create buffers
@@ -339,7 +341,7 @@ impl TileGpuCompute {
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
         });
-        self.device.poll(wgpu::Maintain::Wait);
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         rx.recv().unwrap().expect("Failed to map staging buffer");
 
         let data = buffer_slice.get_mapped_range();
@@ -446,7 +448,9 @@ impl TileGpuComputePool {
             label: Some("Tile FDTD Pipeline"),
             layout: Some(&pipeline_layout),
             module: &shader_module,
-            entry_point: "fdtd_step",
+            entry_point: Some("fdtd_step"),
+            compilation_options: Default::default(),
+            cache: None,
         });
 
         // Create params buffer
@@ -600,7 +604,7 @@ impl TileGpuComputePool {
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
         });
-        self.device.poll(wgpu::Maintain::Wait);
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         rx.recv().unwrap().expect("Failed to map staging buffer");
 
         let data = buffer_slice.get_mapped_range();
@@ -636,7 +640,7 @@ pub struct TileBuffers {
 
 /// Initialize WGPU adapter for tile GPU compute.
 pub async fn init_wgpu() -> Result<(Arc<wgpu::Device>, Arc<wgpu::Queue>)> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::all(),
         ..Default::default()
     });
@@ -648,22 +652,20 @@ pub async fn init_wgpu() -> Result<(Arc<wgpu::Device>, Arc<wgpu::Queue>)> {
             force_fallback_adapter: false,
         })
         .await
-        .ok_or_else(|| {
-            RingKernelError::BackendUnavailable("No WebGPU adapter found".to_string())
+        .map_err(|e| {
+            RingKernelError::BackendUnavailable(format!("No WebGPU adapter found: {}", e))
         })?;
 
     let info = adapter.get_info();
     tracing::info!("Tile GPU Compute: {} ({:?})", info.name, info.backend);
 
     let (device, queue) = adapter
-        .request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("WaveSim Tile GPU Device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-            },
-            None,
-        )
+        .request_device(&wgpu::DeviceDescriptor {
+            label: Some("WaveSim Tile GPU Device"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            ..Default::default()
+        })
         .await
         .map_err(|e| RingKernelError::BackendError(format!("Failed to create device: {}", e)))?;
 
