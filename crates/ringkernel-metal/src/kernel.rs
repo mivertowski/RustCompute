@@ -116,6 +116,307 @@ impl MetalControlBlock {
 }
 
 // ============================================================================
+// K2K MESSAGING STRUCTURES
+// ============================================================================
+
+/// K2K inbox header for Metal (64 bytes).
+///
+/// Each threadgroup has an inbox for receiving messages from other threadgroups.
+/// This structure manages the inbox state.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MetalK2KInboxHeader {
+    /// Message count in inbox.
+    pub message_count: u32,
+    /// Maximum messages.
+    pub max_messages: u32,
+    /// Head index (next to read).
+    pub head: u32,
+    /// Tail index (next to write).
+    pub tail: u32,
+    /// Source threadgroup ID of last message.
+    pub last_source: u32,
+    /// Lock for thread-safe access (0 = unlocked, 1 = locked).
+    pub lock: u32,
+    /// Sequence number for ordering.
+    pub sequence: u32,
+    /// Reserved for alignment.
+    pub _reserved: [u32; 9],
+}
+
+impl MetalK2KInboxHeader {
+    /// Try to acquire the lock.
+    pub fn try_lock(&mut self) -> bool {
+        if self.lock == 0 {
+            self.lock = 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Release the lock.
+    pub fn unlock(&mut self) {
+        self.lock = 0;
+    }
+
+    /// Check if inbox has messages.
+    pub fn has_messages(&self) -> bool {
+        self.message_count > 0
+    }
+
+    /// Check if inbox is full.
+    pub fn is_full(&self) -> bool {
+        self.message_count >= self.max_messages
+    }
+}
+
+/// K2K route entry for Metal (32 bytes).
+///
+/// Maps a destination threadgroup to its inbox location.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MetalK2KRouteEntry {
+    /// Destination threadgroup ID.
+    pub dest_threadgroup: u32,
+    /// Inbox buffer offset.
+    pub inbox_offset: u32,
+    /// Whether this route is active.
+    pub is_active: u32,
+    /// Number of hops (for multi-hop routing).
+    pub hops: u32,
+    /// Bandwidth hint (messages per dispatch).
+    pub bandwidth_hint: u32,
+    /// Priority level (0 = highest).
+    pub priority: u32,
+    /// Reserved for alignment.
+    pub _reserved: [u32; 2],
+}
+
+impl MetalK2KRouteEntry {
+    /// Create a new route entry.
+    pub fn new(dest: u32, offset: u32) -> Self {
+        Self {
+            dest_threadgroup: dest,
+            inbox_offset: offset,
+            is_active: 1,
+            hops: 1,
+            bandwidth_hint: 16,
+            priority: 0,
+            _reserved: [0; 2],
+        }
+    }
+}
+
+/// K2K routing table for Metal.
+///
+/// Contains routes to neighboring threadgroups for halo exchange patterns.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct MetalK2KRoutingTable {
+    /// This threadgroup's ID.
+    pub self_id: u32,
+    /// Number of active routes.
+    pub route_count: u32,
+    /// Grid dimensions (for neighbor calculation).
+    pub grid_dim_x: u32,
+    /// Grid dimensions.
+    pub grid_dim_y: u32,
+    /// Grid dimensions.
+    pub grid_dim_z: u32,
+    /// Reserved for alignment.
+    pub _reserved: [u32; 3],
+    /// Routes to neighbors (max 26 for 3D Moore neighborhood).
+    pub routes: [MetalK2KRouteEntry; 26],
+}
+
+impl Default for MetalK2KRoutingTable {
+    fn default() -> Self {
+        Self {
+            self_id: 0,
+            route_count: 0,
+            grid_dim_x: 1,
+            grid_dim_y: 1,
+            grid_dim_z: 1,
+            _reserved: [0; 3],
+            routes: [MetalK2KRouteEntry::default(); 26],
+        }
+    }
+}
+
+impl MetalK2KRoutingTable {
+    /// Create a 2D 4-neighbor routing table (von Neumann neighborhood).
+    pub fn new_2d_4neighbor(self_id: u32, grid_x: u32, grid_y: u32, inbox_size: u32) -> Self {
+        let mut table = Self {
+            self_id,
+            grid_dim_x: grid_x,
+            grid_dim_y: grid_y,
+            grid_dim_z: 1,
+            ..Default::default()
+        };
+
+        let x = self_id % grid_x;
+        let y = self_id / grid_x;
+        let mut count = 0;
+
+        // North
+        if y > 0 {
+            let neighbor = (y - 1) * grid_x + x;
+            table.routes[count] = MetalK2KRouteEntry::new(neighbor, neighbor * inbox_size);
+            count += 1;
+        }
+        // South
+        if y < grid_y - 1 {
+            let neighbor = (y + 1) * grid_x + x;
+            table.routes[count] = MetalK2KRouteEntry::new(neighbor, neighbor * inbox_size);
+            count += 1;
+        }
+        // West
+        if x > 0 {
+            let neighbor = y * grid_x + (x - 1);
+            table.routes[count] = MetalK2KRouteEntry::new(neighbor, neighbor * inbox_size);
+            count += 1;
+        }
+        // East
+        if x < grid_x - 1 {
+            let neighbor = y * grid_x + (x + 1);
+            table.routes[count] = MetalK2KRouteEntry::new(neighbor, neighbor * inbox_size);
+            count += 1;
+        }
+
+        table.route_count = count as u32;
+        table
+    }
+
+    /// Create a 3D 6-neighbor routing table (von Neumann neighborhood).
+    pub fn new_3d_6neighbor(
+        self_id: u32,
+        grid_x: u32,
+        grid_y: u32,
+        grid_z: u32,
+        inbox_size: u32,
+    ) -> Self {
+        let mut table = Self {
+            self_id,
+            grid_dim_x: grid_x,
+            grid_dim_y: grid_y,
+            grid_dim_z: grid_z,
+            ..Default::default()
+        };
+
+        let z = self_id / (grid_x * grid_y);
+        let rem = self_id % (grid_x * grid_y);
+        let y = rem / grid_x;
+        let x = rem % grid_x;
+        let mut count = 0;
+
+        // -X
+        if x > 0 {
+            let neighbor = z * (grid_x * grid_y) + y * grid_x + (x - 1);
+            table.routes[count] = MetalK2KRouteEntry::new(neighbor, neighbor * inbox_size);
+            count += 1;
+        }
+        // +X
+        if x < grid_x - 1 {
+            let neighbor = z * (grid_x * grid_y) + y * grid_x + (x + 1);
+            table.routes[count] = MetalK2KRouteEntry::new(neighbor, neighbor * inbox_size);
+            count += 1;
+        }
+        // -Y
+        if y > 0 {
+            let neighbor = z * (grid_x * grid_y) + (y - 1) * grid_x + x;
+            table.routes[count] = MetalK2KRouteEntry::new(neighbor, neighbor * inbox_size);
+            count += 1;
+        }
+        // +Y
+        if y < grid_y - 1 {
+            let neighbor = z * (grid_x * grid_y) + (y + 1) * grid_x + x;
+            table.routes[count] = MetalK2KRouteEntry::new(neighbor, neighbor * inbox_size);
+            count += 1;
+        }
+        // -Z
+        if z > 0 {
+            let neighbor = (z - 1) * (grid_x * grid_y) + y * grid_x + x;
+            table.routes[count] = MetalK2KRouteEntry::new(neighbor, neighbor * inbox_size);
+            count += 1;
+        }
+        // +Z
+        if z < grid_z - 1 {
+            let neighbor = (z + 1) * (grid_x * grid_y) + y * grid_x + x;
+            table.routes[count] = MetalK2KRouteEntry::new(neighbor, neighbor * inbox_size);
+            count += 1;
+        }
+
+        table.route_count = count as u32;
+        table
+    }
+
+    /// Get route to a specific neighbor.
+    pub fn get_route(&self, dest: u32) -> Option<&MetalK2KRouteEntry> {
+        self.routes[..self.route_count as usize]
+            .iter()
+            .find(|r| r.dest_threadgroup == dest && r.is_active != 0)
+    }
+}
+
+/// Halo exchange message for stencil computations.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MetalHaloMessage {
+    /// Source threadgroup.
+    pub source: u32,
+    /// Direction index (0-5 for 3D, 0-3 for 2D).
+    pub direction: u32,
+    /// Halo width.
+    pub width: u32,
+    /// Halo height.
+    pub height: u32,
+    /// Halo depth (1 for 2D).
+    pub depth: u32,
+    /// Data type size in bytes.
+    pub element_size: u32,
+    /// Sequence number.
+    pub sequence: u32,
+    /// Flags.
+    pub flags: u32,
+}
+
+impl MetalHaloMessage {
+    /// Create a new halo message for 2D.
+    pub fn new_2d(source: u32, direction: u32, width: u32, height: u32) -> Self {
+        Self {
+            source,
+            direction,
+            width,
+            height,
+            depth: 1,
+            element_size: 4, // f32
+            sequence: 0,
+            flags: 0,
+        }
+    }
+
+    /// Create a new halo message for 3D.
+    pub fn new_3d(source: u32, direction: u32, width: u32, height: u32, depth: u32) -> Self {
+        Self {
+            source,
+            direction,
+            width,
+            height,
+            depth,
+            element_size: 4, // f32
+            sequence: 0,
+            flags: 0,
+        }
+    }
+
+    /// Calculate payload size in bytes.
+    pub fn payload_size(&self) -> usize {
+        (self.width as usize) * (self.height as usize) * (self.depth as usize) * (self.element_size as usize)
+    }
+}
+
+// ============================================================================
 // MESSAGE QUEUE
 // ============================================================================
 
@@ -595,5 +896,163 @@ impl KernelHandleInner for MetalKernel {
     async fn wait(&self) -> Result<()> {
         self.terminate_notify.notified().await;
         Ok(())
+    }
+}
+
+// ============================================================================
+// TESTS
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_control_block_size() {
+        assert_eq!(std::mem::size_of::<MetalControlBlock>(), 128);
+    }
+
+    #[test]
+    fn test_k2k_inbox_header_size() {
+        assert_eq!(std::mem::size_of::<MetalK2KInboxHeader>(), 64);
+    }
+
+    #[test]
+    fn test_k2k_route_entry_size() {
+        assert_eq!(std::mem::size_of::<MetalK2KRouteEntry>(), 32);
+    }
+
+    #[test]
+    fn test_halo_message_size() {
+        assert_eq!(std::mem::size_of::<MetalHaloMessage>(), 32);
+    }
+
+    #[test]
+    fn test_k2k_inbox_operations() {
+        let mut header = MetalK2KInboxHeader {
+            max_messages: 16,
+            ..Default::default()
+        };
+
+        assert!(!header.has_messages());
+        assert!(!header.is_full());
+
+        header.message_count = 5;
+        assert!(header.has_messages());
+        assert!(!header.is_full());
+
+        header.message_count = 16;
+        assert!(header.is_full());
+    }
+
+    #[test]
+    fn test_k2k_inbox_lock() {
+        let mut header = MetalK2KInboxHeader::default();
+
+        assert!(header.try_lock());
+        assert!(!header.try_lock()); // Already locked
+
+        header.unlock();
+        assert!(header.try_lock()); // Can lock again
+    }
+
+    #[test]
+    fn test_k2k_route_entry_new() {
+        let entry = MetalK2KRouteEntry::new(5, 1024);
+
+        assert_eq!(entry.dest_threadgroup, 5);
+        assert_eq!(entry.inbox_offset, 1024);
+        assert_eq!(entry.is_active, 1);
+        assert_eq!(entry.hops, 1);
+    }
+
+    #[test]
+    fn test_routing_table_2d_4neighbor_center() {
+        // 3x3 grid, center cell (id=4)
+        let table = MetalK2KRoutingTable::new_2d_4neighbor(4, 3, 3, 64);
+
+        assert_eq!(table.self_id, 4);
+        assert_eq!(table.route_count, 4); // All 4 neighbors exist
+
+        // Check neighbors: north=1, south=7, west=3, east=5
+        assert!(table.get_route(1).is_some()); // North
+        assert!(table.get_route(7).is_some()); // South
+        assert!(table.get_route(3).is_some()); // West
+        assert!(table.get_route(5).is_some()); // East
+    }
+
+    #[test]
+    fn test_routing_table_2d_4neighbor_corner() {
+        // 3x3 grid, top-left corner (id=0)
+        let table = MetalK2KRoutingTable::new_2d_4neighbor(0, 3, 3, 64);
+
+        assert_eq!(table.route_count, 2); // Only south and east
+        assert!(table.get_route(3).is_some()); // South
+        assert!(table.get_route(1).is_some()); // East
+    }
+
+    #[test]
+    fn test_routing_table_3d_6neighbor_center() {
+        // 3x3x3 grid, center cell (id=13)
+        let table = MetalK2KRoutingTable::new_3d_6neighbor(13, 3, 3, 3, 64);
+
+        assert_eq!(table.self_id, 13);
+        assert_eq!(table.route_count, 6); // All 6 neighbors exist
+    }
+
+    #[test]
+    fn test_routing_table_3d_6neighbor_corner() {
+        // 3x3x3 grid, origin corner (id=0)
+        let table = MetalK2KRoutingTable::new_3d_6neighbor(0, 3, 3, 3, 64);
+
+        assert_eq!(table.route_count, 3); // Only +X, +Y, +Z
+    }
+
+    #[test]
+    fn test_halo_message_2d() {
+        let msg = MetalHaloMessage::new_2d(5, 0, 16, 1);
+
+        assert_eq!(msg.source, 5);
+        assert_eq!(msg.direction, 0);
+        assert_eq!(msg.width, 16);
+        assert_eq!(msg.height, 1);
+        assert_eq!(msg.depth, 1);
+        assert_eq!(msg.payload_size(), 64); // 16 * 1 * 1 * 4
+    }
+
+    #[test]
+    fn test_halo_message_3d() {
+        let msg = MetalHaloMessage::new_3d(10, 2, 8, 8, 1);
+
+        assert_eq!(msg.source, 10);
+        assert_eq!(msg.direction, 2);
+        assert_eq!(msg.payload_size(), 256); // 8 * 8 * 1 * 4
+    }
+
+    #[test]
+    fn test_control_block_queue_size() {
+        let mut cb = MetalControlBlock::default();
+
+        // Empty queue
+        assert_eq!(cb.input_queue_size(), 0);
+
+        // Add some messages
+        cb.input_tail_lo = 10;
+        assert_eq!(cb.input_queue_size(), 10);
+
+        // Read some
+        cb.input_head_lo = 5;
+        assert_eq!(cb.input_queue_size(), 5);
+    }
+
+    #[test]
+    fn test_control_block_messages_processed() {
+        let mut cb = MetalControlBlock::default();
+
+        cb.messages_processed_lo = 0xFFFFFFFF;
+        cb.messages_processed_hi = 0x1;
+
+        // Should be 0x1_FFFFFFFF
+        assert_eq!(cb.messages_processed(), 0x1_FFFFFFFF);
     }
 }
