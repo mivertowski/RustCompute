@@ -28,6 +28,15 @@ RingKernel enables GPU-accelerated actor systems with persistent kernels, lock-f
 | [**ENTERPRISE_FEATURES.md**](ENTERPRISE_FEATURES.md) | Enterprise-grade features: resilience, security, compliance |
 | [**DEVELOPER_EXPERIENCE.md**](DEVELOPER_EXPERIENCE.md) | Tooling, testing, and developer productivity |
 
+### Implementation & Testing
+
+| Document | Description |
+|----------|-------------|
+| [**IMPLEMENTATION_PLAN.md**](IMPLEMENTATION_PLAN.md) | Phased implementation with sprints, tasks, and deliverables |
+| [**TESTING_STRATEGY.md**](TESTING_STRATEGY.md) | Comprehensive testing strategy across all backends |
+| [**MILESTONE_CHECKLIST.md**](MILESTONE_CHECKLIST.md) | Trackable milestones with acceptance criteria |
+| [**DEPENDENCY_GRAPH.md**](DEPENDENCY_GRAPH.md) | Implementation dependencies and critical paths |
+
 ## Quick Navigation
 
 ### By Topic
@@ -45,6 +54,12 @@ RingKernel enables GPU-accelerated actor systems with persistent kernels, lock-f
 
 **Developer Experience**
 - [DX Roadmap](DEVELOPER_EXPERIENCE.md) - CLI, IDE, testing, documentation
+
+**Implementation & Testing**
+- [Implementation Plan](IMPLEMENTATION_PLAN.md) - Sprints, tasks, deliverables
+- [Testing Strategy](TESTING_STRATEGY.md) - Test pyramid, coverage, CI/CD
+- [Milestone Checklist](MILESTONE_CHECKLIST.md) - Progress tracking
+- [Dependency Graph](DEPENDENCY_GRAPH.md) - Critical paths and parallelization
 
 ### By Backend
 
