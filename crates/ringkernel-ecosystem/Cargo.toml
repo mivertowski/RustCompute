@@ -28,8 +28,8 @@ tower = ["dep:tower", "dep:tower-service"]
 # Web framework integrations
 axum = ["dep:axum", "tower"]
 
-# WebSocket support for Axum (streaming responses)
-axum-ws = ["axum"]
+# WebSocket support for Axum (bidirectional streaming)
+axum-ws = ["axum", "dep:serde_json", "persistent"]
 
 # Server-Sent Events support for Axum (streaming responses)
 axum-sse = ["axum", "dep:async-stream", "dep:serde_json", "persistent"]
@@ -80,8 +80,8 @@ actix-rt = { version = "2.10", optional = true }
 tower = { version = "0.5", optional = true }
 tower-service = { version = "0.3", optional = true }
 
-# Optional: Web frameworks
-axum = { version = "0.8", optional = true }
+# Optional: Web frameworks (ws feature for WebSocket support)
+axum = { version = "0.8", optional = true, features = ["ws"] }
 
 # Optional: Data processing
 arrow = { version = "54", optional = true }
