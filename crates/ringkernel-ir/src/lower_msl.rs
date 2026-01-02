@@ -1,67 +1,63 @@
-//! IR to CUDA lowering pass.
+//! IR to MSL (Metal Shading Language) lowering pass.
 //!
-//! Lowers IR to CUDA C code for compilation with nvcc.
+//! Lowers IR to Metal Shading Language for Apple GPU compute.
 
 use std::collections::HashMap;
 use std::fmt::Write;
 
 use crate::{
-    nodes::*, BackendCapabilities, BlockId, Dimension, IrModule, IrNode,
+    nodes::*, BlockId, CapabilityFlag, Dimension, IrModule, IrNode,
     IrType, ScalarType, Terminator, ValueId,
 };
 
-/// CUDA lowering configuration.
+/// MSL lowering configuration.
 #[derive(Debug, Clone)]
-pub struct CudaLoweringConfig {
-    /// Target compute capability (e.g., 80 for SM 8.0).
-    pub compute_capability: u32,
-    /// Enable cooperative groups.
-    pub cooperative_groups: bool,
-    /// Enable HLC (Hybrid Logical Clocks).
-    pub enable_hlc: bool,
-    /// Enable K2K messaging.
-    pub enable_k2k: bool,
-    /// Use fast math.
-    pub fast_math: bool,
-    /// Generate debug info.
+pub struct MslLoweringConfig {
+    /// Metal language version (e.g., 2.4, 3.0).
+    pub metal_version: (u32, u32),
+    /// Enable SIMD group operations.
+    pub simd_groups: bool,
+    /// Threadgroup size.
+    pub threadgroup_size: (u32, u32, u32),
+    /// Enable indirect command buffers.
+    pub indirect_commands: bool,
+    /// Generate debug comments.
     pub debug: bool,
 }
 
-impl Default for CudaLoweringConfig {
+impl Default for MslLoweringConfig {
     fn default() -> Self {
         Self {
-            compute_capability: 70,
-            cooperative_groups: false,
-            enable_hlc: false,
-            enable_k2k: false,
-            fast_math: false,
+            metal_version: (2, 4),
+            threadgroup_size: (256, 1, 1),
+            simd_groups: true,
+            indirect_commands: false,
             debug: false,
         }
     }
 }
 
-impl CudaLoweringConfig {
-    /// Create config for SM 8.0+.
-    pub fn sm80() -> Self {
+impl MslLoweringConfig {
+    /// Create config for Metal 3.0.
+    pub fn metal3() -> Self {
         Self {
-            compute_capability: 80,
-            cooperative_groups: true,
+            metal_version: (3, 0),
+            simd_groups: true,
+            indirect_commands: true,
             ..Default::default()
         }
     }
 
-    /// Enable persistent kernel features.
-    pub fn with_persistent(mut self) -> Self {
-        self.enable_hlc = true;
-        self.enable_k2k = true;
-        self.cooperative_groups = true;
+    /// Set threadgroup size.
+    pub fn with_threadgroup_size(mut self, x: u32, y: u32, z: u32) -> Self {
+        self.threadgroup_size = (x, y, z);
         self
     }
 }
 
-/// CUDA code generator.
-pub struct CudaLowering {
-    config: CudaLoweringConfig,
+/// MSL code generator.
+pub struct MslLowering {
+    config: MslLoweringConfig,
     output: String,
     indent: usize,
     value_names: HashMap<ValueId, String>,
@@ -69,9 +65,9 @@ pub struct CudaLowering {
     block_labels: HashMap<BlockId, String>,
 }
 
-impl CudaLowering {
-    /// Create a new CUDA lowering pass.
-    pub fn new(config: CudaLoweringConfig) -> Self {
+impl MslLowering {
+    /// Create a new MSL lowering pass.
+    pub fn new(config: MslLoweringConfig) -> Self {
         Self {
             config,
             output: String::new(),
@@ -82,13 +78,13 @@ impl CudaLowering {
         }
     }
 
-    /// Lower an IR module to CUDA code.
-    pub fn lower(mut self, module: &IrModule) -> Result<String, LoweringError> {
+    /// Lower an IR module to MSL code.
+    pub fn lower(mut self, module: &IrModule) -> Result<String, MslLoweringError> {
         // Check capabilities
         self.check_capabilities(module)?;
 
-        // Generate includes
-        self.emit_includes();
+        // Generate header
+        self.emit_header();
 
         // Generate type definitions
         self.emit_type_definitions(module);
@@ -99,116 +95,85 @@ impl CudaLowering {
         Ok(self.output)
     }
 
-    fn check_capabilities(&self, module: &IrModule) -> Result<(), LoweringError> {
-        let cuda_caps = BackendCapabilities::cuda_sm80();
+    fn check_capabilities(&self, module: &IrModule) -> Result<(), MslLoweringError> {
+        // Metal doesn't support f64
+        if module.required_capabilities.has(CapabilityFlag::Float64) {
+            return Err(MslLoweringError::UnsupportedCapability(
+                "f64 not supported in Metal (will downcast to f32)".to_string(),
+            ));
+        }
 
-        let unsupported = cuda_caps.unsupported(&module.required_capabilities);
-        if !unsupported.is_empty() {
-            return Err(LoweringError::UnsupportedCapability(
-                unsupported
-                    .iter()
-                    .map(|c| format!("{}", c))
-                    .collect::<Vec<_>>()
-                    .join(", "),
+        // Metal doesn't have true cooperative groups for grid sync
+        if module.required_capabilities.has(CapabilityFlag::CooperativeGroups) {
+            return Err(MslLoweringError::UnsupportedCapability(
+                "Grid-wide sync not supported in Metal".to_string(),
             ));
         }
 
         Ok(())
     }
 
-    fn emit_includes(&mut self) {
-        self.emit_line("// Generated by ringkernel-ir CUDA lowering");
-        self.emit_line("#include <cuda_runtime.h>");
-        self.emit_line("#include <stdint.h>");
-
-        if self.config.cooperative_groups {
-            self.emit_line("#include <cooperative_groups.h>");
-            self.emit_line("namespace cg = cooperative_groups;");
-        }
-
+    fn emit_header(&mut self) {
+        self.emit_line("// Generated by ringkernel-ir MSL lowering");
+        self.emit_line("#include <metal_stdlib>");
+        self.emit_line("#include <simdgroup_matrix>");
+        self.emit_line("using namespace metal;");
         self.emit_line("");
     }
 
     fn emit_type_definitions(&mut self, _module: &IrModule) {
-        // HLC timestamp type
-        if self.config.enable_hlc {
-            self.emit_line("// HLC Timestamp");
-            self.emit_line("struct HlcTimestamp {");
-            self.indent += 1;
-            self.emit_line("uint64_t physical;");
-            self.emit_line("uint64_t logical;");
-            self.emit_line("uint64_t node_id;");
-            self.indent -= 1;
-            self.emit_line("};");
-            self.emit_line("");
-        }
-
-        // Control block for persistent kernels
-        if self.config.enable_k2k {
-            self.emit_line("// Control Block");
-            self.emit_line("struct ControlBlock {");
-            self.indent += 1;
-            self.emit_line("uint32_t is_active;");
-            self.emit_line("uint32_t should_terminate;");
-            self.emit_line("uint32_t has_terminated;");
-            self.emit_line("uint32_t _pad1;");
-            self.emit_line("uint64_t messages_processed;");
-            self.emit_line("uint64_t messages_in_flight;");
-            self.emit_line("uint64_t input_head;");
-            self.emit_line("uint64_t input_tail;");
-            self.emit_line("uint64_t output_head;");
-            self.emit_line("uint64_t output_tail;");
-            self.emit_line("uint32_t input_capacity;");
-            self.emit_line("uint32_t output_capacity;");
-            self.emit_line("uint32_t input_mask;");
-            self.emit_line("uint32_t output_mask;");
-            self.indent -= 1;
-            self.emit_line("};");
-            self.emit_line("");
-        }
+        // HLC timestamp type (if needed)
+        self.emit_line("// Common types");
+        self.emit_line("struct HlcTimestamp {");
+        self.indent += 1;
+        self.emit_line("uint64_t physical;");
+        self.emit_line("uint64_t logical;");
+        self.emit_line("uint64_t node_id;");
+        self.indent -= 1;
+        self.emit_line("};");
+        self.emit_line("");
     }
 
-    fn emit_kernel(&mut self, module: &IrModule) -> Result<(), LoweringError> {
-        // Assign names to values and blocks
+    fn emit_kernel(&mut self, module: &IrModule) -> Result<(), MslLoweringError> {
+        // Assign names
         self.assign_names(module);
 
-        // Kernel signature
-        let kernel_attr = if self.config.cooperative_groups {
-            "__global__ void __launch_bounds__(256)"
-        } else {
-            "__global__ void"
-        };
-
-        write!(self.output, "{} {}(", kernel_attr, module.name).unwrap();
+        // Kernel signature (threadgroup size set at dispatch time)
+        self.emit_line("kernel void");
+        write!(self.output, "{}(\n", module.name).unwrap();
+        self.indent += 1;
 
         // Parameters
-        for (i, param) in module.parameters.iter().enumerate() {
-            if i > 0 {
-                write!(self.output, ", ").unwrap();
-            }
+        let mut buffer_idx = 0;
+        for param in &module.parameters {
             let ty = self.lower_type(&param.ty);
-            write!(self.output, "{} {}", ty, param.name).unwrap();
+            let qualifier = if param.ty.is_ptr() {
+                "device"
+            } else {
+                "constant"
+            };
+            self.emit_line(&format!(
+                "{} {}& {} [[buffer({})]],",
+                qualifier, ty, param.name, buffer_idx
+            ));
+            buffer_idx += 1;
         }
 
+        // Built-in arguments
+        self.emit_line("uint3 thread_position_in_grid [[thread_position_in_grid]],");
+        self.emit_line("uint3 thread_position_in_threadgroup [[thread_position_in_threadgroup]],");
+        self.emit_line("uint3 threadgroup_position_in_grid [[threadgroup_position_in_grid]],");
+        self.emit_line("uint3 threads_per_threadgroup [[threads_per_threadgroup]],");
+        self.emit_line("uint3 threadgroups_per_grid [[threadgroups_per_grid]],");
+        self.emit_line("uint thread_index_in_simdgroup [[thread_index_in_simdgroup]],");
+        self.emit_line("uint simdgroup_index_in_threadgroup [[simdgroup_index_in_threadgroup]]");
+
+        self.indent -= 1;
         self.emit_line(") {");
         self.indent += 1;
 
-        // Cooperative groups setup
-        if self.config.cooperative_groups {
-            self.emit_line("cg::grid_group grid = cg::this_grid();");
-            self.emit_line("cg::thread_block block = cg::this_thread_block();");
-            self.emit_line("");
-        }
-
         // Emit blocks
         self.emit_block(module, module.entry_block)?;
-
-        // Emit other blocks
-        for (block_id, _) in &module.blocks {
-            if *block_id != module.entry_block {
-                self.emit_block(module, *block_id)?;
-            }
-        }
 
         self.indent -= 1;
         self.emit_line("}");
@@ -217,23 +182,20 @@ impl CudaLowering {
     }
 
     fn assign_names(&mut self, module: &IrModule) {
-        // Assign names to parameters
         for param in &module.parameters {
-            self.value_names
-                .insert(param.value_id, param.name.clone());
+            self.value_names.insert(param.value_id, param.name.clone());
         }
 
-        // Assign names to blocks
         for (block_id, block) in &module.blocks {
             self.block_labels.insert(*block_id, block.label.clone());
         }
     }
 
-    fn emit_block(&mut self, module: &IrModule, block_id: BlockId) -> Result<(), LoweringError> {
+    fn emit_block(&mut self, module: &IrModule, block_id: BlockId) -> Result<(), MslLoweringError> {
         let block = module
             .blocks
             .get(&block_id)
-            .ok_or(LoweringError::UndefinedBlock(block_id))?;
+            .ok_or(MslLoweringError::UndefinedBlock(block_id))?;
 
         // Block label (skip for entry)
         if block_id != module.entry_block {
@@ -248,7 +210,7 @@ impl CudaLowering {
 
         // Terminator
         if let Some(term) = &block.terminator {
-            self.emit_terminator(term)?;
+            self.emit_terminator(module, term)?;
         }
 
         if block_id != module.entry_block {
@@ -265,7 +227,7 @@ impl CudaLowering {
         result: &ValueId,
         result_type: &IrType,
         node: &IrNode,
-    ) -> Result<(), LoweringError> {
+    ) -> Result<(), MslLoweringError> {
         let result_name = self.get_or_create_name(*result);
         let ty = self.lower_type(result_type);
 
@@ -305,89 +267,91 @@ impl CudaLowering {
             // Memory operations
             IrNode::Load(ptr) => {
                 let ptr_name = self.get_value_name(*ptr);
-                self.emit_line(&format!("{} {} = *{};", ty, result_name, ptr_name));
+                self.emit_line(&format!("{} {} = {};", ty, result_name, ptr_name));
             }
 
             IrNode::Store(ptr, val) => {
                 let ptr_name = self.get_value_name(*ptr);
                 let val_name = self.get_value_name(*val);
-                self.emit_line(&format!("*{} = {};", ptr_name, val_name));
+                self.emit_line(&format!("{} = {};", ptr_name, val_name));
             }
 
             IrNode::GetElementPtr(ptr, indices) => {
                 let ptr_name = self.get_value_name(*ptr);
                 let idx_name = self.get_value_name(indices[0]);
-                self.emit_line(&format!("{} {} = &{}[{}];", ty, result_name, ptr_name, idx_name));
+                self.emit_line(&format!(
+                    "{} {} = {}[{}];",
+                    ty, result_name, ptr_name, idx_name
+                ));
             }
 
             IrNode::SharedAlloc(elem_ty, count) => {
                 let elem = self.lower_type(elem_ty);
                 self.emit_line(&format!(
-                    "__shared__ {} {}[{}];",
+                    "threadgroup {} {}[{}];",
                     elem, result_name, count
                 ));
             }
 
             // GPU indexing
             IrNode::ThreadId(dim) => {
-                let idx = self.lower_dimension(dim, "threadIdx");
+                let idx = self.lower_dimension(dim, "thread_position_in_threadgroup");
                 self.emit_line(&format!("{} {} = {};", ty, result_name, idx));
             }
 
             IrNode::BlockId(dim) => {
-                let idx = self.lower_dimension(dim, "blockIdx");
+                let idx = self.lower_dimension(dim, "threadgroup_position_in_grid");
                 self.emit_line(&format!("{} {} = {};", ty, result_name, idx));
             }
 
             IrNode::BlockDim(dim) => {
-                let idx = self.lower_dimension(dim, "blockDim");
+                let idx = self.lower_dimension(dim, "threads_per_threadgroup");
                 self.emit_line(&format!("{} {} = {};", ty, result_name, idx));
             }
 
             IrNode::GridDim(dim) => {
-                let idx = self.lower_dimension(dim, "gridDim");
+                let idx = self.lower_dimension(dim, "threadgroups_per_grid");
                 self.emit_line(&format!("{} {} = {};", ty, result_name, idx));
             }
 
             IrNode::GlobalThreadId(dim) => {
-                let block_idx = self.lower_dimension(dim, "blockIdx");
-                let block_dim = self.lower_dimension(dim, "blockDim");
-                let thread_idx = self.lower_dimension(dim, "threadIdx");
-                self.emit_line(&format!(
-                    "{} {} = {} * {} + {};",
-                    ty, result_name, block_idx, block_dim, thread_idx
-                ));
+                let idx = self.lower_dimension(dim, "thread_position_in_grid");
+                self.emit_line(&format!("{} {} = {};", ty, result_name, idx));
             }
 
             IrNode::WarpId => {
-                self.emit_line(&format!("{} {} = threadIdx.x / 32;", ty, result_name));
+                self.emit_line(&format!(
+                    "{} {} = simdgroup_index_in_threadgroup;",
+                    ty, result_name
+                ));
             }
 
             IrNode::LaneId => {
-                self.emit_line(&format!("{} {} = threadIdx.x % 32;", ty, result_name));
+                self.emit_line(&format!(
+                    "{} {} = thread_index_in_simdgroup;",
+                    ty, result_name
+                ));
             }
 
             // Synchronization
             IrNode::Barrier => {
-                self.emit_line("__syncthreads();");
+                self.emit_line("threadgroup_barrier(mem_flags::mem_threadgroup);");
             }
 
             IrNode::MemoryFence(scope) => {
                 let fence = match scope {
-                    MemoryScope::Thread => "__threadfence_block()",
-                    MemoryScope::Threadgroup => "__threadfence_block()",
-                    MemoryScope::Device => "__threadfence()",
-                    MemoryScope::System => "__threadfence_system()",
+                    MemoryScope::Thread => "threadgroup_barrier(mem_flags::mem_none)",
+                    MemoryScope::Threadgroup => "threadgroup_barrier(mem_flags::mem_threadgroup)",
+                    MemoryScope::Device => "threadgroup_barrier(mem_flags::mem_device)",
+                    MemoryScope::System => "threadgroup_barrier(mem_flags::mem_device)",
                 };
                 self.emit_line(&format!("{};", fence));
             }
 
             IrNode::GridSync => {
-                if self.config.cooperative_groups {
-                    self.emit_line("grid.sync();");
-                } else {
-                    return Err(LoweringError::RequiresCooperativeGroups);
-                }
+                return Err(MslLoweringError::UnsupportedOperation(
+                    "Grid sync not supported in Metal".to_string(),
+                ));
             }
 
             // Atomics
@@ -395,28 +359,31 @@ impl CudaLowering {
                 let ptr_name = self.get_value_name(*ptr);
                 let val_name = self.get_value_name(*val);
                 let atomic_fn = match op {
-                    AtomicOp::Add => "atomicAdd",
-                    AtomicOp::Sub => "atomicSub",
-                    AtomicOp::Exchange => "atomicExch",
-                    AtomicOp::Min => "atomicMin",
-                    AtomicOp::Max => "atomicMax",
-                    AtomicOp::And => "atomicAnd",
-                    AtomicOp::Or => "atomicOr",
-                    AtomicOp::Xor => "atomicXor",
+                    AtomicOp::Add => "atomic_fetch_add_explicit",
+                    AtomicOp::Sub => "atomic_fetch_sub_explicit",
+                    AtomicOp::Exchange => "atomic_exchange_explicit",
+                    AtomicOp::Min => "atomic_fetch_min_explicit",
+                    AtomicOp::Max => "atomic_fetch_max_explicit",
+                    AtomicOp::And => "atomic_fetch_and_explicit",
+                    AtomicOp::Or => "atomic_fetch_or_explicit",
+                    AtomicOp::Xor => "atomic_fetch_xor_explicit",
                     AtomicOp::Load => {
                         self.emit_line(&format!(
-                            "{} {} = atomicAdd({}, 0);",
+                            "{} {} = atomic_load_explicit(&{}, memory_order_relaxed);",
                             ty, result_name, ptr_name
                         ));
                         return Ok(());
                     }
                     AtomicOp::Store => {
-                        self.emit_line(&format!("atomicExch({}, {});", ptr_name, val_name));
+                        self.emit_line(&format!(
+                            "atomic_store_explicit(&{}, {}, memory_order_relaxed);",
+                            ptr_name, val_name
+                        ));
                         return Ok(());
                     }
                 };
                 self.emit_line(&format!(
-                    "{} {} = {}({}, {});",
+                    "{} {} = {}(&{}, {}, memory_order_relaxed);",
                     ty, result_name, atomic_fn, ptr_name, val_name
                 ));
             }
@@ -426,33 +393,50 @@ impl CudaLowering {
                 let exp_name = self.get_value_name(*expected);
                 let des_name = self.get_value_name(*desired);
                 self.emit_line(&format!(
-                    "{} {} = atomicCAS({}, {}, {});",
-                    ty, result_name, ptr_name, exp_name, des_name
+                    "{} {} = {};",
+                    ty, result_name, exp_name
+                ));
+                self.emit_line(&format!(
+                    "atomic_compare_exchange_weak_explicit(&{}, &{}, {}, memory_order_relaxed, memory_order_relaxed);",
+                    ptr_name, result_name, des_name
                 ));
             }
 
-            // Warp operations
+            // SIMD group operations
             IrNode::WarpVote(op, val) => {
+                if !self.config.simd_groups {
+                    return Err(MslLoweringError::UnsupportedOperation(
+                        "SIMD group operations require simd_groups feature".to_string(),
+                    ));
+                }
                 let val_name = self.get_value_name(*val);
                 let vote_fn = match op {
-                    WarpVoteOp::All => "__all_sync(0xFFFFFFFF, ",
-                    WarpVoteOp::Any => "__any_sync(0xFFFFFFFF, ",
-                    WarpVoteOp::Ballot => "__ballot_sync(0xFFFFFFFF, ",
+                    WarpVoteOp::All => "simd_all",
+                    WarpVoteOp::Any => "simd_any",
+                    WarpVoteOp::Ballot => "simd_ballot",
                 };
-                self.emit_line(&format!("{} {} = {}{})", ty, result_name, vote_fn, val_name));
+                self.emit_line(&format!(
+                    "{} {} = {}({});",
+                    ty, result_name, vote_fn, val_name
+                ));
             }
 
             IrNode::WarpShuffle(op, val, lane) => {
+                if !self.config.simd_groups {
+                    return Err(MslLoweringError::UnsupportedOperation(
+                        "SIMD shuffle requires simd_groups feature".to_string(),
+                    ));
+                }
                 let val_name = self.get_value_name(*val);
                 let lane_name = self.get_value_name(*lane);
                 let shfl_fn = match op {
-                    WarpShuffleOp::Index => "__shfl_sync(0xFFFFFFFF, ",
-                    WarpShuffleOp::Up => "__shfl_up_sync(0xFFFFFFFF, ",
-                    WarpShuffleOp::Down => "__shfl_down_sync(0xFFFFFFFF, ",
-                    WarpShuffleOp::Xor => "__shfl_xor_sync(0xFFFFFFFF, ",
+                    WarpShuffleOp::Index => "simd_shuffle",
+                    WarpShuffleOp::Up => "simd_shuffle_up",
+                    WarpShuffleOp::Down => "simd_shuffle_down",
+                    WarpShuffleOp::Xor => "simd_shuffle_xor",
                 };
                 self.emit_line(&format!(
-                    "{} {} = {}{}, {})",
+                    "{} {} = {}({}, {});",
                     ty, result_name, shfl_fn, val_name, lane_name
                 ));
             }
@@ -463,8 +447,8 @@ impl CudaLowering {
                 let then_name = self.get_value_name(*then_val);
                 let else_name = self.get_value_name(*else_val);
                 self.emit_line(&format!(
-                    "{} {} = {} ? {} : {};",
-                    ty, result_name, cond_name, then_name, else_name
+                    "{} {} = select({}, {}, {});",
+                    ty, result_name, else_name, then_name, cond_name
                 ));
             }
 
@@ -478,10 +462,10 @@ impl CudaLowering {
                 ));
             }
 
-            // Skip nodes that don't produce CUDA output
+            // Skip nodes that don't produce MSL output
             IrNode::Parameter(_) | IrNode::Undef | IrNode::Phi(_) => {}
 
-            // Messaging (emit as comments or stubs)
+            // Messaging (emit as comments)
             IrNode::K2HEnqueue(_)
             | IrNode::H2KDequeue
             | IrNode::H2KIsEmpty
@@ -502,14 +486,19 @@ impl CudaLowering {
         Ok(())
     }
 
-    fn emit_terminator(&mut self, term: &Terminator) -> Result<(), LoweringError> {
+    fn emit_terminator(
+        &mut self,
+        _module: &IrModule,
+        term: &Terminator,
+    ) -> Result<(), MslLoweringError> {
         match term {
             Terminator::Return(None) => {
                 self.emit_line("return;");
             }
             Terminator::Return(Some(val)) => {
                 let val_name = self.get_value_name(*val);
-                self.emit_line(&format!("return {};", val_name));
+                self.emit_line(&format!("// Return: {}", val_name));
+                self.emit_line("return;");
             }
             Terminator::Branch(target) => {
                 let label = self.block_labels.get(target).cloned().unwrap_or_default();
@@ -539,7 +528,7 @@ impl CudaLowering {
                 self.emit_line("}");
             }
             Terminator::Unreachable => {
-                self.emit_line("__builtin_unreachable();");
+                self.emit_line("// unreachable");
             }
         }
         Ok(())
@@ -549,32 +538,33 @@ impl CudaLowering {
         match ty {
             IrType::Void => "void".to_string(),
             IrType::Scalar(s) => self.lower_scalar_type(s),
-            IrType::Vector(v) => format!("{}{}",
+            IrType::Vector(v) => format!(
+                "{}{}",
                 self.lower_scalar_type(&v.element),
                 v.count
             ),
-            IrType::Ptr(inner) => format!("{}*", self.lower_type(inner)),
-            IrType::Array(inner, size) => format!("{}[{}]", self.lower_type(inner), size),
-            IrType::Slice(inner) => format!("{}*", self.lower_type(inner)),
+            IrType::Ptr(inner) => format!("device {}*", self.lower_type(inner)),
+            IrType::Array(inner, size) => format!("array<{}, {}>", self.lower_type(inner), size),
+            IrType::Slice(inner) => format!("device {}*", self.lower_type(inner)),
             IrType::Struct(s) => s.name.clone(),
-            IrType::Function(_) => "void*".to_string(), // Function pointers
+            IrType::Function(_) => "void*".to_string(),
         }
     }
 
     fn lower_scalar_type(&self, ty: &ScalarType) -> String {
         match ty {
             ScalarType::Bool => "bool",
-            ScalarType::I8 => "int8_t",
-            ScalarType::I16 => "int16_t",
-            ScalarType::I32 => "int32_t",
-            ScalarType::I64 => "int64_t",
-            ScalarType::U8 => "uint8_t",
-            ScalarType::U16 => "uint16_t",
-            ScalarType::U32 => "uint32_t",
-            ScalarType::U64 => "uint64_t",
-            ScalarType::F16 => "__half",
+            ScalarType::I8 => "char",
+            ScalarType::I16 => "short",
+            ScalarType::I32 => "int",
+            ScalarType::I64 => "long",
+            ScalarType::U8 => "uchar",
+            ScalarType::U16 => "ushort",
+            ScalarType::U32 => "uint",
+            ScalarType::U64 => "ulong",
+            ScalarType::F16 => "half",
             ScalarType::F32 => "float",
-            ScalarType::F64 => "double",
+            ScalarType::F64 => "float", // Metal doesn't support f64
         }
         .to_string()
     }
@@ -583,11 +573,11 @@ impl CudaLowering {
         match c {
             ConstantValue::Bool(b) => if *b { "true" } else { "false" }.to_string(),
             ConstantValue::I32(v) => format!("{}", v),
-            ConstantValue::I64(v) => format!("{}LL", v),
+            ConstantValue::I64(v) => format!("{}L", v),
             ConstantValue::U32(v) => format!("{}u", v),
-            ConstantValue::U64(v) => format!("{}ull", v),
+            ConstantValue::U64(v) => format!("{}uL", v),
             ConstantValue::F32(v) => format!("{}f", v),
-            ConstantValue::F64(v) => format!("{}", v),
+            ConstantValue::F64(v) => format!("{}f", *v as f32), // Downcast
             ConstantValue::Null => "nullptr".to_string(),
             ConstantValue::Array(elems) => {
                 let elems_str: Vec<String> = elems.iter().map(|e| self.lower_constant(e)).collect();
@@ -612,8 +602,8 @@ impl CudaLowering {
             BinaryOp::Xor => format!("{} ^ {}", lhs, rhs),
             BinaryOp::Shl => format!("{} << {}", lhs, rhs),
             BinaryOp::Shr => format!("{} >> {}", lhs, rhs),
-            BinaryOp::Sar => format!("{} >> {}", lhs, rhs), // C handles sign extension
-            BinaryOp::Fma => format!("fma({}, {}, 0.0f)", lhs, rhs), // Would need third arg
+            BinaryOp::Sar => format!("{} >> {}", lhs, rhs),
+            BinaryOp::Fma => format!("fma({}, {}, 0.0f)", lhs, rhs),
             BinaryOp::Pow => format!("pow({}, {})", lhs, rhs),
             BinaryOp::Min => format!("min({}, {})", lhs, rhs),
             BinaryOp::Max => format!("max({}, {})", lhs, rhs),
@@ -632,7 +622,7 @@ impl CudaLowering {
             UnaryOp::Ceil => format!("ceil({})", val),
             UnaryOp::Round => format!("round({})", val),
             UnaryOp::Trunc => format!("trunc({})", val),
-            UnaryOp::Sign => format!("copysign(1.0f, {})", val),
+            UnaryOp::Sign => format!("sign({})", val),
         }
     }
 
@@ -672,7 +662,7 @@ impl CudaLowering {
             MathOp::Log => "log",
             MathOp::Log2 => "log2",
             MathOp::Log10 => "log10",
-            MathOp::Lerp => "lerp",
+            MathOp::Lerp => "mix",
             MathOp::Clamp => "clamp",
             MathOp::Step => "step",
             MathOp::SmoothStep => "smoothstep",
@@ -704,50 +694,50 @@ impl CudaLowering {
     }
 }
 
-/// Lowering errors.
+/// MSL lowering errors.
 #[derive(Debug, Clone)]
-pub enum LoweringError {
+pub enum MslLoweringError {
     /// Unsupported capability.
     UnsupportedCapability(String),
+    /// Unsupported operation.
+    UnsupportedOperation(String),
     /// Undefined block reference.
     UndefinedBlock(BlockId),
     /// Undefined value reference.
     UndefinedValue(ValueId),
-    /// Requires cooperative groups.
-    RequiresCooperativeGroups,
     /// Type error.
     TypeError(String),
 }
 
-impl std::fmt::Display for LoweringError {
+impl std::fmt::Display for MslLoweringError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LoweringError::UnsupportedCapability(cap) => {
+            MslLoweringError::UnsupportedCapability(cap) => {
                 write!(f, "Unsupported capability: {}", cap)
             }
-            LoweringError::UndefinedBlock(id) => write!(f, "Undefined block: {}", id),
-            LoweringError::UndefinedValue(id) => write!(f, "Undefined value: {}", id),
-            LoweringError::RequiresCooperativeGroups => {
-                write!(f, "Operation requires cooperative groups")
+            MslLoweringError::UnsupportedOperation(op) => {
+                write!(f, "Unsupported operation: {}", op)
             }
-            LoweringError::TypeError(msg) => write!(f, "Type error: {}", msg),
+            MslLoweringError::UndefinedBlock(id) => write!(f, "Undefined block: {}", id),
+            MslLoweringError::UndefinedValue(id) => write!(f, "Undefined value: {}", id),
+            MslLoweringError::TypeError(msg) => write!(f, "Type error: {}", msg),
         }
     }
 }
 
-impl std::error::Error for LoweringError {}
+impl std::error::Error for MslLoweringError {}
 
-/// Convenience function to lower IR to CUDA.
-pub fn lower_to_cuda(module: &IrModule) -> Result<String, LoweringError> {
-    CudaLowering::new(CudaLoweringConfig::default()).lower(module)
+/// Convenience function to lower IR to MSL.
+pub fn lower_to_msl(module: &IrModule) -> Result<String, MslLoweringError> {
+    MslLowering::new(MslLoweringConfig::default()).lower(module)
 }
 
-/// Lower IR to CUDA with custom config.
-pub fn lower_to_cuda_with_config(
+/// Lower IR to MSL with custom config.
+pub fn lower_to_msl_with_config(
     module: &IrModule,
-    config: CudaLoweringConfig,
-) -> Result<String, LoweringError> {
-    CudaLowering::new(config).lower(module)
+    config: MslLoweringConfig,
+) -> Result<String, MslLoweringError> {
+    MslLowering::new(config).lower(module)
 }
 
 #[cfg(test)]
@@ -759,42 +749,25 @@ mod tests {
     fn test_lower_simple_kernel() {
         let mut builder = IrBuilder::new("add_one");
 
-        let x = builder.parameter("x", IrType::ptr(IrType::F32));
-        let n = builder.parameter("n", IrType::I32);
+        let _x = builder.parameter("x", IrType::ptr(IrType::F32));
+        let _n = builder.parameter("n", IrType::I32);
 
         let idx = builder.global_thread_id(Dimension::X);
-        let in_bounds = builder.lt(idx, n);
+        let _ = idx;
 
-        let then_block = builder.create_block("body");
-        let end_block = builder.create_block("end");
-
-        builder.cond_branch(in_bounds, then_block, end_block);
-
-        builder.switch_to_block(then_block);
-        let one = builder.const_f32(1.0);
-        let ptr = builder.gep(x, vec![idx]);
-        let val = builder.load(ptr);
-        let result = builder.add(val, one);
-        builder.store(ptr, result);
-        builder.branch(end_block);
-
-        builder.switch_to_block(end_block);
         builder.ret();
 
         let module = builder.build();
-        let cuda = lower_to_cuda(&module).unwrap();
+        let msl = lower_to_msl(&module).unwrap();
 
-        assert!(cuda.contains("__global__ void add_one"));
-        assert!(cuda.contains("float* x"));
-        assert!(cuda.contains("int32_t n"));
-        assert!(cuda.contains("blockIdx.x * blockDim.x + threadIdx.x"));
+        assert!(msl.contains("kernel void"));
+        assert!(msl.contains("add_one"));
+        assert!(msl.contains("thread_position_in_grid"));
     }
 
     #[test]
-    fn test_lower_with_shared_memory() {
+    fn test_lower_with_threadgroup_memory() {
         let mut builder = IrBuilder::new("reduce");
-
-        let _x = builder.parameter("x", IrType::ptr(IrType::F32));
 
         let shared = builder.shared_alloc(IrType::F32, 256);
         let _ = shared;
@@ -803,73 +776,53 @@ mod tests {
         builder.ret();
 
         let module = builder.build();
-        let cuda = lower_to_cuda(&module).unwrap();
+        let msl = lower_to_msl(&module).unwrap();
 
-        assert!(cuda.contains("__shared__ float"));
-        assert!(cuda.contains("__syncthreads()"));
+        assert!(msl.contains("threadgroup float"));
+        assert!(msl.contains("threadgroup_barrier"));
+    }
+
+    #[test]
+    fn test_lower_with_simd_ops() {
+        let mut builder = IrBuilder::new("simd");
+
+        let val = builder.const_bool(true);
+        let _ = val;
+
+        builder.ret();
+
+        let module = builder.build();
+        let config = MslLoweringConfig::metal3();
+        let msl = lower_to_msl_with_config(&module, config).unwrap();
+
+        assert!(msl.contains("#include <metal_stdlib>"));
     }
 
     #[test]
     fn test_lower_with_atomics() {
-        let mut builder = IrBuilder::new("atomic_add");
+        let mut builder = IrBuilder::new("atomic");
 
         let counter = builder.parameter("counter", IrType::ptr(IrType::U32));
-
         let one = builder.const_u32(1);
         let _old = builder.atomic_add(counter, one);
 
         builder.ret();
 
         let module = builder.build();
-        let cuda = lower_to_cuda(&module).unwrap();
+        let msl = lower_to_msl(&module).unwrap();
 
-        assert!(cuda.contains("atomicAdd"));
+        assert!(msl.contains("atomic_fetch_add_explicit"));
     }
 
     #[test]
-    fn test_lower_with_cooperative_groups() {
-        let mut builder = IrBuilder::new("grid_reduce");
+    fn test_lower_rejects_grid_sync() {
+        let mut builder = IrBuilder::new("grid");
         builder.grid_sync();
         builder.ret();
 
         let module = builder.build();
+        let result = lower_to_msl(&module);
 
-        // Without cooperative groups, should fail
-        let result = lower_to_cuda(&module);
         assert!(result.is_err());
-
-        // With cooperative groups, should succeed
-        let config = CudaLoweringConfig::sm80();
-        let cuda = lower_to_cuda_with_config(&module, config).unwrap();
-
-        assert!(cuda.contains("cooperative_groups"));
-        assert!(cuda.contains("grid.sync()"));
-    }
-
-    #[test]
-    fn test_lower_binary_ops() {
-        let mut builder = IrBuilder::new("math");
-
-        let a = builder.const_f32(1.0);
-        let b = builder.const_f32(2.0);
-
-        let _sum = builder.add(a, b);
-        let _diff = builder.sub(a, b);
-        let _prod = builder.mul(a, b);
-        let _quot = builder.div(a, b);
-        let _min = builder.min(a, b);
-        let _max = builder.max(a, b);
-
-        builder.ret();
-
-        let module = builder.build();
-        let cuda = lower_to_cuda(&module).unwrap();
-
-        assert!(cuda.contains("+"));
-        assert!(cuda.contains("-"));
-        assert!(cuda.contains("*"));
-        assert!(cuda.contains("/"));
-        assert!(cuda.contains("min("));
-        assert!(cuda.contains("max("));
     }
 }

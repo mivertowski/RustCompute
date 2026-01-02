@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use crate::{
-    nodes::*, BackendCapabilities, Block, BlockId, CapabilityFlag, Dimension, IrModule, IrNode,
-    IrType, KernelMode, ScalarType, Terminator, ValueId,
+    nodes::*, BackendCapabilities, BlockId, CapabilityFlag, Dimension, IrModule, IrNode,
+    IrType, ScalarType, Terminator, ValueId,
 };
 
 /// WGSL lowering configuration.
@@ -59,6 +59,7 @@ pub struct WgslLowering {
     value_names: HashMap<ValueId, String>,
     name_counter: usize,
     block_labels: HashMap<BlockId, String>,
+    #[allow(dead_code)]
     has_f64_warning: bool,
 }
 
@@ -91,7 +92,8 @@ impl WgslLowering {
     }
 
     fn check_capabilities(&self, module: &IrModule) -> Result<(), WgslLoweringError> {
-        let wgpu_caps = if self.config.subgroups {
+        // Capability tracking for future use
+        let _wgpu_caps = if self.config.subgroups {
             BackendCapabilities::wgpu_with_subgroups()
         } else {
             BackendCapabilities::wgpu_baseline()
@@ -136,7 +138,7 @@ impl WgslLowering {
             self.emit_line("// Parameters");
             self.emit_line("struct Params {");
             self.indent += 1;
-            for (i, param) in module.parameters.iter().enumerate() {
+            for (_i, param) in module.parameters.iter().enumerate() {
                 // Only emit non-pointer params in struct
                 if !matches!(param.ty, IrType::Ptr(_) | IrType::Slice(_)) {
                     let ty = self.lower_type(&param.ty);
@@ -250,7 +252,7 @@ impl WgslLowering {
 
     fn emit_instruction(
         &mut self,
-        module: &IrModule,
+        _module: &IrModule,
         result: &ValueId,
         result_type: &IrType,
         node: &IrNode,
