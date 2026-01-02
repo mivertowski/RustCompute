@@ -1,0 +1,30 @@
+[package]
+name = "ringkernel-ir"
+version = "0.1.3"
+edition = "2021"
+authors = ["RingKernel Contributors"]
+description = "Intermediate Representation for RingKernel GPU code generation"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ringkernel/ringkernel"
+keywords = ["gpu", "ir", "codegen", "cuda", "wgsl"]
+categories = ["compilers", "development-tools"]
+
+[dependencies]
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# For identifier interning
+string-interner = "0.18"
+
+# For graph algorithms on IR
+petgraph = "0.7"
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+
+[features]
+default = []
+# Enable detailed IR validation
+validation = []
+# Enable IR optimization passes
+optimization = []
