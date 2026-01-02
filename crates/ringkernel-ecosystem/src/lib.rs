@@ -37,6 +37,9 @@ pub mod persistent;
 #[cfg(feature = "persistent-cuda")]
 pub mod cuda_bridge;
 
+#[cfg(feature = "persistent-wgpu")]
+pub mod wgpu_bridge;
+
 #[cfg(feature = "actix")]
 pub mod actix;
 
@@ -116,6 +119,9 @@ pub mod prelude {
 
     #[cfg(feature = "persistent-cuda")]
     pub use crate::cuda_bridge::{CudaPersistentHandle, CudaPersistentHandleBuilder};
+
+    #[cfg(feature = "persistent-wgpu")]
+    pub use crate::wgpu_bridge::{WgpuPersistentHandle, WgpuPersistentHandleBuilder};
 
     #[cfg(feature = "arrow")]
     pub use crate::arrow::*;

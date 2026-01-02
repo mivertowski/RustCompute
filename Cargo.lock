@@ -6388,6 +6388,7 @@ dependencies = [
  "prost 0.14.1",
  "ringkernel-core",
  "ringkernel-cuda",
+ "ringkernel-wgpu",
  "serde",
  "serde_json",
  "thiserror 2.0.17",

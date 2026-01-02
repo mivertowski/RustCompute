@@ -21,6 +21,9 @@ persistent = ["dep:async-stream"]
 # CUDA implementation of PersistentHandle
 persistent-cuda = ["persistent", "dep:ringkernel-cuda"]
 
+# WebGPU implementation of PersistentHandle (emulated via host-driven dispatch)
+persistent-wgpu = ["persistent", "dep:ringkernel-wgpu"]
+
 # Actor framework integrations
 actix = ["dep:actix", "dep:actix-rt"]
 tower = ["dep:tower", "dep:tower-service"]
@@ -52,7 +55,7 @@ tracing-integration = []
 prometheus = ["dep:prometheus"]
 
 # Full persistent ecosystem (persistent + web frameworks)
-persistent-full = ["persistent-cuda", "actix", "axum", "axum-ws", "axum-sse", "grpc"]
+persistent-full = ["persistent-cuda", "persistent-wgpu", "actix", "axum", "axum-ws", "axum-sse", "grpc"]
 
 # Full ecosystem (all integrations)
 full = ["actix", "tower", "axum", "arrow", "polars", "grpc", "candle", "config", "tracing-integration", "prometheus", "persistent"]
@@ -102,6 +105,7 @@ prometheus = { version = "0.13", optional = true }
 
 # Optional: Persistent kernel support (enables cuda feature for full functionality)
 ringkernel-cuda = { workspace = true, optional = true, features = ["cuda"] }
+ringkernel-wgpu = { workspace = true, optional = true, features = ["wgpu"] }
 async-stream = { version = "0.3", optional = true }
 
 # Optional: SSE/JSON support
