@@ -326,3 +326,82 @@ fn test_different_structs_different_type_ids() {
         "Different struct names should produce different type IDs"
     );
 }
+
+// ============================================================================
+// gpu_kernel macro tests
+// ============================================================================
+
+mod gpu_kernel_tests {
+    use ringkernel_core::__private::{
+        backend_supports_capability, find_gpu_kernel, registered_gpu_kernels, select_backend,
+    };
+
+    #[test]
+    fn test_gpu_kernel_registration_collection() {
+        // Collect all registered GPU kernels
+        let kernels: Vec<_> = registered_gpu_kernels().collect();
+        println!("Registered GPU kernels: {}", kernels.len());
+    }
+
+    #[test]
+    fn test_backend_supports_capability() {
+        // CUDA supports everything
+        assert!(backend_supports_capability("cuda", "f64"));
+        assert!(backend_supports_capability("cuda", "atomic64"));
+        assert!(backend_supports_capability("cuda", "cooperative_groups"));
+
+        // Metal limitations
+        assert!(!backend_supports_capability("metal", "f64"));
+        assert!(!backend_supports_capability("metal", "cooperative_groups"));
+        assert!(backend_supports_capability("metal", "subgroups"));
+
+        // WebGPU limitations
+        assert!(!backend_supports_capability("wgpu", "f64"));
+        assert!(!backend_supports_capability("wgpu", "i64"));
+        assert!(!backend_supports_capability("wgpu", "atomic64"));
+        assert!(backend_supports_capability("wgpu", "shared_memory"));
+
+        // CPU supports everything (emulation)
+        assert!(backend_supports_capability("cpu", "f64"));
+        assert!(backend_supports_capability("cpu", "cooperative_groups"));
+    }
+
+    #[test]
+    fn test_select_backend() {
+        let fallback_order = &["cuda", "metal", "wgpu", "cpu"];
+        let available = &["cuda", "metal", "wgpu", "cpu"];
+
+        // No required capabilities - should select first available
+        let selected = select_backend(fallback_order, &[], available);
+        assert_eq!(selected, Some("cuda"));
+
+        // Require f64 - should skip metal/wgpu
+        let selected = select_backend(fallback_order, &["f64"], available);
+        assert_eq!(selected, Some("cuda"));
+
+        // Only wgpu available, require f64 - should fall through to cpu
+        let selected = select_backend(fallback_order, &["f64"], &["wgpu", "cpu"]);
+        assert_eq!(selected, Some("cpu"));
+
+        // CUDA supports all capabilities including unknown ones (via catch-all)
+        let selected = select_backend(fallback_order, &["quantum_compute"], available);
+        assert_eq!(selected, Some("cuda"));
+    }
+
+    #[test]
+    fn test_select_backend_respects_fallback_order() {
+        // If metal is preferred but doesn't support f64
+        let fallback_order = &["metal", "wgpu", "cuda", "cpu"];
+        let available = &["cuda", "metal", "wgpu", "cpu"];
+
+        // Should skip metal and wgpu due to f64 requirement
+        let selected = select_backend(fallback_order, &["f64"], available);
+        assert_eq!(selected, Some("cuda"));
+    }
+
+    #[test]
+    fn test_find_nonexistent_kernel() {
+        let kernel = find_gpu_kernel("nonexistent_kernel_xyz");
+        assert!(kernel.is_none());
+    }
+}

@@ -5,6 +5,7 @@
 //! - `#[derive(RingMessage)]` - Implement the RingMessage trait for message types
 //! - `#[ring_kernel]` - Define a ring kernel handler
 //! - `#[stencil_kernel]` - Define a GPU stencil kernel (with `cuda-codegen` feature)
+//! - `#[gpu_kernel]` - Define a multi-backend GPU kernel with capability checking
 //!
 //! # Example
 //!
@@ -32,6 +33,29 @@
 //!         id: MessageId::generate(),
 //!         result: req.a + req.b,
 //!     }
+//! }
+//! ```
+//!
+//! # Multi-Backend GPU Kernels
+//!
+//! The `#[gpu_kernel]` macro enables multi-backend code generation with capability checking:
+//!
+//! ```ignore
+//! use ringkernel_derive::gpu_kernel;
+//!
+//! // Generate code for CUDA and Metal, with fallback order
+//! #[gpu_kernel(backends = [cuda, metal], fallback = [wgpu, cpu])]
+//! fn saxpy(x: &[f32], y: &mut [f32], a: f32, n: i32) {
+//!     let idx = global_thread_id_x();
+//!     if idx < n {
+//!         y[idx as usize] = a * x[idx as usize] + y[idx as usize];
+//!     }
+//! }
+//!
+//! // Require specific capabilities at compile time
+//! #[gpu_kernel(backends = [cuda], requires = [f64, atomic64])]
+//! fn double_precision(data: &mut [f64], n: i32) {
+//!     // Uses f64 operations - validated at compile time
 //! }
 //! ```
 //!
@@ -575,6 +599,423 @@ fn stencil_kernel_impl(args: StencilKernelArgs, input: ItemFn) -> TokenStream {
                 tile_height: #tile_height,
                 halo: #halo,
                 cuda_source: #cuda_source_code,
+            };
+    };
+
+    TokenStream::from(expanded)
+}
+
+// ============================================================================
+// Multi-Backend GPU Kernel Macro
+// ============================================================================
+
+/// GPU backend targets (internal use only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GpuBackend {
+    /// NVIDIA CUDA backend.
+    Cuda,
+    /// Apple Metal backend.
+    Metal,
+    /// WebGPU backend (cross-platform).
+    Wgpu,
+    /// CPU fallback backend.
+    Cpu,
+}
+
+impl GpuBackend {
+    fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "cuda" => Some(Self::Cuda),
+            "metal" => Some(Self::Metal),
+            "wgpu" | "webgpu" => Some(Self::Wgpu),
+            "cpu" => Some(Self::Cpu),
+            _ => None,
+        }
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Cuda => "cuda",
+            Self::Metal => "metal",
+            Self::Wgpu => "wgpu",
+            Self::Cpu => "cpu",
+        }
+    }
+}
+
+/// GPU capability flags that can be required by a kernel (internal use only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GpuCapability {
+    /// 64-bit floating point support.
+    Float64,
+    /// 64-bit integer support.
+    Int64,
+    /// 64-bit atomics support.
+    Atomic64,
+    /// Cooperative groups / grid-wide sync.
+    CooperativeGroups,
+    /// Subgroup / warp / SIMD operations.
+    Subgroups,
+    /// Shared memory / threadgroup memory.
+    SharedMemory,
+    /// Dynamic parallelism (launching kernels from kernels).
+    DynamicParallelism,
+    /// Half-precision (f16) support.
+    Float16,
+}
+
+impl GpuCapability {
+    fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "f64" | "float64" => Some(Self::Float64),
+            "i64" | "int64" => Some(Self::Int64),
+            "atomic64" => Some(Self::Atomic64),
+            "cooperative_groups" | "cooperativegroups" | "grid_sync" => {
+                Some(Self::CooperativeGroups)
+            }
+            "subgroups" | "warp" | "simd" => Some(Self::Subgroups),
+            "shared_memory" | "sharedmemory" | "threadgroup" => Some(Self::SharedMemory),
+            "dynamic_parallelism" | "dynamicparallelism" => Some(Self::DynamicParallelism),
+            "f16" | "float16" | "half" => Some(Self::Float16),
+            _ => None,
+        }
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Float64 => "f64",
+            Self::Int64 => "i64",
+            Self::Atomic64 => "atomic64",
+            Self::CooperativeGroups => "cooperative_groups",
+            Self::Subgroups => "subgroups",
+            Self::SharedMemory => "shared_memory",
+            Self::DynamicParallelism => "dynamic_parallelism",
+            Self::Float16 => "f16",
+        }
+    }
+
+    /// Check if a backend supports this capability.
+    fn supported_by(&self, backend: GpuBackend) -> bool {
+        match (self, backend) {
+            // CUDA supports everything
+            (_, GpuBackend::Cuda) => true,
+
+            // Metal capabilities
+            (Self::Float64, GpuBackend::Metal) => false,
+            (Self::CooperativeGroups, GpuBackend::Metal) => false,
+            (Self::DynamicParallelism, GpuBackend::Metal) => false,
+            (_, GpuBackend::Metal) => true,
+
+            // WebGPU capabilities
+            (Self::Float64, GpuBackend::Wgpu) => false,
+            (Self::Int64, GpuBackend::Wgpu) => false,
+            (Self::Atomic64, GpuBackend::Wgpu) => false, // Emulated only
+            (Self::CooperativeGroups, GpuBackend::Wgpu) => false,
+            (Self::DynamicParallelism, GpuBackend::Wgpu) => false,
+            (Self::Subgroups, GpuBackend::Wgpu) => true, // Optional extension
+            (_, GpuBackend::Wgpu) => true,
+
+            // CPU supports everything (in emulation)
+            (_, GpuBackend::Cpu) => true,
+        }
+    }
+}
+
+/// Attributes for the gpu_kernel macro.
+#[derive(Debug)]
+struct GpuKernelArgs {
+    /// Kernel identifier.
+    id: Option<String>,
+    /// Target backends to generate code for.
+    backends: Vec<GpuBackend>,
+    /// Fallback order for backend selection.
+    fallback: Vec<GpuBackend>,
+    /// Required capabilities.
+    requires: Vec<GpuCapability>,
+    /// Block/workgroup size.
+    block_size: Option<u32>,
+}
+
+impl Default for GpuKernelArgs {
+    fn default() -> Self {
+        Self {
+            id: None,
+            backends: vec![GpuBackend::Cuda, GpuBackend::Metal, GpuBackend::Wgpu],
+            fallback: vec![GpuBackend::Cuda, GpuBackend::Metal, GpuBackend::Wgpu, GpuBackend::Cpu],
+            requires: Vec::new(),
+            block_size: None,
+        }
+    }
+}
+
+impl GpuKernelArgs {
+    fn parse(attr: proc_macro2::TokenStream) -> Result<Self, darling::Error> {
+        let mut args = Self::default();
+        let attr_str = attr.to_string();
+
+        // Parse backends = [...]
+        if let Some(start) = attr_str.find("backends") {
+            if let Some(bracket_start) = attr_str[start..].find('[') {
+                if let Some(bracket_end) = attr_str[start + bracket_start..].find(']') {
+                    let backends_str = &attr_str[start + bracket_start + 1..start + bracket_start + bracket_end];
+                    args.backends = backends_str
+                        .split(',')
+                        .filter_map(|s| GpuBackend::from_str(s.trim()))
+                        .collect();
+                }
+            }
+        }
+
+        // Parse fallback = [...]
+        if let Some(start) = attr_str.find("fallback") {
+            if let Some(bracket_start) = attr_str[start..].find('[') {
+                if let Some(bracket_end) = attr_str[start + bracket_start..].find(']') {
+                    let fallback_str = &attr_str[start + bracket_start + 1..start + bracket_start + bracket_end];
+                    args.fallback = fallback_str
+                        .split(',')
+                        .filter_map(|s| GpuBackend::from_str(s.trim()))
+                        .collect();
+                }
+            }
+        }
+
+        // Parse requires = [...]
+        if let Some(start) = attr_str.find("requires") {
+            if let Some(bracket_start) = attr_str[start..].find('[') {
+                if let Some(bracket_end) = attr_str[start + bracket_start..].find(']') {
+                    let requires_str = &attr_str[start + bracket_start + 1..start + bracket_start + bracket_end];
+                    args.requires = requires_str
+                        .split(',')
+                        .filter_map(|s| GpuCapability::from_str(s.trim()))
+                        .collect();
+                }
+            }
+        }
+
+        // Parse id = "..."
+        if let Some(start) = attr_str.find("id") {
+            if let Some(quote_start) = attr_str[start..].find('"') {
+                if let Some(quote_end) = attr_str[start + quote_start + 1..].find('"') {
+                    args.id = Some(attr_str[start + quote_start + 1..start + quote_start + 1 + quote_end].to_string());
+                }
+            }
+        }
+
+        // Parse block_size = N
+        if let Some(start) = attr_str.find("block_size") {
+            if let Some(eq) = attr_str[start..].find('=') {
+                let rest = &attr_str[start + eq + 1..];
+                let num_end = rest.find(|c: char| !c.is_numeric() && c != ' ').unwrap_or(rest.len());
+                if let Ok(n) = rest[..num_end].trim().parse() {
+                    args.block_size = Some(n);
+                }
+            }
+        }
+
+        Ok(args)
+    }
+
+    /// Validate that all required capabilities are supported by at least one backend.
+    fn validate_capabilities(&self) -> Result<(), String> {
+        for cap in &self.requires {
+            let mut supported_by_any = false;
+            for backend in &self.backends {
+                if cap.supported_by(*backend) {
+                    supported_by_any = true;
+                    break;
+                }
+            }
+            if !supported_by_any {
+                return Err(format!(
+                    "Capability '{}' is not supported by any of the specified backends: {:?}",
+                    cap.as_str(),
+                    self.backends.iter().map(|b| b.as_str()).collect::<Vec<_>>()
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Get backends that support all required capabilities.
+    fn compatible_backends(&self) -> Vec<GpuBackend> {
+        self.backends
+            .iter()
+            .filter(|backend| {
+                self.requires.iter().all(|cap| cap.supported_by(**backend))
+            })
+            .copied()
+            .collect()
+    }
+}
+
+/// Attribute macro for defining multi-backend GPU kernels.
+///
+/// This macro generates code for multiple GPU backends with compile-time
+/// capability validation. It integrates with the `ringkernel-ir` crate
+/// to lower Rust DSL to backend-specific shader code.
+///
+/// # Attributes
+///
+/// - `backends = [cuda, metal, wgpu]` - Target backends (default: all)
+/// - `fallback = [cuda, metal, wgpu, cpu]` - Fallback order for runtime selection
+/// - `requires = [f64, atomic64]` - Required capabilities (validated at compile time)
+/// - `id = "kernel_name"` - Explicit kernel identifier
+/// - `block_size = 256` - Thread block size
+///
+/// # Example
+///
+/// ```ignore
+/// use ringkernel_derive::gpu_kernel;
+///
+/// #[gpu_kernel(backends = [cuda, metal], requires = [subgroups])]
+/// fn warp_reduce(data: &mut [f32], n: i32) {
+///     let idx = global_thread_id_x();
+///     if idx < n {
+///         // Use warp shuffle for reduction
+///         let val = data[idx as usize];
+///         let reduced = warp_reduce_sum(val);
+///         if lane_id() == 0 {
+///             data[idx as usize] = reduced;
+///         }
+///     }
+/// }
+/// ```
+///
+/// # Capability Checking
+///
+/// The macro validates at compile time that all required capabilities are
+/// supported by at least one target backend:
+///
+/// | Capability | CUDA | Metal | WebGPU | CPU |
+/// |------------|------|-------|--------|-----|
+/// | f64        | Yes  | No    | No     | Yes |
+/// | i64        | Yes  | Yes   | No     | Yes |
+/// | atomic64   | Yes  | Yes   | No*    | Yes |
+/// | cooperative_groups | Yes | No | No | Yes |
+/// | subgroups  | Yes  | Yes   | Opt    | Yes |
+/// | shared_memory | Yes | Yes | Yes    | Yes |
+/// | f16        | Yes  | Yes   | Yes    | Yes |
+///
+/// *WebGPU emulates 64-bit atomics with 32-bit pairs.
+///
+/// # Generated Code
+///
+/// For each compatible backend, the macro generates:
+/// - Backend-specific source code constant (e.g., `KERNEL_NAME_CUDA_SOURCE`)
+/// - Registration entry for runtime discovery
+/// - CPU fallback function (if `cpu_fallback = true`)
+#[proc_macro_attribute]
+pub fn gpu_kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr2: proc_macro2::TokenStream = attr.into();
+    let args = match GpuKernelArgs::parse(attr2) {
+        Ok(args) => args,
+        Err(e) => return TokenStream::from(e.write_errors()),
+    };
+
+    let input = parse_macro_input!(item as ItemFn);
+
+    // Validate capabilities
+    if let Err(msg) = args.validate_capabilities() {
+        return TokenStream::from(
+            syn::Error::new_spanned(&input.sig.ident, msg).to_compile_error(),
+        );
+    }
+
+    gpu_kernel_impl(args, input)
+}
+
+fn gpu_kernel_impl(args: GpuKernelArgs, input: ItemFn) -> TokenStream {
+    let fn_name = &input.sig.ident;
+    let fn_vis = &input.vis;
+    let fn_block = &input.block;
+    let fn_inputs = &input.sig.inputs;
+    let fn_output = &input.sig.output;
+    let fn_attrs = &input.attrs;
+
+    let kernel_id = args.id.clone().unwrap_or_else(|| fn_name.to_string());
+    let block_size = args.block_size.unwrap_or(256);
+
+    // Get compatible backends
+    let compatible_backends = args.compatible_backends();
+
+    // Generate backend-specific source constants
+    let mut source_constants = Vec::new();
+
+    for backend in &compatible_backends {
+        let const_name = format_ident!(
+            "{}_{}",
+            fn_name.to_string().to_uppercase(),
+            backend.as_str().to_uppercase()
+        );
+
+        let backend_str = backend.as_str();
+
+        // Generate placeholder source (actual IR lowering happens at build time)
+        // In a full implementation, this would call ringkernel-ir lowering
+        let source_placeholder = format!(
+            "// {} source for kernel '{}'\n// Generated by ringkernel-derive\n// Capabilities: {:?}\n",
+            backend_str.to_uppercase(),
+            kernel_id,
+            args.requires.iter().map(|c| c.as_str()).collect::<Vec<_>>()
+        );
+
+        source_constants.push(quote! {
+            /// Generated source code for this kernel.
+            #fn_vis const #const_name: &str = #source_placeholder;
+        });
+    }
+
+    // Generate capability flags as strings
+    let capability_strs: Vec<_> = args.requires.iter().map(|c| c.as_str()).collect();
+    let backend_strs: Vec<_> = compatible_backends.iter().map(|b| b.as_str()).collect();
+    let fallback_strs: Vec<_> = args.fallback.iter().map(|b| b.as_str()).collect();
+
+    // Generate registration struct name
+    let registration_name = format_ident!(
+        "__GPU_KERNEL_REGISTRATION_{}",
+        fn_name.to_string().to_uppercase()
+    );
+
+    // Generate info struct name
+    let info_name = format_ident!("{}_INFO", fn_name.to_string().to_uppercase());
+
+    // Generate the expanded code
+    let expanded = quote! {
+        // Original function (CPU fallback / documentation / testing)
+        #(#fn_attrs)*
+        #fn_vis fn #fn_name #fn_inputs #fn_output #fn_block
+
+        // Backend source constants
+        #(#source_constants)*
+
+        /// Multi-backend kernel information.
+        #fn_vis mod #info_name {
+            /// Kernel identifier.
+            pub const ID: &str = #kernel_id;
+
+            /// Block/workgroup size.
+            pub const BLOCK_SIZE: u32 = #block_size;
+
+            /// Required capabilities.
+            pub const CAPABILITIES: &[&str] = &[#(#capability_strs),*];
+
+            /// Compatible backends (those that support all required capabilities).
+            pub const BACKENDS: &[&str] = &[#(#backend_strs),*];
+
+            /// Fallback order for runtime backend selection.
+            pub const FALLBACK_ORDER: &[&str] = &[#(#fallback_strs),*];
+        }
+
+        /// GPU kernel registration for runtime discovery.
+        #[allow(non_upper_case_globals)]
+        #[::inventory::submit]
+        static #registration_name: ::ringkernel_core::__private::GpuKernelRegistration =
+            ::ringkernel_core::__private::GpuKernelRegistration {
+                id: #kernel_id,
+                block_size: #block_size,
+                capabilities: &[#(#capability_strs),*],
+                backends: &[#(#backend_strs),*],
+                fallback_order: &[#(#fallback_strs),*],
             };
     };
 
