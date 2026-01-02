@@ -48,11 +48,13 @@ mod types;
 mod validation;
 
 pub mod lower_cuda;
+pub mod lower_wgsl;
 
 pub use builder::{IrBuilder, IrBuilderScope};
 pub use capabilities::{BackendCapabilities, Capabilities, CapabilityFlag};
 pub use error::{IrError, IrResult};
 pub use lower_cuda::{lower_to_cuda, lower_to_cuda_with_config, CudaLowering, CudaLoweringConfig, LoweringError};
+pub use lower_wgsl::{lower_to_wgsl, lower_to_wgsl_with_config, WgslLowering, WgslLoweringConfig, WgslLoweringError};
 pub use nodes::*;
 pub use printer::IrPrinter;
 pub use types::{IrType, ScalarType, VectorType};
