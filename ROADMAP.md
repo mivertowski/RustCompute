@@ -15,11 +15,11 @@ Transform GPU computing from batch-oriented kernel launches to a true actor-base
 | Phase | Implemented | Partial | Missing | Completion |
 |-------|-------------|---------|---------|------------|
 | **Phase 1: Foundation** | 6 | 4 | 2 | ~67% |
-| **Phase 2: Code Generation** | 6 | 1 | 2 | ~72% |
+| **Phase 2: Code Generation** | 9 | 1 | 0 | ~95% |
 | **Phase 3: Enterprise** | 8 | 1 | 7 | ~53% |
 | **Phase 4: Ecosystem** | 3 | 3 | 5 | ~41% |
 | **Phase 5: Developer Experience** | 5 | 2 | 4 | ~55% |
-| **Overall** | **28** | **11** | **20** | **~58%** |
+| **Overall** | **31** | **11** | **18** | **~62%** |
 
 **Legend**: ✅ Complete | ⚠️ Partial | 🎯 Planned | ❌ Not Started
 
@@ -161,9 +161,9 @@ impl<H> WgpuPersistentEmulation<H> {
 
 | Feature | Priority | Status | Description |
 |---------|----------|--------|-------------|
-| **Multi-backend attribute** | P1 | ❌ | `backends = [cuda, metal]` not implemented |
-| **Fallback selection** | P1 | ❌ | `fallback = wgpu` not implemented |
-| **Capability checking** | P2 | ❌ | `requires = [f64]` not implemented |
+| **Multi-backend attribute** | P1 | ✅ Done | `backends = [cuda, metal]` in `#[gpu_kernel]` |
+| **Fallback selection** | P1 | ✅ Done | `fallback = [wgpu, cpu]` in `#[gpu_kernel]` |
+| **Capability checking** | P2 | ✅ Done | `requires = [f64]` with compile-time validation |
 
 ```rust
 // Target: Unified kernel definition with backend selection
