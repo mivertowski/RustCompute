@@ -1961,7 +1961,7 @@ mod tests {
     // Kernel Migrator Tests
     // ========================================================================
 
-    use crate::checkpoint::{Checkpoint, CheckpointBuilder, CheckpointMetadata};
+    use crate::checkpoint::{Checkpoint, CheckpointBuilder};
 
     /// Mock checkpointable kernel for testing.
     struct MockCheckpointableKernel {

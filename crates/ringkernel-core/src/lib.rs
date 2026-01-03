@@ -48,6 +48,7 @@ pub mod telemetry;
 pub mod telemetry_pipeline;
 pub mod types;
 pub mod checkpoint;
+pub mod config;
 
 /// Private module for proc macro integration.
 /// Not part of the public API - exposed for macro-generated code only.
@@ -56,6 +57,12 @@ pub mod __private;
 
 /// Prelude module for convenient imports
 pub mod prelude {
+    pub use crate::config::{
+        CheckpointStorageType, ConfigBuilder, Environment, GeneralConfig, GeneralConfigBuilder,
+        HealthConfig, HealthConfigBuilder, LogLevel, MigrationConfig, MigrationConfigBuilder,
+        MultiGpuConfig, MultiGpuConfigBuilder, ObservabilityConfig, ObservabilityConfigBuilder,
+        RetryConfig, RingKernelConfig,
+    };
     pub use crate::context::*;
     pub use crate::control::*;
     pub use crate::error::*;
