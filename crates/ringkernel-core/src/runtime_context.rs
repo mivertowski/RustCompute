@@ -116,6 +116,150 @@ impl BackgroundTasks {
 }
 
 // ============================================================================
+// Async Background Monitoring
+// ============================================================================
+
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
+
+/// Configuration for background monitoring loops.
+#[derive(Debug, Clone)]
+pub struct MonitoringConfig {
+    /// Interval for health checks.
+    pub health_check_interval: Duration,
+    /// Interval for watchdog scans.
+    pub watchdog_interval: Duration,
+    /// Interval for metrics flush.
+    pub metrics_flush_interval: Duration,
+    /// Whether to enable health check loop.
+    pub enable_health_checks: bool,
+    /// Whether to enable watchdog loop.
+    pub enable_watchdog: bool,
+    /// Whether to enable metrics flush loop.
+    pub enable_metrics_flush: bool,
+}
+
+impl Default for MonitoringConfig {
+    fn default() -> Self {
+        Self {
+            health_check_interval: Duration::from_secs(10),
+            watchdog_interval: Duration::from_secs(5),
+            metrics_flush_interval: Duration::from_secs(60),
+            enable_health_checks: true,
+            enable_watchdog: true,
+            enable_metrics_flush: true,
+        }
+    }
+}
+
+impl MonitoringConfig {
+    /// Create a new monitoring config.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set health check interval.
+    pub fn health_check_interval(mut self, interval: Duration) -> Self {
+        self.health_check_interval = interval;
+        self
+    }
+
+    /// Set watchdog interval.
+    pub fn watchdog_interval(mut self, interval: Duration) -> Self {
+        self.watchdog_interval = interval;
+        self
+    }
+
+    /// Set metrics flush interval.
+    pub fn metrics_flush_interval(mut self, interval: Duration) -> Self {
+        self.metrics_flush_interval = interval;
+        self
+    }
+
+    /// Enable or disable health checks.
+    pub fn enable_health_checks(mut self, enable: bool) -> Self {
+        self.enable_health_checks = enable;
+        self
+    }
+
+    /// Enable or disable watchdog.
+    pub fn enable_watchdog(mut self, enable: bool) -> Self {
+        self.enable_watchdog = enable;
+        self
+    }
+
+    /// Enable or disable metrics flush.
+    pub fn enable_metrics_flush(mut self, enable: bool) -> Self {
+        self.enable_metrics_flush = enable;
+        self
+    }
+}
+
+/// Handles for background monitoring tasks.
+pub struct MonitoringHandles {
+    /// Handle to the health check loop task.
+    pub health_check_handle: Option<JoinHandle<()>>,
+    /// Handle to the watchdog loop task.
+    pub watchdog_handle: Option<JoinHandle<()>>,
+    /// Handle to the metrics flush loop task.
+    pub metrics_flush_handle: Option<JoinHandle<()>>,
+    /// Shutdown signal sender.
+    shutdown_tx: watch::Sender<bool>,
+}
+
+impl MonitoringHandles {
+    /// Create new monitoring handles.
+    fn new() -> (Self, watch::Receiver<bool>) {
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        (
+            Self {
+                health_check_handle: None,
+                watchdog_handle: None,
+                metrics_flush_handle: None,
+                shutdown_tx,
+            },
+            shutdown_rx,
+        )
+    }
+
+    /// Signal all monitoring tasks to stop.
+    pub fn signal_shutdown(&self) {
+        let _ = self.shutdown_tx.send(true);
+    }
+
+    /// Wait for all monitoring tasks to complete.
+    pub async fn wait_for_shutdown(self) {
+        if let Some(handle) = self.health_check_handle {
+            let _ = handle.await;
+        }
+        if let Some(handle) = self.watchdog_handle {
+            let _ = handle.await;
+        }
+        if let Some(handle) = self.metrics_flush_handle {
+            let _ = handle.await;
+        }
+    }
+
+    /// Check if any monitoring tasks are running.
+    pub fn is_running(&self) -> bool {
+        self.health_check_handle
+            .as_ref()
+            .map(|h| !h.is_finished())
+            .unwrap_or(false)
+            || self
+                .watchdog_handle
+                .as_ref()
+                .map(|h| !h.is_finished())
+                .unwrap_or(false)
+            || self
+                .metrics_flush_handle
+                .as_ref()
+                .map(|h| !h.is_finished())
+                .unwrap_or(false)
+    }
+}
+
+// ============================================================================
 // Runtime Context
 // ============================================================================
 
@@ -396,6 +540,164 @@ impl RingKernelContext {
             active_watchdog_loops: self.background_tasks.watchdog_loops.load(Ordering::Relaxed),
             active_metrics_loops: self.background_tasks.metrics_flush_loops.load(Ordering::Relaxed),
         }
+    }
+
+    // ========================================================================
+    // Async Background Monitoring
+    // ========================================================================
+
+    /// Start background monitoring loops.
+    ///
+    /// This spawns async tasks for:
+    /// - Health check loop (runs at configured interval)
+    /// - Watchdog loop (checks for stale kernels)
+    /// - Metrics flush loop (exports Prometheus metrics)
+    ///
+    /// Returns handles that can be used to stop the monitoring tasks.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let runtime = RuntimeBuilder::new().production().build()?;
+    /// runtime.start()?;
+    ///
+    /// let config = MonitoringConfig::new()
+    ///     .health_check_interval(Duration::from_secs(5))
+    ///     .watchdog_interval(Duration::from_secs(2));
+    ///
+    /// let handles = runtime.start_monitoring(config).await;
+    ///
+    /// // ... runtime runs ...
+    ///
+    /// // Graceful shutdown
+    /// handles.signal_shutdown();
+    /// handles.wait_for_shutdown().await;
+    /// ```
+    pub fn start_monitoring(self: &Arc<Self>, config: MonitoringConfig) -> MonitoringHandles {
+        let (mut handles, shutdown_rx) = MonitoringHandles::new();
+
+        // Spawn health check loop
+        if config.enable_health_checks {
+            let runtime = Arc::clone(self);
+            let interval = config.health_check_interval;
+            let mut shutdown = shutdown_rx.clone();
+
+            handles.health_check_handle = Some(tokio::spawn(async move {
+                runtime
+                    .background_tasks
+                    .health_check_loops
+                    .fetch_add(1, Ordering::Relaxed);
+
+                let mut interval_timer = tokio::time::interval(interval);
+                interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+                loop {
+                    tokio::select! {
+                        _ = interval_timer.tick() => {
+                            if runtime.is_shutdown_requested() {
+                                break;
+                            }
+                            let _result = runtime.run_health_check_cycle();
+                            tracing::debug!("Health check cycle completed");
+                        }
+                        _ = shutdown.changed() => {
+                            tracing::info!("Health check loop shutting down");
+                            break;
+                        }
+                    }
+                }
+
+                runtime
+                    .background_tasks
+                    .health_check_loops
+                    .fetch_sub(1, Ordering::Relaxed);
+            }));
+        }
+
+        // Spawn watchdog loop
+        if config.enable_watchdog {
+            let runtime = Arc::clone(self);
+            let interval = config.watchdog_interval;
+            let mut shutdown = shutdown_rx.clone();
+
+            handles.watchdog_handle = Some(tokio::spawn(async move {
+                runtime
+                    .background_tasks
+                    .watchdog_loops
+                    .fetch_add(1, Ordering::Relaxed);
+
+                let mut interval_timer = tokio::time::interval(interval);
+                interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+                loop {
+                    tokio::select! {
+                        _ = interval_timer.tick() => {
+                            if runtime.is_shutdown_requested() {
+                                break;
+                            }
+                            let result = runtime.run_watchdog_cycle();
+                            if result.stale_kernels > 0 {
+                                tracing::warn!("Watchdog detected {} stale kernels", result.stale_kernels);
+                            }
+                        }
+                        _ = shutdown.changed() => {
+                            tracing::info!("Watchdog loop shutting down");
+                            break;
+                        }
+                    }
+                }
+
+                runtime
+                    .background_tasks
+                    .watchdog_loops
+                    .fetch_sub(1, Ordering::Relaxed);
+            }));
+        }
+
+        // Spawn metrics flush loop
+        if config.enable_metrics_flush {
+            let runtime = Arc::clone(self);
+            let interval = config.metrics_flush_interval;
+            let mut shutdown = shutdown_rx;
+
+            handles.metrics_flush_handle = Some(tokio::spawn(async move {
+                runtime
+                    .background_tasks
+                    .metrics_flush_loops
+                    .fetch_add(1, Ordering::Relaxed);
+
+                let mut interval_timer = tokio::time::interval(interval);
+                interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+                loop {
+                    tokio::select! {
+                        _ = interval_timer.tick() => {
+                            if runtime.is_shutdown_requested() {
+                                break;
+                            }
+                            let _metrics = runtime.flush_metrics();
+                            tracing::debug!("Metrics flush completed");
+                        }
+                        _ = shutdown.changed() => {
+                            tracing::info!("Metrics flush loop shutting down");
+                            break;
+                        }
+                    }
+                }
+
+                runtime
+                    .background_tasks
+                    .metrics_flush_loops
+                    .fetch_sub(1, Ordering::Relaxed);
+            }));
+        }
+
+        handles
+    }
+
+    /// Start monitoring with default configuration.
+    pub fn start_monitoring_default(self: &Arc<Self>) -> MonitoringHandles {
+        self.start_monitoring(MonitoringConfig::default())
     }
 
     /// Request graceful shutdown.
@@ -1361,5 +1663,144 @@ mod tests {
         runtime.flush_metrics();
         let status = runtime.background_task_status();
         assert!(status.metrics_flush_age.is_some());
+    }
+
+    // ========================================================================
+    // Async Monitoring Tests
+    // ========================================================================
+
+    #[test]
+    fn test_monitoring_config_builder() {
+        let config = MonitoringConfig::new()
+            .health_check_interval(Duration::from_secs(5))
+            .watchdog_interval(Duration::from_secs(2))
+            .metrics_flush_interval(Duration::from_secs(30))
+            .enable_health_checks(true)
+            .enable_watchdog(false)
+            .enable_metrics_flush(true);
+
+        assert_eq!(config.health_check_interval, Duration::from_secs(5));
+        assert_eq!(config.watchdog_interval, Duration::from_secs(2));
+        assert_eq!(config.metrics_flush_interval, Duration::from_secs(30));
+        assert!(config.enable_health_checks);
+        assert!(!config.enable_watchdog);
+        assert!(config.enable_metrics_flush);
+    }
+
+    #[test]
+    fn test_monitoring_config_default() {
+        let config = MonitoringConfig::default();
+
+        assert_eq!(config.health_check_interval, Duration::from_secs(10));
+        assert_eq!(config.watchdog_interval, Duration::from_secs(5));
+        assert_eq!(config.metrics_flush_interval, Duration::from_secs(60));
+        assert!(config.enable_health_checks);
+        assert!(config.enable_watchdog);
+        assert!(config.enable_metrics_flush);
+    }
+
+    #[tokio::test]
+    async fn test_async_monitoring_start_stop() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+        runtime.start().unwrap();
+
+        // Start monitoring with short intervals
+        let config = MonitoringConfig::new()
+            .health_check_interval(Duration::from_millis(50))
+            .watchdog_interval(Duration::from_millis(50))
+            .metrics_flush_interval(Duration::from_millis(50));
+
+        let handles = runtime.start_monitoring(config);
+
+        // Verify tasks are running
+        assert!(handles.is_running());
+
+        // Let some cycles run
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        // Verify health checks ran
+        let status = runtime.background_task_status();
+        assert!(status.health_check_age.is_some());
+        assert!(status.watchdog_scan_age.is_some());
+
+        // Signal shutdown
+        handles.signal_shutdown();
+
+        // Wait for tasks to complete
+        handles.wait_for_shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn test_async_monitoring_default_config() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+        runtime.start().unwrap();
+
+        // Start with default config (but we'll shut down quickly)
+        let handles = runtime.start_monitoring_default();
+        assert!(handles.is_running());
+
+        // Shutdown immediately
+        handles.signal_shutdown();
+        handles.wait_for_shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn test_async_monitoring_selective_loops() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+        runtime.start().unwrap();
+
+        // Only enable health checks
+        let config = MonitoringConfig::new()
+            .health_check_interval(Duration::from_millis(50))
+            .enable_health_checks(true)
+            .enable_watchdog(false)
+            .enable_metrics_flush(false);
+
+        let handles = runtime.start_monitoring(config);
+
+        // Only health check handle should be set
+        assert!(handles.health_check_handle.is_some());
+        assert!(handles.watchdog_handle.is_none());
+        assert!(handles.metrics_flush_handle.is_none());
+
+        handles.signal_shutdown();
+        handles.wait_for_shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn test_async_monitoring_respects_shutdown_flag() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+        runtime.start().unwrap();
+
+        let config = MonitoringConfig::new()
+            .health_check_interval(Duration::from_millis(50));
+
+        let handles = runtime.start_monitoring(config);
+
+        // Request shutdown via runtime
+        runtime.request_shutdown().unwrap();
+
+        // Let monitoring loop detect shutdown
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Tasks should have stopped
+        handles.wait_for_shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn test_monitoring_handles_is_running() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+        runtime.start().unwrap();
+
+        let config = MonitoringConfig::new()
+            .health_check_interval(Duration::from_millis(100));
+
+        let handles = runtime.start_monitoring(config);
+        assert!(handles.is_running());
+
+        handles.signal_shutdown();
+        handles.wait_for_shutdown().await;
+
+        // After shutdown, a new handles struct would be needed
     }
 }

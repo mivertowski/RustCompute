@@ -54,11 +54,14 @@ config = ["dep:config"]
 tracing-integration = []
 prometheus = ["dep:prometheus"]
 
+# Enterprise features integration (health, circuit breaker, degradation, metrics)
+enterprise = ["dep:serde_json"]
+
 # Full persistent ecosystem (persistent + web frameworks)
 persistent-full = ["persistent-cuda", "persistent-wgpu", "actix", "axum", "axum-ws", "axum-sse", "grpc"]
 
 # Full ecosystem (all integrations)
-full = ["actix", "tower", "axum", "arrow", "polars", "grpc", "candle", "config", "tracing-integration", "prometheus", "persistent"]
+full = ["actix", "tower", "axum", "arrow", "polars", "grpc", "candle", "config", "tracing-integration", "prometheus", "persistent", "enterprise"]
 
 [dependencies]
 # Core ringkernel

@@ -39,6 +39,11 @@ uuid = { workspace = true }
 cfg-if = { workspace = true }
 pin-project-lite = { workspace = true }
 
+# Configuration file support (optional)
+serde = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
+serde_yaml = { workspace = true, optional = true }
+
 # Proc macro support
 inventory = { workspace = true }
 
@@ -49,3 +54,4 @@ tokio = { workspace = true, features = ["test-util", "macros"] }
 [features]
 default = []
 validation = ["rkyv/validation"]
+config-file = ["serde", "toml", "serde_yaml"]

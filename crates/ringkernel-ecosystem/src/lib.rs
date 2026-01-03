@@ -70,6 +70,9 @@ pub mod tracing_ext;
 #[cfg(feature = "prometheus")]
 pub mod metrics;
 
+#[cfg(feature = "enterprise")]
+pub mod enterprise;
+
 /// Prelude for convenient imports.
 ///
 /// Note: Each integration module defines its own `RuntimeHandle` trait with
@@ -140,4 +143,20 @@ pub mod prelude {
 
     #[cfg(feature = "prometheus")]
     pub use crate::metrics::*;
+
+    #[cfg(feature = "enterprise")]
+    pub use crate::enterprise::{
+        EnterpriseHealthResponse, EnterpriseState, EnterpriseStatsResponse, LivenessResponse,
+        ReadinessResponse,
+    };
+    #[cfg(all(feature = "enterprise", feature = "axum"))]
+    pub use crate::enterprise::{
+        enterprise_routes, health_handler as enterprise_health_handler, liveness_handler,
+        metrics_handler as enterprise_metrics_handler, readiness_handler, stats_handler,
+    };
+    #[cfg(all(feature = "enterprise", feature = "tower"))]
+    pub use crate::enterprise::{
+        CircuitBreakerFuture, CircuitBreakerLayer, CircuitBreakerService, DegradationFuture,
+        DegradationLayer, DegradationService,
+    };
 }

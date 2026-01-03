@@ -97,8 +97,8 @@ pub mod prelude {
     pub use crate::runtime::*;
     pub use crate::runtime_context::{
         AppInfo, BackgroundTaskStatus, CircuitGuard, ContextMetrics, DegradationGuard,
-        HealthCycleResult, LifecycleState, OperationPriority, RingKernelContext, RuntimeBuilder,
-        RuntimeStatsSnapshot, ShutdownReport, WatchdogResult,
+        HealthCycleResult, LifecycleState, MonitoringConfig, MonitoringHandles, OperationPriority,
+        RingKernelContext, RuntimeBuilder, RuntimeStatsSnapshot, ShutdownReport, WatchdogResult,
     };
     pub use crate::telemetry::*;
     pub use crate::telemetry_pipeline::{
