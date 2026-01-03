@@ -851,10 +851,10 @@ impl RingKernelContext {
         self.prometheus_exporter.render()
     }
 
-    /// Create a metrics snapshot for the runtime.
-    pub fn metrics_snapshot(&self) -> RuntimeMetrics {
+    /// Create a metrics snapshot for the runtime context.
+    pub fn metrics_snapshot(&self) -> ContextMetrics {
         let stats = self.stats();
-        RuntimeMetrics {
+        ContextMetrics {
             uptime_seconds: stats.uptime.as_secs_f64(),
             kernels_launched: stats.kernels_launched,
             messages_processed: stats.messages_processed,
@@ -869,9 +869,9 @@ impl RingKernelContext {
     }
 }
 
-/// Runtime metrics for monitoring.
+/// Context metrics for monitoring the unified runtime.
 #[derive(Debug, Clone)]
-pub struct RuntimeMetrics {
+pub struct ContextMetrics {
     /// Uptime in seconds.
     pub uptime_seconds: f64,
     /// Total kernels launched.
