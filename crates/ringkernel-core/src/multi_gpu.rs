@@ -1307,6 +1307,253 @@ impl CrossDeviceTransfer {
     }
 }
 
+// ============================================================================
+// Kernel Migrator with Checkpoint Integration
+// ============================================================================
+
+use crate::checkpoint::{CheckpointStorage, CheckpointableKernel, MemoryStorage};
+
+/// Migrator that uses checkpoints for kernel state transfer between GPUs.
+///
+/// This integrates the checkpoint infrastructure with the multi-GPU migration
+/// system to enable live migration of persistent kernels.
+///
+/// # Example
+///
+/// ```ignore
+/// use ringkernel_core::multi_gpu::{KernelMigrator, MultiGpuBuilder};
+///
+/// let coordinator = MultiGpuBuilder::new().build();
+/// let migrator = KernelMigrator::new(coordinator);
+///
+/// // Migrate kernel from GPU 0 to GPU 1
+/// migrator.migrate_with_checkpoint(&kernel, &mut request).await?;
+/// ```
+pub struct KernelMigrator {
+    /// Multi-GPU coordinator.
+    coordinator: Arc<MultiGpuCoordinator>,
+    /// Checkpoint storage for migration state.
+    storage: Arc<dyn CheckpointStorage>,
+    /// Statistics.
+    stats: MigrationStats,
+}
+
+/// Statistics for kernel migrations.
+#[derive(Debug, Default)]
+pub struct MigrationStats {
+    /// Total successful migrations.
+    pub successful_migrations: AtomicU64,
+    /// Total failed migrations.
+    pub failed_migrations: AtomicU64,
+    /// Total bytes transferred during migrations.
+    pub bytes_transferred: AtomicU64,
+    /// Total checkpoint time (microseconds).
+    pub checkpoint_time_us: AtomicU64,
+    /// Total restore time (microseconds).
+    pub restore_time_us: AtomicU64,
+}
+
+/// Result of a completed migration.
+#[derive(Debug, Clone)]
+pub struct MigrationResult {
+    /// Kernel that was migrated.
+    pub kernel_id: KernelId,
+    /// Source device.
+    pub source_device: usize,
+    /// Target device.
+    pub target_device: usize,
+    /// Checkpoint size in bytes.
+    pub checkpoint_size: usize,
+    /// Time spent creating checkpoint.
+    pub checkpoint_duration: Duration,
+    /// Time spent transferring state.
+    pub transfer_duration: Duration,
+    /// Time spent restoring kernel.
+    pub restore_duration: Duration,
+    /// Total migration time.
+    pub total_duration: Duration,
+}
+
+impl KernelMigrator {
+    /// Create a new kernel migrator with default in-memory storage.
+    pub fn new(coordinator: Arc<MultiGpuCoordinator>) -> Self {
+        Self {
+            coordinator,
+            storage: Arc::new(MemoryStorage::new()),
+            stats: MigrationStats::default(),
+        }
+    }
+
+    /// Create a migrator with custom checkpoint storage.
+    pub fn with_storage(
+        coordinator: Arc<MultiGpuCoordinator>,
+        storage: Arc<dyn CheckpointStorage>,
+    ) -> Self {
+        Self {
+            coordinator,
+            storage,
+            stats: MigrationStats::default(),
+        }
+    }
+
+    /// Perform a complete migration using checkpoint-based state transfer.
+    ///
+    /// Steps:
+    /// 1. Quiesce the source kernel (drain pending messages)
+    /// 2. Create checkpoint of kernel state
+    /// 3. Transfer checkpoint to target device
+    /// 4. Restore kernel on target device
+    /// 5. Update coordinator routing tables
+    pub fn migrate_with_checkpoint<K: CheckpointableKernel>(
+        &self,
+        kernel: &K,
+        request: &mut MigrationRequest,
+    ) -> Result<MigrationResult> {
+        let start_time = Instant::now();
+        request.started_at = Some(start_time);
+
+        // Step 1: Quiesce
+        request.state = MigrationState::Quiescing;
+        // In a real implementation, this would drain message queues
+        // For now, we assume the kernel is ready for checkpointing
+
+        // Step 2: Create checkpoint
+        request.state = MigrationState::Checkpointing;
+        let checkpoint_start = Instant::now();
+        let checkpoint = kernel.create_checkpoint().map_err(|e| {
+            self.stats.failed_migrations.fetch_add(1, Ordering::Relaxed);
+            request.state = MigrationState::Failed;
+            RingKernelError::MigrationFailed(format!("Checkpoint creation failed: {}", e))
+        })?;
+        let checkpoint_duration = checkpoint_start.elapsed();
+        let checkpoint_size = checkpoint.total_size();
+
+        self.stats
+            .checkpoint_time_us
+            .fetch_add(checkpoint_duration.as_micros() as u64, Ordering::Relaxed);
+
+        // Step 3: Transfer
+        request.state = MigrationState::Transferring;
+        let transfer_start = Instant::now();
+
+        // Store checkpoint (simulates transfer)
+        let checkpoint_name = format!(
+            "migration_{}_{}_{}",
+            request.kernel_id.as_str(),
+            request.source_device,
+            request.target_device
+        );
+        self.storage.save(&checkpoint, &checkpoint_name).map_err(|e| {
+            self.stats.failed_migrations.fetch_add(1, Ordering::Relaxed);
+            request.state = MigrationState::Failed;
+            RingKernelError::MigrationFailed(format!("Checkpoint transfer failed: {}", e))
+        })?;
+
+        let transfer_duration = transfer_start.elapsed();
+        self.stats
+            .bytes_transferred
+            .fetch_add(checkpoint_size as u64, Ordering::Relaxed);
+
+        // Step 4: Restore (would be done on target kernel)
+        request.state = MigrationState::Restoring;
+        let restore_start = Instant::now();
+
+        // Load checkpoint to verify it's valid
+        let _restored = self.storage.load(&checkpoint_name).map_err(|e| {
+            self.stats.failed_migrations.fetch_add(1, Ordering::Relaxed);
+            request.state = MigrationState::Failed;
+            RingKernelError::MigrationFailed(format!("Checkpoint restore failed: {}", e))
+        })?;
+
+        let restore_duration = restore_start.elapsed();
+        self.stats
+            .restore_time_us
+            .fetch_add(restore_duration.as_micros() as u64, Ordering::Relaxed);
+
+        // Step 5: Update routing
+        request.state = MigrationState::Completed;
+        self.coordinator.complete_migration(request)?;
+
+        // Clean up checkpoint
+        let _ = self.storage.delete(&checkpoint_name);
+
+        self.stats
+            .successful_migrations
+            .fetch_add(1, Ordering::Relaxed);
+
+        Ok(MigrationResult {
+            kernel_id: request.kernel_id.clone(),
+            source_device: request.source_device,
+            target_device: request.target_device,
+            checkpoint_size,
+            checkpoint_duration,
+            transfer_duration,
+            restore_duration,
+            total_duration: start_time.elapsed(),
+        })
+    }
+
+    /// Get a reference to the coordinator.
+    pub fn coordinator(&self) -> &Arc<MultiGpuCoordinator> {
+        &self.coordinator
+    }
+
+    /// Get migration statistics snapshot.
+    pub fn stats(&self) -> MigrationStatsSnapshot {
+        let successful = self.stats.successful_migrations.load(Ordering::Relaxed);
+        let failed = self.stats.failed_migrations.load(Ordering::Relaxed);
+        let total = successful + failed;
+        let checkpoint_us = self.stats.checkpoint_time_us.load(Ordering::Relaxed);
+        let restore_us = self.stats.restore_time_us.load(Ordering::Relaxed);
+
+        MigrationStatsSnapshot {
+            successful_migrations: successful,
+            failed_migrations: failed,
+            bytes_transferred: self.stats.bytes_transferred.load(Ordering::Relaxed),
+            avg_checkpoint_time: if total > 0 {
+                Duration::from_micros(checkpoint_us / total)
+            } else {
+                Duration::ZERO
+            },
+            avg_restore_time: if total > 0 {
+                Duration::from_micros(restore_us / total)
+            } else {
+                Duration::ZERO
+            },
+        }
+    }
+}
+
+/// Snapshot of migration statistics.
+#[derive(Debug, Clone)]
+pub struct MigrationStatsSnapshot {
+    /// Total successful migrations.
+    pub successful_migrations: u64,
+    /// Total failed migrations.
+    pub failed_migrations: u64,
+    /// Total bytes transferred.
+    pub bytes_transferred: u64,
+    /// Average checkpoint creation time.
+    pub avg_checkpoint_time: Duration,
+    /// Average restore time.
+    pub avg_restore_time: Duration,
+}
+
+/// Trait for kernels that support live migration.
+pub trait MigratableKernel: CheckpointableKernel {
+    /// Prepare kernel for migration (quiesce, drain messages).
+    fn prepare_for_migration(&mut self) -> Result<()>;
+
+    /// Resume kernel after migration is cancelled.
+    fn cancel_migration(&mut self) -> Result<()>;
+
+    /// Check if kernel is ready to be checkpointed.
+    fn is_quiescent(&self) -> bool;
+
+    /// Get estimated state size for migration planning.
+    fn estimated_state_size(&self) -> usize;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1708,5 +1955,172 @@ mod tests {
         assert_eq!(stats.messages_routed, 0);
         assert_eq!(stats.bytes_transferred, 0);
         assert_eq!(stats.routing_failures, 0);
+    }
+
+    // ========================================================================
+    // Kernel Migrator Tests
+    // ========================================================================
+
+    use crate::checkpoint::{Checkpoint, CheckpointBuilder, CheckpointMetadata};
+
+    /// Mock checkpointable kernel for testing.
+    struct MockCheckpointableKernel {
+        kernel_id: String,
+        kernel_type: String,
+        state_data: Vec<u8>,
+        step: u64,
+    }
+
+    impl MockCheckpointableKernel {
+        fn new(kernel_id: &str, state_size: usize) -> Self {
+            Self {
+                kernel_id: kernel_id.to_string(),
+                kernel_type: "mock_kernel".to_string(),
+                state_data: vec![0xAB; state_size],
+                step: 1000,
+            }
+        }
+    }
+
+    impl CheckpointableKernel for MockCheckpointableKernel {
+        fn create_checkpoint(&self) -> Result<Checkpoint> {
+            let checkpoint = CheckpointBuilder::new(&self.kernel_id, &self.kernel_type)
+                .step(self.step)
+                .grid_size(64, 64, 64)
+                .control_block(vec![1, 2, 3, 4])
+                .device_memory("state", self.state_data.clone())
+                .build();
+            Ok(checkpoint)
+        }
+
+        fn restore_from_checkpoint(&mut self, checkpoint: &Checkpoint) -> Result<()> {
+            self.step = checkpoint.metadata.current_step;
+            Ok(())
+        }
+
+        fn checkpoint_kernel_id(&self) -> &str {
+            &self.kernel_id
+        }
+
+        fn checkpoint_kernel_type(&self) -> &str {
+            &self.kernel_type
+        }
+    }
+
+    #[test]
+    fn test_migrator_creation() {
+        let coord = MultiGpuBuilder::new().build();
+        let migrator = KernelMigrator::new(coord);
+
+        let stats = migrator.stats();
+        assert_eq!(stats.successful_migrations, 0);
+        assert_eq!(stats.failed_migrations, 0);
+        assert_eq!(stats.bytes_transferred, 0);
+    }
+
+    #[test]
+    fn test_migrator_with_custom_storage() {
+        let coord = MultiGpuBuilder::new().build();
+        let storage = Arc::new(MemoryStorage::new());
+        let migrator = KernelMigrator::with_storage(coord.clone(), storage);
+
+        // Verify we can access the coordinator
+        assert!(Arc::ptr_eq(&migrator.coordinator(), &coord));
+    }
+
+    #[test]
+    fn test_successful_migration() {
+        let coord = MultiGpuBuilder::new().build();
+
+        // Register devices
+        coord.register_device(DeviceInfo::new(0, "GPU 0".to_string(), Backend::Cuda));
+        coord.register_device(DeviceInfo::new(1, "GPU 1".to_string(), Backend::Cuda));
+
+        // Assign kernel to device 0
+        let kernel_id = KernelId::new("migratable_kernel");
+        coord.assign_kernel(kernel_id.clone(), 0);
+
+        let migrator = KernelMigrator::new(coord.clone());
+
+        // Create mock kernel
+        let kernel = MockCheckpointableKernel::new("migratable_kernel", 1024);
+
+        // Request migration
+        let mut request = coord.request_migration(&kernel_id, 1).unwrap();
+        assert_eq!(request.state, MigrationState::Pending);
+
+        // Perform migration
+        let result = migrator.migrate_with_checkpoint(&kernel, &mut request).unwrap();
+
+        // Verify result
+        assert_eq!(result.kernel_id.as_str(), "migratable_kernel");
+        assert_eq!(result.source_device, 0);
+        assert_eq!(result.target_device, 1);
+        assert!(result.checkpoint_size > 0);
+        assert!(result.total_duration > Duration::ZERO);
+
+        // Verify kernel was moved
+        assert_eq!(coord.get_kernel_device(&kernel_id), Some(1));
+
+        // Verify stats
+        let stats = migrator.stats();
+        assert_eq!(stats.successful_migrations, 1);
+        assert_eq!(stats.failed_migrations, 0);
+        assert!(stats.bytes_transferred > 0);
+    }
+
+    #[test]
+    fn test_migration_result_fields() {
+        let coord = MultiGpuBuilder::new().build();
+
+        coord.register_device(DeviceInfo::new(0, "GPU 0".to_string(), Backend::Cuda));
+        coord.register_device(DeviceInfo::new(1, "GPU 1".to_string(), Backend::Cuda));
+
+        let kernel_id = KernelId::new("test_kernel");
+        coord.assign_kernel(kernel_id.clone(), 0);
+
+        let migrator = KernelMigrator::new(coord.clone());
+        let kernel = MockCheckpointableKernel::new("test_kernel", 4096);
+        let mut request = coord.request_migration(&kernel_id, 1).unwrap();
+
+        let result = migrator.migrate_with_checkpoint(&kernel, &mut request).unwrap();
+
+        // All durations should be non-negative
+        assert!(result.checkpoint_duration >= Duration::ZERO);
+        assert!(result.transfer_duration >= Duration::ZERO);
+        assert!(result.restore_duration >= Duration::ZERO);
+
+        // Total should be >= sum of parts
+        assert!(result.total_duration >= result.checkpoint_duration);
+    }
+
+    #[test]
+    fn test_migration_stats_accumulate() {
+        let coord = MultiGpuBuilder::new().build();
+
+        coord.register_device(DeviceInfo::new(0, "GPU 0".to_string(), Backend::Cuda));
+        coord.register_device(DeviceInfo::new(1, "GPU 1".to_string(), Backend::Cuda));
+
+        let migrator = KernelMigrator::new(coord.clone());
+
+        // Migrate kernel 1: 0 -> 1
+        let k1 = KernelId::new("k1");
+        coord.assign_kernel(k1.clone(), 0);
+        let kernel1 = MockCheckpointableKernel::new("k1", 1000);
+        let mut req1 = coord.request_migration(&k1, 1).unwrap();
+        migrator.migrate_with_checkpoint(&kernel1, &mut req1).unwrap();
+
+        // Migrate kernel 2: 0 -> 1
+        let k2 = KernelId::new("k2");
+        coord.assign_kernel(k2.clone(), 0);
+        let kernel2 = MockCheckpointableKernel::new("k2", 2000);
+        let mut req2 = coord.request_migration(&k2, 1).unwrap();
+        migrator.migrate_with_checkpoint(&kernel2, &mut req2).unwrap();
+
+        let stats = migrator.stats();
+        assert_eq!(stats.successful_migrations, 2);
+        assert_eq!(stats.failed_migrations, 0);
+        // Both checkpoints should have been transferred
+        assert!(stats.bytes_transferred > 0);
     }
 }

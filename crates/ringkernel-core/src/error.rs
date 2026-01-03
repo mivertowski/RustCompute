@@ -270,6 +270,78 @@ pub enum RingKernelError {
     #[error("checkpoint not found: {0}")]
     CheckpointNotFound(String),
 
+    // ===== Health & Resilience Errors =====
+    /// Health check failed.
+    #[error("health check failed: {name} - {reason}")]
+    HealthCheckFailed {
+        /// Health check name
+        name: String,
+        /// Failure reason
+        reason: String,
+    },
+
+    /// Circuit breaker is open.
+    #[error("circuit breaker open: {name}")]
+    CircuitBreakerOpen {
+        /// Circuit breaker name
+        name: String,
+    },
+
+    /// Retry attempts exhausted.
+    #[error("retry exhausted after {attempts} attempts: {reason}")]
+    RetryExhausted {
+        /// Number of attempts made
+        attempts: u32,
+        /// Last failure reason
+        reason: String,
+    },
+
+    /// Kernel watchdog timeout.
+    #[error("kernel watchdog timeout: {kernel_id}")]
+    WatchdogTimeout {
+        /// Kernel ID that timed out
+        kernel_id: String,
+    },
+
+    /// Load shedding rejected request.
+    #[error("load shedding: request rejected at level {level}")]
+    LoadSheddingRejected {
+        /// Current degradation level
+        level: String,
+    },
+
+    // ===== Migration Errors =====
+    /// Kernel migration failed.
+    #[error("kernel migration failed: {0}")]
+    MigrationFailed(String),
+
+    /// Migration source not ready.
+    #[error("migration source not ready: {kernel_id}")]
+    MigrationSourceNotReady {
+        /// Source kernel ID
+        kernel_id: String,
+    },
+
+    /// Migration destination unavailable.
+    #[error("migration destination unavailable: device {device_id}")]
+    MigrationDestinationUnavailable {
+        /// Destination device ID
+        device_id: usize,
+    },
+
+    // ===== Observability Errors =====
+    /// Tracing error.
+    #[error("tracing error: {0}")]
+    TracingError(String),
+
+    /// Span not found.
+    #[error("span not found: {0}")]
+    SpanNotFound(String),
+
+    /// Metrics export failed.
+    #[error("metrics export failed: {0}")]
+    MetricsExportFailed(String),
+
     // ===== Generic Errors =====
     /// Internal error.
     #[error("internal error: {0}")]
@@ -293,6 +365,8 @@ impl RingKernelError {
                 | RingKernelError::QueueEmpty
                 | RingKernelError::Timeout(_)
                 | RingKernelError::PoolExhausted
+                | RingKernelError::CircuitBreakerOpen { .. }
+                | RingKernelError::LoadSheddingRejected { .. }
         )
     }
 
@@ -304,6 +378,7 @@ impl RingKernelError {
                 | RingKernelError::HostAllocationFailed { .. }
                 | RingKernelError::OutOfMemory { .. }
                 | RingKernelError::PoolExhausted
+                | RingKernelError::MigrationDestinationUnavailable { .. }
         )
     }
 
@@ -315,6 +390,40 @@ impl RingKernelError {
                 | RingKernelError::NoDeviceFound
                 | RingKernelError::LockPoisoned
                 | RingKernelError::Internal(_)
+        )
+    }
+
+    /// Returns true if this is a health/resilience related error.
+    pub fn is_health_error(&self) -> bool {
+        matches!(
+            self,
+            RingKernelError::HealthCheckFailed { .. }
+                | RingKernelError::CircuitBreakerOpen { .. }
+                | RingKernelError::RetryExhausted { .. }
+                | RingKernelError::WatchdogTimeout { .. }
+                | RingKernelError::LoadSheddingRejected { .. }
+        )
+    }
+
+    /// Returns true if this is a migration-related error.
+    pub fn is_migration_error(&self) -> bool {
+        matches!(
+            self,
+            RingKernelError::MigrationFailed(_)
+                | RingKernelError::MigrationSourceNotReady { .. }
+                | RingKernelError::MigrationDestinationUnavailable { .. }
+        )
+    }
+
+    /// Returns true if this is an observability-related error.
+    pub fn is_observability_error(&self) -> bool {
+        matches!(
+            self,
+            RingKernelError::TracingError(_)
+                | RingKernelError::SpanNotFound(_)
+                | RingKernelError::MetricsExportFailed(_)
+                | RingKernelError::TelemetryError(_)
+                | RingKernelError::MetricsCollectionFailed(_)
         )
     }
 }
@@ -341,5 +450,105 @@ mod tests {
         }
         .is_resource_error());
         assert!(RingKernelError::LockPoisoned.is_fatal());
+    }
+
+    #[test]
+    fn test_health_error_display() {
+        let err = RingKernelError::HealthCheckFailed {
+            name: "liveness".to_string(),
+            reason: "timeout".to_string(),
+        };
+        assert_eq!(
+            format!("{}", err),
+            "health check failed: liveness - timeout"
+        );
+
+        let err = RingKernelError::CircuitBreakerOpen {
+            name: "gpu_ops".to_string(),
+        };
+        assert_eq!(format!("{}", err), "circuit breaker open: gpu_ops");
+
+        let err = RingKernelError::RetryExhausted {
+            attempts: 5,
+            reason: "connection refused".to_string(),
+        };
+        assert!(format!("{}", err).contains("5 attempts"));
+
+        let err = RingKernelError::WatchdogTimeout {
+            kernel_id: "kernel_42".to_string(),
+        };
+        assert!(format!("{}", err).contains("kernel_42"));
+    }
+
+    #[test]
+    fn test_health_error_classification() {
+        assert!(RingKernelError::CircuitBreakerOpen {
+            name: "test".to_string()
+        }
+        .is_recoverable());
+        assert!(RingKernelError::LoadSheddingRejected {
+            level: "critical".to_string()
+        }
+        .is_recoverable());
+        assert!(RingKernelError::HealthCheckFailed {
+            name: "test".to_string(),
+            reason: "failed".to_string()
+        }
+        .is_health_error());
+        assert!(RingKernelError::WatchdogTimeout {
+            kernel_id: "k1".to_string()
+        }
+        .is_health_error());
+    }
+
+    #[test]
+    fn test_migration_error_display() {
+        let err = RingKernelError::MigrationFailed("checkpoint transfer error".to_string());
+        assert!(format!("{}", err).contains("checkpoint transfer error"));
+
+        let err = RingKernelError::MigrationSourceNotReady {
+            kernel_id: "kernel_1".to_string(),
+        };
+        assert!(format!("{}", err).contains("kernel_1"));
+
+        let err = RingKernelError::MigrationDestinationUnavailable { device_id: 2 };
+        assert!(format!("{}", err).contains("device 2"));
+    }
+
+    #[test]
+    fn test_migration_error_classification() {
+        assert!(RingKernelError::MigrationFailed("test".to_string()).is_migration_error());
+        assert!(RingKernelError::MigrationSourceNotReady {
+            kernel_id: "k1".to_string()
+        }
+        .is_migration_error());
+        assert!(RingKernelError::MigrationDestinationUnavailable { device_id: 0 }
+            .is_migration_error());
+        assert!(
+            RingKernelError::MigrationDestinationUnavailable { device_id: 0 }.is_resource_error()
+        );
+    }
+
+    #[test]
+    fn test_observability_error_display() {
+        let err = RingKernelError::TracingError("span creation failed".to_string());
+        assert!(format!("{}", err).contains("span creation failed"));
+
+        let err = RingKernelError::SpanNotFound("span_abc123".to_string());
+        assert!(format!("{}", err).contains("span_abc123"));
+
+        let err = RingKernelError::MetricsExportFailed("prometheus timeout".to_string());
+        assert!(format!("{}", err).contains("prometheus timeout"));
+    }
+
+    #[test]
+    fn test_observability_error_classification() {
+        assert!(RingKernelError::TracingError("test".to_string()).is_observability_error());
+        assert!(RingKernelError::SpanNotFound("test".to_string()).is_observability_error());
+        assert!(RingKernelError::MetricsExportFailed("test".to_string()).is_observability_error());
+        assert!(RingKernelError::TelemetryError("test".to_string()).is_observability_error());
+        assert!(
+            RingKernelError::MetricsCollectionFailed("test".to_string()).is_observability_error()
+        );
     }
 }

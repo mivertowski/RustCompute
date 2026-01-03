@@ -160,9 +160,11 @@ impl HealthCheck {
 pub struct HealthChecker {
     /// Registered health checks.
     checks: RwLock<Vec<Arc<HealthCheck>>>,
-    /// Check interval.
+    /// Check interval (used by async runtime loop).
+    #[allow(dead_code)]
     check_interval: Duration,
-    /// Running state.
+    /// Running state (used by async runtime loop).
+    #[allow(dead_code)]
     running: std::sync::atomic::AtomicBool,
 }
 
@@ -1001,11 +1003,13 @@ pub struct KernelWatchdog {
     kernels: RwLock<HashMap<KernelId, KernelHealth>>,
     /// Heartbeat timeout.
     heartbeat_timeout: Duration,
-    /// Check interval.
+    /// Check interval (used by async runtime loop).
+    #[allow(dead_code)]
     check_interval: Duration,
     /// Failure threshold before marking unhealthy.
     failure_threshold: u32,
-    /// Running state.
+    /// Running state (used by async runtime loop).
+    #[allow(dead_code)]
     running: std::sync::atomic::AtomicBool,
     /// Unhealthy kernel callbacks.
     callbacks: RwLock<Vec<Arc<dyn Fn(&KernelHealth) + Send + Sync>>>,

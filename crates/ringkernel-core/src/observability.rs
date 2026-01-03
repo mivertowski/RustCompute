@@ -34,7 +34,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::runtime::KernelId;
 use crate::telemetry_pipeline::MetricsCollector;
 
 // ============================================================================
@@ -1064,6 +1063,7 @@ impl Default for ObservabilityContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::KernelId;
 
     #[test]
     fn test_trace_id_generation() {

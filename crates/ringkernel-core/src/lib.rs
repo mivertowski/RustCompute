@@ -74,8 +74,9 @@ pub mod prelude {
     };
     pub use crate::multi_gpu::{
         CrossGpuK2KRouter, CrossGpuRouterStatsSnapshot, DeviceInfo, DeviceStatus, GpuConnection,
-        GpuTopology, InterconnectType, LoadBalancingStrategy, MigrationRequest, MigrationState,
-        MultiGpuBuilder, MultiGpuCoordinator, PendingK2KMessage, RoutingDecision,
+        GpuTopology, InterconnectType, KernelMigrator, LoadBalancingStrategy, MigratableKernel,
+        MigrationRequest, MigrationResult, MigrationState, MigrationStatsSnapshot, MultiGpuBuilder,
+        MultiGpuCoordinator, PendingK2KMessage, RoutingDecision,
     };
     pub use crate::observability::{
         GrafanaDashboard, GrafanaPanel, ObservabilityContext, PanelType, PrometheusCollector,
