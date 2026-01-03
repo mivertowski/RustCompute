@@ -13,6 +13,7 @@ members = [
     "crates/ringkernel-wgpu-codegen",
     "crates/ringkernel-ir",
     "crates/ringkernel-ecosystem",
+    "crates/ringkernel-cli",
     "crates/ringkernel-audio-fft",
     "crates/ringkernel-wavesim",
     "crates/ringkernel-txmon",

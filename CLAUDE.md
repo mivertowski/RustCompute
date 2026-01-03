@@ -76,6 +76,12 @@ cargo test -p ringkernel-ecosystem --features "persistent,actix,tower,axum,grpc"
 
 # Run ecosystem example (Axum REST API)
 cargo run -p ringkernel-ecosystem --example axum_persistent_api --features "axum,persistent"
+
+# RingKernel CLI tool
+cargo run -p ringkernel-cli -- new my-app --template persistent-actor
+cargo run -p ringkernel-cli -- codegen src/kernels/mod.rs --backend cuda,wgsl
+cargo run -p ringkernel-cli -- check --backends all
+cargo run -p ringkernel-cli -- init --backends cuda
 ```
 
 ## Architecture
@@ -95,6 +101,7 @@ The project is a Cargo workspace with these crates:
 - **`ringkernel-cuda-codegen`** - Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL
 - **`ringkernel-wgpu-codegen`** - Rust-to-WGSL transpiler for writing GPU kernels in Rust DSL (WebGPU backend)
 - **`ringkernel-ecosystem`** - Ecosystem integrations with **persistent GPU actor support** (Actix `GpuPersistentActor`, Axum REST/SSE, Tower `PersistentKernelService`, gRPC streaming)
+- **`ringkernel-cli`** - CLI tool for project scaffolding, kernel code generation, and compatibility checking
 - **`ringkernel-audio-fft`** - Example application: GPU-accelerated audio FFT processing
 - **`ringkernel-wavesim`** - Example application: 2D acoustic wave simulation with GPU-accelerated FDTD, tile-based ring kernel actors, and educational simulation modes
 - **`ringkernel-wavesim3d`** - Example application: 3D acoustic wave simulation with binaural audio, **persistent GPU actors** (H2K/K2H messaging, K2K halo exchange, cooperative groups), and volumetric ray marching visualization
