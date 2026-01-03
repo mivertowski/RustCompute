@@ -66,7 +66,9 @@ pub mod prelude {
         priority, CorrelationId, MessageEnvelope, MessageHeader, MessageId, Priority, RingMessage,
     };
     pub use crate::multi_gpu::{
-        DeviceInfo, DeviceStatus, LoadBalancingStrategy, MultiGpuBuilder, MultiGpuCoordinator,
+        CrossGpuK2KRouter, CrossGpuRouterStatsSnapshot, DeviceInfo, DeviceStatus, GpuConnection,
+        GpuTopology, InterconnectType, LoadBalancingStrategy, MigrationRequest, MigrationState,
+        MultiGpuBuilder, MultiGpuCoordinator, PendingK2KMessage, RoutingDecision,
     };
     pub use crate::pubsub::{PubSubBroker, PubSubBuilder, Publication, QoS, Subscription, Topic};
     pub use crate::queue::*;
