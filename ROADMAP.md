@@ -14,12 +14,12 @@ Transform GPU computing from batch-oriented kernel launches to a true actor-base
 
 | Phase | Implemented | Partial | Missing | Completion |
 |-------|-------------|---------|---------|------------|
-| **Phase 1: Foundation** | 5 | 4 | 3 | ~58% |
+| **Phase 1: Foundation** | 6 | 4 | 2 | ~67% |
 | **Phase 2: Code Generation** | 6 | 1 | 2 | ~72% |
 | **Phase 3: Enterprise** | 8 | 1 | 7 | ~53% |
-| **Phase 4: Ecosystem** | 2 | 3 | 6 | ~32% |
+| **Phase 4: Ecosystem** | 3 | 3 | 5 | ~41% |
 | **Phase 5: Developer Experience** | 5 | 2 | 4 | ~55% |
-| **Overall** | **26** | **11** | **22** | **~54%** |
+| **Overall** | **28** | **11** | **20** | **~58%** |
 
 **Legend**: ✅ Complete | ⚠️ Partial | 🎯 Planned | ❌ Not Started
 
@@ -74,7 +74,7 @@ pub struct MetalMappedBuffer<T> {
 | Feature | Priority | Status | Description |
 |---------|----------|--------|-------------|
 | **Host-Driven Persistence Emulation** | P0 | ⚠️ Partial | `wgpu_bridge.rs` exists |
-| **Batched Command Processing** | P0 | ❌ | Not implemented |
+| **Batched Command Processing** | P0 | ✅ Done | `CommandBatch`, `BatchDispatcher` trait, async tick |
 | **Subgroup Operations** | P1 | ❌ | Not implemented |
 | **64-bit Atomic Emulation** | P1 | ✅ Done | lo/hi u32 pair emulation |
 
@@ -286,7 +286,7 @@ async fn process_message(ctx: &RingContext, msg: Request) -> Response {
 |-------------|----------|--------|-------------|
 | **SSE Handler** | P0 | ✅ Done | Full `sse_handler` with keep-alive |
 | **WebSocket Handler** | P0 | ✅ Done | Bidirectional `ws_handler` in axum.rs |
-| **GraphQL Subscriptions** | P1 | ❌ | async-graphql not integrated |
+| **GraphQL Subscriptions** | P1 | ✅ Done | async-graphql with WebSocket subscriptions |
 | **tRPC Support** | P2 | ❌ | Not implemented |
 
 **SSE Implementation**:
@@ -419,7 +419,7 @@ ringkernel check --backends all
 ### Q4 2026: Ecosystem
 - [x] ringkernel-cli v1.0 ✅ (Implemented early!)
 - [ ] VSCode extension
-- [ ] GraphQL subscriptions
+- [x] GraphQL subscriptions
 - [ ] Distributed kernel messaging
 
 ---

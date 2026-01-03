@@ -54,6 +54,9 @@ config = ["dep:config"]
 tracing-integration = []
 prometheus = ["dep:prometheus"]
 
+# GraphQL integration with subscriptions
+graphql = ["dep:async-graphql", "dep:async-graphql-axum", "dep:async-stream", "dep:serde_json", "persistent"]
+
 # Enterprise features integration (health, circuit breaker, degradation, metrics)
 enterprise = ["dep:serde_json"]
 
@@ -113,6 +116,10 @@ async-stream = { version = "0.3", optional = true }
 
 # Optional: SSE/JSON support
 serde_json = { version = "1.0", optional = true }
+
+# Optional: GraphQL
+async-graphql = { version = "7.0", optional = true, features = ["tracing"] }
+async-graphql-axum = { version = "7.0", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

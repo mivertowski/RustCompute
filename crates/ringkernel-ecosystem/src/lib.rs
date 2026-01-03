@@ -70,6 +70,9 @@ pub mod tracing_ext;
 #[cfg(feature = "prometheus")]
 pub mod metrics;
 
+#[cfg(feature = "graphql")]
+pub mod graphql;
+
 #[cfg(feature = "enterprise")]
 pub mod enterprise;
 
@@ -124,7 +127,11 @@ pub mod prelude {
     pub use crate::cuda_bridge::{CudaPersistentHandle, CudaPersistentHandleBuilder};
 
     #[cfg(feature = "persistent-wgpu")]
-    pub use crate::wgpu_bridge::{WgpuPersistentHandle, WgpuPersistentHandleBuilder};
+    pub use crate::wgpu_bridge::{
+        BatchDispatchStats, BatchDispatcher, BatchedCommand, CommandBatch,
+        CpuBatchDispatcher, WgpuEmulationConfig, WgpuPersistentHandle,
+        WgpuPersistentHandleBuilder,
+    };
 
     #[cfg(feature = "arrow")]
     pub use crate::arrow::*;
@@ -159,4 +166,14 @@ pub mod prelude {
         CircuitBreakerFuture, CircuitBreakerLayer, CircuitBreakerService, DegradationFuture,
         DegradationLayer, DegradationService,
     };
+
+    #[cfg(feature = "graphql")]
+    pub use crate::graphql::{
+        create_schema, CommandAck, DynPersistentHandle, GraphQLState, InjectInput,
+        KernelConfigResponse, KernelEvent, KernelEventType, KernelMutation, KernelQuery,
+        KernelSchema, KernelStatsResponse, KernelStatus, KernelSubscription, ProgressUpdate,
+        RunStepsInput,
+    };
+    #[cfg(all(feature = "graphql", feature = "axum"))]
+    pub use crate::graphql::{graphql_handler, graphql_playground, graphql_router};
 }
