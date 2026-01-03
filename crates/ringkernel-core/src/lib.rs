@@ -45,6 +45,7 @@ pub mod runtime;
 pub mod telemetry;
 pub mod telemetry_pipeline;
 pub mod types;
+pub mod checkpoint;
 
 /// Private module for proc macro integration.
 /// Not part of the public API - exposed for macro-generated code only.

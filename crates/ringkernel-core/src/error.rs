@@ -247,7 +247,28 @@ pub enum RingKernelError {
     // ===== I/O Errors =====
     /// I/O error wrapper.
     #[error("I/O error: {0}")]
-    IoError(#[from] std::io::Error),
+    StdIoError(#[from] std::io::Error),
+
+    /// I/O error with string message.
+    #[error("I/O error: {0}")]
+    IoError(String),
+
+    // ===== Checkpoint Errors =====
+    /// Invalid checkpoint format or data.
+    #[error("invalid checkpoint: {0}")]
+    InvalidCheckpoint(String),
+
+    /// Checkpoint save failed.
+    #[error("checkpoint save failed: {0}")]
+    CheckpointSaveFailed(String),
+
+    /// Checkpoint restore failed.
+    #[error("checkpoint restore failed: {0}")]
+    CheckpointRestoreFailed(String),
+
+    /// Checkpoint not found.
+    #[error("checkpoint not found: {0}")]
+    CheckpointNotFound(String),
 
     // ===== Generic Errors =====
     /// Internal error.
