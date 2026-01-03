@@ -49,6 +49,7 @@ pub mod telemetry_pipeline;
 pub mod types;
 pub mod checkpoint;
 pub mod config;
+pub mod runtime_context;
 
 /// Private module for proc macro integration.
 /// Not part of the public API - exposed for macro-generated code only.
@@ -93,6 +94,10 @@ pub mod prelude {
     pub use crate::pubsub::{PubSubBroker, PubSubBuilder, Publication, QoS, Subscription, Topic};
     pub use crate::queue::*;
     pub use crate::runtime::*;
+    pub use crate::runtime_context::{
+        AppInfo, CircuitGuard, DegradationGuard, OperationPriority, RingKernelContext,
+        RuntimeBuilder, RuntimeMetrics, RuntimeStatsSnapshot,
+    };
     pub use crate::telemetry::*;
     pub use crate::telemetry_pipeline::{
         MetricsCollector, MetricsSnapshot, TelemetryAlert, TelemetryConfig, TelemetryEvent,
