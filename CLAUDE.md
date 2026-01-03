@@ -114,6 +114,58 @@ The project is a Cargo workspace with these crates:
 - **`K2KBroker`/`K2KEndpoint`** - Kernel-to-kernel direct messaging
 - **`PubSubBroker`** - Topic-based publish/subscribe with wildcards
 
+### Enterprise Features (in ringkernel-core)
+
+The following enterprise-grade features provide production-ready infrastructure:
+
+- **`RingKernelContext`** - Unified runtime managing all enterprise features
+- **`RuntimeBuilder`** - Fluent builder with `development()`, `production()`, `high_performance()` presets
+- **`ConfigBuilder`** - Unified configuration system with nested builders
+
+**Health & Resilience:**
+- **`HealthChecker`** - Liveness/readiness probes with async health checks
+- **`CircuitBreaker`** - Fault tolerance with automatic recovery
+- **`DegradationManager`** - Graceful degradation with 5 levels (Normal → Critical)
+- **`KernelWatchdog`** - Stale kernel detection with heartbeat monitoring
+
+**Observability:**
+- **`PrometheusExporter`** - Prometheus metrics export
+- **`ObservabilityContext`** - Distributed tracing with spans
+
+**Multi-GPU:**
+- **`MultiGpuCoordinator`** - Device selection with load balancing strategies
+- **`KernelMigrator`** - Live kernel migration between GPUs using checkpoints
+- **`GpuTopology`** - NVLink/PCIe topology discovery
+
+**Lifecycle:**
+- **`LifecycleState`** - Initializing → Running → Draining → ShuttingDown → Stopped
+- **`ShutdownReport`** - Final statistics on graceful shutdown
+
+```rust
+// Enterprise runtime usage
+use ringkernel_core::prelude::*;
+
+let runtime = RuntimeBuilder::new()
+    .production()  // or .development() or .high_performance()
+    .build()?;
+
+runtime.start()?;  // Transition to Running state
+
+// Run health monitoring
+let result = runtime.run_health_check_cycle();
+println!("Health: {:?}, Circuit: {:?}", result.status, result.circuit_state);
+
+// Circuit breaker protection
+let guard = CircuitGuard::new(&runtime, "operation");
+guard.execute(|| { /* protected operation */ })?;
+
+// Graceful shutdown
+let report = runtime.complete_shutdown()?;
+println!("Uptime: {:?}", report.total_uptime);
+```
+
+Run the enterprise demo: `cargo run -p ringkernel --example enterprise_runtime`
+
 ### Backend System
 
 Backends implement `RingKernelRuntime` trait. Selection via features:
