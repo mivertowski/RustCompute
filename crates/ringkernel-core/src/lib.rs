@@ -39,6 +39,7 @@ pub mod k2k;
 pub mod memory;
 pub mod message;
 pub mod multi_gpu;
+pub mod observability;
 pub mod pubsub;
 pub mod queue;
 pub mod runtime;
@@ -69,6 +70,11 @@ pub mod prelude {
         CrossGpuK2KRouter, CrossGpuRouterStatsSnapshot, DeviceInfo, DeviceStatus, GpuConnection,
         GpuTopology, InterconnectType, LoadBalancingStrategy, MigrationRequest, MigrationState,
         MultiGpuBuilder, MultiGpuCoordinator, PendingK2KMessage, RoutingDecision,
+    };
+    pub use crate::observability::{
+        GrafanaDashboard, GrafanaPanel, ObservabilityContext, PanelType, PrometheusCollector,
+        PrometheusExporter, RingKernelCollector, Span, SpanBuilder, SpanEvent, SpanId, SpanKind,
+        SpanStatus, TraceId,
     };
     pub use crate::pubsub::{PubSubBroker, PubSubBuilder, Publication, QoS, Subscription, Topic};
     pub use crate::queue::*;
