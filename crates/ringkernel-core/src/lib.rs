@@ -34,6 +34,7 @@
 pub mod context;
 pub mod control;
 pub mod error;
+pub mod health;
 pub mod hlc;
 pub mod k2k;
 pub mod memory;
@@ -58,6 +59,11 @@ pub mod prelude {
     pub use crate::context::*;
     pub use crate::control::*;
     pub use crate::error::*;
+    pub use crate::health::{
+        BackoffStrategy, CircuitBreaker, CircuitBreakerConfig, CircuitBreakerStats, CircuitState,
+        DegradationLevel, DegradationManager, DegradationStats, HealthCheck, HealthCheckResult,
+        HealthChecker, HealthStatus, KernelHealth, KernelWatchdog, LoadSheddingPolicy, RetryPolicy,
+    };
     pub use crate::hlc::*;
     pub use crate::k2k::{
         DeliveryStatus, K2KBroker, K2KBuilder, K2KConfig, K2KEndpoint, K2KMessage,
