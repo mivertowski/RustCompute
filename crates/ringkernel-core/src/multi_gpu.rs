@@ -439,6 +439,45 @@ pub struct DeviceStatus {
     pub load: f64,
 }
 
+/// Result of unregistering a device from the coordinator.
+#[derive(Debug, Clone)]
+pub struct DeviceUnregisterResult {
+    /// Index of the unregistered device.
+    pub device_index: usize,
+    /// Kernels that were on this device and need migration.
+    pub kernels_to_migrate: Vec<KernelMigrationPlan>,
+    /// Kernels that could not be migrated (no available target).
+    pub orphaned_kernels: Vec<KernelId>,
+    /// Whether the device was successfully unregistered.
+    pub success: bool,
+}
+
+/// Plan for migrating a single kernel during device unregister.
+#[derive(Debug, Clone)]
+pub struct KernelMigrationPlan {
+    /// Kernel to migrate.
+    pub kernel_id: KernelId,
+    /// Source device (the unregistered device).
+    pub source_device: usize,
+    /// Target device selected for migration.
+    pub target_device: usize,
+    /// Estimated migration priority (based on kernel load).
+    pub priority: MigrationPriority,
+}
+
+/// Priority for kernel migration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MigrationPriority {
+    /// Low priority - can be migrated lazily.
+    Low,
+    /// Normal priority - migrate in reasonable time.
+    Normal,
+    /// High priority - migrate as soon as possible.
+    High,
+    /// Critical - must migrate immediately.
+    Critical,
+}
+
 /// Multi-GPU coordinator for managing kernels across devices.
 pub struct MultiGpuCoordinator {
     /// Configuration.
@@ -497,12 +536,141 @@ impl MultiGpuCoordinator {
         devices[index] = device;
     }
 
-    /// Unregister a device.
-    pub fn unregister_device(&self, index: usize) {
+    /// Unregister a device and plan kernel migrations.
+    ///
+    /// This method:
+    /// 1. Identifies all kernels on the device being removed
+    /// 2. Finds target devices for each kernel using load balancing
+    /// 3. Creates migration plans for kernels that can be moved
+    /// 4. Marks orphaned kernels that have no migration target
+    /// 5. Updates internal routing tables
+    ///
+    /// The caller is responsible for executing the actual migrations using
+    /// [`KernelMigrator`] with the returned [`KernelMigrationPlan`] entries.
+    pub fn unregister_device(&self, index: usize) -> DeviceUnregisterResult {
         let devices = self.devices.read();
-        if index < devices.len() {
-            // Move kernels to another device (TODO: implement migration)
+
+        // Check if device exists
+        if index >= devices.len() {
+            return DeviceUnregisterResult {
+                device_index: index,
+                kernels_to_migrate: Vec::new(),
+                orphaned_kernels: Vec::new(),
+                success: false,
+            };
         }
+
+        // Get all kernels on this device
+        let kernels_on_device = self.kernels_on_device(index);
+
+        // Find available target devices (excluding the one being unregistered)
+        let available_targets: Vec<usize> = devices
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != index)
+            .map(|(i, _)| i)
+            .collect();
+
+        drop(devices); // Release read lock before acquiring write lock
+
+        let mut kernels_to_migrate = Vec::new();
+        let mut orphaned_kernels = Vec::new();
+
+        if available_targets.is_empty() {
+            // No other devices available - all kernels are orphaned
+            orphaned_kernels = kernels_on_device;
+        } else {
+            // Plan migrations for each kernel
+            for kernel_id in kernels_on_device {
+                // Select target based on current load
+                if let Some(target) = self.select_migration_target(&available_targets) {
+                    let priority = self.calculate_migration_priority(&kernel_id);
+                    kernels_to_migrate.push(KernelMigrationPlan {
+                        kernel_id,
+                        source_device: index,
+                        target_device: target,
+                        priority,
+                    });
+                } else {
+                    orphaned_kernels.push(kernel_id);
+                }
+            }
+        }
+
+        // Update kernel-device mappings for planned migrations
+        {
+            let mut kernel_map = self.kernel_device_map.write();
+            let counts = self.device_kernel_counts.read();
+
+            for plan in &kernels_to_migrate {
+                // Update mapping to target device
+                kernel_map.insert(plan.kernel_id.clone(), plan.target_device);
+
+                // Update kernel counts
+                if index < counts.len() {
+                    counts[index].fetch_sub(1, Ordering::Relaxed);
+                }
+                if plan.target_device < counts.len() {
+                    counts[plan.target_device].fetch_add(1, Ordering::Relaxed);
+                }
+            }
+
+            // Remove orphaned kernels from mapping
+            for kernel_id in &orphaned_kernels {
+                kernel_map.remove(kernel_id);
+                if index < counts.len() {
+                    counts[index].fetch_sub(1, Ordering::Relaxed);
+                }
+            }
+        }
+
+        // Mark device as unavailable (but don't remove it to preserve indices)
+        {
+            let mut devices = self.devices.write();
+            if index < devices.len() {
+                devices[index].available_memory = 0;
+                devices[index].name = format!("{} (unregistered)", devices[index].name);
+            }
+        }
+
+        DeviceUnregisterResult {
+            device_index: index,
+            kernels_to_migrate,
+            orphaned_kernels,
+            success: true,
+        }
+    }
+
+    /// Select the best target device for migration.
+    fn select_migration_target(&self, candidates: &[usize]) -> Option<usize> {
+        if candidates.is_empty() {
+            return None;
+        }
+
+        let counts = self.device_kernel_counts.read();
+
+        // Find device with lowest kernel count
+        candidates
+            .iter()
+            .filter_map(|&idx| {
+                if idx < counts.len() {
+                    Some((idx, counts[idx].load(Ordering::Relaxed)))
+                } else {
+                    None
+                }
+            })
+            .min_by_key(|(_, count)| *count)
+            .map(|(idx, _)| idx)
+    }
+
+    /// Calculate migration priority for a kernel.
+    fn calculate_migration_priority(&self, _kernel_id: &KernelId) -> MigrationPriority {
+        // In a real implementation, this would check:
+        // - Message queue depth
+        // - Time since last activity
+        // - Kernel type/importance
+        // For now, use normal priority
+        MigrationPriority::Normal
     }
 
     /// Get all registered devices.
@@ -2122,5 +2290,127 @@ mod tests {
         assert_eq!(stats.failed_migrations, 0);
         // Both checkpoints should have been transferred
         assert!(stats.bytes_transferred > 0);
+    }
+
+    // ========================================================================
+    // Device Unregister Tests
+    // ========================================================================
+
+    #[test]
+    fn test_unregister_device_no_kernels() {
+        let coord = MultiGpuBuilder::new().build();
+
+        coord.register_device(DeviceInfo::new(0, "GPU 0".to_string(), Backend::Cuda));
+        coord.register_device(DeviceInfo::new(1, "GPU 1".to_string(), Backend::Cuda));
+
+        let result = coord.unregister_device(0);
+
+        assert!(result.success);
+        assert_eq!(result.device_index, 0);
+        assert!(result.kernels_to_migrate.is_empty());
+        assert!(result.orphaned_kernels.is_empty());
+    }
+
+    #[test]
+    fn test_unregister_device_with_kernels() {
+        let coord = MultiGpuBuilder::new().build();
+
+        coord.register_device(DeviceInfo::new(0, "GPU 0".to_string(), Backend::Cuda));
+        coord.register_device(DeviceInfo::new(1, "GPU 1".to_string(), Backend::Cuda));
+
+        // Assign kernels to device 0
+        let k1 = KernelId::new("k1");
+        let k2 = KernelId::new("k2");
+        coord.assign_kernel(k1.clone(), 0);
+        coord.assign_kernel(k2.clone(), 0);
+
+        let result = coord.unregister_device(0);
+
+        assert!(result.success);
+        assert_eq!(result.kernels_to_migrate.len(), 2);
+        assert!(result.orphaned_kernels.is_empty());
+
+        // All kernels should migrate to device 1
+        for plan in &result.kernels_to_migrate {
+            assert_eq!(plan.source_device, 0);
+            assert_eq!(plan.target_device, 1);
+        }
+
+        // Verify kernel mappings were updated
+        assert_eq!(coord.get_kernel_device(&k1), Some(1));
+        assert_eq!(coord.get_kernel_device(&k2), Some(1));
+    }
+
+    #[test]
+    fn test_unregister_single_device_orphans_kernels() {
+        let coord = MultiGpuBuilder::new().build();
+
+        coord.register_device(DeviceInfo::new(0, "GPU 0".to_string(), Backend::Cuda));
+
+        // Assign kernels to device 0
+        let k1 = KernelId::new("k1");
+        coord.assign_kernel(k1.clone(), 0);
+
+        let result = coord.unregister_device(0);
+
+        assert!(result.success);
+        assert!(result.kernels_to_migrate.is_empty());
+        assert_eq!(result.orphaned_kernels.len(), 1);
+        assert_eq!(result.orphaned_kernels[0], k1);
+
+        // Kernel should no longer have a device
+        assert!(coord.get_kernel_device(&k1).is_none());
+    }
+
+    #[test]
+    fn test_unregister_nonexistent_device() {
+        let coord = MultiGpuBuilder::new().build();
+
+        coord.register_device(DeviceInfo::new(0, "GPU 0".to_string(), Backend::Cuda));
+
+        let result = coord.unregister_device(99);
+
+        assert!(!result.success);
+        assert_eq!(result.device_index, 99);
+    }
+
+    #[test]
+    fn test_unregister_distributes_to_least_loaded() {
+        let coord = MultiGpuBuilder::new().build();
+
+        coord.register_device(DeviceInfo::new(0, "GPU 0".to_string(), Backend::Cuda));
+        coord.register_device(DeviceInfo::new(1, "GPU 1".to_string(), Backend::Cuda));
+        coord.register_device(DeviceInfo::new(2, "GPU 2".to_string(), Backend::Cuda));
+
+        // Preload device 1 with kernels
+        coord.assign_kernel(KernelId::new("pre1"), 1);
+        coord.assign_kernel(KernelId::new("pre2"), 1);
+        coord.assign_kernel(KernelId::new("pre3"), 1);
+
+        // Assign kernel to device 0
+        let k1 = KernelId::new("migrate_me");
+        coord.assign_kernel(k1.clone(), 0);
+
+        let result = coord.unregister_device(0);
+
+        assert!(result.success);
+        assert_eq!(result.kernels_to_migrate.len(), 1);
+
+        // Should migrate to device 2 (least loaded)
+        let plan = &result.kernels_to_migrate[0];
+        assert_eq!(plan.target_device, 2);
+    }
+
+    #[test]
+    fn test_migration_priority_enum() {
+        let low = MigrationPriority::Low;
+        let normal = MigrationPriority::Normal;
+        let high = MigrationPriority::High;
+        let critical = MigrationPriority::Critical;
+
+        assert_ne!(low, normal);
+        assert_ne!(normal, high);
+        assert_ne!(high, critical);
+        assert_eq!(low, MigrationPriority::Low);
     }
 }

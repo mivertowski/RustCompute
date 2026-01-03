@@ -803,6 +803,34 @@ pub enum DegradationLevel {
     Critical = 4,
 }
 
+impl DegradationLevel {
+    /// Get the next worse degradation level.
+    ///
+    /// Returns Critical if already at Critical.
+    pub fn next_worse(self) -> Self {
+        match self {
+            DegradationLevel::Normal => DegradationLevel::Light,
+            DegradationLevel::Light => DegradationLevel::Moderate,
+            DegradationLevel::Moderate => DegradationLevel::Severe,
+            DegradationLevel::Severe => DegradationLevel::Critical,
+            DegradationLevel::Critical => DegradationLevel::Critical,
+        }
+    }
+
+    /// Get the next better degradation level.
+    ///
+    /// Returns Normal if already at Normal.
+    pub fn next_better(self) -> Self {
+        match self {
+            DegradationLevel::Normal => DegradationLevel::Normal,
+            DegradationLevel::Light => DegradationLevel::Normal,
+            DegradationLevel::Moderate => DegradationLevel::Light,
+            DegradationLevel::Severe => DegradationLevel::Moderate,
+            DegradationLevel::Critical => DegradationLevel::Severe,
+        }
+    }
+}
+
 /// Load shedding policy.
 #[derive(Debug, Clone)]
 pub struct LoadSheddingPolicy {

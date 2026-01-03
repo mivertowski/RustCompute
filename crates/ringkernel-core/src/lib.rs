@@ -81,9 +81,10 @@ pub mod prelude {
         priority, CorrelationId, MessageEnvelope, MessageHeader, MessageId, Priority, RingMessage,
     };
     pub use crate::multi_gpu::{
-        CrossGpuK2KRouter, CrossGpuRouterStatsSnapshot, DeviceInfo, DeviceStatus, GpuConnection,
-        GpuTopology, InterconnectType, KernelMigrator, LoadBalancingStrategy, MigratableKernel,
-        MigrationRequest, MigrationResult, MigrationState, MigrationStatsSnapshot, MultiGpuBuilder,
+        CrossGpuK2KRouter, CrossGpuRouterStatsSnapshot, DeviceInfo, DeviceStatus,
+        DeviceUnregisterResult, GpuConnection, GpuTopology, InterconnectType, KernelMigrationPlan,
+        KernelMigrator, LoadBalancingStrategy, MigratableKernel, MigrationPriority, MigrationRequest,
+        MigrationResult, MigrationState, MigrationStatsSnapshot, MultiGpuBuilder,
         MultiGpuCoordinator, PendingK2KMessage, RoutingDecision,
     };
     pub use crate::observability::{
@@ -95,8 +96,9 @@ pub mod prelude {
     pub use crate::queue::*;
     pub use crate::runtime::*;
     pub use crate::runtime_context::{
-        AppInfo, CircuitGuard, DegradationGuard, OperationPriority, RingKernelContext,
-        RuntimeBuilder, RuntimeMetrics, RuntimeStatsSnapshot,
+        AppInfo, BackgroundTaskStatus, CircuitGuard, DegradationGuard, HealthCycleResult,
+        LifecycleState, OperationPriority, RingKernelContext, RuntimeBuilder, RuntimeMetrics,
+        RuntimeStatsSnapshot, ShutdownReport, WatchdogResult,
     };
     pub use crate::telemetry::*;
     pub use crate::telemetry_pipeline::{

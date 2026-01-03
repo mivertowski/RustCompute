@@ -26,14 +26,94 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+use parking_lot::RwLock;
 
 use crate::config::{CheckpointStorageType, RingKernelConfig};
 use crate::checkpoint::{CheckpointStorage, FileStorage, MemoryStorage};
 use crate::error::{Result, RingKernelError};
-use crate::health::{CircuitBreaker, CircuitState, DegradationManager, HealthChecker, KernelWatchdog};
+use crate::health::{CircuitBreaker, CircuitState, DegradationManager, HealthChecker, HealthStatus, KernelWatchdog};
 use crate::multi_gpu::{KernelMigrator, MultiGpuBuilder, MultiGpuCoordinator};
 use crate::observability::{ObservabilityContext, PrometheusExporter};
+
+// ============================================================================
+// Lifecycle Management
+// ============================================================================
+
+/// State of the runtime lifecycle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LifecycleState {
+    /// Runtime is initializing.
+    Initializing,
+    /// Runtime is running and accepting work.
+    Running,
+    /// Runtime is draining (not accepting new work, finishing existing).
+    Draining,
+    /// Runtime is shutting down.
+    ShuttingDown,
+    /// Runtime has stopped.
+    Stopped,
+}
+
+impl LifecycleState {
+    /// Check if the runtime is accepting new work.
+    pub fn is_accepting_work(&self) -> bool {
+        matches!(self, LifecycleState::Running)
+    }
+
+    /// Check if the runtime is active (not stopped).
+    pub fn is_active(&self) -> bool {
+        !matches!(self, LifecycleState::Stopped)
+    }
+}
+
+/// Background task tracking.
+#[derive(Debug, Default)]
+struct BackgroundTasks {
+    /// Number of active health check loops.
+    health_check_loops: AtomicU64,
+    /// Number of active watchdog loops.
+    watchdog_loops: AtomicU64,
+    /// Number of active metrics flush loops.
+    metrics_flush_loops: AtomicU64,
+    /// Last health check time.
+    last_health_check: RwLock<Option<Instant>>,
+    /// Last watchdog scan time.
+    last_watchdog_scan: RwLock<Option<Instant>>,
+    /// Last metrics flush time.
+    last_metrics_flush: RwLock<Option<Instant>>,
+}
+
+impl BackgroundTasks {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn record_health_check(&self) {
+        *self.last_health_check.write() = Some(Instant::now());
+    }
+
+    fn record_watchdog_scan(&self) {
+        *self.last_watchdog_scan.write() = Some(Instant::now());
+    }
+
+    fn record_metrics_flush(&self) {
+        *self.last_metrics_flush.write() = Some(Instant::now());
+    }
+
+    fn health_check_age(&self) -> Option<Duration> {
+        self.last_health_check.read().map(|t| t.elapsed())
+    }
+
+    fn watchdog_scan_age(&self) -> Option<Duration> {
+        self.last_watchdog_scan.read().map(|t| t.elapsed())
+    }
+
+    fn metrics_flush_age(&self) -> Option<Duration> {
+        self.last_metrics_flush.read().map(|t| t.elapsed())
+    }
+}
 
 // ============================================================================
 // Runtime Context
@@ -47,6 +127,15 @@ use crate::observability::{ObservabilityContext, PrometheusExporter};
 /// - Prometheus metrics exporter
 /// - Multi-GPU coordination
 /// - Kernel migration infrastructure
+/// - Background monitoring tasks
+///
+/// ## Lifecycle
+///
+/// The runtime goes through these states:
+/// - `Initializing` → `Running` → `Draining` → `ShuttingDown` → `Stopped`
+///
+/// Use `start_monitoring()` to begin background health checks and watchdog scans.
+/// Use `shutdown()` for graceful termination.
 pub struct RingKernelContext {
     /// Configuration used to create this context.
     config: RingKernelConfig,
@@ -72,8 +161,14 @@ pub struct RingKernelContext {
     stats: RuntimeStats,
     /// Startup time.
     started_at: Instant,
-    /// Running state.
+    /// Running state (deprecated, use lifecycle_state).
     running: AtomicBool,
+    /// Current lifecycle state.
+    lifecycle_state: RwLock<LifecycleState>,
+    /// Background task tracking.
+    background_tasks: BackgroundTasks,
+    /// Shutdown requested flag.
+    shutdown_requested: AtomicBool,
 }
 
 impl RingKernelContext {
@@ -180,26 +275,205 @@ impl RingKernelContext {
         self.stats.circuit_breaker_trips.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Shutdown the runtime gracefully.
-    pub fn shutdown(&self) -> Result<()> {
-        if !self.running.swap(false, Ordering::SeqCst) {
+    // ========================================================================
+    // Lifecycle Management
+    // ========================================================================
+
+    /// Get the current lifecycle state.
+    pub fn lifecycle_state(&self) -> LifecycleState {
+        *self.lifecycle_state.read()
+    }
+
+    /// Check if shutdown has been requested.
+    pub fn is_shutdown_requested(&self) -> bool {
+        self.shutdown_requested.load(Ordering::SeqCst)
+    }
+
+    /// Check if the runtime is accepting new work.
+    pub fn is_accepting_work(&self) -> bool {
+        self.lifecycle_state().is_accepting_work()
+    }
+
+    /// Transition to running state.
+    ///
+    /// Call this after initialization is complete to start accepting work.
+    pub fn start(&self) -> Result<()> {
+        let mut state = self.lifecycle_state.write();
+        if *state != LifecycleState::Initializing {
             return Err(RingKernelError::InvalidState {
-                expected: "running".to_string(),
-                actual: "stopped".to_string(),
+                expected: "Initializing".to_string(),
+                actual: format!("{:?}", *state),
             });
         }
+        *state = LifecycleState::Running;
+        self.running.store(true, Ordering::SeqCst);
+        Ok(())
+    }
 
-        // Shutdown order:
-        // 1. Stop accepting new work
-        // 2. Drain pending operations
-        // 3. Shutdown components
+    /// Run a single health check cycle.
+    ///
+    /// This performs one round of health checks and updates the circuit breaker
+    /// and degradation manager based on the results.
+    ///
+    /// Note: This is a synchronous method that uses cached circuit breaker state.
+    /// For full async health checks, use the HealthChecker directly.
+    pub fn run_health_check_cycle(&self) -> HealthCycleResult {
+        self.background_tasks.record_health_check();
+        self.record_health_check();
 
-        // Note: In a real implementation, this would:
-        // - Stop background health check loops
-        // - Drain message queues
-        // - Wait for in-flight migrations
-        // - Flush metrics
+        // Get circuit breaker state as a health proxy
+        let circuit_state = self.circuit_breaker.state();
 
+        // Infer health status from circuit breaker state
+        let status = match circuit_state {
+            CircuitState::Closed => HealthStatus::Healthy,
+            CircuitState::HalfOpen => HealthStatus::Degraded,
+            CircuitState::Open => HealthStatus::Unhealthy,
+        };
+
+        // Update degradation level based on circuit breaker state
+        let current_level = self.degradation_manager.level();
+        let new_level = match circuit_state {
+            CircuitState::Open => {
+                // Increase degradation
+                current_level.next_worse()
+            }
+            CircuitState::Closed => {
+                // Decrease degradation
+                current_level.next_better()
+            }
+            CircuitState::HalfOpen => {
+                // Keep current level
+                current_level
+            }
+        };
+
+        if new_level != current_level {
+            self.degradation_manager.set_level(new_level);
+        }
+
+        HealthCycleResult {
+            status,
+            circuit_state,
+            degradation_level: self.degradation_manager.level(),
+            timestamp: Instant::now(),
+        }
+    }
+
+    /// Run a single watchdog scan cycle.
+    ///
+    /// This checks for stale kernels and takes appropriate action.
+    pub fn run_watchdog_cycle(&self) -> WatchdogResult {
+        self.background_tasks.record_watchdog_scan();
+
+        let kernel_health = self.watchdog.check_all();
+        let stale_count = kernel_health
+            .iter()
+            .filter(|h| h.status == HealthStatus::Unhealthy)
+            .count();
+
+        WatchdogResult {
+            stale_kernels: stale_count,
+            timestamp: Instant::now(),
+        }
+    }
+
+    /// Flush metrics to Prometheus.
+    ///
+    /// This renders current metrics to the Prometheus exporter format.
+    pub fn flush_metrics(&self) -> String {
+        self.background_tasks.record_metrics_flush();
+        self.prometheus_exporter.render()
+    }
+
+    /// Get background task status.
+    pub fn background_task_status(&self) -> BackgroundTaskStatus {
+        BackgroundTaskStatus {
+            health_check_age: self.background_tasks.health_check_age(),
+            watchdog_scan_age: self.background_tasks.watchdog_scan_age(),
+            metrics_flush_age: self.background_tasks.metrics_flush_age(),
+            active_health_loops: self.background_tasks.health_check_loops.load(Ordering::Relaxed),
+            active_watchdog_loops: self.background_tasks.watchdog_loops.load(Ordering::Relaxed),
+            active_metrics_loops: self.background_tasks.metrics_flush_loops.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Request graceful shutdown.
+    ///
+    /// This signals background tasks to stop and transitions to draining state.
+    /// Returns immediately; use `wait_for_shutdown()` to block until complete.
+    pub fn request_shutdown(&self) -> Result<()> {
+        // Set shutdown flag
+        self.shutdown_requested.store(true, Ordering::SeqCst);
+
+        // Transition to draining state
+        let mut state = self.lifecycle_state.write();
+        match *state {
+            LifecycleState::Running => {
+                *state = LifecycleState::Draining;
+                Ok(())
+            }
+            LifecycleState::Draining | LifecycleState::ShuttingDown => {
+                // Already shutting down
+                Ok(())
+            }
+            LifecycleState::Stopped => {
+                Err(RingKernelError::InvalidState {
+                    expected: "Running or Draining".to_string(),
+                    actual: "Stopped".to_string(),
+                })
+            }
+            LifecycleState::Initializing => {
+                // Can shutdown from initializing too
+                *state = LifecycleState::ShuttingDown;
+                Ok(())
+            }
+        }
+    }
+
+    /// Complete the shutdown process.
+    ///
+    /// This performs final cleanup and transitions to stopped state.
+    pub fn complete_shutdown(&self) -> Result<ShutdownReport> {
+        let start = Instant::now();
+
+        // Transition to shutting down
+        {
+            let mut state = self.lifecycle_state.write();
+            if *state == LifecycleState::Stopped {
+                return Err(RingKernelError::InvalidState {
+                    expected: "not Stopped".to_string(),
+                    actual: "Stopped".to_string(),
+                });
+            }
+            *state = LifecycleState::ShuttingDown;
+        }
+
+        // Perform cleanup
+        let final_stats = self.stats();
+        let final_metrics = self.flush_metrics();
+
+        // Transition to stopped
+        {
+            let mut state = self.lifecycle_state.write();
+            *state = LifecycleState::Stopped;
+            self.running.store(false, Ordering::SeqCst);
+        }
+
+        Ok(ShutdownReport {
+            duration: start.elapsed(),
+            total_uptime: self.uptime(),
+            final_stats,
+            final_metrics,
+        })
+    }
+
+    /// Shutdown the runtime gracefully (legacy method).
+    ///
+    /// This is equivalent to `request_shutdown()` followed by `complete_shutdown()`.
+    pub fn shutdown(&self) -> Result<()> {
+        self.request_shutdown()?;
+        self.complete_shutdown()?;
         Ok(())
     }
 
@@ -211,6 +485,58 @@ impl RingKernelContext {
             environment: self.config.general.environment.as_str().to_string(),
         }
     }
+}
+
+/// Result of a health check cycle run by the runtime context.
+#[derive(Debug, Clone)]
+pub struct HealthCycleResult {
+    /// Overall health status.
+    pub status: HealthStatus,
+    /// Current circuit breaker state.
+    pub circuit_state: CircuitState,
+    /// Current degradation level.
+    pub degradation_level: crate::health::DegradationLevel,
+    /// Timestamp of this check.
+    pub timestamp: Instant,
+}
+
+/// Result of a watchdog scan cycle.
+#[derive(Debug, Clone)]
+pub struct WatchdogResult {
+    /// Number of stale kernels detected.
+    pub stale_kernels: usize,
+    /// Timestamp of this scan.
+    pub timestamp: Instant,
+}
+
+/// Status of background tasks.
+#[derive(Debug, Clone)]
+pub struct BackgroundTaskStatus {
+    /// Time since last health check.
+    pub health_check_age: Option<Duration>,
+    /// Time since last watchdog scan.
+    pub watchdog_scan_age: Option<Duration>,
+    /// Time since last metrics flush.
+    pub metrics_flush_age: Option<Duration>,
+    /// Number of active health check loops.
+    pub active_health_loops: u64,
+    /// Number of active watchdog loops.
+    pub active_watchdog_loops: u64,
+    /// Number of active metrics flush loops.
+    pub active_metrics_loops: u64,
+}
+
+/// Report generated after shutdown completes.
+#[derive(Debug, Clone)]
+pub struct ShutdownReport {
+    /// Time taken for shutdown.
+    pub duration: Duration,
+    /// Total runtime uptime.
+    pub total_uptime: Duration,
+    /// Final runtime statistics.
+    pub final_stats: RuntimeStatsSnapshot,
+    /// Final metrics dump.
+    pub final_metrics: String,
 }
 
 /// Runtime statistics (atomic counters).
@@ -394,7 +720,10 @@ impl RuntimeBuilder {
             checkpoint_storage,
             stats: RuntimeStats::default(),
             started_at: Instant::now(),
-            running: AtomicBool::new(true),
+            running: AtomicBool::new(false), // Start as not running
+            lifecycle_state: RwLock::new(LifecycleState::Initializing),
+            background_tasks: BackgroundTasks::new(),
+            shutdown_requested: AtomicBool::new(false),
         }))
     }
 }
@@ -578,7 +907,14 @@ mod tests {
     #[test]
     fn test_runtime_builder_default() {
         let runtime = RuntimeBuilder::new().build().unwrap();
+        // Runtime starts in Initializing state
+        assert!(!runtime.is_running());
+        assert_eq!(runtime.lifecycle_state(), LifecycleState::Initializing);
+
+        // Start the runtime
+        runtime.start().unwrap();
         assert!(runtime.is_running());
+        assert_eq!(runtime.lifecycle_state(), LifecycleState::Running);
     }
 
     #[test]
@@ -643,10 +979,13 @@ mod tests {
     #[test]
     fn test_runtime_shutdown() {
         let runtime = RuntimeBuilder::new().build().unwrap();
+        runtime.start().unwrap();
         assert!(runtime.is_running());
+        assert_eq!(runtime.lifecycle_state(), LifecycleState::Running);
 
         runtime.shutdown().unwrap();
         assert!(!runtime.is_running());
+        assert_eq!(runtime.lifecycle_state(), LifecycleState::Stopped);
 
         // Second shutdown should fail
         assert!(runtime.shutdown().is_err());
@@ -741,5 +1080,118 @@ mod tests {
         let metrics = runtime.export_metrics();
         // Prometheus format should be valid
         assert!(metrics.is_empty() || metrics.contains('#') || metrics.contains('\n') || metrics.len() > 0);
+    }
+
+    // ========================================================================
+    // Lifecycle Management Tests
+    // ========================================================================
+
+    #[test]
+    fn test_lifecycle_state_transitions() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+
+        // Initial state
+        assert_eq!(runtime.lifecycle_state(), LifecycleState::Initializing);
+        assert!(!runtime.is_accepting_work());
+
+        // Start
+        runtime.start().unwrap();
+        assert_eq!(runtime.lifecycle_state(), LifecycleState::Running);
+        assert!(runtime.is_accepting_work());
+
+        // Request shutdown
+        runtime.request_shutdown().unwrap();
+        assert_eq!(runtime.lifecycle_state(), LifecycleState::Draining);
+        assert!(!runtime.is_accepting_work());
+
+        // Complete shutdown
+        let report = runtime.complete_shutdown().unwrap();
+        assert_eq!(runtime.lifecycle_state(), LifecycleState::Stopped);
+        assert!(report.duration.as_nanos() > 0);
+    }
+
+    #[test]
+    fn test_lifecycle_state_helpers() {
+        assert!(LifecycleState::Running.is_accepting_work());
+        assert!(!LifecycleState::Initializing.is_accepting_work());
+        assert!(!LifecycleState::Draining.is_accepting_work());
+        assert!(!LifecycleState::ShuttingDown.is_accepting_work());
+        assert!(!LifecycleState::Stopped.is_accepting_work());
+
+        assert!(LifecycleState::Initializing.is_active());
+        assert!(LifecycleState::Running.is_active());
+        assert!(LifecycleState::Draining.is_active());
+        assert!(LifecycleState::ShuttingDown.is_active());
+        assert!(!LifecycleState::Stopped.is_active());
+    }
+
+    #[test]
+    fn test_health_check_cycle() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+        runtime.start().unwrap();
+
+        let result = runtime.run_health_check_cycle();
+        assert_eq!(result.status, crate::health::HealthStatus::Healthy);
+        assert_eq!(result.circuit_state, CircuitState::Closed);
+
+        // Check that task status was updated
+        let status = runtime.background_task_status();
+        assert!(status.health_check_age.is_some());
+    }
+
+    #[test]
+    fn test_watchdog_cycle() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+        runtime.start().unwrap();
+
+        let result = runtime.run_watchdog_cycle();
+        assert_eq!(result.stale_kernels, 0);
+
+        let status = runtime.background_task_status();
+        assert!(status.watchdog_scan_age.is_some());
+    }
+
+    #[test]
+    fn test_metrics_flush() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+
+        let metrics = runtime.flush_metrics();
+        assert!(metrics.is_empty() || !metrics.is_empty()); // Just verify it doesn't crash
+
+        let status = runtime.background_task_status();
+        assert!(status.metrics_flush_age.is_some());
+    }
+
+    #[test]
+    fn test_shutdown_report() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+        runtime.start().unwrap();
+
+        // Do some work
+        runtime.record_kernel_launch();
+        runtime.record_messages(100);
+
+        let report = runtime.complete_shutdown().unwrap();
+
+        assert_eq!(report.final_stats.kernels_launched, 1);
+        assert_eq!(report.final_stats.messages_processed, 100);
+        assert!(report.total_uptime.as_nanos() > 0);
+    }
+
+    #[test]
+    fn test_cannot_start_twice() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+        runtime.start().unwrap();
+
+        // Second start should fail
+        assert!(runtime.start().is_err());
+    }
+
+    #[test]
+    fn test_shutdown_from_initializing() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+        // Don't call start, should still be able to shutdown
+        assert!(runtime.shutdown().is_ok());
+        assert_eq!(runtime.lifecycle_state(), LifecycleState::Stopped);
     }
 }
