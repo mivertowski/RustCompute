@@ -1194,4 +1194,172 @@ mod tests {
         assert!(runtime.shutdown().is_ok());
         assert_eq!(runtime.lifecycle_state(), LifecycleState::Stopped);
     }
+
+    // ========================================================================
+    // Enterprise Integration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_enterprise_full_lifecycle() {
+        // Build runtime with custom config
+        let config = ConfigBuilder::new()
+            .with_general(|g| {
+                g.app_name("integration-test")
+                    .app_version("1.0.0")
+            })
+            .build()
+            .unwrap();
+
+        let runtime = RuntimeBuilder::new()
+            .with_config(config)
+            .build()
+            .unwrap();
+
+        // Verify initial state
+        assert_eq!(runtime.lifecycle_state(), LifecycleState::Initializing);
+        assert!(!runtime.is_accepting_work());
+
+        // Start runtime
+        runtime.start().unwrap();
+        assert_eq!(runtime.lifecycle_state(), LifecycleState::Running);
+        assert!(runtime.is_accepting_work());
+
+        // Simulate work
+        for _ in 0..10 {
+            runtime.record_kernel_launch();
+            runtime.record_messages(100);
+        }
+
+        // Run health cycles
+        for _ in 0..3 {
+            let result = runtime.run_health_check_cycle();
+            assert_eq!(result.status, crate::health::HealthStatus::Healthy);
+        }
+
+        // Verify stats
+        let stats = runtime.stats();
+        assert_eq!(stats.kernels_launched, 10);
+        assert_eq!(stats.messages_processed, 1000);
+        assert_eq!(stats.health_checks_run, 3);
+
+        // Graceful shutdown
+        runtime.request_shutdown().unwrap();
+        assert_eq!(runtime.lifecycle_state(), LifecycleState::Draining);
+
+        let report = runtime.complete_shutdown().unwrap();
+        assert_eq!(runtime.lifecycle_state(), LifecycleState::Stopped);
+        assert_eq!(report.final_stats.kernels_launched, 10);
+    }
+
+    #[test]
+    fn test_circuit_breaker_integration() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+        runtime.start().unwrap();
+
+        // Initially healthy
+        let result = runtime.run_health_check_cycle();
+        assert_eq!(result.circuit_state, CircuitState::Closed);
+
+        // Simulate failures until circuit opens
+        let cb = runtime.circuit_breaker();
+        for _ in 0..10 {
+            cb.record_failure();
+        }
+
+        // Circuit should be open now
+        assert_eq!(cb.state(), CircuitState::Open);
+
+        // Health check should reflect degraded state
+        let result = runtime.run_health_check_cycle();
+        assert_eq!(result.circuit_state, CircuitState::Open);
+        assert_eq!(result.status, crate::health::HealthStatus::Unhealthy);
+    }
+
+    #[test]
+    fn test_degradation_integration() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+        runtime.start().unwrap();
+
+        // Initially at normal level
+        let result = runtime.run_health_check_cycle();
+        assert_eq!(result.degradation_level, crate::health::DegradationLevel::Normal);
+
+        // Force circuit open
+        let cb = runtime.circuit_breaker();
+        for _ in 0..10 {
+            cb.record_failure();
+        }
+
+        // Health check should increase degradation
+        let result = runtime.run_health_check_cycle();
+        // Degradation should have increased from Normal
+        assert_ne!(result.degradation_level, crate::health::DegradationLevel::Normal);
+    }
+
+    #[test]
+    fn test_configuration_presets_integration() {
+        // Development preset
+        let dev = RuntimeBuilder::new().development().build().unwrap();
+        assert_eq!(
+            dev.config().general.environment,
+            crate::config::Environment::Development
+        );
+        assert!(dev.config().observability.tracing_enabled);
+
+        // Production preset
+        let prod = RuntimeBuilder::new().production().build().unwrap();
+        assert_eq!(
+            prod.config().general.environment,
+            crate::config::Environment::Production
+        );
+
+        // High-performance preset
+        let perf = RuntimeBuilder::new().high_performance().build().unwrap();
+        assert!(!perf.config().observability.tracing_enabled);
+    }
+
+    #[test]
+    fn test_multi_gpu_coordinator_access() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+
+        // Access multi-GPU coordinator
+        let coordinator = runtime.multi_gpu_coordinator();
+        assert_eq!(coordinator.device_count(), 0);
+
+        // Register a device
+        let device = crate::multi_gpu::DeviceInfo::new(
+            0,
+            "Test GPU".to_string(),
+            crate::runtime::Backend::Cpu,
+        );
+        coordinator.register_device(device);
+        assert_eq!(coordinator.device_count(), 1);
+    }
+
+    #[test]
+    fn test_background_task_tracking() {
+        let runtime = RuntimeBuilder::new().build().unwrap();
+        runtime.start().unwrap();
+
+        // Initially no tasks have run
+        let status = runtime.background_task_status();
+        assert!(status.health_check_age.is_none());
+        assert!(status.watchdog_scan_age.is_none());
+        assert!(status.metrics_flush_age.is_none());
+
+        // Run health check
+        runtime.run_health_check_cycle();
+        let status = runtime.background_task_status();
+        assert!(status.health_check_age.is_some());
+
+        // Run watchdog
+        runtime.run_watchdog_cycle();
+        let status = runtime.background_task_status();
+        assert!(status.watchdog_scan_age.is_some());
+
+        // Flush metrics
+        runtime.flush_metrics();
+        let status = runtime.background_task_status();
+        assert!(status.metrics_flush_age.is_some());
+    }
 }
