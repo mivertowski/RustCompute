@@ -6973,6 +6973,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ringkernel-tutorials"
+version = "0.1.3"
+dependencies = [
+ "ringkernel-core",
+ "ringkernel-cpu",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ringkernel-txmon"
 version = "0.1.3"
 dependencies = [

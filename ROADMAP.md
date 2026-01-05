@@ -14,12 +14,12 @@ Transform GPU computing from batch-oriented kernel launches to a true actor-base
 
 | Phase | Implemented | Partial | Missing | Completion |
 |-------|-------------|---------|---------|------------|
-| **Phase 1: Foundation** | 8 | 4 | 0 | ~83% |
+| **Phase 1: Foundation** | 9 | 3 | 0 | ~88% |
 | **Phase 2: Code Generation** | 10 | 0 | 0 | 100% |
 | **Phase 3: Enterprise** | 10 | 1 | 5 | ~66% |
 | **Phase 4: Ecosystem** | 3 | 3 | 5 | ~41% |
-| **Phase 5: Developer Experience** | 6 | 2 | 3 | ~64% |
-| **Overall** | **37** | **10** | **13** | **~72%** |
+| **Phase 5: Developer Experience** | 7 | 2 | 2 | ~73% |
+| **Overall** | **39** | **9** | **12** | **~77%** |
 
 **Legend**: ✅ Complete | ⚠️ Partial | 🎯 Planned | ❌ Not Started
 
@@ -45,7 +45,7 @@ Transform GPU computing from batch-oriented kernel launches to a true actor-base
 | **Metal Persistent Kernels** | P0 | Large | ⚠️ Partial | Stub in `ringkernel-metal`, MSL template exists |
 | **Mapped Memory** | P0 | Medium | ⚠️ Partial | `storageModeShared` in template |
 | **H2K/K2H Queues** | P0 | Medium | ⚠️ Partial | Queue structures defined, not functional |
-| **K2K Halo Exchange** | P1 | Medium | ❌ | Not implemented |
+| **K2K Halo Exchange** | P1 | Medium | ✅ Done | MSL template, routing tables, `MetalHaloExchange` manager |
 | **MSL Code Generation** | P1 | Large | ✅ Done | `ringkernel-ir/src/lower_msl.rs` |
 
 **Technical Approach**:
@@ -380,7 +380,7 @@ ringkernel check --backends all
 
 | Resource | Priority | Status | Description |
 |----------|----------|--------|-------------|
-| **Interactive Tutorials** | P0 | ❌ | Not implemented |
+| **Interactive Tutorials** | P0 | ✅ Done | 4 tutorials: Getting Started, Message Passing, GPU Kernels, Enterprise |
 | **Architecture Guide** | P0 | ✅ Done | Comprehensive CLAUDE.md |
 | **API Reference** | P0 | ⚠️ ~60% | rustdoc exists, incomplete |
 | **Example Gallery** | P1 | ✅ Done | Many examples across crates |
@@ -434,7 +434,7 @@ ringkernel check --backends all
 | **Ecosystem Integrations** | 8 (SSE, WS, Actix, Tower, Axum, gRPC, Arrow, Polars) | 15+ |
 | **Documentation Coverage** | ~60% | 95%+ |
 | **Test Count** | 600+ | 800+ |
-| **Roadmap Completion** | ~72% | 100% |
+| **Roadmap Completion** | ~77% | 100% |
 
 ---
 

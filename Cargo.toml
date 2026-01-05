@@ -20,6 +20,7 @@ members = [
     "crates/ringkernel-accnet",
     "crates/ringkernel-procint",
     "crates/ringkernel-wavesim3d",
+    "tutorials",
 ]
 
 [workspace.package]

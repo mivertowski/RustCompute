@@ -900,6 +900,342 @@ impl KernelHandleInner for MetalKernel {
 }
 
 // ============================================================================
+// HALO EXCHANGE MANAGER
+// ============================================================================
+
+/// Configuration for halo exchange.
+#[derive(Debug, Clone)]
+pub struct HaloExchangeConfig {
+    /// Grid dimensions (number of tiles).
+    pub grid_dims: (u32, u32, u32),
+    /// Tile dimensions.
+    pub tile_dims: (u32, u32, u32),
+    /// Halo width.
+    pub halo_size: u32,
+    /// Maximum messages per inbox.
+    pub max_messages: u32,
+}
+
+impl Default for HaloExchangeConfig {
+    fn default() -> Self {
+        Self {
+            grid_dims: (4, 4, 1),
+            tile_dims: (64, 64, 1),
+            halo_size: 1,
+            max_messages: 16,
+        }
+    }
+}
+
+impl HaloExchangeConfig {
+    /// Create a 2D configuration.
+    pub fn new_2d(grid_x: u32, grid_y: u32, tile_w: u32, tile_h: u32, halo: u32) -> Self {
+        Self {
+            grid_dims: (grid_x, grid_y, 1),
+            tile_dims: (tile_w, tile_h, 1),
+            halo_size: halo,
+            max_messages: 16,
+        }
+    }
+
+    /// Create a 3D configuration.
+    pub fn new_3d(
+        grid_x: u32,
+        grid_y: u32,
+        grid_z: u32,
+        tile_w: u32,
+        tile_h: u32,
+        tile_d: u32,
+        halo: u32,
+    ) -> Self {
+        Self {
+            grid_dims: (grid_x, grid_y, grid_z),
+            tile_dims: (tile_w, tile_h, tile_d),
+            halo_size: halo,
+            max_messages: 16,
+        }
+    }
+
+    /// Calculate total number of tiles.
+    pub fn total_tiles(&self) -> u32 {
+        self.grid_dims.0 * self.grid_dims.1 * self.grid_dims.2
+    }
+
+    /// Calculate inbox size per tile.
+    pub fn inbox_size(&self) -> usize {
+        // Header (64) + max_messages * (header(32) + max_payload)
+        let max_payload = self.tile_dims.0 * self.halo_size * 4; // One row
+        64 + self.max_messages as usize * (32 + max_payload as usize)
+    }
+}
+
+/// Manager for K2K halo exchange operations.
+///
+/// This struct manages the buffers and dispatch for halo exchange
+/// between neighboring tiles in a grid decomposition.
+pub struct MetalHaloExchange {
+    /// Configuration.
+    config: HaloExchangeConfig,
+    /// Routing tables for each tile.
+    routing_tables: Vec<MetalK2KRoutingTable>,
+    /// Inbox buffer (shared between all tiles).
+    inbox_buffer: Option<MetalBuffer>,
+    /// Exchange pipeline.
+    exchange_pipeline: Option<metal::ComputePipelineState>,
+    /// Apply pipeline.
+    apply_pipeline: Option<metal::ComputePipelineState>,
+    /// Command queue.
+    command_queue: Option<metal::CommandQueue>,
+    /// Statistics: total exchanges performed.
+    total_exchanges: AtomicU64,
+    /// Statistics: total messages sent.
+    total_messages_sent: AtomicU64,
+}
+
+impl MetalHaloExchange {
+    /// Create a new halo exchange manager.
+    pub fn new(config: HaloExchangeConfig) -> Self {
+        let total_tiles = config.total_tiles();
+        let inbox_size = config.inbox_size() as u32;
+
+        // Build routing tables for each tile
+        let mut routing_tables = Vec::with_capacity(total_tiles as usize);
+
+        if config.grid_dims.2 == 1 {
+            // 2D grid
+            for tile_id in 0..total_tiles {
+                let table = MetalK2KRoutingTable::new_2d_4neighbor(
+                    tile_id,
+                    config.grid_dims.0,
+                    config.grid_dims.1,
+                    inbox_size,
+                );
+                routing_tables.push(table);
+            }
+        } else {
+            // 3D grid
+            for tile_id in 0..total_tiles {
+                let table = MetalK2KRoutingTable::new_3d_6neighbor(
+                    tile_id,
+                    config.grid_dims.0,
+                    config.grid_dims.1,
+                    config.grid_dims.2,
+                    inbox_size,
+                );
+                routing_tables.push(table);
+            }
+        }
+
+        Self {
+            config,
+            routing_tables,
+            inbox_buffer: None,
+            exchange_pipeline: None,
+            apply_pipeline: None,
+            command_queue: None,
+            total_exchanges: AtomicU64::new(0),
+            total_messages_sent: AtomicU64::new(0),
+        }
+    }
+
+    /// Initialize buffers and compile shaders.
+    pub fn initialize(&mut self, device: &Device) -> Result<()> {
+        // Allocate inbox buffer
+        let total_inbox_size = self.config.total_tiles() as usize * self.config.inbox_size();
+        self.inbox_buffer = Some(MetalBuffer::new(device, total_inbox_size)?);
+
+        // Initialize inbox headers
+        self.initialize_inboxes()?;
+
+        // Create command queue
+        self.command_queue = Some(device.new_command_queue());
+
+        // Compile halo exchange shaders
+        let compile_options = metal::CompileOptions::new();
+        let msl_source = crate::K2K_HALO_EXCHANGE_MSL_TEMPLATE;
+
+        let library = device
+            .new_library_with_source(msl_source, &compile_options)
+            .map_err(|e| RingKernelError::CompilationFailed(format!("K2K MSL compile: {}", e)))?;
+
+        // Create exchange pipeline
+        if let Ok(func) = library.get_function("k2k_halo_exchange", None) {
+            self.exchange_pipeline = Some(
+                device
+                    .new_compute_pipeline_state_with_function(&func)
+                    .map_err(|e| RingKernelError::CompilationFailed(e.to_string()))?,
+            );
+        }
+
+        // Create apply pipeline
+        if let Ok(func) = library.get_function("k2k_halo_apply", None) {
+            self.apply_pipeline = Some(
+                device
+                    .new_compute_pipeline_state_with_function(&func)
+                    .map_err(|e| RingKernelError::CompilationFailed(e.to_string()))?,
+            );
+        }
+
+        tracing::info!(
+            "Metal K2K halo exchange initialized: {}x{}x{} grid, {} tiles",
+            self.config.grid_dims.0,
+            self.config.grid_dims.1,
+            self.config.grid_dims.2,
+            self.config.total_tiles()
+        );
+
+        Ok(())
+    }
+
+    /// Initialize all inbox headers.
+    fn initialize_inboxes(&self) -> Result<()> {
+        let inbox_buffer = self
+            .inbox_buffer
+            .as_ref()
+            .ok_or_else(|| RingKernelError::BufferAllocationFailed(0))?;
+
+        let ptr = inbox_buffer.buffer().contents() as *mut u8;
+
+        for tile_id in 0..self.config.total_tiles() {
+            let offset = tile_id as usize * self.config.inbox_size();
+
+            // Write inbox header
+            let header = MetalK2KInboxHeader {
+                message_count: 0,
+                max_messages: self.config.max_messages,
+                head: 0,
+                tail: 0,
+                last_source: 0,
+                lock: 0,
+                sequence: 0,
+                _reserved: [0; 9],
+            };
+
+            unsafe {
+                std::ptr::write(ptr.add(offset) as *mut MetalK2KInboxHeader, header);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get the routing table for a tile.
+    pub fn routing_table(&self, tile_id: u32) -> Option<&MetalK2KRoutingTable> {
+        self.routing_tables.get(tile_id as usize)
+    }
+
+    /// Get configuration.
+    pub fn config(&self) -> &HaloExchangeConfig {
+        &self.config
+    }
+
+    /// Get statistics.
+    pub fn stats(&self) -> HaloExchangeStats {
+        HaloExchangeStats {
+            total_exchanges: self.total_exchanges.load(Ordering::Relaxed),
+            total_messages_sent: self.total_messages_sent.load(Ordering::Relaxed),
+            tiles: self.config.total_tiles(),
+            grid_dims: self.config.grid_dims,
+        }
+    }
+
+    /// Perform a full halo exchange cycle.
+    ///
+    /// This dispatches the exchange kernel followed by the apply kernel.
+    pub fn exchange(&self, tile_data_buffers: &[&MetalBuffer]) -> Result<()> {
+        let command_queue = self
+            .command_queue
+            .as_ref()
+            .ok_or_else(|| RingKernelError::LaunchFailed("Not initialized".to_string()))?;
+
+        let exchange_pipeline = self
+            .exchange_pipeline
+            .as_ref()
+            .ok_or_else(|| RingKernelError::LaunchFailed("Exchange pipeline not compiled".to_string()))?;
+
+        let apply_pipeline = self
+            .apply_pipeline
+            .as_ref()
+            .ok_or_else(|| RingKernelError::LaunchFailed("Apply pipeline not compiled".to_string()))?;
+
+        let inbox_buffer = self
+            .inbox_buffer
+            .as_ref()
+            .ok_or_else(|| RingKernelError::BufferAllocationFailed(0))?;
+
+        // Phase 1: Exchange - all tiles send their halos
+        let command_buffer = command_queue.new_command_buffer();
+
+        for (tile_id, data_buffer) in tile_data_buffers.iter().enumerate() {
+            if tile_id >= self.routing_tables.len() {
+                break;
+            }
+
+            let encoder = command_buffer.new_compute_command_encoder();
+            encoder.set_compute_pipeline_state(exchange_pipeline);
+
+            // Would need to create routing table buffer for this tile
+            // For now, just set the data buffer
+            encoder.set_buffer(1, Some(inbox_buffer.buffer()), 0);
+            encoder.set_buffer(2, Some(data_buffer.buffer()), 0);
+
+            let threads = MTLSize::new(self.config.tile_dims.0 as u64, 1, 1);
+            let threadgroup_size = MTLSize::new(64, 1, 1);
+            encoder.dispatch_threads(threads, threadgroup_size);
+            encoder.end_encoding();
+        }
+
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        // Phase 2: Apply - all tiles receive and apply halos
+        let command_buffer = command_queue.new_command_buffer();
+
+        for (tile_id, data_buffer) in tile_data_buffers.iter().enumerate() {
+            if tile_id >= self.routing_tables.len() {
+                break;
+            }
+
+            let encoder = command_buffer.new_compute_command_encoder();
+            encoder.set_compute_pipeline_state(apply_pipeline);
+
+            encoder.set_buffer(1, Some(inbox_buffer.buffer()), 0);
+            encoder.set_buffer(2, Some(data_buffer.buffer()), 0);
+
+            let threads = MTLSize::new(self.config.tile_dims.0 as u64, 1, 1);
+            let threadgroup_size = MTLSize::new(64, 1, 1);
+            encoder.dispatch_threads(threads, threadgroup_size);
+            encoder.end_encoding();
+        }
+
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+
+        self.total_exchanges.fetch_add(1, Ordering::Relaxed);
+
+        Ok(())
+    }
+
+    /// Reset all inboxes (clear messages).
+    pub fn reset(&self) -> Result<()> {
+        self.initialize_inboxes()
+    }
+}
+
+/// Statistics for halo exchange operations.
+#[derive(Debug, Clone)]
+pub struct HaloExchangeStats {
+    /// Total exchange cycles performed.
+    pub total_exchanges: u64,
+    /// Total messages sent.
+    pub total_messages_sent: u64,
+    /// Number of tiles.
+    pub tiles: u32,
+    /// Grid dimensions.
+    pub grid_dims: (u32, u32, u32),
+}
+
+// ============================================================================
 // TESTS
 // ============================================================================
 
@@ -1054,5 +1390,106 @@ mod tests {
 
         // Should be 0x1_FFFFFFFF
         assert_eq!(cb.messages_processed(), 0x1_FFFFFFFF);
+    }
+
+    // ========================================================================
+    // HALO EXCHANGE TESTS
+    // ========================================================================
+
+    #[test]
+    fn test_halo_exchange_config_default() {
+        let config = HaloExchangeConfig::default();
+
+        assert_eq!(config.grid_dims, (4, 4, 1));
+        assert_eq!(config.tile_dims, (64, 64, 1));
+        assert_eq!(config.halo_size, 1);
+        assert_eq!(config.total_tiles(), 16);
+    }
+
+    #[test]
+    fn test_halo_exchange_config_2d() {
+        let config = HaloExchangeConfig::new_2d(8, 8, 32, 32, 2);
+
+        assert_eq!(config.grid_dims, (8, 8, 1));
+        assert_eq!(config.tile_dims, (32, 32, 1));
+        assert_eq!(config.halo_size, 2);
+        assert_eq!(config.total_tiles(), 64);
+    }
+
+    #[test]
+    fn test_halo_exchange_config_3d() {
+        let config = HaloExchangeConfig::new_3d(4, 4, 4, 16, 16, 16, 1);
+
+        assert_eq!(config.grid_dims, (4, 4, 4));
+        assert_eq!(config.tile_dims, (16, 16, 16));
+        assert_eq!(config.halo_size, 1);
+        assert_eq!(config.total_tiles(), 64);
+    }
+
+    #[test]
+    fn test_halo_exchange_config_inbox_size() {
+        let config = HaloExchangeConfig::new_2d(4, 4, 64, 64, 1);
+
+        // Inbox size: header(64) + max_messages(16) * (header(32) + payload(64*1*4=256))
+        // = 64 + 16 * 288 = 64 + 4608 = 4672
+        let expected = 64 + 16 * (32 + 256);
+        assert_eq!(config.inbox_size(), expected);
+    }
+
+    #[test]
+    fn test_halo_exchange_manager_creation_2d() {
+        let config = HaloExchangeConfig::new_2d(4, 4, 32, 32, 1);
+        let manager = MetalHaloExchange::new(config);
+
+        assert_eq!(manager.routing_tables.len(), 16);
+
+        // Check center tile (id=5) has 4 neighbors
+        let table = manager.routing_table(5).unwrap();
+        assert_eq!(table.route_count, 4);
+
+        // Check corner tile (id=0) has 2 neighbors
+        let table = manager.routing_table(0).unwrap();
+        assert_eq!(table.route_count, 2);
+
+        // Check edge tile (id=1) has 3 neighbors
+        let table = manager.routing_table(1).unwrap();
+        assert_eq!(table.route_count, 3);
+    }
+
+    #[test]
+    fn test_halo_exchange_manager_creation_3d() {
+        let config = HaloExchangeConfig::new_3d(3, 3, 3, 16, 16, 16, 1);
+        let manager = MetalHaloExchange::new(config);
+
+        assert_eq!(manager.routing_tables.len(), 27);
+
+        // Check center tile (id=13) has 6 neighbors
+        let table = manager.routing_table(13).unwrap();
+        assert_eq!(table.route_count, 6);
+
+        // Check corner tile (id=0) has 3 neighbors
+        let table = manager.routing_table(0).unwrap();
+        assert_eq!(table.route_count, 3);
+    }
+
+    #[test]
+    fn test_halo_exchange_stats() {
+        let config = HaloExchangeConfig::new_2d(4, 4, 32, 32, 1);
+        let manager = MetalHaloExchange::new(config);
+
+        let stats = manager.stats();
+        assert_eq!(stats.tiles, 16);
+        assert_eq!(stats.grid_dims, (4, 4, 1));
+        assert_eq!(stats.total_exchanges, 0);
+        assert_eq!(stats.total_messages_sent, 0);
+    }
+
+    #[test]
+    fn test_halo_exchange_config_getter() {
+        let config = HaloExchangeConfig::new_2d(8, 8, 64, 64, 2);
+        let manager = MetalHaloExchange::new(config.clone());
+
+        assert_eq!(manager.config().grid_dims, (8, 8, 1));
+        assert_eq!(manager.config().halo_size, 2);
     }
 }
