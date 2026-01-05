@@ -1,0 +1,218 @@
+{
+  "Ring Kernel": {
+    "prefix": "ringkernel",
+    "body": [
+      "#[ring_kernel(",
+      "    id = \"${1:kernel_name}\",",
+      "    mode = \"persistent\",",
+      "    block_size = ${2:128},",
+      "    backends = [cuda, metal],",
+      ")]",
+      "async fn ${1:kernel_name}_handler(ctx: &mut RingContext, msg: ${3:Request}) -> ${4:Response} {",
+      "    $0",
+      "}"
+    ],
+    "description": "Create a persistent ring kernel actor"
+  },
+  "GPU Kernel": {
+    "prefix": "gpukernel",
+    "body": [
+      "#[gpu_kernel(backends = [${1:cuda, wgpu}])]",
+      "fn ${2:kernel_name}(${3:input}: &[f32], ${4:output}: &mut [f32], n: i32) {",
+      "    let idx = block_idx_x() * block_dim_x() + thread_idx_x();",
+      "    if idx >= n { return; }",
+      "    $0",
+      "}"
+    ],
+    "description": "Create a GPU global kernel"
+  },
+  "Stencil Kernel": {
+    "prefix": "stencilkernel",
+    "body": [
+      "#[stencil_kernel(tile_size = (${1:16}, ${2:16}), halo = ${3:1})]",
+      "fn ${4:stencil_name}(input: &[f32], output: &mut [f32], pos: GridPos) {",
+      "    let laplacian = pos.north(input) + pos.south(input)",
+      "                  + pos.east(input) + pos.west(input)",
+      "                  - 4.0 * input[pos.idx()];",
+      "    output[pos.idx()] = ${0:input[pos.idx()] + 0.25 * laplacian};",
+      "}"
+    ],
+    "description": "Create a 2D stencil kernel"
+  },
+  "Stencil Kernel 3D": {
+    "prefix": "stencilkernel3d",
+    "body": [
+      "#[stencil_kernel(tile_size = (${1:8}, ${2:8}, ${3:8}), halo = ${4:1})]",
+      "fn ${5:stencil3d_name}(input: &[f32], output: &mut [f32], pos: GridPos3D) {",
+      "    let laplacian = pos.north(input) + pos.south(input)",
+      "                  + pos.east(input) + pos.west(input)",
+      "                  + pos.up(input) + pos.down(input)",
+      "                  - 6.0 * input[pos.idx()];",
+      "    output[pos.idx()] = ${0:input[pos.idx()] + c2 * laplacian};",
+      "}"
+    ],
+    "description": "Create a 3D stencil kernel"
+  },
+  "Ring Message": {
+    "prefix": "ringmessage",
+    "body": [
+      "#[derive(RingMessage)]",
+      "#[message(type_id = ${1:1})]",
+      "struct ${2:MessageName} {",
+      "    #[message(id)]",
+      "    id: MessageId,",
+      "    ${0:payload}: ${3:Vec<f32>},",
+      "}"
+    ],
+    "description": "Create a RingMessage struct"
+  },
+  "GPU Type": {
+    "prefix": "gputype",
+    "body": [
+      "#[derive(GpuType)]",
+      "#[repr(C)]",
+      "struct ${1:TypeName} {",
+      "    ${0:data}: [f32; ${2:16}],",
+      "}"
+    ],
+    "description": "Create a GPU-compatible type"
+  },
+  "Thread Index": {
+    "prefix": "tidx",
+    "body": "let ${1:idx} = block_idx_x() * block_dim_x() + thread_idx_x();$0",
+    "description": "Calculate global thread index"
+  },
+  "Thread Index 2D": {
+    "prefix": "tidx2d",
+    "body": [
+      "let ${1:x} = block_idx_x() * block_dim_x() + thread_idx_x();",
+      "let ${2:y} = block_idx_y() * block_dim_y() + thread_idx_y();$0"
+    ],
+    "description": "Calculate 2D thread indices"
+  },
+  "Thread Index 3D": {
+    "prefix": "tidx3d",
+    "body": [
+      "let ${1:x} = block_idx_x() * block_dim_x() + thread_idx_x();",
+      "let ${2:y} = block_idx_y() * block_dim_y() + thread_idx_y();",
+      "let ${3:z} = block_idx_z() * block_dim_z() + thread_idx_z();$0"
+    ],
+    "description": "Calculate 3D thread indices"
+  },
+  "Bounds Check": {
+    "prefix": "bounds",
+    "body": "if ${1:idx} >= ${2:n} { return; }$0",
+    "description": "Thread bounds check"
+  },
+  "Sync Threads": {
+    "prefix": "sync",
+    "body": "sync_threads();$0",
+    "description": "Synchronize all threads in block"
+  },
+  "Atomic Add": {
+    "prefix": "atomicadd",
+    "body": "atomic_add(&mut ${1:target}, ${2:value});$0",
+    "description": "Atomic addition"
+  },
+  "Atomic CAS": {
+    "prefix": "atomiccas",
+    "body": "atomic_cas(&mut ${1:target}, ${2:compare}, ${3:value});$0",
+    "description": "Atomic compare-and-swap"
+  },
+  "Shared Memory": {
+    "prefix": "shared",
+    "body": "__shared__ ${1:buffer}: [f32; ${2:256}];$0",
+    "description": "Declare shared memory"
+  },
+  "K2K Send": {
+    "prefix": "k2ksend",
+    "body": "ctx.k2k_send(${1:destination_id}, ${2:message}).await?;$0",
+    "description": "Send kernel-to-kernel message"
+  },
+  "K2K Receive": {
+    "prefix": "k2krecv",
+    "body": "let ${1:msg} = ctx.k2k_try_recv::<${2:MessageType}>()?;$0",
+    "description": "Try to receive K2K message"
+  },
+  "HLC Tick": {
+    "prefix": "hlctick",
+    "body": "let ${1:ts} = ctx.hlc_tick();$0",
+    "description": "Get HLC timestamp"
+  },
+  "Launch Options": {
+    "prefix": "launchopts",
+    "body": [
+      "let options = LaunchOptions::default()",
+      "    .with_queue_capacity(${1:1024})",
+      "    .with_block_size(${2:128})",
+      "    ${0};",
+      ""
+    ],
+    "description": "Create kernel launch options"
+  },
+  "Runtime Builder": {
+    "prefix": "runtimebuilder",
+    "body": [
+      "let runtime = RuntimeBuilder::new()",
+      "    .${1:production}()",
+      "    .build()?;",
+      "",
+      "runtime.start()?;$0"
+    ],
+    "description": "Create RingKernel runtime"
+  },
+  "Checkpoint": {
+    "prefix": "checkpoint",
+    "body": [
+      "let checkpoint_id = kernel.checkpoint(&mut ${1:file}).await?;",
+      "// Later...",
+      "kernel.restore(&mut ${1:file}).await?;$0"
+    ],
+    "description": "Checkpoint and restore kernel"
+  },
+  "Circuit Breaker": {
+    "prefix": "circuitbreaker",
+    "body": [
+      "let guard = CircuitGuard::new(&runtime, \"${1:operation}\");",
+      "guard.execute(|| {",
+      "    $0",
+      "})?;"
+    ],
+    "description": "Circuit breaker guard"
+  },
+  "Sandbox Policy": {
+    "prefix": "sandboxpolicy",
+    "body": [
+      "let policy = SandboxPolicy::new()",
+      "    .with_memory_limit(${1:1024 * 1024 * 1024})",
+      "    .with_execution_timeout(Duration::from_secs(${2:30}))",
+      "    .deny_k2k_to(&[\"${3:untrusted}\"]);",
+      "",
+      "let sandbox = KernelSandbox::new(policy);$0"
+    ],
+    "description": "Create kernel sandbox policy"
+  },
+  "Memory Encryption": {
+    "prefix": "memencrypt",
+    "body": [
+      "let config = EncryptionConfig::new()",
+      "    .with_algorithm(EncryptionAlgorithm::${1:Aes256Gcm})",
+      "    .with_key_rotation_interval(Duration::from_secs(${2:3600}));",
+      "",
+      "let encryption = MemoryEncryption::new(config);",
+      "let encrypted = encryption.encrypt_region(&${3:data});$0"
+    ],
+    "description": "Setup memory encryption"
+  },
+  "Compliance Report": {
+    "prefix": "compliance",
+    "body": [
+      "let reporter = ComplianceReporter::new()",
+      "    .with_standard(ComplianceStandard::${1:SOC2})",
+      "    .with_organization(\"${2:My Org}\");",
+      "",
+      "let report = reporter.generate_report(ReportFormat::${3:Markdown});$0"
+    ],
+    "description": "Generate compliance report"
+  }
+}

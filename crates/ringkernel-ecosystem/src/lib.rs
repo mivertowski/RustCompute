@@ -76,6 +76,9 @@ pub mod graphql;
 #[cfg(feature = "enterprise")]
 pub mod enterprise;
 
+#[cfg(feature = "ml-bridge")]
+pub mod ml_bridge;
+
 /// Prelude for convenient imports.
 ///
 /// Note: Each integration module defines its own `RuntimeHandle` trait with

@@ -1,0 +1,34 @@
+[package]
+name = "ringkernel-playground"
+version = "0.1.0"
+edition = "2021"
+description = "Interactive GPU kernel playground for RingKernel"
+authors = ["RingKernel Team"]
+license = "MIT"
+
+[dependencies]
+# Web server
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1.48", features = ["full"] }
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# RingKernel integration
+ringkernel-core = { path = "../../crates/ringkernel-core" }
+ringkernel-cpu = { path = "../../crates/ringkernel-cpu" }
+ringkernel-cuda-codegen = { path = "../../crates/ringkernel-cuda-codegen" }
+ringkernel-wgpu-codegen = { path = "../../crates/ringkernel-wgpu-codegen" }
+
+# Utilities
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.0", features = ["v4"] }
+syn = { version = "2.0", features = ["full", "parsing"] }
+
+[features]
+default = []
+cuda = ["ringkernel-core/cuda"]
+wgpu = ["ringkernel-core/wgpu"]

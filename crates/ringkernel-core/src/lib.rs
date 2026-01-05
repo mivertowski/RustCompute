@@ -45,6 +45,7 @@ pub mod observability;
 pub mod pubsub;
 pub mod queue;
 pub mod runtime;
+pub mod security;
 pub mod telemetry;
 pub mod telemetry_pipeline;
 pub mod types;
@@ -108,6 +109,12 @@ pub mod prelude {
         AppInfo, BackgroundTaskStatus, CircuitGuard, ContextMetrics, DegradationGuard,
         HealthCycleResult, LifecycleState, MonitoringConfig, MonitoringHandles, OperationPriority,
         RingKernelContext, RuntimeBuilder, RuntimeStatsSnapshot, ShutdownReport, WatchdogResult,
+    };
+    pub use crate::security::{
+        AccessLevel, ComplianceCheck, ComplianceReport, ComplianceReporter, ComplianceStandard,
+        ComplianceStatus, ComplianceSummary, EncryptedRegion, EncryptionAlgorithm, EncryptionConfig,
+        EncryptionKey, EncryptionStats, KeyDerivation, KernelSandbox, MemoryEncryption, ReportFormat,
+        ResourceLimits, SandboxPolicy, SandboxStats, SandboxViolation, ViolationType,
     };
     pub use crate::telemetry::*;
     pub use crate::telemetry_pipeline::{

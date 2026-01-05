@@ -60,6 +60,9 @@ graphql = ["dep:async-graphql", "dep:async-graphql-axum", "dep:async-stream", "d
 # Enterprise features integration (health, circuit breaker, degradation, metrics)
 enterprise = ["dep:serde_json"]
 
+# ML framework bridges (PyTorch, ONNX, Hugging Face)
+ml-bridge = []
+
 # Full persistent ecosystem (persistent + web frameworks)
 persistent-full = ["persistent-cuda", "persistent-wgpu", "actix", "axum", "axum-ws", "axum-sse", "grpc"]
 
