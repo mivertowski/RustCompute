@@ -29,13 +29,16 @@
 mod kernel;
 mod memory;
 mod runtime;
+pub mod simd;
 
 pub use kernel::CpuKernel;
 pub use memory::CpuBuffer;
 pub use runtime::CpuRuntime;
+pub use simd::SimdOps;
 
 /// Prelude for convenient imports.
 pub mod prelude {
+    pub use crate::simd::SimdOps;
     pub use crate::CpuKernel;
     pub use crate::CpuRuntime;
 }

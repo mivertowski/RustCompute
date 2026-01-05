@@ -33,6 +33,14 @@ parking_lot = { workspace = true }
 # Utilities
 uuid = { workspace = true }
 
+# SIMD acceleration
+wide = "0.7"
+rayon = "1.11"
+
+[features]
+default = []
+simd = []
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
 proptest = { workspace = true }

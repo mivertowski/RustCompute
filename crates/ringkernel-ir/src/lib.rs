@@ -50,6 +50,7 @@ mod validation;
 pub mod lower_cuda;
 pub mod lower_msl;
 pub mod lower_wgsl;
+pub mod optimize;
 
 pub use builder::{IrBuilder, IrBuilderScope};
 pub use capabilities::{BackendCapabilities, Capabilities, CapabilityFlag};
@@ -58,6 +59,10 @@ pub use lower_cuda::{lower_to_cuda, lower_to_cuda_with_config, CudaLowering, Cud
 pub use lower_msl::{lower_to_msl, lower_to_msl_with_config, MslLowering, MslLoweringConfig, MslLoweringError};
 pub use lower_wgsl::{lower_to_wgsl, lower_to_wgsl_with_config, WgslLowering, WgslLoweringConfig, WgslLoweringError};
 pub use nodes::*;
+pub use optimize::{
+    optimize, run_constant_folding, run_dce, AlgebraicSimplification, ConstantFolding,
+    DeadBlockElimination, DeadCodeElimination, OptimizationPass, OptimizationResult, PassManager,
+};
 pub use printer::IrPrinter;
 pub use types::{IrType, ScalarType, VectorType};
 pub use validation::{ValidationLevel, ValidationResult, Validator};

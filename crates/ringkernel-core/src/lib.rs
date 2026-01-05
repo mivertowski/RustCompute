@@ -31,6 +31,7 @@
 #![warn(clippy::all)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod audit;
 pub mod context;
 pub mod control;
 pub mod error;
@@ -58,6 +59,10 @@ pub mod __private;
 
 /// Prelude module for convenient imports
 pub mod prelude {
+    pub use crate::audit::{
+        AuditConfig, AuditEvent, AuditEventType, AuditLevel, AuditLogger, AuditLoggerBuilder,
+        AuditSink, FileSink, MemorySink,
+    };
     pub use crate::config::{
         CheckpointStorageType, ConfigBuilder, Environment, GeneralConfig, GeneralConfigBuilder,
         HealthConfig, HealthConfigBuilder, LogLevel, MigrationConfig, MigrationConfigBuilder,

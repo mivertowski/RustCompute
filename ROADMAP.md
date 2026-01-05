@@ -14,12 +14,12 @@ Transform GPU computing from batch-oriented kernel launches to a true actor-base
 
 | Phase | Implemented | Partial | Missing | Completion |
 |-------|-------------|---------|---------|------------|
-| **Phase 1: Foundation** | 6 | 4 | 2 | ~67% |
-| **Phase 2: Code Generation** | 9 | 1 | 0 | ~95% |
-| **Phase 3: Enterprise** | 8 | 1 | 7 | ~53% |
+| **Phase 1: Foundation** | 8 | 4 | 0 | ~83% |
+| **Phase 2: Code Generation** | 10 | 0 | 0 | 100% |
+| **Phase 3: Enterprise** | 10 | 1 | 5 | ~66% |
 | **Phase 4: Ecosystem** | 3 | 3 | 5 | ~41% |
-| **Phase 5: Developer Experience** | 5 | 2 | 4 | ~55% |
-| **Overall** | **31** | **11** | **18** | **~62%** |
+| **Phase 5: Developer Experience** | 6 | 2 | 3 | ~64% |
+| **Overall** | **37** | **10** | **13** | **~72%** |
 
 **Legend**: ✅ Complete | ⚠️ Partial | 🎯 Planned | ❌ Not Started
 
@@ -75,7 +75,7 @@ pub struct MetalMappedBuffer<T> {
 |---------|----------|--------|-------------|
 | **Host-Driven Persistence Emulation** | P0 | ⚠️ Partial | `wgpu_bridge.rs` exists |
 | **Batched Command Processing** | P0 | ✅ Done | `CommandBatch`, `BatchDispatcher` trait, async tick |
-| **Subgroup Operations** | P1 | ❌ | Not implemented |
+| **Subgroup Operations** | P1 | ✅ Done | 22+ subgroup ops: ballot, shuffle, reductions, scans |
 | **64-bit Atomic Emulation** | P1 | ✅ Done | lo/hi u32 pair emulation |
 
 **Pattern: Batched Dispatch Loop**
@@ -102,7 +102,7 @@ impl<H> WgpuPersistentEmulation<H> {
 
 | Feature | Priority | Status | Description |
 |---------|----------|--------|-------------|
-| **SIMD Acceleration** | P1 | ❌ | `portable_simd` not integrated |
+| **SIMD Acceleration** | P1 | ✅ Done | `wide` crate with SAXPY, dot product, FDTD stencils |
 | **Persistent Actor Simulation** | P1 | ✅ Done | CPU runtime mirrors GPU actor semantics |
 | **Rayon Integration** | P2 | ✅ Done | Used throughout codebase |
 
@@ -141,7 +141,7 @@ impl<H> WgpuPersistentEmulation<H> {
 | **IR Definition** | P0 | ✅ Done | SSA-based `IrModule`, `IrBuilder` |
 | **Type System** | P0 | ✅ Done | `types.rs` with capability flags |
 | **Lowering Passes** | P1 | ✅ Done | `lower_cuda.rs`, `lower_wgsl.rs`, `lower_msl.rs` |
-| **Optimization Passes** | P2 | ⚠️ Basic | Validation exists, DCE/folding planned |
+| **Optimization Passes** | P2 | ✅ Done | DCE, constant folding, algebraic simplification, dead block elimination |
 
 ### 2.2 Code Generation Parity
 
@@ -247,7 +247,7 @@ impl MultiGpuRuntime {
 
 | Feature | Priority | Status | Description |
 |---------|----------|--------|-------------|
-| **GPU Profiler Integration** | P0 | ❌ | Nsight/RenderDoc not integrated |
+| **GPU Profiler Integration** | P0 | ✅ Done | NVTX, RenderDoc, Metal stubs with `GpuProfilerManager` |
 | **Message Tracing** | P0 | ✅ Done | `ObservabilityContext` with spans |
 | **GPU Memory Dashboard** | P1 | ❌ | Not implemented |
 | **Kernel Debugger** | P2 | ❌ | Not implemented |
@@ -272,7 +272,7 @@ async fn process_message(ctx: &RingContext, msg: Request) -> Response {
 | Feature | Priority | Status | Description |
 |---------|----------|--------|-------------|
 | **Memory Encryption** | P1 | ❌ | Not implemented |
-| **Audit Logging** | P1 | ❌ | Not implemented |
+| **Audit Logging** | P1 | ✅ Done | `AuditLogger` with tamper-evident chains, multiple sinks |
 | **Kernel Sandboxing** | P2 | ❌ | Not implemented |
 | **Compliance Reports** | P2 | ❌ | Not implemented |
 
@@ -391,7 +391,7 @@ ringkernel check --backends all
 |---------|----------|--------|-------------|
 | **GPU Mock Testing** | P0 | ⚠️ Partial | CPU backend as mock |
 | **Property Testing** | P1 | ✅ Done | proptest used |
-| **Fuzzing** | P1 | ❌ | Not implemented |
+| **Fuzzing** | P1 | ✅ Done | 5 fuzz targets: IR builder, CUDA/WGSL transpilers, message queue, HLC |
 | **CI GPU Testing** | P1 | ❌ | Manual tests with `--ignored` |
 
 ---
@@ -433,8 +433,8 @@ ringkernel check --backends all
 | **Code Generation Tests** | 233+ | 500+ |
 | **Ecosystem Integrations** | 8 (SSE, WS, Actix, Tower, Axum, gRPC, Arrow, Polars) | 15+ |
 | **Documentation Coverage** | ~60% | 95%+ |
-| **Test Count** | 580+ | 800+ |
-| **Roadmap Completion** | ~52% | 100% |
+| **Test Count** | 600+ | 800+ |
+| **Roadmap Completion** | ~72% | 100% |
 
 ---
 

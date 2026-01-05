@@ -6828,11 +6828,13 @@ dependencies = [
  "futures",
  "parking_lot 0.12.5",
  "proptest",
+ "rayon",
  "ringkernel-core",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
  "uuid",
+ "wide",
 ]
 
 [[package]]

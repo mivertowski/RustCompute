@@ -16,6 +16,7 @@ use crate::u64_workarounds::U64Helpers;
 use crate::validation::ValidationMode;
 use crate::{Result, TranspileError};
 use quote::ToTokens;
+use std::cell::Cell;
 use std::collections::HashMap;
 use syn::{
     BinOp, Expr, ExprAssign, ExprBinary, ExprBreak, ExprCall, ExprCast, ExprContinue, ExprForLoop,
@@ -51,7 +52,8 @@ pub struct WgslTranspiler {
     /// Whether to include u64 helper functions.
     needs_u64_helpers: bool,
     /// Whether subgroup operations are used (need extension).
-    needs_subgroup_extension: bool,
+    /// Uses Cell for interior mutability during transpilation.
+    needs_subgroup_extension: Cell<bool>,
     /// Workgroup size for generic kernels.
     workgroup_size: (u32, u32, u32),
     /// Collected buffer bindings.
@@ -87,7 +89,7 @@ impl WgslTranspiler {
             shared_vars: HashMap::new(),
             ring_kernel_mode: false,
             needs_u64_helpers: false,
-            needs_subgroup_extension: false,
+            needs_subgroup_extension: Cell::new(false),
             workgroup_size: (256, 1, 1),
             bindings: Vec::new(),
         }
@@ -108,7 +110,7 @@ impl WgslTranspiler {
             shared_vars: HashMap::new(),
             ring_kernel_mode: false,
             needs_u64_helpers: false,
-            needs_subgroup_extension: false,
+            needs_subgroup_extension: Cell::new(false),
             workgroup_size: (256, 1, 1),
             bindings: Vec::new(),
         }
@@ -129,7 +131,7 @@ impl WgslTranspiler {
             shared_vars: HashMap::new(),
             ring_kernel_mode: true,
             needs_u64_helpers: true, // Ring kernels typically need 64-bit counters
-            needs_subgroup_extension: false,
+            needs_subgroup_extension: Cell::new(false),
             workgroup_size: (config.workgroup_size, 1, 1),
             bindings: Vec::new(),
         }
@@ -237,10 +239,13 @@ impl WgslTranspiler {
         // Collect bindings from parameters
         self.collect_bindings(func)?;
 
+        // Generate function body first to detect subgroup usage
+        let body = self.transpile_block(&func.block)?;
+
         let mut output = String::new();
 
-        // Add extensions if needed
-        if self.needs_subgroup_extension {
+        // Add extensions if subgroup operations were used
+        if self.needs_subgroup_extension.get() {
             output.push_str("enable chromium_experimental_subgroups;\n\n");
         }
 
@@ -254,7 +259,7 @@ impl WgslTranspiler {
             output.push_str("\n\n");
         }
 
-        // Generate kernel signature
+        // Generate kernel signature with subgroup builtins if needed
         output.push_str("@compute ");
         output.push_str(&format!(
             "@workgroup_size({}, {}, {})\n",
@@ -264,11 +269,18 @@ impl WgslTranspiler {
         output.push_str("    @builtin(local_invocation_id) local_invocation_id: vec3<u32>,\n");
         output.push_str("    @builtin(workgroup_id) workgroup_id: vec3<u32>,\n");
         output.push_str("    @builtin(global_invocation_id) global_invocation_id: vec3<u32>,\n");
-        output.push_str("    @builtin(num_workgroups) num_workgroups: vec3<u32>\n");
+        output.push_str("    @builtin(num_workgroups) num_workgroups: vec3<u32>");
+
+        // Add subgroup builtins if needed
+        if self.needs_subgroup_extension.get() {
+            output.push_str(",\n    @builtin(subgroup_invocation_id) subgroup_invocation_id: u32,\n");
+            output.push_str("    @builtin(subgroup_size) subgroup_size: u32\n");
+        } else {
+            output.push('\n');
+        }
         output.push_str(") {\n");
 
-        // Generate function body
-        let body = self.transpile_block(&func.block)?;
+        // Add the already-transpiled body
         output.push_str(&body);
 
         output.push_str("}\n");
@@ -730,6 +742,11 @@ impl WgslTranspiler {
     ) -> Result<String> {
         let wgsl_name = intrinsic.to_wgsl();
 
+        // Track if we need subgroup extension
+        if intrinsic.requires_subgroup_extension() {
+            self.needs_subgroup_extension.set(true);
+        }
+
         // Check for value intrinsics (builtins accessed as variables)
         match intrinsic {
             WgslIntrinsic::LocalInvocationIdX
@@ -761,8 +778,12 @@ impl WgslTranspiler {
                 return Ok(wgsl_name.to_string());
             }
             WgslIntrinsic::SubgroupInvocationId | WgslIntrinsic::SubgroupSize => {
-                // Subgroup builtins
+                // Subgroup builtins - accessed as variables
                 return Ok(wgsl_name.to_string());
+            }
+            WgslIntrinsic::SubgroupElect => {
+                // Zero-arg subgroup function
+                return Ok(format!("{}()", wgsl_name));
             }
             _ => {}
         }

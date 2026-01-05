@@ -1060,6 +1060,529 @@ impl Default for ObservabilityContext {
     }
 }
 
+// ============================================================================
+// GPU Profiler Integration Stubs
+// ============================================================================
+
+/// GPU profiler backend type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuProfilerBackend {
+    /// NVIDIA Nsight Systems/Compute.
+    Nsight,
+    /// RenderDoc (cross-platform).
+    RenderDoc,
+    /// PIX for Windows.
+    Pix,
+    /// Apple Metal System Trace.
+    MetalSystemTrace,
+    /// AMD Radeon GPU Profiler.
+    Rgp,
+    /// Custom profiler.
+    Custom,
+}
+
+/// GPU profiler marker color.
+#[derive(Debug, Clone, Copy)]
+pub struct ProfilerColor {
+    /// Red component (0-255).
+    pub r: u8,
+    /// Green component (0-255).
+    pub g: u8,
+    /// Blue component (0-255).
+    pub b: u8,
+    /// Alpha component (0-255).
+    pub a: u8,
+}
+
+impl ProfilerColor {
+    /// Create a new color.
+    pub const fn new(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b, a: 255 }
+    }
+
+    /// Red color.
+    pub const RED: Self = Self::new(255, 0, 0);
+    /// Green color.
+    pub const GREEN: Self = Self::new(0, 255, 0);
+    /// Blue color.
+    pub const BLUE: Self = Self::new(0, 0, 255);
+    /// Yellow color.
+    pub const YELLOW: Self = Self::new(255, 255, 0);
+    /// Cyan color.
+    pub const CYAN: Self = Self::new(0, 255, 255);
+    /// Magenta color.
+    pub const MAGENTA: Self = Self::new(255, 0, 255);
+    /// Orange color.
+    pub const ORANGE: Self = Self::new(255, 165, 0);
+}
+
+/// GPU profiler range handle for scoped profiling.
+pub struct ProfilerRange {
+    /// Range name.
+    #[allow(dead_code)]
+    name: String,
+    /// Backend being used.
+    #[allow(dead_code)]
+    backend: GpuProfilerBackend,
+    /// Start time.
+    start: Instant,
+}
+
+impl ProfilerRange {
+    /// Create a new profiler range (internal use).
+    fn new(name: impl Into<String>, backend: GpuProfilerBackend) -> Self {
+        Self {
+            name: name.into(),
+            backend,
+            start: Instant::now(),
+        }
+    }
+
+    /// Get elapsed duration.
+    pub fn elapsed(&self) -> Duration {
+        self.start.elapsed()
+    }
+}
+
+impl Drop for ProfilerRange {
+    fn drop(&mut self) {
+        // In a real implementation, this would call the profiler API to end the range
+        // e.g., nvtxRangePop() for NVTX
+    }
+}
+
+/// Trait for GPU profiler integration.
+///
+/// Implement this trait to integrate with specific GPU profiling tools.
+/// The default implementation is a no-op for when no profiler is attached.
+pub trait GpuProfiler: Send + Sync {
+    /// Check if the profiler is available and attached.
+    fn is_available(&self) -> bool {
+        false
+    }
+
+    /// Get the profiler backend type.
+    fn backend(&self) -> GpuProfilerBackend;
+
+    /// Start a profiler capture session.
+    fn start_capture(&self) -> Result<(), ProfilerError> {
+        Ok(())
+    }
+
+    /// End a profiler capture session.
+    fn end_capture(&self) -> Result<(), ProfilerError> {
+        Ok(())
+    }
+
+    /// Trigger a frame/dispatch capture.
+    fn trigger_capture(&self) -> Result<(), ProfilerError> {
+        Ok(())
+    }
+
+    /// Push a named range onto the profiler stack.
+    fn push_range(&self, name: &str, _color: ProfilerColor) -> ProfilerRange {
+        ProfilerRange::new(name, self.backend())
+    }
+
+    /// Pop the current range from the profiler stack.
+    fn pop_range(&self) {}
+
+    /// Insert an instantaneous marker.
+    fn mark(&self, _name: &str, _color: ProfilerColor) {}
+
+    /// Set a per-thread name for the profiler.
+    fn set_thread_name(&self, _name: &str) {}
+
+    /// Add a message to the profiler output.
+    fn message(&self, _text: &str) {}
+
+    /// Register a GPU memory allocation.
+    fn register_allocation(&self, _ptr: u64, _size: usize, _name: &str) {}
+
+    /// Unregister a GPU memory allocation.
+    fn unregister_allocation(&self, _ptr: u64) {}
+}
+
+/// Profiler error type.
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum ProfilerError {
+    /// Profiler is not available.
+    #[error("GPU profiler not available")]
+    NotAvailable,
+    /// Profiler is not attached.
+    #[error("GPU profiler not attached")]
+    NotAttached,
+    /// Capture already in progress.
+    #[error("Capture already in progress")]
+    CaptureInProgress,
+    /// No capture in progress.
+    #[error("No capture in progress")]
+    NoCaptureInProgress,
+    /// Backend-specific error.
+    #[error("Profiler error: {0}")]
+    Backend(String),
+}
+
+/// Null profiler implementation (no-op).
+pub struct NullProfiler;
+
+impl GpuProfiler for NullProfiler {
+    fn backend(&self) -> GpuProfilerBackend {
+        GpuProfilerBackend::Custom
+    }
+}
+
+/// NVTX (NVIDIA Tools Extension) profiler stub.
+///
+/// When the real NVTX library is available, this integrates with
+/// Nsight Systems and Nsight Compute.
+pub struct NvtxProfiler {
+    /// Whether NVTX is available.
+    available: bool,
+    /// Whether a capture is in progress.
+    capture_in_progress: std::sync::atomic::AtomicBool,
+}
+
+impl NvtxProfiler {
+    /// Create a new NVTX profiler.
+    ///
+    /// In a real implementation, this would check for libnvtx availability.
+    pub fn new() -> Self {
+        Self {
+            available: false, // Would check nvtxInitialize() in real impl
+            capture_in_progress: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// Check if NVTX library is loaded.
+    pub fn is_nvtx_loaded(&self) -> bool {
+        // In real implementation: check if libnvtx is dynamically loaded
+        self.available
+    }
+}
+
+impl Default for NvtxProfiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GpuProfiler for NvtxProfiler {
+    fn is_available(&self) -> bool {
+        self.available
+    }
+
+    fn backend(&self) -> GpuProfilerBackend {
+        GpuProfilerBackend::Nsight
+    }
+
+    fn start_capture(&self) -> Result<(), ProfilerError> {
+        if !self.available {
+            return Err(ProfilerError::NotAvailable);
+        }
+        if self.capture_in_progress.swap(true, Ordering::SeqCst) {
+            return Err(ProfilerError::CaptureInProgress);
+        }
+        // Real impl: nvtxRangePushA("Capture")
+        Ok(())
+    }
+
+    fn end_capture(&self) -> Result<(), ProfilerError> {
+        if !self.capture_in_progress.swap(false, Ordering::SeqCst) {
+            return Err(ProfilerError::NoCaptureInProgress);
+        }
+        // Real impl: nvtxRangePop()
+        Ok(())
+    }
+
+    fn push_range(&self, name: &str, _color: ProfilerColor) -> ProfilerRange {
+        // Real impl: nvtxRangePushA(name) with color attribute
+        ProfilerRange::new(name, self.backend())
+    }
+
+    fn pop_range(&self) {
+        // Real impl: nvtxRangePop()
+    }
+
+    fn mark(&self, _name: &str, _color: ProfilerColor) {
+        // Real impl: nvtxMarkA(name) with color
+    }
+
+    fn set_thread_name(&self, _name: &str) {
+        // Real impl: nvtxNameOsThread(thread_id, name)
+    }
+}
+
+/// RenderDoc profiler stub.
+///
+/// Integrates with RenderDoc for GPU frame capture and debugging.
+pub struct RenderDocProfiler {
+    /// Whether RenderDoc is attached.
+    attached: bool,
+}
+
+impl RenderDocProfiler {
+    /// Create a new RenderDoc profiler.
+    ///
+    /// In a real implementation, this would use the RenderDoc in-app API.
+    pub fn new() -> Self {
+        Self {
+            attached: false, // Would check RENDERDOC_GetAPI in real impl
+        }
+    }
+
+    /// Check if RenderDoc is attached to the process.
+    pub fn is_attached(&self) -> bool {
+        // Real impl: check RENDERDOC_API_VERSION via GetAPI
+        self.attached
+    }
+
+    /// Get RenderDoc capture file path.
+    pub fn get_capture_path(&self) -> Option<String> {
+        // Real impl: RENDERDOC_GetCapture
+        None
+    }
+
+    /// Launch RenderDoc UI.
+    pub fn launch_ui(&self) -> Result<(), ProfilerError> {
+        if !self.attached {
+            return Err(ProfilerError::NotAttached);
+        }
+        // Real impl: RENDERDOC_LaunchReplayUI
+        Ok(())
+    }
+}
+
+impl Default for RenderDocProfiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GpuProfiler for RenderDocProfiler {
+    fn is_available(&self) -> bool {
+        self.attached
+    }
+
+    fn backend(&self) -> GpuProfilerBackend {
+        GpuProfilerBackend::RenderDoc
+    }
+
+    fn trigger_capture(&self) -> Result<(), ProfilerError> {
+        if !self.attached {
+            return Err(ProfilerError::NotAttached);
+        }
+        // Real impl: RENDERDOC_TriggerCapture
+        Ok(())
+    }
+
+    fn start_capture(&self) -> Result<(), ProfilerError> {
+        if !self.attached {
+            return Err(ProfilerError::NotAttached);
+        }
+        // Real impl: RENDERDOC_StartFrameCapture
+        Ok(())
+    }
+
+    fn end_capture(&self) -> Result<(), ProfilerError> {
+        // Real impl: RENDERDOC_EndFrameCapture
+        Ok(())
+    }
+
+    fn set_thread_name(&self, _name: &str) {
+        // Real impl: RENDERDOC_SetCaptureOptionStr
+    }
+}
+
+/// Metal System Trace profiler stub (macOS).
+///
+/// Integrates with Xcode Instruments for Metal GPU profiling.
+#[cfg(target_os = "macos")]
+pub struct MetalProfiler {
+    /// Whether Metal profiling is available.
+    available: bool,
+}
+
+#[cfg(target_os = "macos")]
+impl MetalProfiler {
+    /// Create a new Metal profiler.
+    pub fn new() -> Self {
+        Self { available: true }
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Default for MetalProfiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl GpuProfiler for MetalProfiler {
+    fn is_available(&self) -> bool {
+        self.available
+    }
+
+    fn backend(&self) -> GpuProfilerBackend {
+        GpuProfilerBackend::MetalSystemTrace
+    }
+
+    fn push_range(&self, name: &str, _color: ProfilerColor) -> ProfilerRange {
+        // Real impl: MTLCommandBuffer.pushDebugGroup(name)
+        ProfilerRange::new(name, self.backend())
+    }
+
+    fn pop_range(&self) {
+        // Real impl: MTLCommandBuffer.popDebugGroup()
+    }
+
+    fn mark(&self, _name: &str, _color: ProfilerColor) {
+        // Real impl: MTLCommandBuffer.insertDebugSignpost(name)
+    }
+}
+
+/// GPU profiler manager for selecting and using profilers.
+pub struct GpuProfilerManager {
+    /// Active profiler.
+    profiler: Arc<dyn GpuProfiler>,
+    /// Enabled state.
+    enabled: std::sync::atomic::AtomicBool,
+}
+
+impl GpuProfilerManager {
+    /// Create a new profiler manager with auto-detection.
+    pub fn new() -> Self {
+        // Try to detect available profiler
+        let nvtx = NvtxProfiler::new();
+        if nvtx.is_available() {
+            return Self {
+                profiler: Arc::new(nvtx),
+                enabled: std::sync::atomic::AtomicBool::new(true),
+            };
+        }
+
+        let renderdoc = RenderDocProfiler::new();
+        if renderdoc.is_available() {
+            return Self {
+                profiler: Arc::new(renderdoc),
+                enabled: std::sync::atomic::AtomicBool::new(true),
+            };
+        }
+
+        // Fallback to null profiler
+        Self {
+            profiler: Arc::new(NullProfiler),
+            enabled: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// Create with a specific profiler.
+    pub fn with_profiler(profiler: Arc<dyn GpuProfiler>) -> Self {
+        let enabled = profiler.is_available();
+        Self {
+            profiler,
+            enabled: std::sync::atomic::AtomicBool::new(enabled),
+        }
+    }
+
+    /// Check if profiling is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Relaxed)
+    }
+
+    /// Enable or disable profiling.
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Get the profiler backend.
+    pub fn backend(&self) -> GpuProfilerBackend {
+        self.profiler.backend()
+    }
+
+    /// Start a profiled scope.
+    pub fn scope(&self, name: &str) -> ProfilerScope<'_> {
+        ProfilerScope::new(name, &*self.profiler, self.is_enabled())
+    }
+
+    /// Start a profiled scope with color.
+    pub fn scope_colored(&self, name: &str, color: ProfilerColor) -> ProfilerScope<'_> {
+        ProfilerScope::new_colored(name, &*self.profiler, self.is_enabled(), color)
+    }
+
+    /// Insert a marker.
+    pub fn mark(&self, name: &str) {
+        if self.is_enabled() {
+            self.profiler.mark(name, ProfilerColor::CYAN);
+        }
+    }
+
+    /// Get access to the underlying profiler.
+    pub fn profiler(&self) -> &dyn GpuProfiler {
+        &*self.profiler
+    }
+}
+
+impl Default for GpuProfilerManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// RAII scope for profiler ranges.
+pub struct ProfilerScope<'a> {
+    profiler: &'a dyn GpuProfiler,
+    enabled: bool,
+}
+
+impl<'a> ProfilerScope<'a> {
+    fn new(name: &str, profiler: &'a dyn GpuProfiler, enabled: bool) -> Self {
+        if enabled {
+            profiler.push_range(name, ProfilerColor::CYAN);
+        }
+        Self { profiler, enabled }
+    }
+
+    fn new_colored(name: &str, profiler: &'a dyn GpuProfiler, enabled: bool, color: ProfilerColor) -> Self {
+        if enabled {
+            profiler.push_range(name, color);
+        }
+        Self { profiler, enabled }
+    }
+}
+
+impl<'a> Drop for ProfilerScope<'a> {
+    fn drop(&mut self) {
+        if self.enabled {
+            self.profiler.pop_range();
+        }
+    }
+}
+
+/// Macro for scoped GPU profiling.
+///
+/// # Example
+///
+/// ```ignore
+/// use ringkernel_core::gpu_profile;
+///
+/// fn compute_kernel() {
+///     gpu_profile!(profiler, "compute_kernel", {
+///         // GPU work here
+///     });
+/// }
+/// ```
+#[macro_export]
+macro_rules! gpu_profile {
+    ($profiler:expr, $name:expr) => {
+        let _scope = $profiler.scope($name);
+    };
+    ($profiler:expr, $name:expr, $color:expr) => {
+        let _scope = $profiler.scope_colored($name, $color);
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1186,5 +1709,135 @@ mod tests {
 
         assert!(!defs.is_empty());
         assert!(!samples.is_empty());
+    }
+
+    // GPU Profiler tests
+
+    #[test]
+    fn test_profiler_color() {
+        let color = ProfilerColor::new(128, 64, 32);
+        assert_eq!(color.r, 128);
+        assert_eq!(color.g, 64);
+        assert_eq!(color.b, 32);
+        assert_eq!(color.a, 255);
+
+        assert_eq!(ProfilerColor::RED.r, 255);
+        assert_eq!(ProfilerColor::GREEN.g, 255);
+        assert_eq!(ProfilerColor::BLUE.b, 255);
+    }
+
+    #[test]
+    fn test_null_profiler() {
+        let profiler = NullProfiler;
+        assert!(!profiler.is_available());
+        assert_eq!(profiler.backend(), GpuProfilerBackend::Custom);
+
+        // All operations should be no-ops
+        assert!(profiler.start_capture().is_ok());
+        assert!(profiler.end_capture().is_ok());
+        assert!(profiler.trigger_capture().is_ok());
+
+        let range = profiler.push_range("test", ProfilerColor::RED);
+        let _elapsed = range.elapsed(); // Just verify it doesn't panic
+        profiler.pop_range();
+        profiler.mark("marker", ProfilerColor::BLUE);
+        profiler.set_thread_name("thread");
+    }
+
+    #[test]
+    fn test_nvtx_profiler_stub() {
+        let profiler = NvtxProfiler::new();
+        assert_eq!(profiler.backend(), GpuProfilerBackend::Nsight);
+
+        // Not available by default (stub)
+        assert!(!profiler.is_available());
+        assert!(!profiler.is_nvtx_loaded());
+
+        // Start capture should fail when not available
+        assert!(matches!(
+            profiler.start_capture(),
+            Err(ProfilerError::NotAvailable)
+        ));
+    }
+
+    #[test]
+    fn test_renderdoc_profiler_stub() {
+        let profiler = RenderDocProfiler::new();
+        assert_eq!(profiler.backend(), GpuProfilerBackend::RenderDoc);
+
+        // Not attached by default (stub)
+        assert!(!profiler.is_available());
+        assert!(!profiler.is_attached());
+        assert!(profiler.get_capture_path().is_none());
+
+        // Launch UI should fail when not attached
+        assert!(matches!(
+            profiler.launch_ui(),
+            Err(ProfilerError::NotAttached)
+        ));
+    }
+
+    #[test]
+    fn test_gpu_profiler_manager() {
+        let manager = GpuProfilerManager::new();
+
+        // Default should be null profiler (since stubs report unavailable)
+        assert!(!manager.is_enabled());
+        assert_eq!(manager.backend(), GpuProfilerBackend::Custom);
+
+        // Can enable/disable
+        manager.set_enabled(true);
+        assert!(manager.is_enabled());
+        manager.set_enabled(false);
+        assert!(!manager.is_enabled());
+    }
+
+    #[test]
+    fn test_profiler_scope() {
+        let manager = GpuProfilerManager::new();
+
+        // Scopes should work even when profiler is not available
+        {
+            let _scope = manager.scope("test_scope");
+            // Scope automatically pops on drop
+        }
+
+        {
+            let _scope = manager.scope_colored("colored_scope", ProfilerColor::ORANGE);
+        }
+
+        // Mark should also work
+        manager.mark("test_marker");
+    }
+
+    #[test]
+    fn test_profiler_with_custom() {
+        let custom_profiler = Arc::new(NullProfiler);
+        let manager = GpuProfilerManager::with_profiler(custom_profiler);
+
+        assert_eq!(manager.backend(), GpuProfilerBackend::Custom);
+    }
+
+    #[test]
+    fn test_profiler_range_elapsed() {
+        let range = ProfilerRange::new("test", GpuProfilerBackend::Custom);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let elapsed = range.elapsed();
+        assert!(elapsed.as_millis() >= 10);
+    }
+
+    #[test]
+    fn test_profiler_error_display() {
+        let err = ProfilerError::NotAvailable;
+        assert!(err.to_string().contains("not available"));
+
+        let err = ProfilerError::NotAttached;
+        assert!(err.to_string().contains("not attached"));
+
+        let err = ProfilerError::CaptureInProgress;
+        assert!(err.to_string().contains("in progress"));
+
+        let err = ProfilerError::Backend("test error".to_string());
+        assert!(err.to_string().contains("test error"));
     }
 }
