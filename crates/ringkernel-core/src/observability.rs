@@ -1583,6 +1583,495 @@ macro_rules! gpu_profile {
     };
 }
 
+// ============================================================================
+// GPU Memory Dashboard
+// ============================================================================
+
+/// GPU memory allocation type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuMemoryType {
+    /// Device-local memory (fastest, GPU only).
+    DeviceLocal,
+    /// Host-visible memory (accessible from CPU).
+    HostVisible,
+    /// Host-coherent memory (no explicit flush needed).
+    HostCoherent,
+    /// Mapped memory (CPU-GPU shared).
+    Mapped,
+    /// Queue buffers for message passing.
+    QueueBuffer,
+    /// Control block memory.
+    ControlBlock,
+    /// Shared memory (block-local).
+    SharedMemory,
+}
+
+/// A tracked GPU memory allocation.
+#[derive(Debug, Clone)]
+pub struct GpuMemoryAllocation {
+    /// Unique allocation ID.
+    pub id: u64,
+    /// Allocation name/label.
+    pub name: String,
+    /// Size in bytes.
+    pub size: usize,
+    /// Memory type.
+    pub memory_type: GpuMemoryType,
+    /// Device index (for multi-GPU).
+    pub device_index: u32,
+    /// Kernel ID (if associated with a kernel).
+    pub kernel_id: Option<String>,
+    /// Allocation timestamp.
+    pub allocated_at: Instant,
+    /// Whether the allocation is currently in use.
+    pub in_use: bool,
+}
+
+/// GPU memory pool statistics.
+#[derive(Debug, Clone, Default)]
+pub struct GpuMemoryPoolStats {
+    /// Pool name.
+    pub name: String,
+    /// Total capacity in bytes.
+    pub capacity: usize,
+    /// Currently allocated bytes.
+    pub allocated: usize,
+    /// Peak allocated bytes.
+    pub peak_allocated: usize,
+    /// Number of active allocations.
+    pub allocation_count: u32,
+    /// Number of allocations since creation.
+    pub total_allocations: u64,
+    /// Number of deallocations since creation.
+    pub total_deallocations: u64,
+    /// Fragmentation ratio (0.0 = none, 1.0 = fully fragmented).
+    pub fragmentation: f32,
+}
+
+impl GpuMemoryPoolStats {
+    /// Get utilization percentage.
+    pub fn utilization(&self) -> f32 {
+        if self.capacity == 0 {
+            0.0
+        } else {
+            (self.allocated as f32 / self.capacity as f32) * 100.0
+        }
+    }
+}
+
+/// Per-device GPU memory statistics.
+#[derive(Debug, Clone, Default)]
+pub struct GpuDeviceMemoryStats {
+    /// Device index.
+    pub device_index: u32,
+    /// Device name.
+    pub device_name: String,
+    /// Total device memory in bytes.
+    pub total_memory: u64,
+    /// Free device memory in bytes.
+    pub free_memory: u64,
+    /// Memory used by RingKernel.
+    pub ringkernel_used: u64,
+    /// Memory used by other applications.
+    pub other_used: u64,
+    /// Memory pool statistics.
+    pub pools: Vec<GpuMemoryPoolStats>,
+}
+
+impl GpuDeviceMemoryStats {
+    /// Get used memory in bytes.
+    pub fn used_memory(&self) -> u64 {
+        self.total_memory - self.free_memory
+    }
+
+    /// Get utilization percentage.
+    pub fn utilization(&self) -> f32 {
+        if self.total_memory == 0 {
+            0.0
+        } else {
+            (self.used_memory() as f32 / self.total_memory as f32) * 100.0
+        }
+    }
+}
+
+/// GPU Memory Dashboard for monitoring and visualization.
+///
+/// Provides real-time GPU memory tracking with allocation history,
+/// per-kernel usage, and memory pressure alerts.
+///
+/// # Example
+///
+/// ```ignore
+/// use ringkernel_core::observability::GpuMemoryDashboard;
+///
+/// let dashboard = GpuMemoryDashboard::new();
+///
+/// // Track an allocation
+/// dashboard.track_allocation(
+///     1,
+///     "input_queue",
+///     65536,
+///     GpuMemoryType::QueueBuffer,
+///     0,
+///     Some("processor_kernel"),
+/// );
+///
+/// // Get current stats
+/// let stats = dashboard.get_device_stats(0);
+/// println!("GPU 0 utilization: {:.1}%", stats.utilization());
+///
+/// // Generate Grafana panel JSON
+/// let panel = dashboard.grafana_panel();
+/// ```
+pub struct GpuMemoryDashboard {
+    /// Active allocations.
+    allocations: RwLock<HashMap<u64, GpuMemoryAllocation>>,
+    /// Per-device statistics.
+    device_stats: RwLock<HashMap<u32, GpuDeviceMemoryStats>>,
+    /// Memory pressure thresholds.
+    thresholds: GpuMemoryThresholds,
+    /// Allocation counter for unique IDs.
+    allocation_counter: AtomicU64,
+    /// Total bytes allocated.
+    total_allocated: AtomicU64,
+    /// Peak bytes allocated.
+    peak_allocated: AtomicU64,
+}
+
+/// Memory pressure thresholds for alerts.
+#[derive(Debug, Clone)]
+pub struct GpuMemoryThresholds {
+    /// Warning threshold (percentage).
+    pub warning: f32,
+    /// Critical threshold (percentage).
+    pub critical: f32,
+    /// Maximum allocation size before warning (bytes).
+    pub max_allocation_size: usize,
+    /// Maximum number of allocations before warning.
+    pub max_allocation_count: u32,
+}
+
+impl Default for GpuMemoryThresholds {
+    fn default() -> Self {
+        Self {
+            warning: 75.0,
+            critical: 90.0,
+            max_allocation_size: 1024 * 1024 * 1024, // 1 GB
+            max_allocation_count: 10000,
+        }
+    }
+}
+
+/// Memory pressure level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryPressureLevel {
+    /// Memory usage is normal.
+    Normal,
+    /// Memory usage is elevated (approaching warning threshold).
+    Elevated,
+    /// Memory usage is at warning level.
+    Warning,
+    /// Memory usage is critical.
+    Critical,
+    /// Out of memory.
+    OutOfMemory,
+}
+
+impl GpuMemoryDashboard {
+    /// Create a new GPU memory dashboard.
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            allocations: RwLock::new(HashMap::new()),
+            device_stats: RwLock::new(HashMap::new()),
+            thresholds: GpuMemoryThresholds::default(),
+            allocation_counter: AtomicU64::new(1),
+            total_allocated: AtomicU64::new(0),
+            peak_allocated: AtomicU64::new(0),
+        })
+    }
+
+    /// Create with custom thresholds.
+    pub fn with_thresholds(thresholds: GpuMemoryThresholds) -> Arc<Self> {
+        Arc::new(Self {
+            allocations: RwLock::new(HashMap::new()),
+            device_stats: RwLock::new(HashMap::new()),
+            thresholds,
+            allocation_counter: AtomicU64::new(1),
+            total_allocated: AtomicU64::new(0),
+            peak_allocated: AtomicU64::new(0),
+        })
+    }
+
+    /// Track a new GPU memory allocation.
+    pub fn track_allocation(
+        &self,
+        id: u64,
+        name: impl Into<String>,
+        size: usize,
+        memory_type: GpuMemoryType,
+        device_index: u32,
+        kernel_id: Option<&str>,
+    ) {
+        let allocation = GpuMemoryAllocation {
+            id,
+            name: name.into(),
+            size,
+            memory_type,
+            device_index,
+            kernel_id: kernel_id.map(String::from),
+            allocated_at: Instant::now(),
+            in_use: true,
+        };
+
+        self.allocations.write().insert(id, allocation);
+
+        // Update totals
+        let new_total = self.total_allocated.fetch_add(size as u64, Ordering::Relaxed) + size as u64;
+        let mut peak = self.peak_allocated.load(Ordering::Relaxed);
+        while new_total > peak {
+            match self.peak_allocated.compare_exchange_weak(
+                peak,
+                new_total,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(current) => peak = current,
+            }
+        }
+    }
+
+    /// Generate a new unique allocation ID.
+    pub fn next_allocation_id(&self) -> u64 {
+        self.allocation_counter.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Track deallocation.
+    pub fn track_deallocation(&self, id: u64) {
+        let mut allocations = self.allocations.write();
+        if let Some(alloc) = allocations.remove(&id) {
+            self.total_allocated.fetch_sub(alloc.size as u64, Ordering::Relaxed);
+        }
+    }
+
+    /// Mark an allocation as no longer in use (but not freed).
+    pub fn mark_unused(&self, id: u64) {
+        let mut allocations = self.allocations.write();
+        if let Some(alloc) = allocations.get_mut(&id) {
+            alloc.in_use = false;
+        }
+    }
+
+    /// Register a GPU device.
+    pub fn register_device(&self, device_index: u32, name: impl Into<String>, total_memory: u64) {
+        let stats = GpuDeviceMemoryStats {
+            device_index,
+            device_name: name.into(),
+            total_memory,
+            free_memory: total_memory,
+            ringkernel_used: 0,
+            other_used: 0,
+            pools: Vec::new(),
+        };
+        self.device_stats.write().insert(device_index, stats);
+    }
+
+    /// Update device memory statistics.
+    pub fn update_device_stats(&self, device_index: u32, free_memory: u64, ringkernel_used: u64) {
+        let mut stats = self.device_stats.write();
+        if let Some(device) = stats.get_mut(&device_index) {
+            device.free_memory = free_memory;
+            device.ringkernel_used = ringkernel_used;
+            device.other_used = device.total_memory.saturating_sub(free_memory + ringkernel_used);
+        }
+    }
+
+    /// Get device statistics.
+    pub fn get_device_stats(&self, device_index: u32) -> Option<GpuDeviceMemoryStats> {
+        self.device_stats.read().get(&device_index).cloned()
+    }
+
+    /// Get all device statistics.
+    pub fn get_all_device_stats(&self) -> Vec<GpuDeviceMemoryStats> {
+        self.device_stats.read().values().cloned().collect()
+    }
+
+    /// Get all active allocations.
+    pub fn get_allocations(&self) -> Vec<GpuMemoryAllocation> {
+        self.allocations.read().values().cloned().collect()
+    }
+
+    /// Get allocations for a specific kernel.
+    pub fn get_kernel_allocations(&self, kernel_id: &str) -> Vec<GpuMemoryAllocation> {
+        self.allocations
+            .read()
+            .values()
+            .filter(|a| a.kernel_id.as_deref() == Some(kernel_id))
+            .cloned()
+            .collect()
+    }
+
+    /// Get total allocated memory.
+    pub fn total_allocated(&self) -> u64 {
+        self.total_allocated.load(Ordering::Relaxed)
+    }
+
+    /// Get peak allocated memory.
+    pub fn peak_allocated(&self) -> u64 {
+        self.peak_allocated.load(Ordering::Relaxed)
+    }
+
+    /// Get allocation count.
+    pub fn allocation_count(&self) -> usize {
+        self.allocations.read().len()
+    }
+
+    /// Check memory pressure level for a device.
+    pub fn check_pressure(&self, device_index: u32) -> MemoryPressureLevel {
+        let stats = self.device_stats.read();
+        if let Some(device) = stats.get(&device_index) {
+            let utilization = device.utilization();
+            if device.free_memory == 0 {
+                MemoryPressureLevel::OutOfMemory
+            } else if utilization >= self.thresholds.critical {
+                MemoryPressureLevel::Critical
+            } else if utilization >= self.thresholds.warning {
+                MemoryPressureLevel::Warning
+            } else if utilization >= self.thresholds.warning * 0.8 {
+                MemoryPressureLevel::Elevated
+            } else {
+                MemoryPressureLevel::Normal
+            }
+        } else {
+            MemoryPressureLevel::Normal
+        }
+    }
+
+    /// Generate Grafana dashboard panel for GPU memory.
+    pub fn grafana_panel(&self) -> GrafanaPanel {
+        GrafanaPanel {
+            title: "GPU Memory Usage".to_string(),
+            panel_type: PanelType::BarGauge,
+            queries: vec![
+                "ringkernel_gpu_memory_allocated_bytes".to_string(),
+                "ringkernel_gpu_memory_peak_bytes".to_string(),
+            ],
+            grid_pos: (0, 0, 12, 8),
+            unit: Some("bytes".to_string()),
+        }
+    }
+
+    /// Generate Prometheus metrics for GPU memory.
+    pub fn prometheus_metrics(&self) -> String {
+        let mut output = String::new();
+
+        // Total allocated
+        writeln!(output, "# HELP ringkernel_gpu_memory_allocated_bytes Current GPU memory allocated by RingKernel").unwrap();
+        writeln!(output, "# TYPE ringkernel_gpu_memory_allocated_bytes gauge").unwrap();
+        writeln!(output, "ringkernel_gpu_memory_allocated_bytes {}", self.total_allocated()).unwrap();
+
+        // Peak allocated
+        writeln!(output, "# HELP ringkernel_gpu_memory_peak_bytes Peak GPU memory allocated by RingKernel").unwrap();
+        writeln!(output, "# TYPE ringkernel_gpu_memory_peak_bytes gauge").unwrap();
+        writeln!(output, "ringkernel_gpu_memory_peak_bytes {}", self.peak_allocated()).unwrap();
+
+        // Allocation count
+        writeln!(output, "# HELP ringkernel_gpu_memory_allocation_count Number of active GPU allocations").unwrap();
+        writeln!(output, "# TYPE ringkernel_gpu_memory_allocation_count gauge").unwrap();
+        writeln!(output, "ringkernel_gpu_memory_allocation_count {}", self.allocation_count()).unwrap();
+
+        // Per-device stats
+        let device_stats = self.device_stats.read();
+        for device in device_stats.values() {
+            writeln!(
+                output,
+                "ringkernel_gpu_device_memory_total_bytes{{device=\"{}\"}} {}",
+                device.device_name, device.total_memory
+            )
+            .unwrap();
+            writeln!(
+                output,
+                "ringkernel_gpu_device_memory_free_bytes{{device=\"{}\"}} {}",
+                device.device_name, device.free_memory
+            )
+            .unwrap();
+            writeln!(
+                output,
+                "ringkernel_gpu_device_memory_used_bytes{{device=\"{}\"}} {}",
+                device.device_name, device.used_memory()
+            )
+            .unwrap();
+            writeln!(
+                output,
+                "ringkernel_gpu_device_utilization{{device=\"{}\"}} {:.2}",
+                device.device_name,
+                device.utilization()
+            )
+            .unwrap();
+        }
+
+        output
+    }
+
+    /// Generate a memory summary report.
+    pub fn summary_report(&self) -> String {
+        let mut report = String::new();
+
+        writeln!(report, "=== GPU Memory Dashboard ===").unwrap();
+        writeln!(report, "Total Allocated: {} bytes", self.total_allocated()).unwrap();
+        writeln!(report, "Peak Allocated: {} bytes", self.peak_allocated()).unwrap();
+        writeln!(report, "Active Allocations: {}", self.allocation_count()).unwrap();
+        writeln!(report).unwrap();
+
+        // Device summary
+        let device_stats = self.device_stats.read();
+        for device in device_stats.values() {
+            writeln!(report, "--- Device {} ({}) ---", device.device_index, device.device_name).unwrap();
+            writeln!(report, "  Total: {} MB", device.total_memory / (1024 * 1024)).unwrap();
+            writeln!(report, "  Free: {} MB", device.free_memory / (1024 * 1024)).unwrap();
+            writeln!(report, "  RingKernel: {} MB", device.ringkernel_used / (1024 * 1024)).unwrap();
+            writeln!(report, "  Utilization: {:.1}%", device.utilization()).unwrap();
+            writeln!(report, "  Pressure: {:?}", self.check_pressure(device.device_index)).unwrap();
+        }
+
+        // Top allocations by size
+        let allocations = self.allocations.read();
+        let mut sorted_allocs: Vec<_> = allocations.values().collect();
+        sorted_allocs.sort_by(|a, b| b.size.cmp(&a.size));
+
+        if !sorted_allocs.is_empty() {
+            writeln!(report).unwrap();
+            writeln!(report, "--- Top 10 Allocations ---").unwrap();
+            for (i, alloc) in sorted_allocs.iter().take(10).enumerate() {
+                writeln!(
+                    report,
+                    "  {}. {} - {} bytes ({:?})",
+                    i + 1,
+                    alloc.name,
+                    alloc.size,
+                    alloc.memory_type
+                )
+                .unwrap();
+            }
+        }
+
+        report
+    }
+}
+
+impl Default for GpuMemoryDashboard {
+    fn default() -> Self {
+        Self {
+            allocations: RwLock::new(HashMap::new()),
+            device_stats: RwLock::new(HashMap::new()),
+            thresholds: GpuMemoryThresholds::default(),
+            allocation_counter: AtomicU64::new(1),
+            total_allocated: AtomicU64::new(0),
+            peak_allocated: AtomicU64::new(0),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1839,5 +2328,203 @@ mod tests {
 
         let err = ProfilerError::Backend("test error".to_string());
         assert!(err.to_string().contains("test error"));
+    }
+
+    // GPU Memory Dashboard tests
+
+    #[test]
+    fn test_gpu_memory_dashboard_creation() {
+        let dashboard = GpuMemoryDashboard::new();
+        assert_eq!(dashboard.total_allocated(), 0);
+        assert_eq!(dashboard.peak_allocated(), 0);
+        assert_eq!(dashboard.allocation_count(), 0);
+    }
+
+    #[test]
+    fn test_gpu_memory_allocation_tracking() {
+        let dashboard = GpuMemoryDashboard::new();
+
+        // Track an allocation
+        dashboard.track_allocation(
+            1,
+            "test_buffer",
+            65536,
+            GpuMemoryType::DeviceLocal,
+            0,
+            Some("test_kernel"),
+        );
+
+        assert_eq!(dashboard.total_allocated(), 65536);
+        assert_eq!(dashboard.peak_allocated(), 65536);
+        assert_eq!(dashboard.allocation_count(), 1);
+
+        // Track another allocation
+        dashboard.track_allocation(
+            2,
+            "queue_buffer",
+            1024,
+            GpuMemoryType::QueueBuffer,
+            0,
+            Some("test_kernel"),
+        );
+
+        assert_eq!(dashboard.total_allocated(), 66560);
+        assert_eq!(dashboard.peak_allocated(), 66560);
+        assert_eq!(dashboard.allocation_count(), 2);
+
+        // Deallocate first buffer
+        dashboard.track_deallocation(1);
+        assert_eq!(dashboard.total_allocated(), 1024);
+        assert_eq!(dashboard.peak_allocated(), 66560); // Peak should remain
+        assert_eq!(dashboard.allocation_count(), 1);
+    }
+
+    #[test]
+    fn test_gpu_memory_device_stats() {
+        let dashboard = GpuMemoryDashboard::new();
+
+        // Register a device
+        dashboard.register_device(0, "NVIDIA RTX 4090", 24 * 1024 * 1024 * 1024); // 24 GB
+
+        let stats = dashboard.get_device_stats(0).unwrap();
+        assert_eq!(stats.device_index, 0);
+        assert_eq!(stats.device_name, "NVIDIA RTX 4090");
+        assert_eq!(stats.total_memory, 24 * 1024 * 1024 * 1024);
+        assert_eq!(stats.utilization(), 0.0);
+
+        // Update device stats
+        let used = 8 * 1024 * 1024 * 1024; // 8 GB used
+        let free = 16 * 1024 * 1024 * 1024; // 16 GB free
+        dashboard.update_device_stats(0, free, used);
+
+        let stats = dashboard.get_device_stats(0).unwrap();
+        assert!(stats.utilization() > 30.0 && stats.utilization() < 35.0);
+    }
+
+    #[test]
+    fn test_gpu_memory_pressure_levels() {
+        let dashboard = GpuMemoryDashboard::new();
+
+        // Register a device with 1 GB
+        dashboard.register_device(0, "Test GPU", 1024 * 1024 * 1024);
+
+        // Normal usage (50%)
+        dashboard.update_device_stats(0, 512 * 1024 * 1024, 256 * 1024 * 1024);
+        assert_eq!(dashboard.check_pressure(0), MemoryPressureLevel::Normal);
+
+        // Warning level (80%)
+        dashboard.update_device_stats(0, 200 * 1024 * 1024, 600 * 1024 * 1024);
+        assert_eq!(dashboard.check_pressure(0), MemoryPressureLevel::Warning);
+
+        // Critical level (95%)
+        dashboard.update_device_stats(0, 50 * 1024 * 1024, 900 * 1024 * 1024);
+        assert_eq!(dashboard.check_pressure(0), MemoryPressureLevel::Critical);
+
+        // OOM
+        dashboard.update_device_stats(0, 0, 1024 * 1024 * 1024);
+        assert_eq!(dashboard.check_pressure(0), MemoryPressureLevel::OutOfMemory);
+    }
+
+    #[test]
+    fn test_gpu_memory_kernel_allocations() {
+        let dashboard = GpuMemoryDashboard::new();
+
+        // Track allocations for different kernels
+        dashboard.track_allocation(1, "buf1", 1000, GpuMemoryType::DeviceLocal, 0, Some("kernel_a"));
+        dashboard.track_allocation(2, "buf2", 2000, GpuMemoryType::DeviceLocal, 0, Some("kernel_a"));
+        dashboard.track_allocation(3, "buf3", 3000, GpuMemoryType::DeviceLocal, 0, Some("kernel_b"));
+
+        let kernel_a_allocs = dashboard.get_kernel_allocations("kernel_a");
+        assert_eq!(kernel_a_allocs.len(), 2);
+
+        let kernel_b_allocs = dashboard.get_kernel_allocations("kernel_b");
+        assert_eq!(kernel_b_allocs.len(), 1);
+
+        let kernel_c_allocs = dashboard.get_kernel_allocations("kernel_c");
+        assert_eq!(kernel_c_allocs.len(), 0);
+    }
+
+    #[test]
+    fn test_gpu_memory_prometheus_metrics() {
+        let dashboard = GpuMemoryDashboard::new();
+        dashboard.track_allocation(1, "buf", 1000, GpuMemoryType::DeviceLocal, 0, None);
+        dashboard.register_device(0, "GPU0", 1024 * 1024 * 1024);
+
+        let metrics = dashboard.prometheus_metrics();
+        assert!(metrics.contains("ringkernel_gpu_memory_allocated_bytes"));
+        assert!(metrics.contains("ringkernel_gpu_memory_peak_bytes"));
+        assert!(metrics.contains("ringkernel_gpu_memory_allocation_count"));
+    }
+
+    #[test]
+    fn test_gpu_memory_summary_report() {
+        let dashboard = GpuMemoryDashboard::new();
+        dashboard.track_allocation(1, "large_buffer", 1024 * 1024, GpuMemoryType::DeviceLocal, 0, None);
+        dashboard.register_device(0, "GPU0", 1024 * 1024 * 1024);
+
+        let report = dashboard.summary_report();
+        assert!(report.contains("GPU Memory Dashboard"));
+        assert!(report.contains("large_buffer"));
+    }
+
+    #[test]
+    fn test_gpu_memory_pool_stats() {
+        let pool_stats = GpuMemoryPoolStats {
+            name: "default".to_string(),
+            capacity: 1024 * 1024,
+            allocated: 512 * 1024,
+            peak_allocated: 768 * 1024,
+            allocation_count: 10,
+            total_allocations: 100,
+            total_deallocations: 90,
+            fragmentation: 0.1,
+        };
+
+        assert!(pool_stats.utilization() > 49.0 && pool_stats.utilization() < 51.0);
+    }
+
+    #[test]
+    fn test_gpu_memory_types() {
+        // Ensure all memory types are distinct
+        let types = [
+            GpuMemoryType::DeviceLocal,
+            GpuMemoryType::HostVisible,
+            GpuMemoryType::HostCoherent,
+            GpuMemoryType::Mapped,
+            GpuMemoryType::QueueBuffer,
+            GpuMemoryType::ControlBlock,
+            GpuMemoryType::SharedMemory,
+        ];
+
+        for (i, t1) in types.iter().enumerate() {
+            for (j, t2) in types.iter().enumerate() {
+                if i != j {
+                    assert_ne!(t1, t2);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_gpu_memory_grafana_panel() {
+        let dashboard = GpuMemoryDashboard::new();
+        let panel = dashboard.grafana_panel();
+
+        assert_eq!(panel.title, "GPU Memory Usage");
+        assert_eq!(panel.panel_type, PanelType::BarGauge);
+        assert!(!panel.queries.is_empty());
+    }
+
+    #[test]
+    fn test_gpu_memory_allocation_id_generation() {
+        let dashboard = GpuMemoryDashboard::new();
+
+        let id1 = dashboard.next_allocation_id();
+        let id2 = dashboard.next_allocation_id();
+        let id3 = dashboard.next_allocation_id();
+
+        assert_eq!(id1, 1);
+        assert_eq!(id2, 2);
+        assert_eq!(id3, 3);
     }
 }

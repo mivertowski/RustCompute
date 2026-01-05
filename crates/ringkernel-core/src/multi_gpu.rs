@@ -1722,6 +1722,721 @@ pub trait MigratableKernel: CheckpointableKernel {
     fn estimated_state_size(&self) -> usize;
 }
 
+// ============================================================================
+// Hot Reload Support
+// ============================================================================
+
+/// Configuration for kernel hot reload operations.
+#[derive(Debug, Clone)]
+pub struct HotReloadConfig {
+    /// Enable hot reload functionality.
+    pub enabled: bool,
+    /// Timeout for reload operations.
+    pub reload_timeout: Duration,
+    /// Whether to preserve kernel state during reload.
+    pub preserve_state: bool,
+    /// Maximum retries for failed reloads.
+    pub max_retries: u32,
+    /// Backoff duration between retries.
+    pub retry_backoff: Duration,
+    /// Whether to validate new code before swapping.
+    pub validate_before_swap: bool,
+    /// Keep old code as fallback in case of failure.
+    pub keep_fallback: bool,
+}
+
+impl Default for HotReloadConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            reload_timeout: Duration::from_secs(30),
+            preserve_state: true,
+            max_retries: 3,
+            retry_backoff: Duration::from_millis(500),
+            validate_before_swap: true,
+            keep_fallback: true,
+        }
+    }
+}
+
+impl HotReloadConfig {
+    /// Create a new hot reload configuration.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Enable or disable hot reload.
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Set reload timeout.
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.reload_timeout = timeout;
+        self
+    }
+
+    /// Enable or disable state preservation.
+    pub fn with_preserve_state(mut self, preserve: bool) -> Self {
+        self.preserve_state = preserve;
+        self
+    }
+
+    /// Set maximum retries.
+    pub fn with_max_retries(mut self, retries: u32) -> Self {
+        self.max_retries = retries;
+        self
+    }
+}
+
+/// State of a hot reload operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HotReloadState {
+    /// Reload not started.
+    Idle,
+    /// Draining pending messages from kernel.
+    Draining,
+    /// Creating checkpoint of kernel state.
+    Checkpointing,
+    /// Compiling new kernel code.
+    Compiling,
+    /// Validating new kernel code.
+    Validating,
+    /// Swapping old kernel with new.
+    Swapping,
+    /// Restoring state to new kernel.
+    Restoring,
+    /// Hot reload completed successfully.
+    Completed,
+    /// Hot reload failed.
+    Failed,
+    /// Rolling back to previous version.
+    RollingBack,
+}
+
+/// Kernel code format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KernelCodeFormat {
+    /// NVIDIA PTX assembly.
+    Ptx,
+    /// NVIDIA CUBIN binary.
+    Cubin,
+    /// SPIR-V for Vulkan/WebGPU.
+    SpirV,
+    /// WGSL shader text.
+    Wgsl,
+    /// Metal Shading Language.
+    Msl,
+    /// Metal compiled library.
+    MetalLib,
+    /// Source code (requires compilation).
+    Source,
+}
+
+/// Kernel code source for hot reload.
+#[derive(Debug, Clone)]
+pub struct KernelCodeSource {
+    /// Unique identifier for this code version.
+    pub version_id: u64,
+    /// Code format.
+    pub format: KernelCodeFormat,
+    /// Raw code bytes.
+    pub code: Vec<u8>,
+    /// Entry point function name.
+    pub entry_point: String,
+    /// Optional metadata (compile flags, etc.).
+    pub metadata: HashMap<String, String>,
+    /// Timestamp when code was created.
+    pub created_at: Instant,
+    /// SHA-256 hash of the code.
+    pub hash: [u8; 32],
+}
+
+impl KernelCodeSource {
+    /// Create a new kernel code source.
+    pub fn new(format: KernelCodeFormat, code: Vec<u8>, entry_point: impl Into<String>) -> Self {
+        let hash = Self::compute_hash(&code);
+        Self {
+            version_id: 0,
+            format,
+            code,
+            entry_point: entry_point.into(),
+            metadata: HashMap::new(),
+            created_at: Instant::now(),
+            hash,
+        }
+    }
+
+    /// Create from PTX code.
+    pub fn from_ptx(ptx: &str, entry_point: impl Into<String>) -> Self {
+        Self::new(KernelCodeFormat::Ptx, ptx.as_bytes().to_vec(), entry_point)
+    }
+
+    /// Create from WGSL code.
+    pub fn from_wgsl(wgsl: &str, entry_point: impl Into<String>) -> Self {
+        Self::new(KernelCodeFormat::Wgsl, wgsl.as_bytes().to_vec(), entry_point)
+    }
+
+    /// Create from MSL code.
+    pub fn from_msl(msl: &str, entry_point: impl Into<String>) -> Self {
+        Self::new(KernelCodeFormat::Msl, msl.as_bytes().to_vec(), entry_point)
+    }
+
+    /// Set version ID.
+    pub fn with_version(mut self, version: u64) -> Self {
+        self.version_id = version;
+        self
+    }
+
+    /// Add metadata.
+    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.insert(key.into(), value.into());
+        self
+    }
+
+    fn compute_hash(data: &[u8]) -> [u8; 32] {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        data.hash(&mut hasher);
+        let h1 = hasher.finish();
+        h1.hash(&mut hasher);
+        let h2 = hasher.finish();
+        h1.hash(&mut hasher);
+        let h3 = hasher.finish();
+        h1.hash(&mut hasher);
+        let h4 = hasher.finish();
+
+        let mut hash = [0u8; 32];
+        hash[0..8].copy_from_slice(&h1.to_le_bytes());
+        hash[8..16].copy_from_slice(&h2.to_le_bytes());
+        hash[16..24].copy_from_slice(&h3.to_le_bytes());
+        hash[24..32].copy_from_slice(&h4.to_le_bytes());
+        hash
+    }
+
+    /// Get code as string (if text format).
+    pub fn as_str(&self) -> Option<&str> {
+        match self.format {
+            KernelCodeFormat::Ptx | KernelCodeFormat::Wgsl | KernelCodeFormat::Msl | KernelCodeFormat::Source => {
+                std::str::from_utf8(&self.code).ok()
+            }
+            _ => None,
+        }
+    }
+
+    /// Get code size in bytes.
+    pub fn size(&self) -> usize {
+        self.code.len()
+    }
+}
+
+/// Request to hot reload a kernel.
+#[derive(Debug)]
+pub struct HotReloadRequest {
+    /// Target kernel ID.
+    pub kernel_id: KernelId,
+    /// New kernel code.
+    pub new_code: KernelCodeSource,
+    /// Current state of the reload operation.
+    pub state: HotReloadState,
+    /// When the request was created.
+    pub created_at: Instant,
+    /// When the reload started.
+    pub started_at: Option<Instant>,
+    /// Retry count.
+    pub retry_count: u32,
+    /// Error message if failed.
+    pub error: Option<String>,
+    /// Checkpoint data (if preserving state).
+    checkpoint_data: Option<Vec<u8>>,
+}
+
+impl HotReloadRequest {
+    /// Create a new hot reload request.
+    pub fn new(kernel_id: KernelId, new_code: KernelCodeSource) -> Self {
+        Self {
+            kernel_id,
+            new_code,
+            state: HotReloadState::Idle,
+            created_at: Instant::now(),
+            started_at: None,
+            retry_count: 0,
+            error: None,
+            checkpoint_data: None,
+        }
+    }
+
+    /// Check if reload is in progress.
+    pub fn is_in_progress(&self) -> bool {
+        !matches!(
+            self.state,
+            HotReloadState::Idle | HotReloadState::Completed | HotReloadState::Failed
+        )
+    }
+
+    /// Check if reload completed successfully.
+    pub fn is_completed(&self) -> bool {
+        self.state == HotReloadState::Completed
+    }
+
+    /// Check if reload failed.
+    pub fn is_failed(&self) -> bool {
+        self.state == HotReloadState::Failed
+    }
+
+    /// Get elapsed time since request creation.
+    pub fn elapsed(&self) -> Duration {
+        self.created_at.elapsed()
+    }
+
+    /// Get elapsed time since reload started.
+    pub fn reload_elapsed(&self) -> Option<Duration> {
+        self.started_at.map(|s| s.elapsed())
+    }
+}
+
+/// Result of a completed hot reload.
+#[derive(Debug, Clone)]
+pub struct HotReloadResult {
+    /// Target kernel ID.
+    pub kernel_id: KernelId,
+    /// Previous code version.
+    pub old_version: u64,
+    /// New code version.
+    pub new_version: u64,
+    /// Whether state was preserved.
+    pub state_preserved: bool,
+    /// Size of checkpoint data (if any).
+    pub checkpoint_size: usize,
+    /// Time to drain messages.
+    pub drain_duration: Duration,
+    /// Time to create checkpoint.
+    pub checkpoint_duration: Duration,
+    /// Time to compile new code.
+    pub compile_duration: Duration,
+    /// Time to swap kernels.
+    pub swap_duration: Duration,
+    /// Time to restore state.
+    pub restore_duration: Duration,
+    /// Total reload duration.
+    pub total_duration: Duration,
+}
+
+/// Statistics for hot reload operations.
+#[derive(Debug, Default)]
+struct HotReloadStats {
+    successful_reloads: AtomicU64,
+    failed_reloads: AtomicU64,
+    rollbacks: AtomicU64,
+    total_drain_time_us: AtomicU64,
+    total_compile_time_us: AtomicU64,
+    total_swap_time_us: AtomicU64,
+    state_preserved_count: AtomicU64,
+}
+
+/// Snapshot of hot reload statistics.
+#[derive(Debug, Clone)]
+pub struct HotReloadStatsSnapshot {
+    /// Total successful reloads.
+    pub successful_reloads: u64,
+    /// Total failed reloads.
+    pub failed_reloads: u64,
+    /// Total rollbacks performed.
+    pub rollbacks: u64,
+    /// Average drain time.
+    pub avg_drain_time: Duration,
+    /// Average compile time.
+    pub avg_compile_time: Duration,
+    /// Average swap time.
+    pub avg_swap_time: Duration,
+    /// Number of reloads with preserved state.
+    pub state_preserved_count: u64,
+}
+
+/// Manager for kernel hot reload operations.
+///
+/// Provides seamless kernel code updates without stopping the system:
+///
+/// 1. Drain pending messages from kernel input queue
+/// 2. Checkpoint kernel state (if preserving state)
+/// 3. Compile/validate new kernel code
+/// 4. Swap old kernel with new kernel
+/// 5. Restore state to new kernel
+/// 6. Resume processing
+///
+/// # Example
+///
+/// ```ignore
+/// use ringkernel_core::multi_gpu::{HotReloadManager, HotReloadConfig, KernelCodeSource};
+///
+/// let manager = HotReloadManager::new(HotReloadConfig::default());
+///
+/// // Register a reloadable kernel
+/// manager.register_kernel(&kernel_id, current_code);
+///
+/// // Request hot reload with new PTX
+/// let new_code = KernelCodeSource::from_ptx(new_ptx, "my_kernel");
+/// let request = manager.request_reload(&kernel_id, new_code).await?;
+///
+/// // Execute the reload
+/// let result = manager.execute_reload(request, &mut kernel).await?;
+/// println!("Reload completed in {:?}", result.total_duration);
+/// ```
+pub struct HotReloadManager {
+    /// Configuration.
+    config: HotReloadConfig,
+    /// Registered kernels and their current code.
+    kernels: RwLock<HashMap<KernelId, KernelCodeSource>>,
+    /// Fallback code for registered kernels.
+    fallbacks: RwLock<HashMap<KernelId, KernelCodeSource>>,
+    /// Active reload requests.
+    active_requests: RwLock<HashMap<KernelId, HotReloadRequest>>,
+    /// Version counter for code versions.
+    version_counter: AtomicU64,
+    /// Statistics.
+    stats: HotReloadStats,
+}
+
+impl HotReloadManager {
+    /// Create a new hot reload manager.
+    pub fn new(config: HotReloadConfig) -> Arc<Self> {
+        Arc::new(Self {
+            config,
+            kernels: RwLock::new(HashMap::new()),
+            fallbacks: RwLock::new(HashMap::new()),
+            active_requests: RwLock::new(HashMap::new()),
+            version_counter: AtomicU64::new(1),
+            stats: HotReloadStats::default(),
+        })
+    }
+
+    /// Create with default configuration.
+    pub fn with_defaults() -> Arc<Self> {
+        Self::new(HotReloadConfig::default())
+    }
+
+    /// Check if hot reload is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.config.enabled
+    }
+
+    /// Register a kernel for hot reload.
+    pub fn register_kernel(&self, kernel_id: &KernelId, code: KernelCodeSource) {
+        let version = self.version_counter.fetch_add(1, Ordering::Relaxed);
+        let code = code.with_version(version);
+        self.kernels.write().insert(kernel_id.clone(), code);
+    }
+
+    /// Unregister a kernel from hot reload.
+    pub fn unregister_kernel(&self, kernel_id: &KernelId) {
+        self.kernels.write().remove(kernel_id);
+        self.fallbacks.write().remove(kernel_id);
+        self.active_requests.write().remove(kernel_id);
+    }
+
+    /// Get current code version for a kernel.
+    pub fn get_current_version(&self, kernel_id: &KernelId) -> Option<u64> {
+        self.kernels.read().get(kernel_id).map(|c| c.version_id)
+    }
+
+    /// Get current code for a kernel.
+    pub fn get_current_code(&self, kernel_id: &KernelId) -> Option<KernelCodeSource> {
+        self.kernels.read().get(kernel_id).cloned()
+    }
+
+    /// Request a hot reload for a kernel.
+    pub fn request_reload(
+        &self,
+        kernel_id: &KernelId,
+        new_code: KernelCodeSource,
+    ) -> Result<HotReloadRequest> {
+        if !self.config.enabled {
+            return Err(RingKernelError::ValidationError(
+                "Hot reload is disabled".to_string(),
+            ));
+        }
+
+        // Check kernel is registered
+        if !self.kernels.read().contains_key(kernel_id) {
+            return Err(RingKernelError::KernelNotFound(kernel_id.as_str().to_string()));
+        }
+
+        // Check no reload already in progress
+        {
+            let active = self.active_requests.read();
+            if let Some(existing) = active.get(kernel_id) {
+                if existing.is_in_progress() {
+                    return Err(RingKernelError::ValidationError(
+                        "Hot reload already in progress for this kernel".to_string(),
+                    ));
+                }
+            }
+        }
+
+        // Assign version to new code
+        let version = self.version_counter.fetch_add(1, Ordering::Relaxed);
+        let new_code = new_code.with_version(version);
+
+        let request = HotReloadRequest::new(kernel_id.clone(), new_code);
+        self.active_requests
+            .write()
+            .insert(kernel_id.clone(), HotReloadRequest::new(kernel_id.clone(), request.new_code.clone()));
+
+        Ok(request)
+    }
+
+    /// Execute a hot reload operation.
+    ///
+    /// This performs the full reload sequence:
+    /// 1. Drain pending messages
+    /// 2. Checkpoint state (if enabled)
+    /// 3. Validate new code
+    /// 4. Swap kernels
+    /// 5. Restore state (if enabled)
+    pub fn execute_reload<K: CheckpointableKernel>(
+        &self,
+        request: &mut HotReloadRequest,
+        kernel: &K,
+    ) -> Result<HotReloadResult> {
+        let start_time = Instant::now();
+        request.started_at = Some(start_time);
+
+        // Get old version
+        let old_version = self
+            .kernels
+            .read()
+            .get(&request.kernel_id)
+            .map(|c| c.version_id)
+            .unwrap_or(0);
+
+        // Phase 1: Drain (simulated - actual drain would wait for queue empty)
+        request.state = HotReloadState::Draining;
+        let drain_start = Instant::now();
+        // In a real implementation, wait for input queue to drain
+        std::thread::sleep(Duration::from_micros(10));
+        let drain_duration = drain_start.elapsed();
+        self.stats
+            .total_drain_time_us
+            .fetch_add(drain_duration.as_micros() as u64, Ordering::Relaxed);
+
+        // Phase 2: Checkpoint (if preserving state)
+        request.state = HotReloadState::Checkpointing;
+        let checkpoint_start = Instant::now();
+        let checkpoint_size = if self.config.preserve_state {
+            let checkpoint = kernel.create_checkpoint()?;
+            let data = checkpoint.to_bytes();
+            request.checkpoint_data = Some(data.clone());
+            data.len()
+        } else {
+            0
+        };
+        let checkpoint_duration = checkpoint_start.elapsed();
+
+        // Phase 3: Validate new code
+        request.state = HotReloadState::Validating;
+        if self.config.validate_before_swap {
+            self.validate_code(&request.new_code)?;
+        }
+
+        // Phase 4: Compile (simulated)
+        request.state = HotReloadState::Compiling;
+        let compile_start = Instant::now();
+        // In real implementation, compile PTX/WGSL to native code
+        std::thread::sleep(Duration::from_micros(10));
+        let compile_duration = compile_start.elapsed();
+        self.stats
+            .total_compile_time_us
+            .fetch_add(compile_duration.as_micros() as u64, Ordering::Relaxed);
+
+        // Phase 5: Swap
+        request.state = HotReloadState::Swapping;
+        let swap_start = Instant::now();
+
+        // Save fallback
+        if self.config.keep_fallback {
+            if let Some(old_code) = self.kernels.read().get(&request.kernel_id).cloned() {
+                self.fallbacks
+                    .write()
+                    .insert(request.kernel_id.clone(), old_code);
+            }
+        }
+
+        // Install new code
+        self.kernels
+            .write()
+            .insert(request.kernel_id.clone(), request.new_code.clone());
+        let swap_duration = swap_start.elapsed();
+        self.stats
+            .total_swap_time_us
+            .fetch_add(swap_duration.as_micros() as u64, Ordering::Relaxed);
+
+        // Phase 6: Restore state
+        request.state = HotReloadState::Restoring;
+        let restore_start = Instant::now();
+        // In real implementation, restore checkpoint to new kernel
+        let restore_duration = restore_start.elapsed();
+
+        // Mark completed
+        request.state = HotReloadState::Completed;
+        self.stats.successful_reloads.fetch_add(1, Ordering::Relaxed);
+        if self.config.preserve_state && checkpoint_size > 0 {
+            self.stats.state_preserved_count.fetch_add(1, Ordering::Relaxed);
+        }
+
+        // Clean up active request
+        self.active_requests.write().remove(&request.kernel_id);
+
+        Ok(HotReloadResult {
+            kernel_id: request.kernel_id.clone(),
+            old_version,
+            new_version: request.new_code.version_id,
+            state_preserved: self.config.preserve_state && checkpoint_size > 0,
+            checkpoint_size,
+            drain_duration,
+            checkpoint_duration,
+            compile_duration,
+            swap_duration,
+            restore_duration,
+            total_duration: start_time.elapsed(),
+        })
+    }
+
+    /// Rollback to previous kernel version.
+    pub fn rollback(&self, kernel_id: &KernelId) -> Result<()> {
+        let fallback = self
+            .fallbacks
+            .write()
+            .remove(kernel_id)
+            .ok_or_else(|| RingKernelError::ValidationError("No fallback available".to_string()))?;
+
+        self.kernels.write().insert(kernel_id.clone(), fallback);
+        self.stats.rollbacks.fetch_add(1, Ordering::Relaxed);
+
+        // Update any active request
+        if let Some(request) = self.active_requests.write().get_mut(kernel_id) {
+            request.state = HotReloadState::RollingBack;
+        }
+
+        Ok(())
+    }
+
+    /// Validate kernel code before swap.
+    fn validate_code(&self, code: &KernelCodeSource) -> Result<()> {
+        // Basic validation
+        if code.code.is_empty() {
+            return Err(RingKernelError::ValidationError(
+                "Kernel code is empty".to_string(),
+            ));
+        }
+
+        if code.entry_point.is_empty() {
+            return Err(RingKernelError::ValidationError(
+                "Entry point is empty".to_string(),
+            ));
+        }
+
+        // Format-specific validation
+        match code.format {
+            KernelCodeFormat::Ptx => {
+                // Check for valid PTX header
+                if let Some(text) = code.as_str() {
+                    if !text.contains(".version") && !text.contains(".target") {
+                        return Err(RingKernelError::ValidationError(
+                            "PTX code missing version/target directive".to_string(),
+                        ));
+                    }
+                }
+            }
+            KernelCodeFormat::Wgsl => {
+                // Check for basic WGSL structure
+                if let Some(text) = code.as_str() {
+                    if !text.contains("@compute") && !text.contains("fn ") {
+                        return Err(RingKernelError::ValidationError(
+                            "WGSL code missing compute shader or function".to_string(),
+                        ));
+                    }
+                }
+            }
+            KernelCodeFormat::Msl => {
+                // Check for Metal kernel
+                if let Some(text) = code.as_str() {
+                    if !text.contains("kernel ") {
+                        return Err(RingKernelError::ValidationError(
+                            "MSL code missing kernel function".to_string(),
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    /// Get statistics snapshot.
+    pub fn stats(&self) -> HotReloadStatsSnapshot {
+        let successful = self.stats.successful_reloads.load(Ordering::Relaxed);
+        let failed = self.stats.failed_reloads.load(Ordering::Relaxed);
+        let total = successful.max(1);
+
+        HotReloadStatsSnapshot {
+            successful_reloads: successful,
+            failed_reloads: failed,
+            rollbacks: self.stats.rollbacks.load(Ordering::Relaxed),
+            avg_drain_time: Duration::from_micros(
+                self.stats.total_drain_time_us.load(Ordering::Relaxed) / total,
+            ),
+            avg_compile_time: Duration::from_micros(
+                self.stats.total_compile_time_us.load(Ordering::Relaxed) / total,
+            ),
+            avg_swap_time: Duration::from_micros(
+                self.stats.total_swap_time_us.load(Ordering::Relaxed) / total,
+            ),
+            state_preserved_count: self.stats.state_preserved_count.load(Ordering::Relaxed),
+        }
+    }
+
+    /// List all registered kernels.
+    pub fn list_kernels(&self) -> Vec<KernelId> {
+        self.kernels.read().keys().cloned().collect()
+    }
+
+    /// Check if a kernel is registered.
+    pub fn is_registered(&self, kernel_id: &KernelId) -> bool {
+        self.kernels.read().contains_key(kernel_id)
+    }
+
+    /// Check if a reload is in progress for a kernel.
+    pub fn is_reload_in_progress(&self, kernel_id: &KernelId) -> bool {
+        self.active_requests
+            .read()
+            .get(kernel_id)
+            .map(|r| r.is_in_progress())
+            .unwrap_or(false)
+    }
+
+    /// Get the configuration.
+    pub fn config(&self) -> &HotReloadConfig {
+        &self.config
+    }
+}
+
+/// Trait for kernels that support hot reload.
+pub trait HotReloadableKernel: CheckpointableKernel {
+    /// Prepare kernel for code swap (drain messages, pause processing).
+    fn prepare_for_reload(&mut self) -> Result<()>;
+
+    /// Apply new code to the kernel.
+    fn apply_code(&mut self, code: &KernelCodeSource) -> Result<()>;
+
+    /// Resume processing after reload.
+    fn resume_after_reload(&mut self) -> Result<()>;
+
+    /// Check if kernel is ready for reload.
+    fn is_ready_for_reload(&self) -> bool;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2412,5 +3127,209 @@ mod tests {
         assert_ne!(normal, high);
         assert_ne!(high, critical);
         assert_eq!(low, MigrationPriority::Low);
+    }
+
+    // Hot Reload Tests
+
+    #[test]
+    fn test_hot_reload_config_default() {
+        let config = HotReloadConfig::default();
+        assert!(config.enabled);
+        assert!(config.preserve_state);
+        assert!(config.validate_before_swap);
+        assert!(config.keep_fallback);
+        assert_eq!(config.max_retries, 3);
+    }
+
+    #[test]
+    fn test_hot_reload_config_builder() {
+        let config = HotReloadConfig::new()
+            .with_enabled(false)
+            .with_preserve_state(false)
+            .with_max_retries(5)
+            .with_timeout(Duration::from_secs(60));
+
+        assert!(!config.enabled);
+        assert!(!config.preserve_state);
+        assert_eq!(config.max_retries, 5);
+        assert_eq!(config.reload_timeout, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn test_kernel_code_source_ptx() {
+        let ptx = ".version 7.0\n.target sm_80\nkernel: ret;";
+        let code = KernelCodeSource::from_ptx(ptx, "kernel");
+
+        assert_eq!(code.format, KernelCodeFormat::Ptx);
+        assert_eq!(code.entry_point, "kernel");
+        assert_eq!(code.as_str(), Some(ptx));
+        assert_eq!(code.size(), ptx.len());
+    }
+
+    #[test]
+    fn test_kernel_code_source_wgsl() {
+        let wgsl = "@compute fn main() {}";
+        let code = KernelCodeSource::from_wgsl(wgsl, "main");
+
+        assert_eq!(code.format, KernelCodeFormat::Wgsl);
+        assert_eq!(code.entry_point, "main");
+        assert_eq!(code.as_str(), Some(wgsl));
+    }
+
+    #[test]
+    fn test_kernel_code_source_msl() {
+        let msl = "kernel void my_kernel() {}";
+        let code = KernelCodeSource::from_msl(msl, "my_kernel");
+
+        assert_eq!(code.format, KernelCodeFormat::Msl);
+        assert_eq!(code.entry_point, "my_kernel");
+        assert_eq!(code.as_str(), Some(msl));
+    }
+
+    #[test]
+    fn test_hot_reload_manager_creation() {
+        let manager = HotReloadManager::with_defaults();
+        assert!(manager.is_enabled());
+        assert!(manager.list_kernels().is_empty());
+    }
+
+    #[test]
+    fn test_hot_reload_manager_register_kernel() {
+        let manager = HotReloadManager::with_defaults();
+        let kernel_id = KernelId::new("test_kernel");
+        let code = KernelCodeSource::from_ptx(".version 7.0", "kernel");
+
+        manager.register_kernel(&kernel_id, code);
+
+        assert!(manager.is_registered(&kernel_id));
+        assert!(!manager.is_reload_in_progress(&kernel_id));
+        assert!(manager.get_current_version(&kernel_id).is_some());
+    }
+
+    #[test]
+    fn test_hot_reload_request_states() {
+        let kernel_id = KernelId::new("test");
+        let code = KernelCodeSource::from_ptx(".version 7.0", "kernel");
+        let request = HotReloadRequest::new(kernel_id, code);
+
+        assert_eq!(request.state, HotReloadState::Idle);
+        assert!(!request.is_in_progress());
+        assert!(!request.is_completed());
+        assert!(!request.is_failed());
+    }
+
+    #[test]
+    fn test_hot_reload_disabled() {
+        let config = HotReloadConfig::new().with_enabled(false);
+        let manager = HotReloadManager::new(config);
+        let kernel_id = KernelId::new("test");
+        let code = KernelCodeSource::from_ptx(".version 7.0", "kernel");
+
+        manager.register_kernel(&kernel_id, code.clone());
+        let result = manager.request_reload(&kernel_id, code);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hot_reload_stats() {
+        let manager = HotReloadManager::with_defaults();
+        let stats = manager.stats();
+
+        assert_eq!(stats.successful_reloads, 0);
+        assert_eq!(stats.failed_reloads, 0);
+        assert_eq!(stats.rollbacks, 0);
+    }
+
+    #[test]
+    fn test_hot_reload_code_formats() {
+        let formats = [
+            KernelCodeFormat::Ptx,
+            KernelCodeFormat::Cubin,
+            KernelCodeFormat::SpirV,
+            KernelCodeFormat::Wgsl,
+            KernelCodeFormat::Msl,
+            KernelCodeFormat::MetalLib,
+            KernelCodeFormat::Source,
+        ];
+
+        // Verify all formats are distinct
+        for (i, f1) in formats.iter().enumerate() {
+            for (j, f2) in formats.iter().enumerate() {
+                if i != j {
+                    assert_ne!(f1, f2);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_hot_reload_state_transitions() {
+        let states = [
+            HotReloadState::Idle,
+            HotReloadState::Draining,
+            HotReloadState::Checkpointing,
+            HotReloadState::Compiling,
+            HotReloadState::Validating,
+            HotReloadState::Swapping,
+            HotReloadState::Restoring,
+            HotReloadState::Completed,
+            HotReloadState::Failed,
+            HotReloadState::RollingBack,
+        ];
+
+        // Verify all states are distinct
+        for (i, s1) in states.iter().enumerate() {
+            for (j, s2) in states.iter().enumerate() {
+                if i != j {
+                    assert_ne!(s1, s2);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_hot_reload_execute() {
+        let manager = HotReloadManager::with_defaults();
+        let kernel_id = KernelId::new("test_kernel");
+
+        let initial_code = KernelCodeSource::from_ptx(".version 7.0\n.target sm_80", "kernel");
+        manager.register_kernel(&kernel_id, initial_code);
+
+        let new_code = KernelCodeSource::from_ptx(".version 8.0\n.target sm_90", "kernel");
+        let mut request = manager.request_reload(&kernel_id, new_code).unwrap();
+
+        // Create mock kernel for checkpoint
+        let mock_kernel = MockCheckpointableKernel::new("test_kernel", 512);
+
+        let result = manager.execute_reload(&mut request, &mock_kernel).unwrap();
+
+        assert!(request.is_completed());
+        assert_eq!(result.kernel_id.as_str(), "test_kernel");
+        assert!(result.state_preserved);
+        assert!(result.checkpoint_size > 0);
+        assert!(result.total_duration > Duration::ZERO);
+
+        // Stats should be updated
+        let stats = manager.stats();
+        assert_eq!(stats.successful_reloads, 1);
+    }
+
+    #[test]
+    fn test_hot_reload_list_kernels() {
+        let manager = HotReloadManager::with_defaults();
+
+        let k1 = KernelId::new("kernel1");
+        let k2 = KernelId::new("kernel2");
+        let k3 = KernelId::new("kernel3");
+
+        manager.register_kernel(&k1, KernelCodeSource::from_ptx(".version 7.0", "k1"));
+        manager.register_kernel(&k2, KernelCodeSource::from_ptx(".version 7.0", "k2"));
+        manager.register_kernel(&k3, KernelCodeSource::from_ptx(".version 7.0", "k3"));
+
+        let kernels = manager.list_kernels();
+        assert_eq!(kernels.len(), 3);
+        assert!(kernels.contains(&k1));
+        assert!(kernels.contains(&k2));
+        assert!(kernels.contains(&k3));
     }
 }

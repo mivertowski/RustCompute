@@ -2,6 +2,83 @@
 //!
 //! This module defines the core runtime abstraction that backends implement
 //! to provide kernel lifecycle management, message passing, and monitoring.
+//!
+//! # Overview
+//!
+//! The runtime module provides the central abstractions for managing GPU kernels:
+//!
+//! - [`RingKernelRuntime`] - The main trait implemented by backends (CPU, CUDA, Metal, WebGPU)
+//! - [`KernelHandle`] - A handle for interacting with launched kernels
+//! - [`LaunchOptions`] - Configuration options for kernel launches
+//! - [`KernelState`] - Lifecycle states (Created → Launched → Active → Terminated)
+//!
+//! # Kernel Lifecycle
+//!
+//! ```text
+//! ┌─────────┐     ┌──────────┐     ┌────────┐     ┌────────────┐
+//! │ Created │ ──► │ Launched │ ──► │ Active │ ──► │ Terminated │
+//! └─────────┘     └──────────┘     └────────┘     └────────────┘
+//!                       │              ▲  │
+//!                       │              │  ▼
+//!                       │        ┌─────────────┐
+//!                       └──────► │ Deactivated │
+//!                                └─────────────┘
+//! ```
+//!
+//! # Example
+//!
+//! ```ignore
+//! use ringkernel_core::runtime::{RingKernelRuntime, LaunchOptions, KernelState};
+//! use ringkernel_cpu::CpuRuntime;
+//!
+//! #[tokio::main]
+//! async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+//!     // Create a runtime
+//!     let runtime = CpuRuntime::new().await?;
+//!
+//!     // Launch a kernel with custom options
+//!     let options = LaunchOptions::single_block(256)
+//!         .with_queue_capacity(2048)
+//!         .with_k2k(true);  // Enable kernel-to-kernel messaging
+//!
+//!     let kernel = runtime.launch("my_processor", options).await?;
+//!
+//!     // Kernel auto-activates by default
+//!     assert!(kernel.is_active());
+//!
+//!     // Send messages to the kernel
+//!     kernel.send(MyMessage { value: 42 }).await?;
+//!
+//!     // Receive responses
+//!     let response = kernel.receive_timeout(Duration::from_secs(1)).await?;
+//!
+//!     // Terminate when done
+//!     kernel.terminate().await?;
+//!
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Backend Selection
+//!
+//! Use [`Backend::Auto`] to automatically select the best available backend,
+//! or specify a specific backend for testing/deployment:
+//!
+//! ```ignore
+//! use ringkernel_core::runtime::{RuntimeBuilder, Backend};
+//!
+//! // Auto-select: CUDA → Metal → WebGPU → CPU
+//! let builder = RuntimeBuilder::new().backend(Backend::Auto);
+//!
+//! // Force CPU for testing
+//! let builder = RuntimeBuilder::new().backend(Backend::Cpu);
+//!
+//! // Use CUDA with specific device
+//! let builder = RuntimeBuilder::new()
+//!     .backend(Backend::Cuda)
+//!     .device(1)  // Second GPU
+//!     .profiling(true);
+//! ```
 
 use std::future::Future;
 use std::pin::Pin;

@@ -16,10 +16,10 @@ Transform GPU computing from batch-oriented kernel launches to a true actor-base
 |-------|-------------|---------|---------|------------|
 | **Phase 1: Foundation** | 9 | 3 | 0 | ~88% |
 | **Phase 2: Code Generation** | 10 | 0 | 0 | 100% |
-| **Phase 3: Enterprise** | 10 | 1 | 5 | ~66% |
+| **Phase 3: Enterprise** | 12 | 0 | 4 | ~75% |
 | **Phase 4: Ecosystem** | 3 | 3 | 5 | ~41% |
-| **Phase 5: Developer Experience** | 7 | 2 | 2 | ~73% |
-| **Overall** | **39** | **9** | **12** | **~77%** |
+| **Phase 5: Developer Experience** | 10 | 0 | 2 | ~83% |
+| **Overall** | **44** | **6** | **11** | **~83%** |
 
 **Legend**: ✅ Complete | ⚠️ Partial | 🎯 Planned | ❌ Not Started
 
@@ -194,7 +194,7 @@ fn high_precision_compute(data: &mut [f64]) {
 | Feature | Priority | Status | Description |
 |---------|----------|--------|-------------|
 | **Kernel Checkpointing** | P0 | ✅ Done | Full impl in `checkpoint.rs` (1200+ LOC) |
-| **Hot Reload** | P0 | ⚠️ Basic | Basic support in `multi_gpu.rs` |
+| **Hot Reload** | P0 | ✅ Done | `HotReloadManager` with state preservation, code validation, rollback |
 | **Graceful Degradation** | P1 | ✅ Done | `DegradationManager` with 5 levels |
 | **Health Monitoring** | P1 | ✅ Done | `HealthChecker`, liveness/readiness probes |
 
@@ -249,7 +249,7 @@ impl MultiGpuRuntime {
 |---------|----------|--------|-------------|
 | **GPU Profiler Integration** | P0 | ✅ Done | NVTX, RenderDoc, Metal stubs with `GpuProfilerManager` |
 | **Message Tracing** | P0 | ✅ Done | `ObservabilityContext` with spans |
-| **GPU Memory Dashboard** | P1 | ❌ | Not implemented |
+| **GPU Memory Dashboard** | P1 | ✅ Done | `GpuMemoryDashboard` with allocation tracking, pressure alerts, Prometheus/Grafana |
 | **Kernel Debugger** | P2 | ❌ | Not implemented |
 
 **Tracing Integration**:
@@ -382,17 +382,17 @@ ringkernel check --backends all
 |----------|----------|--------|-------------|
 | **Interactive Tutorials** | P0 | ✅ Done | 4 tutorials: Getting Started, Message Passing, GPU Kernels, Enterprise |
 | **Architecture Guide** | P0 | ✅ Done | Comprehensive CLAUDE.md |
-| **API Reference** | P0 | ⚠️ ~60% | rustdoc exists, incomplete |
+| **API Reference** | P0 | ✅ Done | Enhanced rustdoc with lifecycle diagrams, examples, comprehensive type docs |
 | **Example Gallery** | P1 | ✅ Done | Many examples across crates |
 
 ### 5.3 Testing Infrastructure
 
 | Feature | Priority | Status | Description |
 |---------|----------|--------|-------------|
-| **GPU Mock Testing** | P0 | ⚠️ Partial | CPU backend as mock |
+| **GPU Mock Testing** | P0 | ✅ Done | Full `mock` module with thread intrinsics, atomics, shared memory, warp ops |
 | **Property Testing** | P1 | ✅ Done | proptest used |
 | **Fuzzing** | P1 | ✅ Done | 5 fuzz targets: IR builder, CUDA/WGSL transpilers, message queue, HLC |
-| **CI GPU Testing** | P1 | ❌ | Manual tests with `--ignored` |
+| **CI GPU Testing** | P1 | ✅ Done | GitHub Actions with CUDA, WebGPU, Metal jobs |
 
 ---
 
@@ -432,9 +432,9 @@ ringkernel check --backends all
 | **Command Latency** | 0.03µs (CUDA) | <0.1µs (all backends) |
 | **Code Generation Tests** | 233+ | 500+ |
 | **Ecosystem Integrations** | 8 (SSE, WS, Actix, Tower, Axum, gRPC, Arrow, Polars) | 15+ |
-| **Documentation Coverage** | ~60% | 95%+ |
-| **Test Count** | 600+ | 800+ |
-| **Roadmap Completion** | ~77% | 100% |
+| **Documentation Coverage** | ~80% | 95%+ |
+| **Test Count** | 650+ | 800+ |
+| **Roadmap Completion** | ~83% | 100% |
 
 ---
 

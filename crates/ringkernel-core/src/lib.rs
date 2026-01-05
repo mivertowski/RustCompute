@@ -87,15 +87,19 @@ pub mod prelude {
     };
     pub use crate::multi_gpu::{
         CrossGpuK2KRouter, CrossGpuRouterStatsSnapshot, DeviceInfo, DeviceStatus,
-        DeviceUnregisterResult, GpuConnection, GpuTopology, InterconnectType, KernelMigrationPlan,
-        KernelMigrator, LoadBalancingStrategy, MigratableKernel, MigrationPriority, MigrationRequest,
-        MigrationResult, MigrationState, MigrationStatsSnapshot, MultiGpuBuilder,
-        MultiGpuCoordinator, PendingK2KMessage, RoutingDecision,
+        DeviceUnregisterResult, GpuConnection, GpuTopology, HotReloadConfig, HotReloadManager,
+        HotReloadRequest, HotReloadResult, HotReloadState, HotReloadStatsSnapshot,
+        HotReloadableKernel, InterconnectType, KernelCodeFormat, KernelCodeSource,
+        KernelMigrationPlan, KernelMigrator, LoadBalancingStrategy, MigratableKernel,
+        MigrationPriority, MigrationRequest, MigrationResult, MigrationState,
+        MigrationStatsSnapshot, MultiGpuBuilder, MultiGpuCoordinator, PendingK2KMessage,
+        RoutingDecision,
     };
     pub use crate::observability::{
-        GrafanaDashboard, GrafanaPanel, ObservabilityContext, PanelType, PrometheusCollector,
-        PrometheusExporter, RingKernelCollector, Span, SpanBuilder, SpanEvent, SpanId, SpanKind,
-        SpanStatus, TraceId,
+        GpuDeviceMemoryStats, GpuMemoryAllocation, GpuMemoryDashboard, GpuMemoryPoolStats,
+        GpuMemoryThresholds, GpuMemoryType, GrafanaDashboard, GrafanaPanel, MemoryPressureLevel,
+        ObservabilityContext, PanelType, PrometheusCollector, PrometheusExporter,
+        RingKernelCollector, Span, SpanBuilder, SpanEvent, SpanId, SpanKind, SpanStatus, TraceId,
     };
     pub use crate::pubsub::{PubSubBroker, PubSubBuilder, Publication, QoS, Subscription, Topic};
     pub use crate::queue::*;
