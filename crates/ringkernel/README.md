@@ -10,21 +10,21 @@ This crate re-exports the entire RingKernel API, providing a single entry point 
 
 ```toml
 [dependencies]
-ringkernel = "0.1"
-tokio = { version = "1", features = ["full"] }
+ringkernel = "0.2"
+tokio = { version = "1.48", features = ["full"] }
 ```
 
 For GPU backends:
 
 ```toml
 # NVIDIA CUDA
-ringkernel = { version = "0.1", features = ["cuda"] }
+ringkernel = { version = "0.2", features = ["cuda"] }
 
 # WebGPU (cross-platform)
-ringkernel = { version = "0.1", features = ["wgpu"] }
+ringkernel = { version = "0.2", features = ["wgpu"] }
 
 # All backends
-ringkernel = { version = "0.1", features = ["all-backends"] }
+ringkernel = { version = "0.2", features = ["all-backends"] }
 ```
 
 ## Quick Start

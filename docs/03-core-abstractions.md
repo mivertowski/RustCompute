@@ -470,4 +470,89 @@ See [Architecture Overview](./01-architecture-overview.md) for the full struct d
 
 ---
 
+## 7. Enterprise Runtime (v0.2.0+)
+
+RingKernel provides enterprise-grade runtime features for production deployments.
+
+### RuntimeBuilder
+
+Fluent builder for configuring the enterprise runtime:
+
+```rust
+use ringkernel_core::runtime_context::RuntimeBuilder;
+
+// Quick presets
+let dev_runtime = RuntimeBuilder::new().development().build()?;
+let prod_runtime = RuntimeBuilder::new().production().build()?;
+let perf_runtime = RuntimeBuilder::new().high_performance().build()?;
+
+// Custom configuration
+let runtime = RuntimeBuilder::new()
+    .with_health_check_interval(Duration::from_secs(30))
+    .with_circuit_breaker_threshold(5)
+    .with_prometheus_export(true)
+    .build()?;
+```
+
+### RingKernelContext
+
+Unified runtime managing all enterprise features:
+
+```rust
+use ringkernel_core::runtime_context::RingKernelContext;
+
+let ctx = RingKernelContext::new(config)?;
+
+// Lifecycle management
+ctx.start()?;                        // Transition to Running
+ctx.drain(Duration::from_secs(30))?; // Stop accepting new work
+let report = ctx.complete_shutdown()?;
+
+// Access components
+let health = ctx.health_checker();
+let circuit = ctx.circuit_breaker();
+let metrics = ctx.prometheus_exporter();
+let coordinator = ctx.multi_gpu_coordinator();
+```
+
+### LifecycleState
+
+Runtime state machine:
+
+```
+Initializing → Running → Draining → ShuttingDown → Stopped
+```
+
+```rust
+pub enum LifecycleState {
+    Initializing,   // Setting up components
+    Running,        // Accepting and processing work
+    Draining,       // Finishing existing work, rejecting new
+    ShuttingDown,   // Cleanup in progress
+    Stopped,        // Terminated
+}
+```
+
+### ConfigBuilder
+
+Nested configuration system:
+
+```rust
+use ringkernel_core::config::ConfigBuilder;
+
+let config = ConfigBuilder::new()
+    .runtime(|r| r
+        .max_kernels(100)
+        .default_queue_capacity(4096))
+    .health(|h| h
+        .check_interval(Duration::from_secs(10))
+        .degradation_threshold(0.8))
+    .multi_gpu(|g| g
+        .load_balancing(LoadBalancing::LeastLoaded)
+        .enable_migration(true))
+    .build()?;
+```
+
+---
+
 ## Next: [Memory Management](./04-memory-management.md)

@@ -7,6 +7,168 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-01-08
+
+### Added
+
+#### New Crates
+
+- **`ringkernel-ir`** - Unified Intermediate Representation for multi-backend code generation
+  - SSA-based IR capturing GPU-specific operations
+  - Architecture: Rust DSL → IR → CUDA/WGSL/MSL backends
+  - `IrBuilder` fluent API for constructing kernel IR
+  - Optimization passes: constant folding, dead code elimination, algebraic simplification
+  - `BackendCapabilities` trait for querying backend support
+  - `Validator` with configurable validation levels
+  - Pretty-printing and IR visualization
+
+- **`ringkernel-cli`** - Command-line tool for project scaffolding and kernel code generation
+  - `ringkernel new <name>` - Create new projects with templates (basic, persistent-actor, wavesim, enterprise)
+  - `ringkernel init` - Initialize RingKernel in existing projects
+  - `ringkernel codegen <file>` - Generate CUDA/WGSL/MSL from Rust DSL
+  - `ringkernel check` - Validate kernel compatibility across backends
+  - `ringkernel completions` - Generate shell completions (bash, zsh, fish, PowerShell)
+  - Colored terminal output with progress indicators
+
+#### Enterprise Runtime Features
+
+- **`RuntimeBuilder`** - Fluent builder for enterprise runtime configuration
+  - Presets: `development()`, `production()`, `high_performance()`
+  - Automatic component initialization based on configuration
+
+- **`RingKernelContext`** - Unified runtime managing all enterprise features
+  - Centralized access to health, metrics, multi-GPU, and migration components
+  - Lifecycle management with state machine
+
+- **`ConfigBuilder`** - Nested configuration system with builder pattern
+  - Environment variable overrides
+  - TOML/YAML configuration file support
+
+- **`LifecycleState`** - Runtime state machine
+  - States: `Initializing` → `Running` → `Draining` → `ShuttingDown` → `Stopped`
+  - Graceful shutdown with drain timeout
+
+- **Health & Resilience**
+  - `HealthChecker` - Liveness/readiness probes with async health checks
+  - `CircuitBreaker` - Fault tolerance with automatic recovery (Closed/Open/HalfOpen states)
+  - `DegradationManager` - Graceful degradation with 5 levels (Normal → Critical)
+  - `KernelWatchdog` - Stale kernel detection with configurable heartbeat monitoring
+
+- **Observability**
+  - `PrometheusExporter` - Export metrics in Prometheus format
+  - `ObservabilityContext` - Distributed tracing with span management
+  - GPU memory dashboard with pressure alerts
+
+- **Multi-GPU**
+  - `MultiGpuCoordinator` - Device selection with load balancing strategies (RoundRobin, LeastLoaded, Random)
+  - `KernelMigrator` - Live kernel migration between GPUs using checkpoints
+  - `GpuTopology` - NVLink/PCIe topology discovery
+
+- **`ShutdownReport`** - Final statistics on graceful shutdown
+
+#### Security Module
+
+- **`MemoryEncryption`** - GPU memory encryption
+  - Algorithms: AES-256-GCM, AES-128-GCM, ChaCha20-Poly1305, XChaCha20-Poly1305
+  - Key derivation: HKDF-SHA256, HKDF-SHA384, Argon2id, PBKDF2-SHA256
+  - Automatic key rotation with configurable interval
+  - Encrypt control blocks, message queues, and kernel state
+
+- **`KernelSandbox`** - Kernel isolation and resource control
+  - `ResourceLimits` - Memory, execution time, message rate, K2K connections
+  - `SandboxPolicy` - K2K ACLs (allow/deny lists), memory access levels
+  - Presets: `restrictive()` for untrusted kernels, `permissive()` for trusted
+  - Violation detection and recording
+
+- **`ComplianceReporter`** - Audit-ready compliance documentation
+  - Standards: SOC2, GDPR, HIPAA, PCI-DSS, ISO 27001, FedRAMP, NIST CSF
+  - Export formats: JSON, HTML, Markdown, PDF, CSV
+  - Automatic compliance check generation with evidence and recommendations
+
+#### ML Framework Bridges
+
+- **`PyTorchBridge`** - Bidirectional tensor interop with PyTorch
+  - Data types: Float16/32/64, BFloat16, Int8/32/64, UInt8, Bool
+  - Device management (CPU, CUDA)
+  - Pinned memory support
+
+- **`OnnxExecutor`** - Load and execute ONNX models on GPU ring kernels
+  - Model loading from file or memory
+  - Input/output tensor management
+  - Execution providers configuration
+
+- **`HuggingFacePipeline`** - Integration with Hugging Face Transformers
+  - Text classification, generation, and embedding pipelines
+  - Model caching and configuration
+
+#### Developer Experience
+
+- **Hot Reload** - Kernel hot reload with state preservation
+  - File system watcher for kernel source changes
+  - State checkpointing during reload
+
+- **GPU Memory Dashboard** - Real-time memory monitoring
+  - Pressure alerts with configurable thresholds
+  - Per-kernel memory breakdown
+
+- **Mock GPU Testing** (`ringkernel-cpu/src/mock.rs`)
+  - `MockGpuDevice` for testing GPU code without hardware
+  - Deterministic execution for reproducible tests
+  - Memory allocation tracking
+
+- **Fuzzing Infrastructure** (5 fuzz targets)
+  - Message serialization fuzzing
+  - Queue operations fuzzing
+  - HLC timestamp fuzzing
+  - IR validation fuzzing
+  - Codegen fuzzing
+
+- **CI GPU Testing Workflow**
+  - GitHub Actions with GPU runner support
+  - Automated CUDA and WebGPU test execution
+
+- **Interactive Tutorials** (4 tutorials)
+  - `01-hello-kernel` - Basic kernel lifecycle
+  - `02-message-passing` - Request/response patterns
+  - `03-k2k-messaging` - Kernel-to-kernel communication
+  - `04-persistent-actors` - Persistent GPU actors
+
+- **VSCode Extension Scaffolding**
+  - Syntax highlighting for RingKernel DSL
+  - Code completion support
+
+#### Additional Features
+
+- **SIMD Optimizations** (`ringkernel-cpu/src/simd.rs`)
+  - Vectorized stencil operations
+  - SIMD-accelerated reductions
+
+- **Subgroup Operations** (WGSL backend)
+  - `subgroupAdd`, `subgroupMul`, `subgroupMin`, `subgroupMax`
+  - Broadcast and shuffle operations
+
+- **Metal K2K Halo Exchange** - Kernel-to-kernel communication on Metal backend
+
+- **Optimization Passes** (ringkernel-ir)
+  - `ConstantFolding` - Compile-time constant evaluation
+  - `DeadCodeElimination` - Remove unused values
+  - `DeadBlockElimination` - Remove unreachable blocks
+  - `AlgebraicSimplification` - Simplify arithmetic expressions
+
+### Changed
+
+- **API Changes**
+  - Renamed `RuntimeMetrics` → `ContextMetrics`
+
+- **Test Coverage**
+  - Increased from 580+ to 700+ tests across workspace
+
+### Fixed
+
+- Various clippy warnings across all crates
+- HLC test using `tick()` instead of read-only `now()`
+- Tutorial code formatting for educational clarity
+
 ## [0.1.3] - 2025-12-14
 
 ### Added
@@ -199,7 +361,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLAUDE.md with build commands and architecture overview
 - Code examples for all major features
 
-[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/mivertowski/RustCompute/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/mivertowski/RustCompute/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/mivertowski/RustCompute/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/mivertowski/RustCompute/compare/v0.1.0...v0.1.1

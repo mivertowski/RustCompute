@@ -100,7 +100,8 @@ The project is a Cargo workspace with these crates:
 - **`ringkernel-codegen`** - GPU kernel code generation
 - **`ringkernel-cuda-codegen`** - Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL
 - **`ringkernel-wgpu-codegen`** - Rust-to-WGSL transpiler for writing GPU kernels in Rust DSL (WebGPU backend)
-- **`ringkernel-ecosystem`** - Ecosystem integrations with **persistent GPU actor support** (Actix `GpuPersistentActor`, Axum REST/SSE, Tower `PersistentKernelService`, gRPC streaming)
+- **`ringkernel-ir`** - Unified Intermediate Representation for multi-backend code generation (CUDA/WGSL/MSL)
+- **`ringkernel-ecosystem`** - Ecosystem integrations with **persistent GPU actor support** (Actix `GpuPersistentActor`, Axum REST/SSE, Tower `PersistentKernelService`, gRPC streaming, ML bridges)
 - **`ringkernel-cli`** - CLI tool for project scaffolding, kernel code generation, and compatibility checking
 - **`ringkernel-audio-fft`** - Example application: GPU-accelerated audio FFT processing
 - **`ringkernel-wavesim`** - Example application: 2D acoustic wave simulation with GPU-accelerated FDTD, tile-based ring kernel actors, and educational simulation modes
@@ -475,7 +476,7 @@ let handle = CudaPersistentHandle::new(simulation, "fdtd_3d");
 
 ### Test Count Summary
 
-580+ tests across the workspace:
+700+ tests across the workspace:
 - ringkernel-core: 65 tests
 - ringkernel-cpu: 11 tests
 - ringkernel-cuda: 6 GPU execution tests

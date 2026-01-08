@@ -10,7 +10,7 @@ This crate provides transpilation from a restricted Rust DSL to WGSL (WebGPU Sha
 
 ```toml
 [dependencies]
-ringkernel-wgpu-codegen = "0.1"
+ringkernel-wgpu-codegen = "0.2"
 syn = { version = "2.0", features = ["full"] }
 ```
 

@@ -19,14 +19,21 @@ Following DotCompute's testing structure:
 
 ## Test Count Summary
 
-240+ tests across the workspace:
-- `ringkernel-core`: 65 tests (queue, HLC, control block, K2K, PubSub)
-- `ringkernel-cpu`: 11 tests (CPU backend)
+700+ tests across the workspace:
+- `ringkernel-core`: 65 tests (queue, HLC, control block, K2K, PubSub, enterprise runtime)
+- `ringkernel-cpu`: 11 tests (CPU backend, mock GPU)
 - `ringkernel-cuda`: 6 GPU execution tests
-- `ringkernel-cuda-codegen`: 39 tests (transpiler, intrinsics, type mapping)
+- `ringkernel-cuda-codegen`: 183 tests (transpiler, intrinsics, loops, shared memory, ring kernels, K2K, envelope format)
+- `ringkernel-wgpu-codegen`: 50 tests (types, intrinsics, transpiler, validation)
 - `ringkernel-derive`: 14 macro tests
-- `ringkernel-wavesim`: 46 tests (simulation, kernels, grid)
+- `ringkernel-ecosystem`: 30 tests (persistent handle, Actix, Axum, Tower, gRPC)
+- `ringkernel-wavesim`: 63 tests (simulation, kernels, grid, educational modes)
+- `ringkernel-wavesim3d`: 72 tests (3D FDTD, binaural, volumetric rendering)
+- `ringkernel-txmon`: 40 tests (GPU types, batch kernel, stencil, ring kernel)
+- `ringkernel-procint`: 77 tests (DFG, pattern detection, conformance)
 - `ringkernel-audio-fft`: 32 tests
+- `ringkernel-ir`: 40+ tests (IR builder, validation, lowering)
+- Plus integration tests (K2K, control block, HLC)
 
 ---
 
@@ -388,6 +395,139 @@ proptest! {
         }
     }
 }
+```
+
+---
+
+## Mock GPU Testing (v0.2.0+)
+
+Test GPU code without hardware using the mock module:
+
+```rust
+use ringkernel_cpu::mock::{MockGpuDevice, MockKernel, MockExecutionConfig};
+
+#[test]
+fn test_kernel_with_mock_gpu() {
+    // Create mock device
+    let device = MockGpuDevice::new()
+        .with_memory_mb(8192)
+        .with_compute_capability(8, 6);
+
+    // Create mock kernel
+    let kernel = MockKernel::new("processor")
+        .with_block_size(256)
+        .with_grid_size(1024);
+
+    // Configure execution behavior
+    let config = MockExecutionConfig::new()
+        .deterministic(true)  // Reproducible results
+        .simulate_latency(Duration::from_micros(100));
+
+    // Execute
+    let result = device.execute(&kernel, &input, config)?;
+
+    // Verify - exact same results every time
+    assert_eq!(result, expected_output);
+}
+
+#[test]
+fn test_memory_allocation_tracking() {
+    let device = MockGpuDevice::new();
+
+    // Allocate buffers
+    let buf1 = device.allocate::<f32>(1024)?;
+    let buf2 = device.allocate::<f32>(2048)?;
+
+    // Check memory usage
+    let stats = device.memory_stats();
+    assert_eq!(stats.allocated_bytes, (1024 + 2048) * 4);
+    assert_eq!(stats.allocation_count, 2);
+
+    // Detect leaks
+    drop(buf1);
+    let stats = device.memory_stats();
+    assert_eq!(stats.allocation_count, 1);
+}
+```
+
+### Mock Execution Modes
+
+```rust
+// Deterministic - Same output for same input
+let config = MockExecutionConfig::deterministic();
+
+// Randomized - Simulates non-deterministic GPU behavior
+let config = MockExecutionConfig::randomized(seed);
+
+// Fault injection - Test error handling
+let config = MockExecutionConfig::with_fault(
+    MockFault::OutOfMemory { after_allocations: 5 }
+);
+```
+
+---
+
+## Fuzzing Infrastructure (v0.2.0+)
+
+RingKernel includes 5 fuzz targets for security and robustness testing:
+
+### Running Fuzz Tests
+
+```bash
+# Install cargo-fuzz
+cargo install cargo-fuzz
+
+# List fuzz targets
+cargo +nightly fuzz list
+
+# Run a specific target
+cargo +nightly fuzz run fuzz_message_serialization
+
+# Run with a time limit
+cargo +nightly fuzz run fuzz_queue_operations -- -max_total_time=300
+```
+
+### Fuzz Targets
+
+| Target | Description |
+|--------|-------------|
+| `fuzz_message_serialization` | Test rkyv serialization with arbitrary data |
+| `fuzz_queue_operations` | Queue enqueue/dequeue sequences |
+| `fuzz_hlc_timestamps` | HLC merge and ordering operations |
+| `fuzz_ir_validation` | IR construction and validation |
+| `fuzz_codegen` | Code generation from arbitrary IR |
+
+### Writing Fuzz Tests
+
+```rust
+// fuzz/fuzz_targets/fuzz_message_serialization.rs
+#![no_main]
+
+use libfuzzer_sys::fuzz_target;
+use ringkernel_core::message::*;
+
+fuzz_target!(|data: &[u8]| {
+    // Try to deserialize arbitrary bytes
+    if let Ok(archived) = rkyv::check_archived_root::<TestMessage>(data) {
+        // If valid, verify roundtrip
+        let deserialized = archived.deserialize(&mut rkyv::Infallible).unwrap();
+        let reserialized = rkyv::to_bytes::<_, 4096>(&deserialized).unwrap();
+        assert_eq!(data, &reserialized[..]);
+    }
+});
+```
+
+### Corpus Management
+
+```bash
+# Minimize corpus
+cargo +nightly fuzz cmin fuzz_message_serialization
+
+# Merge corpus from multiple runs
+cargo +nightly fuzz merge fuzz_message_serialization corpus1/ corpus2/
+
+# Check coverage
+cargo +nightly fuzz coverage fuzz_message_serialization
 ```
 
 ---

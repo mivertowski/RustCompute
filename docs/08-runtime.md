@@ -409,4 +409,148 @@ impl RingBufferBridge {
 
 ---
 
+## Enterprise Runtime (v0.2.0+)
+
+For production deployments, RingKernel provides an enterprise runtime with health checking, circuit breakers, multi-GPU coordination, and observability.
+
+### RuntimeBuilder Presets
+
+```rust
+use ringkernel_core::runtime_context::RuntimeBuilder;
+
+// Development: Fast startup, verbose logging, relaxed limits
+let runtime = RuntimeBuilder::new()
+    .development()
+    .build()?;
+
+// Production: Balanced performance, health monitoring, graceful shutdown
+let runtime = RuntimeBuilder::new()
+    .production()
+    .build()?;
+
+// High Performance: Maximum throughput, minimal overhead
+let runtime = RuntimeBuilder::new()
+    .high_performance()
+    .build()?;
+```
+
+### Health & Resilience
+
+```rust
+// Health Checker
+let health = runtime.health_checker();
+let status = health.check().await?;
+match status {
+    HealthStatus::Healthy => { /* all systems go */ }
+    HealthStatus::Degraded(reason) => { /* some issues */ }
+    HealthStatus::Unhealthy(reason) => { /* critical problem */ }
+}
+
+// Circuit Breaker - Protect against cascading failures
+let circuit = runtime.circuit_breaker();
+match circuit.state() {
+    CircuitState::Closed => { /* normal operation */ }
+    CircuitState::Open => { /* requests rejected */ }
+    CircuitState::HalfOpen => { /* testing recovery */ }
+}
+
+// Execute with circuit breaker protection
+let result = circuit.execute(|| async {
+    // protected operation
+}).await;
+
+// Degradation Manager - Graceful degradation under load
+let degradation = runtime.degradation_manager();
+match degradation.level() {
+    DegradationLevel::Normal => { /* full functionality */ }
+    DegradationLevel::Light => { /* reduce non-essential work */ }
+    DegradationLevel::Moderate => { /* queue non-critical requests */ }
+    DegradationLevel::Severe => { /* essential operations only */ }
+    DegradationLevel::Critical => { /* emergency mode */ }
+}
+
+// Kernel Watchdog - Detect stale kernels
+let watchdog = runtime.kernel_watchdog();
+watchdog.set_heartbeat_timeout(Duration::from_secs(30));
+let stale = watchdog.scan_stale_kernels().await?;
+```
+
+### Multi-GPU Coordination
+
+```rust
+use ringkernel_core::multi_gpu::{MultiGpuCoordinator, LoadBalancing};
+
+// Coordinator with load balancing
+let coordinator = MultiGpuCoordinator::new()
+    .with_load_balancing(LoadBalancing::LeastLoaded)
+    .build()?;
+
+// Select best device for a kernel
+let device = coordinator.select_device(requirements)?;
+
+// Kernel Migration - Move kernels between GPUs
+let migrator = runtime.kernel_migrator();
+migrator.migrate_kernel(
+    "processor",
+    source_device,
+    target_device,
+    MigrationOptions::default(),
+).await?;
+
+// GPU Topology Discovery
+let topology = runtime.gpu_topology();
+for device in topology.devices() {
+    println!("GPU {}: {} MB, NVLink: {}",
+        device.id,
+        device.memory_mb,
+        device.has_nvlink);
+}
+```
+
+### Observability
+
+```rust
+// Prometheus Metrics Export
+let exporter = runtime.prometheus_exporter();
+let metrics = exporter.gather()?;
+// Expose at /metrics endpoint
+
+// Distributed Tracing
+let obs = runtime.observability_context();
+let span = obs.start_span("process_batch");
+// ... do work ...
+span.end();
+
+// GPU Memory Dashboard
+let dashboard = runtime.gpu_memory_dashboard();
+let pressure = dashboard.memory_pressure();
+if pressure > 0.9 {
+    dashboard.trigger_alert(MemoryPressureAlert::High);
+}
+```
+
+### Lifecycle Management
+
+```rust
+use ringkernel_core::runtime_context::LifecycleState;
+
+runtime.start()?;  // Initializing → Running
+
+// Check state
+assert!(runtime.state().is_accepting_work());
+
+// Graceful shutdown
+runtime.drain(Duration::from_secs(30))?;  // Running → Draining
+// Existing work completes, new work rejected
+
+let report = runtime.complete_shutdown()?;  // → Stopped
+
+println!("Uptime: {:?}", report.total_uptime);
+println!("Kernels processed: {}", report.total_kernels);
+println!("Messages processed: {}", report.total_messages);
+println!("Kernels migrated: {}", report.migrated_kernels);
+```
+
+---
+
 ## Next: [Testing Strategy](./09-testing.md)

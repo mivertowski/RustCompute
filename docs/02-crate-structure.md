@@ -60,6 +60,24 @@ RustCompute/
 │   ├── ringkernel-codegen/       # Kernel code generation
 │   │   └── src/lib.rs
 │   │
+│   ├── ringkernel-ir/            # Unified IR for multi-backend codegen
+│   │   └── src/
+│   │       ├── lib.rs            # IrModule, IrBuilder, ValueId, BlockId
+│   │       ├── builder.rs        # Fluent IR construction
+│   │       ├── nodes.rs          # IR node types (BinaryOp, Load, Store, etc.)
+│   │       ├── types.rs          # IrType, ScalarType, VectorType
+│   │       ├── optimize.rs       # Optimization passes (DCE, constant folding)
+│   │       ├── lower_cuda.rs     # CUDA backend lowering
+│   │       ├── lower_wgsl.rs     # WGSL backend lowering
+│   │       ├── lower_msl.rs      # MSL backend lowering
+│   │       └── validation.rs     # IR validation
+│   │
+│   ├── ringkernel-cli/           # CLI tool for scaffolding and codegen
+│   │   └── src/
+│   │       ├── main.rs           # Command-line interface
+│   │       ├── commands/         # new, init, codegen, check
+│   │       └── templates/        # Project templates
+│   │
 │   ├── ringkernel-cuda-codegen/  # Rust-to-CUDA transpiler
 │   │   └── src/
 │   │       ├── lib.rs            # Public API (3 kernel types)

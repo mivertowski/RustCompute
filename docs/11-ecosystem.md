@@ -400,4 +400,103 @@ lazy_static! {
 
 ---
 
+## ML Framework Bridges (v0.2.0+)
+
+RingKernel provides bridges to popular ML frameworks for tensor interop and model execution:
+
+### PyTorch Bridge
+
+```rust
+use ringkernel_ecosystem::ml_bridge::{PyTorchBridge, PyTorchDType, PyTorchConfig};
+
+// Create bridge with configuration
+let config = PyTorchConfig {
+    default_device: "cuda:0".to_string(),
+    enable_cuda: true,
+    memory_pool_size: 1024 * 1024 * 1024, // 1GB
+    use_pinned_memory: true,
+};
+let bridge = PyTorchBridge::with_config(config);
+
+// Convert data to PyTorch tensor format
+let tensor = bridge.to_pytorch(
+    &data_bytes,
+    &[batch_size, channels, height, width],
+    PyTorchDType::Float32,
+)?;
+
+// Move to GPU
+let gpu_tensor = tensor.to_device("cuda:0");
+
+// Convert back from PyTorch format
+let output_data = bridge.from_pytorch(&gpu_tensor)?;
+```
+
+### ONNX Executor
+
+```rust
+use ringkernel_ecosystem::ml_bridge::{OnnxExecutor, OnnxConfig};
+
+// Create executor
+let executor = OnnxExecutor::new(&runtime)?;
+
+// Load model
+executor.load_model("models/resnet50.onnx")?;
+
+// Prepare inputs
+let inputs = vec![
+    ("input", input_tensor),
+];
+
+// Execute inference
+let outputs = executor.run(&inputs).await?;
+
+// Get output tensor
+let predictions = outputs.get("output").unwrap();
+```
+
+### Hugging Face Pipeline
+
+```rust
+use ringkernel_ecosystem::ml_bridge::{HuggingFacePipeline, PipelineConfig};
+
+// Text classification
+let classifier = HuggingFacePipeline::text_classification(
+    &runtime,
+    "bert-base-uncased",
+)?;
+let result = classifier.run("This is a great product!").await?;
+println!("Sentiment: {:?}, Score: {:.2}", result.label, result.score);
+
+// Text generation
+let generator = HuggingFacePipeline::text_generation(
+    &runtime,
+    "gpt2",
+)?;
+let text = generator.generate("Once upon a time", 100).await?;
+
+// Embeddings
+let embedder = HuggingFacePipeline::embeddings(
+    &runtime,
+    "sentence-transformers/all-MiniLM-L6-v2",
+)?;
+let embedding = embedder.embed("Hello, world!").await?;
+```
+
+### Data Type Mapping
+
+| PyTorch | RingKernel | Size |
+|---------|------------|------|
+| `torch.float32` | `PyTorchDType::Float32` | 4 bytes |
+| `torch.float64` | `PyTorchDType::Float64` | 8 bytes |
+| `torch.float16` | `PyTorchDType::Float16` | 2 bytes |
+| `torch.bfloat16` | `PyTorchDType::BFloat16` | 2 bytes |
+| `torch.int32` | `PyTorchDType::Int32` | 4 bytes |
+| `torch.int64` | `PyTorchDType::Int64` | 8 bytes |
+| `torch.int8` | `PyTorchDType::Int8` | 1 byte |
+| `torch.uint8` | `PyTorchDType::UInt8` | 1 byte |
+| `torch.bool` | `PyTorchDType::Bool` | 1 byte |
+
+---
+
 ## Next: [Migration Guide](./12-migration.md)

@@ -33,7 +33,7 @@ This crate provides optional integrations with popular Rust ecosystem libraries 
 
 ```toml
 [dependencies]
-ringkernel-ecosystem = { version = "0.1", features = ["axum", "persistent"] }
+ringkernel-ecosystem = { version = "0.2", features = ["axum", "persistent"] }
 ```
 
 ## Persistent GPU Integration

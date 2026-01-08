@@ -29,18 +29,18 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ringkernel = "0.1"
-tokio = { version = "1", features = ["full"] }
+ringkernel = "0.2"
+tokio = { version = "1.48", features = ["full"] }
 ```
 
 For GPU backends:
 
 ```toml
 # NVIDIA CUDA
-ringkernel = { version = "0.1", features = ["cuda"] }
+ringkernel = { version = "0.2", features = ["cuda"] }
 
 # WebGPU (cross-platform)
-ringkernel = { version = "0.1", features = ["wgpu"] }
+ringkernel = { version = "0.2", features = ["wgpu"] }
 ```
 
 ## Quick Start
@@ -71,6 +71,64 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+## CLI Tool
+
+RingKernel includes a CLI for project scaffolding and code generation:
+
+```bash
+# Install the CLI
+cargo install ringkernel-cli
+
+# Create a new project with persistent actor template
+ringkernel new my-gpu-app --template persistent-actor
+
+# Generate CUDA and WGSL code from kernel file
+ringkernel codegen src/kernels/processor.rs --backend cuda,wgsl
+
+# Check all kernels for backend compatibility
+ringkernel check --backends all
+
+# Generate shell completions
+ringkernel completions bash > ~/.bash_completion.d/ringkernel
+```
+
+Templates available: `basic`, `persistent-actor`, `wavesim`, `enterprise`
+
+## Enterprise Runtime
+
+For production deployments, use the enterprise runtime with built-in health checking, circuit breakers, and observability:
+
+```rust
+use ringkernel::prelude::*;
+use ringkernel_core::runtime_context::RuntimeBuilder;
+
+#[tokio::main]
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    // Create production-ready runtime
+    let runtime = RuntimeBuilder::new()
+        .production()  // Pre-configured for production
+        .build()?;
+
+    runtime.start()?;  // Transition to Running state
+
+    // Health monitoring
+    let health = runtime.run_health_check_cycle();
+    println!("Status: {:?}, Circuit: {:?}", health.status, health.circuit_state);
+
+    // Graceful shutdown with drain
+    let report = runtime.complete_shutdown()?;
+    println!("Uptime: {:?}, Kernels migrated: {}", report.total_uptime, report.migrated_kernels);
+
+    Ok(())
+}
+```
+
+Enterprise features include:
+- **Health & Resilience**: HealthChecker, CircuitBreaker, DegradationManager, KernelWatchdog
+- **Observability**: PrometheusExporter, ObservabilityContext, GPU memory dashboard
+- **Multi-GPU**: MultiGpuCoordinator, KernelMigrator, GpuTopology discovery
+- **Security**: MemoryEncryption, KernelSandbox, ComplianceReporter (SOC2, GDPR, HIPAA)
 
 ## Architecture
 
@@ -252,14 +310,17 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 | Crate | Description |
 |-------|-------------|
 | `ringkernel` | Main facade crate |
-| `ringkernel-core` | Core traits, types, HLC, K2K, PubSub |
+| `ringkernel-core` | Core traits, types, HLC, K2K, PubSub, enterprise runtime, security |
 | `ringkernel-derive` | Proc macros (`#[derive(RingMessage)]`, `#[ring_kernel]`) |
-| `ringkernel-cpu` | CPU backend |
+| `ringkernel-ir` | Unified IR for multi-backend code generation (CUDA/WGSL/MSL) |
+| `ringkernel-cli` | CLI tool for scaffolding, codegen, and validation |
+| `ringkernel-cpu` | CPU backend with mock GPU testing |
 | `ringkernel-cuda` | NVIDIA CUDA backend with cooperative groups support (cudarc 0.18.2) |
 | `ringkernel-wgpu` | WebGPU backend |
 | `ringkernel-codegen` | GPU kernel code generation |
 | `ringkernel-cuda-codegen` | Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL |
 | `ringkernel-wgpu-codegen` | Rust-to-WGSL transpiler for writing GPU kernels in Rust DSL (WebGPU) |
+| `ringkernel-ecosystem` | Framework integrations (Actix, Axum, Tower, gRPC) + ML bridges |
 | `ringkernel-wavesim` | 2D wave simulation with tile-based FDTD, ring kernel actors with K2K messaging, and educational modes |
 | `ringkernel-wavesim3d` | 3D acoustic wave simulation with binaural audio, persistent GPU actors (H2K/K2H messaging, K2K halo exchange, cooperative groups), and volumetric rendering |
 | `ringkernel-txmon` | Transaction monitoring showcase with GPU-accelerated fraud detection |
@@ -269,7 +330,7 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 ## Testing
 
 ```bash
-# Run all tests (550+ tests)
+# Run all tests (700+ tests)
 cargo test --workspace
 
 # CUDA backend tests (requires NVIDIA GPU)

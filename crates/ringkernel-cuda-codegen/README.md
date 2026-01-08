@@ -14,7 +14,7 @@ This crate enables writing GPU kernels in a restricted Rust DSL and transpiling 
 
 ```toml
 [dependencies]
-ringkernel-cuda-codegen = "0.1"
+ringkernel-cuda-codegen = "0.2"
 syn = { version = "2.0", features = ["full"] }
 ```
 
