@@ -1,0 +1,60 @@
+[package]
+name = "ringkernel-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+# Crates to fuzz
+ringkernel-core = { path = "../crates/ringkernel-core" }
+ringkernel-ir = { path = "../crates/ringkernel-ir" }
+ringkernel-cuda-codegen = { path = "../crates/ringkernel-cuda-codegen" }
+ringkernel-wgpu-codegen = { path = "../crates/ringkernel-wgpu-codegen" }
+
+# For serialization fuzzing
+rkyv = { version = "0.7", features = ["validation", "strict"] }
+
+# For parsing Rust code in transpiler fuzzers
+syn = { version = "2.0", features = ["full", "parsing"] }
+
+[[bin]]
+name = "fuzz_ir_builder"
+path = "fuzz_targets/fuzz_ir_builder.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_cuda_transpiler"
+path = "fuzz_targets/fuzz_cuda_transpiler.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_wgsl_transpiler"
+path = "fuzz_targets/fuzz_wgsl_transpiler.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_message_queue"
+path = "fuzz_targets/fuzz_message_queue.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_hlc"
+path = "fuzz_targets/fuzz_hlc.rs"
+test = false
+doc = false
+bench = false

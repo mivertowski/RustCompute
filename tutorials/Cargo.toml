@@ -1,0 +1,30 @@
+[package]
+name = "ringkernel-tutorials"
+version = "0.1.3"
+edition = "2021"
+authors = ["Michael Ivertowski <mivertowski@outlook.com>"]
+description = "Interactive tutorials for learning RingKernel"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+ringkernel-core = { path = "../crates/ringkernel-core" }
+ringkernel-cpu = { path = "../crates/ringkernel-cpu" }
+tokio = { version = "1.48", features = ["full"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[bin]]
+name = "tutorial-01"
+path = "01-getting-started/tutorial.rs"
+
+[[bin]]
+name = "tutorial-02"
+path = "02-message-passing/tutorial.rs"
+
+[[bin]]
+name = "tutorial-03"
+path = "03-gpu-kernels/tutorial.rs"
+
+[[bin]]
+name = "tutorial-04"
+path = "04-enterprise-features/tutorial.rs"

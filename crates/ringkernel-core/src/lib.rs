@@ -31,20 +31,27 @@
 #![warn(clippy::all)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod audit;
 pub mod context;
 pub mod control;
 pub mod error;
+pub mod health;
 pub mod hlc;
 pub mod k2k;
 pub mod memory;
 pub mod message;
 pub mod multi_gpu;
+pub mod observability;
 pub mod pubsub;
 pub mod queue;
 pub mod runtime;
+pub mod security;
 pub mod telemetry;
 pub mod telemetry_pipeline;
 pub mod types;
+pub mod checkpoint;
+pub mod config;
+pub mod runtime_context;
 
 /// Private module for proc macro integration.
 /// Not part of the public API - exposed for macro-generated code only.
@@ -53,9 +60,24 @@ pub mod __private;
 
 /// Prelude module for convenient imports
 pub mod prelude {
+    pub use crate::audit::{
+        AuditConfig, AuditEvent, AuditEventType, AuditLevel, AuditLogger, AuditLoggerBuilder,
+        AuditSink, FileSink, MemorySink,
+    };
+    pub use crate::config::{
+        CheckpointStorageType, ConfigBuilder, Environment, GeneralConfig, GeneralConfigBuilder,
+        HealthConfig, HealthConfigBuilder, LogLevel, MigrationConfig, MigrationConfigBuilder,
+        MultiGpuConfig, MultiGpuConfigBuilder, ObservabilityConfig, ObservabilityConfigBuilder,
+        RetryConfig, RingKernelConfig,
+    };
     pub use crate::context::*;
     pub use crate::control::*;
     pub use crate::error::*;
+    pub use crate::health::{
+        BackoffStrategy, CircuitBreaker, CircuitBreakerConfig, CircuitBreakerStats, CircuitState,
+        DegradationLevel, DegradationManager, DegradationStats, HealthCheck, HealthCheckResult,
+        HealthChecker, HealthStatus, KernelHealth, KernelWatchdog, LoadSheddingPolicy, RetryPolicy,
+    };
     pub use crate::hlc::*;
     pub use crate::k2k::{
         DeliveryStatus, K2KBroker, K2KBuilder, K2KConfig, K2KEndpoint, K2KMessage,
@@ -65,11 +87,35 @@ pub mod prelude {
         priority, CorrelationId, MessageEnvelope, MessageHeader, MessageId, Priority, RingMessage,
     };
     pub use crate::multi_gpu::{
-        DeviceInfo, DeviceStatus, LoadBalancingStrategy, MultiGpuBuilder, MultiGpuCoordinator,
+        CrossGpuK2KRouter, CrossGpuRouterStatsSnapshot, DeviceInfo, DeviceStatus,
+        DeviceUnregisterResult, GpuConnection, GpuTopology, HotReloadConfig, HotReloadManager,
+        HotReloadRequest, HotReloadResult, HotReloadState, HotReloadStatsSnapshot,
+        HotReloadableKernel, InterconnectType, KernelCodeFormat, KernelCodeSource,
+        KernelMigrationPlan, KernelMigrator, LoadBalancingStrategy, MigratableKernel,
+        MigrationPriority, MigrationRequest, MigrationResult, MigrationState,
+        MigrationStatsSnapshot, MultiGpuBuilder, MultiGpuCoordinator, PendingK2KMessage,
+        RoutingDecision,
+    };
+    pub use crate::observability::{
+        GpuDeviceMemoryStats, GpuMemoryAllocation, GpuMemoryDashboard, GpuMemoryPoolStats,
+        GpuMemoryThresholds, GpuMemoryType, GrafanaDashboard, GrafanaPanel, MemoryPressureLevel,
+        ObservabilityContext, PanelType, PrometheusCollector, PrometheusExporter,
+        RingKernelCollector, Span, SpanBuilder, SpanEvent, SpanId, SpanKind, SpanStatus, TraceId,
     };
     pub use crate::pubsub::{PubSubBroker, PubSubBuilder, Publication, QoS, Subscription, Topic};
     pub use crate::queue::*;
     pub use crate::runtime::*;
+    pub use crate::runtime_context::{
+        AppInfo, BackgroundTaskStatus, CircuitGuard, ContextMetrics, DegradationGuard,
+        HealthCycleResult, LifecycleState, MonitoringConfig, MonitoringHandles, OperationPriority,
+        RingKernelContext, RuntimeBuilder, RuntimeStatsSnapshot, ShutdownReport, WatchdogResult,
+    };
+    pub use crate::security::{
+        AccessLevel, ComplianceCheck, ComplianceReport, ComplianceReporter, ComplianceStandard,
+        ComplianceStatus, ComplianceSummary, EncryptedRegion, EncryptionAlgorithm, EncryptionConfig,
+        EncryptionKey, EncryptionStats, KeyDerivation, KernelSandbox, MemoryEncryption, ReportFormat,
+        ResourceLimits, SandboxPolicy, SandboxStats, SandboxViolation, ViolationType,
+    };
     pub use crate::telemetry::*;
     pub use crate::telemetry_pipeline::{
         MetricsCollector, MetricsSnapshot, TelemetryAlert, TelemetryConfig, TelemetryEvent,

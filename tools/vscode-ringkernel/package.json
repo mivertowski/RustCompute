@@ -1,0 +1,192 @@
+{
+  "name": "ringkernel-vscode",
+  "displayName": "RingKernel GPU Development",
+  "description": "GPU kernel development support for RingKernel - syntax highlighting, snippets, and GPU debugging",
+  "version": "0.1.0",
+  "publisher": "ringkernel",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Debuggers",
+    "Linters"
+  ],
+  "keywords": [
+    "gpu",
+    "cuda",
+    "rust",
+    "kernel",
+    "ringkernel",
+    "actor",
+    "persistent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ringkernel/ringkernel"
+  },
+  "license": "MIT",
+  "activationEvents": [
+    "onLanguage:rust",
+    "workspaceContains:**/Cargo.toml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "ringkernel-cuda",
+        "aliases": ["RingKernel CUDA", "cuda"],
+        "extensions": [".cu", ".cuh"],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "ringkernel-wgsl",
+        "aliases": ["RingKernel WGSL", "wgsl"],
+        "extensions": [".wgsl"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ringkernel-cuda",
+        "scopeName": "source.cuda.ringkernel",
+        "path": "./syntaxes/cuda.tmLanguage.json"
+      },
+      {
+        "language": "ringkernel-wgsl",
+        "scopeName": "source.wgsl.ringkernel",
+        "path": "./syntaxes/wgsl.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "rust",
+        "path": "./snippets/ringkernel.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "ringkernel.generateKernel",
+        "title": "RingKernel: Generate GPU Kernel"
+      },
+      {
+        "command": "ringkernel.transpileToCuda",
+        "title": "RingKernel: Transpile to CUDA"
+      },
+      {
+        "command": "ringkernel.transpileToWgsl",
+        "title": "RingKernel: Transpile to WGSL"
+      },
+      {
+        "command": "ringkernel.checkBackendCompat",
+        "title": "RingKernel: Check Backend Compatibility"
+      },
+      {
+        "command": "ringkernel.launchGpuPlayground",
+        "title": "RingKernel: Launch GPU Playground"
+      },
+      {
+        "command": "ringkernel.showMemoryDashboard",
+        "title": "RingKernel: Show GPU Memory Dashboard"
+      },
+      {
+        "command": "ringkernel.profileKernel",
+        "title": "RingKernel: Profile GPU Kernel"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "editorLangId == rust",
+          "command": "ringkernel.generateKernel",
+          "group": "ringkernel"
+        },
+        {
+          "when": "editorLangId == rust",
+          "command": "ringkernel.transpileToCuda",
+          "group": "ringkernel"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "RingKernel",
+      "properties": {
+        "ringkernel.defaultBackend": {
+          "type": "string",
+          "default": "cuda",
+          "enum": ["cuda", "wgpu", "metal", "cpu"],
+          "description": "Default GPU backend for kernel generation"
+        },
+        "ringkernel.enableInlayHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show GPU-specific inlay hints"
+        },
+        "ringkernel.showMemoryUsage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show GPU memory usage in status bar"
+        },
+        "ringkernel.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to ringkernel-cli executable"
+        },
+        "ringkernel.autoTranspile": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically transpile kernel code on save"
+        },
+        "ringkernel.playground.port": {
+          "type": "number",
+          "default": 8765,
+          "description": "Port for GPU Playground server"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ringkernel",
+          "title": "RingKernel",
+          "icon": "resources/ringkernel-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "ringkernel": [
+        {
+          "id": "ringkernel.kernels",
+          "name": "GPU Kernels"
+        },
+        {
+          "id": "ringkernel.memory",
+          "name": "Memory Usage"
+        },
+        {
+          "id": "ringkernel.profiler",
+          "name": "Profiler"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  }
+}

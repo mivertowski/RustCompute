@@ -1,0 +1,70 @@
+[package]
+name = "ringkernel-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CLI tool for RingKernel project scaffolding, kernel code generation, and profiling"
+keywords = ["gpu", "cli", "codegen", "scaffold"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "ringkernel"
+path = "src/main.rs"
+
+[dependencies]
+# CLI framework
+clap = { version = "4.4", features = ["derive", "cargo", "env"] }
+clap_complete = "4.4"
+
+# Configuration
+serde = { workspace = true }
+toml = { workspace = true }
+serde_yaml = { workspace = true }
+serde_json = "1.0"
+
+# File operations
+walkdir = "2.4"
+include_dir = "0.7"
+fs_extra = "1.3"
+
+# Terminal UI
+colored = "2.0"
+indicatif = "0.17"
+dialoguer = "0.11"
+console = "0.15"
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = "1.0"
+
+# Async runtime
+tokio = { workspace = true }
+
+# Templating
+handlebars = "5.1"
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# RingKernel crates (for codegen and validation)
+ringkernel-ir = { path = "../ringkernel-ir" }
+ringkernel-cuda-codegen = { path = "../ringkernel-cuda-codegen", optional = true }
+ringkernel-wgpu-codegen = { path = "../ringkernel-wgpu-codegen", optional = true }
+
+# Proc macro parsing
+syn = { workspace = true }
+quote = { workspace = true }
+
+[features]
+default = []
+cuda = ["ringkernel-cuda-codegen"]
+wgpu = ["ringkernel-wgpu-codegen"]
+all-backends = ["cuda", "wgpu"]
+
+[dev-dependencies]
+tempfile = "3.10"
+assert_cmd = "2.0"
+predicates = "3.1"

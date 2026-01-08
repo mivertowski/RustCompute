@@ -21,6 +21,9 @@ persistent = ["dep:async-stream"]
 # CUDA implementation of PersistentHandle
 persistent-cuda = ["persistent", "dep:ringkernel-cuda"]
 
+# WebGPU implementation of PersistentHandle (emulated via host-driven dispatch)
+persistent-wgpu = ["persistent", "dep:ringkernel-wgpu"]
+
 # Actor framework integrations
 actix = ["dep:actix", "dep:actix-rt"]
 tower = ["dep:tower", "dep:tower-service"]
@@ -28,8 +31,8 @@ tower = ["dep:tower", "dep:tower-service"]
 # Web framework integrations
 axum = ["dep:axum", "tower"]
 
-# WebSocket support for Axum (streaming responses)
-axum-ws = ["axum"]
+# WebSocket support for Axum (bidirectional streaming)
+axum-ws = ["axum", "dep:serde_json", "persistent"]
 
 # Server-Sent Events support for Axum (streaming responses)
 axum-sse = ["axum", "dep:async-stream", "dep:serde_json", "persistent"]
@@ -51,11 +54,20 @@ config = ["dep:config"]
 tracing-integration = []
 prometheus = ["dep:prometheus"]
 
+# GraphQL integration with subscriptions
+graphql = ["dep:async-graphql", "dep:async-graphql-axum", "dep:async-stream", "dep:serde_json", "persistent"]
+
+# Enterprise features integration (health, circuit breaker, degradation, metrics)
+enterprise = ["dep:serde_json"]
+
+# ML framework bridges (PyTorch, ONNX, Hugging Face)
+ml-bridge = []
+
 # Full persistent ecosystem (persistent + web frameworks)
-persistent-full = ["persistent-cuda", "actix", "axum", "axum-ws", "axum-sse", "grpc"]
+persistent-full = ["persistent-cuda", "persistent-wgpu", "actix", "axum", "axum-ws", "axum-sse", "grpc"]
 
 # Full ecosystem (all integrations)
-full = ["actix", "tower", "axum", "arrow", "polars", "grpc", "candle", "config", "tracing-integration", "prometheus", "persistent"]
+full = ["actix", "tower", "axum", "arrow", "polars", "grpc", "candle", "config", "tracing-integration", "prometheus", "persistent", "enterprise"]
 
 [dependencies]
 # Core ringkernel
@@ -80,8 +92,8 @@ actix-rt = { version = "2.10", optional = true }
 tower = { version = "0.5", optional = true }
 tower-service = { version = "0.3", optional = true }
 
-# Optional: Web frameworks
-axum = { version = "0.8", optional = true }
+# Optional: Web frameworks (ws feature for WebSocket support)
+axum = { version = "0.8", optional = true, features = ["ws"] }
 
 # Optional: Data processing
 arrow = { version = "54", optional = true }
@@ -102,10 +114,15 @@ prometheus = { version = "0.13", optional = true }
 
 # Optional: Persistent kernel support (enables cuda feature for full functionality)
 ringkernel-cuda = { workspace = true, optional = true, features = ["cuda"] }
+ringkernel-wgpu = { workspace = true, optional = true, features = ["wgpu"] }
 async-stream = { version = "0.3", optional = true }
 
 # Optional: SSE/JSON support
 serde_json = { version = "1.0", optional = true }
+
+# Optional: GraphQL
+async-graphql = { version = "7.0", optional = true, features = ["tracing"] }
+async-graphql-axum = { version = "7.0", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

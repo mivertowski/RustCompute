@@ -37,6 +37,9 @@ pub mod persistent;
 #[cfg(feature = "persistent-cuda")]
 pub mod cuda_bridge;
 
+#[cfg(feature = "persistent-wgpu")]
+pub mod wgpu_bridge;
+
 #[cfg(feature = "actix")]
 pub mod actix;
 
@@ -66,6 +69,15 @@ pub mod tracing_ext;
 
 #[cfg(feature = "prometheus")]
 pub mod metrics;
+
+#[cfg(feature = "graphql")]
+pub mod graphql;
+
+#[cfg(feature = "enterprise")]
+pub mod enterprise;
+
+#[cfg(feature = "ml-bridge")]
+pub mod ml_bridge;
 
 /// Prelude for convenient imports.
 ///
@@ -117,6 +129,13 @@ pub mod prelude {
     #[cfg(feature = "persistent-cuda")]
     pub use crate::cuda_bridge::{CudaPersistentHandle, CudaPersistentHandleBuilder};
 
+    #[cfg(feature = "persistent-wgpu")]
+    pub use crate::wgpu_bridge::{
+        BatchDispatchStats, BatchDispatcher, BatchedCommand, CommandBatch,
+        CpuBatchDispatcher, WgpuEmulationConfig, WgpuPersistentHandle,
+        WgpuPersistentHandleBuilder,
+    };
+
     #[cfg(feature = "arrow")]
     pub use crate::arrow::*;
 
@@ -134,4 +153,30 @@ pub mod prelude {
 
     #[cfg(feature = "prometheus")]
     pub use crate::metrics::*;
+
+    #[cfg(feature = "enterprise")]
+    pub use crate::enterprise::{
+        EnterpriseHealthResponse, EnterpriseState, EnterpriseStatsResponse, LivenessResponse,
+        ReadinessResponse,
+    };
+    #[cfg(all(feature = "enterprise", feature = "axum"))]
+    pub use crate::enterprise::{
+        enterprise_routes, health_handler as enterprise_health_handler, liveness_handler,
+        metrics_handler as enterprise_metrics_handler, readiness_handler, stats_handler,
+    };
+    #[cfg(all(feature = "enterprise", feature = "tower"))]
+    pub use crate::enterprise::{
+        CircuitBreakerFuture, CircuitBreakerLayer, CircuitBreakerService, DegradationFuture,
+        DegradationLayer, DegradationService,
+    };
+
+    #[cfg(feature = "graphql")]
+    pub use crate::graphql::{
+        create_schema, CommandAck, DynPersistentHandle, GraphQLState, InjectInput,
+        KernelConfigResponse, KernelEvent, KernelEventType, KernelMutation, KernelQuery,
+        KernelSchema, KernelStatsResponse, KernelStatus, KernelSubscription, ProgressUpdate,
+        RunStepsInput,
+    };
+    #[cfg(all(feature = "graphql", feature = "axum"))]
+    pub use crate::graphql::{graphql_handler, graphql_playground, graphql_router};
 }

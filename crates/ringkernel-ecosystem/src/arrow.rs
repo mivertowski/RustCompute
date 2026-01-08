@@ -320,6 +320,276 @@ impl<R: RuntimeHandle> ArrowPipelineBuilder<R> {
     }
 }
 
+// ============================================================================
+// Enhanced GPU Operations for Arrow
+// ============================================================================
+
+/// GPU-accelerated aggregation type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuAggregation {
+    /// Sum of all values
+    Sum,
+    /// Mean/average of values
+    Mean,
+    /// Minimum value
+    Min,
+    /// Maximum value
+    Max,
+    /// Count of values
+    Count,
+    /// Standard deviation
+    StdDev,
+    /// Variance
+    Variance,
+}
+
+/// GPU-accelerated filter predicate.
+#[derive(Debug, Clone)]
+pub enum GpuPredicate {
+    /// Equal to scalar value
+    Eq(f64),
+    /// Not equal to scalar value
+    Ne(f64),
+    /// Less than scalar value
+    Lt(f64),
+    /// Less than or equal to scalar value
+    Le(f64),
+    /// Greater than scalar value
+    Gt(f64),
+    /// Greater than or equal to scalar value
+    Ge(f64),
+    /// Between two values (inclusive)
+    Between(f64, f64),
+    /// In a set of values
+    In(Vec<f64>),
+    /// Is null
+    IsNull,
+    /// Is not null
+    IsNotNull,
+}
+
+/// GPU-accelerated sort order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuSortOrder {
+    /// Ascending order
+    Ascending,
+    /// Descending order
+    Descending,
+}
+
+/// Extended runtime handle for enhanced GPU operations.
+#[async_trait::async_trait]
+pub trait GpuArrowOps: Send + Sync + 'static {
+    /// GPU-accelerated filter operation.
+    async fn gpu_filter(&self, kernel_id: &str, data: Vec<u8>, predicate: &GpuPredicate) -> Result<Vec<u8>>;
+
+    /// GPU-accelerated sort operation.
+    async fn gpu_sort(&self, kernel_id: &str, data: Vec<u8>, order: GpuSortOrder) -> Result<Vec<u8>>;
+
+    /// GPU-accelerated aggregation operation.
+    async fn gpu_aggregate(&self, kernel_id: &str, data: Vec<u8>, agg: GpuAggregation) -> Result<f64>;
+
+    /// GPU-accelerated scatter/gather (select by indices).
+    async fn gpu_take(&self, kernel_id: &str, data: Vec<u8>, indices: Vec<u32>) -> Result<Vec<u8>>;
+
+    /// GPU-accelerated unique values.
+    async fn gpu_unique(&self, kernel_id: &str, data: Vec<u8>) -> Result<Vec<u8>>;
+
+    /// GPU-accelerated histogram.
+    async fn gpu_histogram(&self, kernel_id: &str, data: Vec<u8>, num_bins: u32) -> Result<Vec<u64>>;
+}
+
+/// GPU filter result with statistics.
+#[derive(Debug, Clone)]
+pub struct GpuFilterResult {
+    /// Filtered data
+    pub data: ArrayRef,
+    /// Number of rows before filter
+    pub rows_before: usize,
+    /// Number of rows after filter
+    pub rows_after: usize,
+    /// Filter selectivity (0.0 to 1.0)
+    pub selectivity: f64,
+}
+
+/// GPU aggregation result with metadata.
+#[derive(Debug, Clone)]
+pub struct GpuAggResult {
+    /// Aggregation value
+    pub value: f64,
+    /// Number of values aggregated
+    pub count: usize,
+    /// Whether any nulls were encountered
+    pub had_nulls: bool,
+}
+
+/// GPU sort result with statistics.
+#[derive(Debug, Clone)]
+pub struct GpuSortResult {
+    /// Sorted data
+    pub data: ArrayRef,
+    /// Number of comparisons (estimated)
+    pub comparisons: u64,
+    /// Whether the data was already sorted
+    pub was_sorted: bool,
+}
+
+/// Enhanced Arrow GPU executor with full operation support.
+pub struct GpuArrowExecutor<R> {
+    runtime: Arc<R>,
+    config: ArrowConfig,
+    /// Statistics for operations
+    pub stats: GpuArrowStats,
+}
+
+/// Statistics for GPU Arrow operations.
+#[derive(Debug, Clone, Default)]
+pub struct GpuArrowStats {
+    /// Total filter operations
+    pub filter_ops: u64,
+    /// Total sort operations
+    pub sort_ops: u64,
+    /// Total aggregation operations
+    pub agg_ops: u64,
+    /// Total bytes processed
+    pub bytes_processed: u64,
+    /// Total time in GPU operations (microseconds)
+    pub gpu_time_us: u64,
+}
+
+impl<R: RuntimeHandle + GpuArrowOps> GpuArrowExecutor<R> {
+    /// Create a new GPU Arrow executor.
+    pub fn new(runtime: Arc<R>) -> Self {
+        Self {
+            runtime,
+            config: ArrowConfig::default(),
+            stats: GpuArrowStats::default(),
+        }
+    }
+
+    /// Set configuration.
+    pub fn with_config(mut self, config: ArrowConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// GPU-accelerated filter on Float32Array.
+    pub async fn filter_f32(&self, array: &Float32Array, predicate: &GpuPredicate) -> Result<GpuFilterResult> {
+        let values = array.values();
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let rows_before = array.len();
+
+        let result_bytes = self.runtime.gpu_filter("filter_f32", bytes, predicate).await?;
+
+        let result_values: Vec<f32> = result_bytes
+            .chunks_exact(4)
+            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .collect();
+
+        let rows_after = result_values.len();
+        let selectivity = if rows_before > 0 { rows_after as f64 / rows_before as f64 } else { 0.0 };
+
+        Ok(GpuFilterResult {
+            data: Arc::new(Float32Array::from(result_values)),
+            rows_before,
+            rows_after,
+            selectivity,
+        })
+    }
+
+    /// GPU-accelerated sort on Float32Array.
+    pub async fn sort_f32(&self, array: &Float32Array, order: GpuSortOrder) -> Result<GpuSortResult> {
+        let values = array.values();
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+
+        let result_bytes = self.runtime.gpu_sort("sort_f32", bytes, order).await?;
+
+        let result_values: Vec<f32> = result_bytes
+            .chunks_exact(4)
+            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .collect();
+
+        // Check if already sorted
+        let was_sorted = values.windows(2).all(|w| {
+            match order {
+                GpuSortOrder::Ascending => w[0] <= w[1],
+                GpuSortOrder::Descending => w[0] >= w[1],
+            }
+        });
+
+        Ok(GpuSortResult {
+            data: Arc::new(Float32Array::from(result_values)),
+            comparisons: (array.len() as u64) * ((array.len() as f64).log2() as u64),
+            was_sorted,
+        })
+    }
+
+    /// GPU-accelerated aggregation on Float32Array.
+    pub async fn aggregate_f32(&self, array: &Float32Array, agg: GpuAggregation) -> Result<GpuAggResult> {
+        let values = array.values();
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+
+        let value = self.runtime.gpu_aggregate("agg_f32", bytes, agg).await?;
+
+        Ok(GpuAggResult {
+            value,
+            count: array.len(),
+            had_nulls: array.null_count() > 0,
+        })
+    }
+
+    /// GPU-accelerated histogram.
+    pub async fn histogram_f32(&self, array: &Float32Array, num_bins: u32) -> Result<Vec<u64>> {
+        let values = array.values();
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+
+        self.runtime.gpu_histogram("histogram_f32", bytes, num_bins).await
+    }
+
+    /// Get execution statistics.
+    pub fn stats(&self) -> &GpuArrowStats {
+        &self.stats
+    }
+}
+
+/// GPU-accelerated join operation types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuJoinType {
+    /// Inner join
+    Inner,
+    /// Left outer join
+    Left,
+    /// Right outer join
+    Right,
+    /// Full outer join
+    Full,
+    /// Semi join (exists)
+    Semi,
+    /// Anti join (not exists)
+    Anti,
+}
+
+/// Configuration for GPU join operations.
+#[derive(Debug, Clone)]
+pub struct GpuJoinConfig {
+    /// Join type
+    pub join_type: GpuJoinType,
+    /// Use hash join (vs sort-merge)
+    pub use_hash_join: bool,
+    /// Parallel hash table buckets
+    pub hash_buckets: u32,
+}
+
+impl Default for GpuJoinConfig {
+    fn default() -> Self {
+        Self {
+            join_type: GpuJoinType::Inner,
+            use_hash_join: true,
+            hash_buckets: 1024,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

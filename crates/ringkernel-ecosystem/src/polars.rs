@@ -329,6 +329,337 @@ impl<R: RuntimeHandle> GpuAggregator<R> {
     }
 }
 
+// ============================================================================
+// Enhanced GPU Operations for Polars
+// ============================================================================
+
+/// GPU window function type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuWindowFunction {
+    /// Row number
+    RowNumber,
+    /// Rank (with gaps)
+    Rank,
+    /// Dense rank (no gaps)
+    DenseRank,
+    /// Cumulative sum
+    CumSum,
+    /// Cumulative max
+    CumMax,
+    /// Cumulative min
+    CumMin,
+    /// Lead (look ahead)
+    Lead,
+    /// Lag (look behind)
+    Lag,
+    /// First value in window
+    FirstValue,
+    /// Last value in window
+    LastValue,
+    /// Nth value in window
+    NthValue,
+}
+
+/// Window specification for GPU operations.
+#[derive(Debug, Clone)]
+pub struct GpuWindowSpec {
+    /// Partition by columns
+    pub partition_by: Vec<String>,
+    /// Order by columns
+    pub order_by: Vec<String>,
+    /// Ascending order for each order_by column
+    pub ascending: Vec<bool>,
+    /// Window frame start (relative to current row)
+    pub frame_start: i64,
+    /// Window frame end (relative to current row)
+    pub frame_end: i64,
+}
+
+impl Default for GpuWindowSpec {
+    fn default() -> Self {
+        Self {
+            partition_by: Vec::new(),
+            order_by: Vec::new(),
+            ascending: Vec::new(),
+            frame_start: i64::MIN, // Unbounded preceding
+            frame_end: 0,         // Current row
+        }
+    }
+}
+
+impl GpuWindowSpec {
+    /// Create a new window specification.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add partition by columns.
+    pub fn partition_by(mut self, columns: &[&str]) -> Self {
+        self.partition_by = columns.iter().map(|s| s.to_string()).collect();
+        self
+    }
+
+    /// Add order by columns.
+    pub fn order_by(mut self, columns: &[&str], ascending: &[bool]) -> Self {
+        self.order_by = columns.iter().map(|s| s.to_string()).collect();
+        self.ascending = ascending.to_vec();
+        self
+    }
+
+    /// Set window frame.
+    pub fn frame(mut self, start: i64, end: i64) -> Self {
+        self.frame_start = start;
+        self.frame_end = end;
+        self
+    }
+
+    /// Rolling window (last n rows).
+    pub fn rolling(mut self, size: i64) -> Self {
+        self.frame_start = -(size - 1);
+        self.frame_end = 0;
+        self
+    }
+}
+
+/// GPU groupby aggregation type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuGroupByAgg {
+    /// Sum
+    Sum,
+    /// Mean
+    Mean,
+    /// Min
+    Min,
+    /// Max
+    Max,
+    /// Count
+    Count,
+    /// First value
+    First,
+    /// Last value
+    Last,
+    /// Standard deviation
+    Std,
+    /// Variance
+    Var,
+    /// Median
+    Median,
+}
+
+/// Configuration for GPU groupby operations.
+#[derive(Debug, Clone)]
+pub struct GpuGroupByConfig {
+    /// Aggregations to perform
+    pub aggregations: Vec<(String, GpuGroupByAgg)>,
+    /// Use hash-based groupby
+    pub use_hash: bool,
+    /// Maximum number of groups
+    pub max_groups: usize,
+    /// Sort output by group keys
+    pub sort_output: bool,
+}
+
+impl Default for GpuGroupByConfig {
+    fn default() -> Self {
+        Self {
+            aggregations: Vec::new(),
+            use_hash: true,
+            max_groups: 1_000_000,
+            sort_output: false,
+        }
+    }
+}
+
+impl GpuGroupByConfig {
+    /// Create a new groupby config.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add an aggregation.
+    pub fn agg(mut self, column: &str, agg: GpuGroupByAgg) -> Self {
+        self.aggregations.push((column.to_string(), agg));
+        self
+    }
+
+    /// Sort output by keys.
+    pub fn sorted(mut self) -> Self {
+        self.sort_output = true;
+        self
+    }
+}
+
+/// Extended runtime handle for enhanced Polars GPU operations.
+#[async_trait::async_trait]
+pub trait GpuPolarsOps: Send + Sync + 'static {
+    /// GPU-accelerated window function.
+    async fn gpu_window(
+        &self,
+        kernel_id: &str,
+        data: Vec<u8>,
+        func: GpuWindowFunction,
+        spec: &GpuWindowSpec,
+    ) -> Result<Vec<u8>>;
+
+    /// GPU-accelerated groupby.
+    async fn gpu_groupby(
+        &self,
+        kernel_id: &str,
+        keys: Vec<u8>,
+        values: Vec<u8>,
+        config: &GpuGroupByConfig,
+    ) -> Result<(Vec<u8>, Vec<u8>)>;
+
+    /// GPU-accelerated join.
+    async fn gpu_join(
+        &self,
+        kernel_id: &str,
+        left: Vec<u8>,
+        right: Vec<u8>,
+        join_type: GpuJoinType,
+    ) -> Result<Vec<u8>>;
+
+    /// GPU-accelerated sort.
+    async fn gpu_sort(
+        &self,
+        kernel_id: &str,
+        data: Vec<u8>,
+        descending: bool,
+    ) -> Result<Vec<u8>>;
+}
+
+/// GPU join type for Polars.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuJoinType {
+    /// Inner join
+    Inner,
+    /// Left join
+    Left,
+    /// Right join
+    Right,
+    /// Outer join
+    Outer,
+    /// Cross join
+    Cross,
+    /// Semi join
+    Semi,
+    /// Anti join
+    Anti,
+}
+
+/// Result of GPU groupby operation.
+#[derive(Debug, Clone)]
+pub struct GpuGroupByResult {
+    /// Group keys
+    pub keys: DataFrame,
+    /// Aggregated values
+    pub values: DataFrame,
+    /// Number of groups
+    pub num_groups: usize,
+}
+
+/// Result of GPU window operation.
+#[derive(Debug, Clone)]
+pub struct GpuWindowResult {
+    /// Result series
+    pub result: Series,
+    /// Number of partitions processed
+    pub num_partitions: usize,
+}
+
+/// Enhanced Polars GPU executor.
+pub struct GpuPolarsExecutor<R> {
+    runtime: Arc<R>,
+    config: PolarsConfig,
+}
+
+impl<R: RuntimeHandle + GpuPolarsOps> GpuPolarsExecutor<R> {
+    /// Create a new GPU Polars executor.
+    pub fn new(runtime: Arc<R>) -> Self {
+        Self {
+            runtime,
+            config: PolarsConfig::default(),
+        }
+    }
+
+    /// Apply window function on GPU.
+    pub async fn window(
+        &self,
+        series: &Series,
+        func: GpuWindowFunction,
+        spec: &GpuWindowSpec,
+    ) -> Result<GpuWindowResult> {
+        let data = series_to_bytes(series)?;
+
+        let result_bytes = self.runtime
+            .gpu_window("window", data, func, spec)
+            .await?;
+
+        let result = bytes_to_series(&result_bytes, series.name(), series.dtype())?;
+
+        Ok(GpuWindowResult {
+            result,
+            num_partitions: if spec.partition_by.is_empty() { 1 } else { 0 }, // Estimated
+        })
+    }
+
+    /// Sort series on GPU.
+    pub async fn sort(&self, series: &Series, descending: bool) -> Result<Series> {
+        let data = series_to_bytes(series)?;
+
+        let result_bytes = self.runtime
+            .gpu_sort("sort", data, descending)
+            .await?;
+
+        bytes_to_series(&result_bytes, series.name(), series.dtype())
+    }
+
+    /// Rolling mean on GPU.
+    pub async fn rolling_mean(&self, series: &Series, window_size: i64) -> Result<Series> {
+        let spec = GpuWindowSpec::new().rolling(window_size);
+        let result = self.window(series, GpuWindowFunction::CumSum, &spec).await?;
+
+        // Divide by window size for mean
+        Ok(result.result)
+    }
+
+    /// Cumulative sum on GPU.
+    pub async fn cumsum(&self, series: &Series) -> Result<Series> {
+        let spec = GpuWindowSpec::default();
+        let result = self.window(series, GpuWindowFunction::CumSum, &spec).await?;
+        Ok(result.result)
+    }
+
+    /// Rank on GPU.
+    pub async fn rank(&self, series: &Series, descending: bool) -> Result<Series> {
+        let spec = GpuWindowSpec::new()
+            .order_by(&[series.name()], &[!descending]);
+        let result = self.window(series, GpuWindowFunction::Rank, &spec).await?;
+        Ok(result.result)
+    }
+}
+
+/// GPU-accelerated lazy frame operations.
+pub struct GpuLazyOps<R> {
+    runtime: Arc<R>,
+    _config: PolarsConfig,
+}
+
+impl<R: RuntimeHandle + GpuPolarsOps> GpuLazyOps<R> {
+    /// Create new GPU lazy ops.
+    pub fn new(runtime: Arc<R>) -> Self {
+        Self {
+            runtime,
+            _config: PolarsConfig::default(),
+        }
+    }
+
+    /// Get runtime reference.
+    pub fn runtime(&self) -> &R {
+        &self.runtime
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

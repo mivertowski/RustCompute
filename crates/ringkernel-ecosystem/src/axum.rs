@@ -525,6 +525,16 @@ mod persistent_state {
             }
         }
 
+        /// Send a command to the persistent kernel.
+        ///
+        /// Returns the command ID if successful.
+        pub fn send_command(
+            &self,
+            command: PersistentCommand,
+        ) -> crate::error::Result<CommandId> {
+            self.handle.send_command(command)
+        }
+
         /// Create routes for persistent GPU endpoints.
         ///
         /// Routes:
@@ -977,6 +987,453 @@ mod sse {
     ) -> Router<PersistentGpuState<H>> {
         use axum::routing::get;
         router.route(&format!("{}/events", prefix), get(sse_handler::<H>))
+    }
+}
+
+// ============================================================================
+// WEBSOCKET INTEGRATION
+// ============================================================================
+
+#[cfg(feature = "axum-ws")]
+pub use websocket::*;
+
+#[cfg(feature = "axum-ws")]
+mod websocket {
+    use super::*;
+    use crate::persistent::{PersistentCommand, PersistentHandle, PersistentResponse};
+    use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+    use axum::response::IntoResponse;
+    use axum::Router;
+    use futures::{SinkExt, StreamExt};
+    use serde::Deserialize;
+    use tokio::sync::broadcast;
+
+    #[cfg(feature = "persistent")]
+    use super::persistent_state::PersistentGpuState;
+
+    // ========================================================================
+    // WEBSOCKET MESSAGE TYPES
+    // ========================================================================
+
+    /// Client-to-server WebSocket message.
+    #[derive(Debug, Clone, Deserialize, Serialize)]
+    #[serde(tag = "type", rename_all = "snake_case")]
+    pub enum ClientMessage {
+        /// Run simulation steps.
+        RunSteps { count: u64 },
+        /// Inject impulse at position.
+        Inject {
+            x: u32,
+            y: u32,
+            #[serde(default)]
+            z: u32,
+            value: f32,
+        },
+        /// Pause simulation.
+        Pause,
+        /// Resume simulation.
+        Resume,
+        /// Request statistics.
+        GetStats,
+        /// Request progress update.
+        GetProgress,
+        /// Subscribe to response updates (default on connect).
+        Subscribe,
+        /// Unsubscribe from response updates.
+        Unsubscribe,
+        /// Ping for keep-alive.
+        Ping,
+        /// Custom command.
+        Custom { type_id: u32, payload: Vec<u8> },
+    }
+
+    /// Server-to-client WebSocket message.
+    #[derive(Debug, Clone, Serialize)]
+    #[serde(tag = "type", rename_all = "snake_case")]
+    pub enum ServerMessage {
+        /// Command accepted.
+        Ack { command_id: u64 },
+        /// Progress update.
+        Progress {
+            command_id: u64,
+            current_step: u64,
+            remaining: u64,
+        },
+        /// Statistics response.
+        Stats {
+            kernel_id: String,
+            running: bool,
+            current_step: u64,
+            commands_processed: u64,
+        },
+        /// Error response.
+        Error { code: u32, message: String },
+        /// Kernel terminated.
+        Terminated { final_step: u64 },
+        /// Pong response.
+        Pong,
+        /// Connection established.
+        Connected { kernel_id: String, subscribed: bool },
+        /// Subscription status changed.
+        SubscriptionChanged { subscribed: bool },
+    }
+
+    impl From<PersistentResponse> for ServerMessage {
+        fn from(response: PersistentResponse) -> Self {
+            match response {
+                PersistentResponse::Ack { cmd_id } => ServerMessage::Ack {
+                    command_id: cmd_id.0,
+                },
+                PersistentResponse::Progress {
+                    cmd_id,
+                    current_step,
+                    remaining,
+                } => ServerMessage::Progress {
+                    command_id: cmd_id.0,
+                    current_step,
+                    remaining,
+                },
+                PersistentResponse::Stats { cmd_id: _, stats } => ServerMessage::Stats {
+                    kernel_id: String::new(),
+                    running: true,
+                    current_step: stats.current_step,
+                    commands_processed: stats.messages_processed,
+                },
+                PersistentResponse::Error {
+                    cmd_id: _,
+                    code,
+                    message,
+                } => ServerMessage::Error { code, message },
+                PersistentResponse::Terminated { final_step } => {
+                    ServerMessage::Terminated { final_step }
+                }
+                PersistentResponse::Custom { .. } => ServerMessage::Ack { command_id: 0 },
+            }
+        }
+    }
+
+    // ========================================================================
+    // WEBSOCKET HANDLER
+    // ========================================================================
+
+    /// WebSocket upgrade handler for persistent kernel communication.
+    ///
+    /// This handler provides bidirectional communication with a persistent GPU kernel:
+    /// - Client can send commands (run steps, inject, pause, resume, etc.)
+    /// - Server streams responses (ack, progress, errors, etc.)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use axum::Router;
+    /// use ringkernel_ecosystem::axum::{PersistentGpuState, ws_handler};
+    ///
+    /// let app = Router::new()
+    ///     .route("/ws", get(ws_handler::<MyPersistentHandle>))
+    ///     .with_state(state);
+    /// ```
+    pub async fn ws_handler<H: PersistentHandle + Clone + Send + Sync + 'static>(
+        ws: WebSocketUpgrade,
+        State(state): State<PersistentGpuState<H>>,
+    ) -> impl IntoResponse {
+        ws.on_upgrade(move |socket| handle_websocket(socket, state))
+    }
+
+    /// Internal WebSocket connection handler.
+    async fn handle_websocket<H: PersistentHandle + Clone + Send + Sync + 'static>(
+        socket: WebSocket,
+        state: PersistentGpuState<H>,
+    ) {
+        let (mut sender, mut receiver) = socket.split();
+
+        // Subscribe to broadcast channel
+        let mut broadcast_rx = state.subscribe();
+        let mut subscribed = true;
+
+        // Send connection confirmation
+        let connected_msg = ServerMessage::Connected {
+            kernel_id: state.kernel_id().to_string(),
+            subscribed,
+        };
+        if let Ok(json) = serde_json::to_string(&connected_msg) {
+            let _ = sender.send(Message::Text(json.into())).await;
+        }
+
+        // Handle bidirectional communication
+        loop {
+            tokio::select! {
+                // Handle incoming client messages
+                Some(msg) = receiver.next() => {
+                    match msg {
+                        Ok(Message::Text(text)) => {
+                            if let Err(e) = handle_client_message(
+                                &text,
+                                &state,
+                                &mut sender,
+                                &mut subscribed,
+                            ).await {
+                                tracing::warn!("Error handling WebSocket message: {}", e);
+                                let error_msg = ServerMessage::Error {
+                                    code: 1,
+                                    message: e.to_string(),
+                                };
+                                if let Ok(json) = serde_json::to_string(&error_msg) {
+                                    let _ = sender.send(Message::Text(json.into())).await;
+                                }
+                            }
+                        }
+                        Ok(Message::Binary(data)) => {
+                            if let Ok(text) = String::from_utf8(data.to_vec()) {
+                                let _ = handle_client_message(
+                                    &text,
+                                    &state,
+                                    &mut sender,
+                                    &mut subscribed,
+                                ).await;
+                            }
+                        }
+                        Ok(Message::Ping(data)) => {
+                            let _ = sender.send(Message::Pong(data)).await;
+                        }
+                        Ok(Message::Pong(_)) => {}
+                        Ok(Message::Close(_)) => {
+                            tracing::debug!("WebSocket client disconnected");
+                            break;
+                        }
+                        Err(e) => {
+                            tracing::warn!("WebSocket error: {}", e);
+                            break;
+                        }
+                    }
+                }
+
+                // Forward broadcast messages to client (if subscribed)
+                result = broadcast_rx.recv(), if subscribed => {
+                    match result {
+                        Ok(response) => {
+                            let server_msg: ServerMessage = response.into();
+                            if let Ok(json) = serde_json::to_string(&server_msg) {
+                                if sender.send(Message::Text(json.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => {
+                            continue;
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Handle a client message and send appropriate response.
+    async fn handle_client_message<H: PersistentHandle + Clone + 'static>(
+        text: &str,
+        state: &PersistentGpuState<H>,
+        sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+        subscribed: &mut bool,
+    ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let client_msg: ClientMessage = serde_json::from_str(text)?;
+
+        match client_msg {
+            ClientMessage::RunSteps { count } => {
+                let cmd = PersistentCommand::RunSteps { count };
+                match state.send_command(cmd) {
+                    Ok(cmd_id) => {
+                        let response = ServerMessage::Ack { command_id: cmd_id.0 };
+                        let json = serde_json::to_string(&response)?;
+                        sender.send(Message::Text(json.into())).await?;
+                    }
+                    Err(e) => {
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e.to_string(),
+                        )));
+                    }
+                }
+            }
+            ClientMessage::Inject { x, y, z, value } => {
+                let cmd = PersistentCommand::Inject {
+                    position: (x, y, z),
+                    value,
+                };
+                match state.send_command(cmd) {
+                    Ok(cmd_id) => {
+                        let response = ServerMessage::Ack { command_id: cmd_id.0 };
+                        let json = serde_json::to_string(&response)?;
+                        sender.send(Message::Text(json.into())).await?;
+                    }
+                    Err(e) => {
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e.to_string(),
+                        )));
+                    }
+                }
+            }
+            ClientMessage::Pause => {
+                match state.send_command(PersistentCommand::Pause) {
+                    Ok(cmd_id) => {
+                        let response = ServerMessage::Ack { command_id: cmd_id.0 };
+                        let json = serde_json::to_string(&response)?;
+                        sender.send(Message::Text(json.into())).await?;
+                    }
+                    Err(e) => {
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e.to_string(),
+                        )));
+                    }
+                }
+            }
+            ClientMessage::Resume => {
+                match state.send_command(PersistentCommand::Resume) {
+                    Ok(cmd_id) => {
+                        let response = ServerMessage::Ack { command_id: cmd_id.0 };
+                        let json = serde_json::to_string(&response)?;
+                        sender.send(Message::Text(json.into())).await?;
+                    }
+                    Err(e) => {
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e.to_string(),
+                        )));
+                    }
+                }
+            }
+            ClientMessage::GetStats => {
+                let stats = state.kernel_stats();
+                let response = ServerMessage::Stats {
+                    kernel_id: state.kernel_id().to_string(),
+                    running: state.is_running(),
+                    current_step: stats.current_step,
+                    commands_processed: stats.messages_processed,
+                };
+                let json = serde_json::to_string(&response)?;
+                sender.send(Message::Text(json.into())).await?;
+            }
+            ClientMessage::GetProgress => {
+                match state.send_command(PersistentCommand::GetProgress) {
+                    Ok(cmd_id) => {
+                        let response = ServerMessage::Ack { command_id: cmd_id.0 };
+                        let json = serde_json::to_string(&response)?;
+                        sender.send(Message::Text(json.into())).await?;
+                    }
+                    Err(e) => {
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e.to_string(),
+                        )));
+                    }
+                }
+            }
+            ClientMessage::Subscribe => {
+                *subscribed = true;
+                let response = ServerMessage::SubscriptionChanged { subscribed: true };
+                let json = serde_json::to_string(&response)?;
+                sender.send(Message::Text(json.into())).await?;
+            }
+            ClientMessage::Unsubscribe => {
+                *subscribed = false;
+                let response = ServerMessage::SubscriptionChanged { subscribed: false };
+                let json = serde_json::to_string(&response)?;
+                sender.send(Message::Text(json.into())).await?;
+            }
+            ClientMessage::Ping => {
+                let response = ServerMessage::Pong;
+                let json = serde_json::to_string(&response)?;
+                sender.send(Message::Text(json.into())).await?;
+            }
+            ClientMessage::Custom { type_id, payload } => {
+                let cmd = PersistentCommand::Custom { type_id, payload };
+                match state.send_command(cmd) {
+                    Ok(cmd_id) => {
+                        let response = ServerMessage::Ack { command_id: cmd_id.0 };
+                        let json = serde_json::to_string(&response)?;
+                        sender.send(Message::Text(json.into())).await?;
+                    }
+                    Err(e) => {
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e.to_string(),
+                        )));
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Add WebSocket routes to a persistent GPU state.
+    pub fn with_ws_routes<H: PersistentHandle + Clone + Send + Sync + 'static>(
+        router: Router<PersistentGpuState<H>>,
+        prefix: &str,
+    ) -> Router<PersistentGpuState<H>> {
+        use axum::routing::get;
+        router.route(&format!("{}/ws", prefix), get(ws_handler::<H>))
+    }
+}
+
+#[cfg(all(test, feature = "axum-ws"))]
+mod websocket_tests {
+    use super::websocket::*;
+
+    #[test]
+    fn test_client_message_parsing() {
+        let json = r#"{"type":"run_steps","count":100}"#;
+        let msg: ClientMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(msg, ClientMessage::RunSteps { count: 100 }));
+
+        let json = r#"{"type":"inject","x":10,"y":20,"z":30,"value":1.5}"#;
+        let msg: ClientMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(
+            msg,
+            ClientMessage::Inject { x: 10, y: 20, z: 30, .. }
+        ));
+
+        let json = r#"{"type":"pause"}"#;
+        let msg: ClientMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(msg, ClientMessage::Pause));
+
+        let json = r#"{"type":"ping"}"#;
+        let msg: ClientMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(msg, ClientMessage::Ping));
+    }
+
+    #[test]
+    fn test_server_message_serialization() {
+        let msg = ServerMessage::Ack { command_id: 42 };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"ack\""));
+        assert!(json.contains("\"command_id\":42"));
+
+        let msg = ServerMessage::Progress {
+            command_id: 1,
+            current_step: 100,
+            remaining: 900,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"progress\""));
+
+        let msg = ServerMessage::Pong;
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"pong\""));
+    }
+
+    #[test]
+    fn test_inject_default_z() {
+        let json = r#"{"type":"inject","x":10,"y":20,"value":1.5}"#;
+        let msg: ClientMessage = serde_json::from_str(json).unwrap();
+        if let ClientMessage::Inject { z, .. } = msg {
+            assert_eq!(z, 0);
+        } else {
+            panic!("Expected Inject message");
+        }
     }
 }
 
