@@ -23,15 +23,8 @@ pub async fn execute(path: &str, backends: &str, detailed: bool) -> CliResult<()
 
     let backend_list = parse_backends(backends);
 
-    println!(
-        "{} Checking kernel compatibility",
-        "→".bright_cyan()
-    );
-    println!(
-        "  {} Path: {}",
-        "•".dimmed(),
-        path.bright_yellow()
-    );
+    println!("{} Checking kernel compatibility", "→".bright_cyan());
+    println!("  {} Path: {}", "•".dimmed(), path.bright_yellow());
     println!(
         "  {} Backends: {}",
         "•".dimmed(),
@@ -41,10 +34,7 @@ pub async fn execute(path: &str, backends: &str, detailed: bool) -> CliResult<()
 
     // Find all Rust source files
     let mut kernel_files = Vec::new();
-    for entry in WalkDir::new(source_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    for entry in WalkDir::new(source_path).into_iter().filter_map(|e| e.ok()) {
         if entry.path().extension().map(|e| e == "rs").unwrap_or(false) {
             kernel_files.push(entry.path().to_path_buf());
         }
@@ -61,10 +51,8 @@ pub async fn execute(path: &str, backends: &str, detailed: bool) -> CliResult<()
 
     // Analyze each file for kernels
     let mut total_kernels = 0;
-    let mut compatible_counts: std::collections::HashMap<String, usize> = backend_list
-        .iter()
-        .map(|b| (b.clone(), 0))
-        .collect();
+    let mut compatible_counts: std::collections::HashMap<String, usize> =
+        backend_list.iter().map(|b| (b.clone(), 0)).collect();
     let mut issues: Vec<CompatibilityIssue> = Vec::new();
 
     for file_path in &kernel_files {
@@ -197,6 +185,7 @@ struct CompatibilityIssue {
 
 /// Result of analyzing a kernel.
 #[derive(Debug)]
+#[allow(dead_code)]
 struct KernelAnalysisResult {
     name: String,
     backend_compatibility: std::collections::HashMap<String, bool>,
@@ -218,10 +207,8 @@ fn analyze_file(
             for attr in &func.attrs {
                 if attr.path().is_ident("ring_kernel") {
                     let name = func.sig.ident.to_string();
-                    let mut compatibility: std::collections::HashMap<String, bool> = backends
-                        .iter()
-                        .map(|b| (b.clone(), true))
-                        .collect();
+                    let mut compatibility: std::collections::HashMap<String, bool> =
+                        backends.iter().map(|b| (b.clone(), true)).collect();
                     let mut issues = Vec::new();
 
                     // Check for features that might not be compatible
@@ -237,9 +224,7 @@ fn analyze_file(
                                 kernel_name: name.clone(),
                                 message: "Uses f64 (not supported in WGSL)".to_string(),
                                 severity: Severity::Error,
-                                suggestion: Some(
-                                    "Convert f64 to f32 or use emulation".to_string(),
-                                ),
+                                suggestion: Some("Convert f64 to f32 or use emulation".to_string()),
                             });
                         }
 
@@ -250,9 +235,7 @@ fn analyze_file(
                                 kernel_name: name.clone(),
                                 message: "Uses 64-bit atomics (emulated in WGSL)".to_string(),
                                 severity: Severity::Warning,
-                                suggestion: Some(
-                                    "Performance may be reduced".to_string(),
-                                ),
+                                suggestion: Some("Performance may be reduced".to_string()),
                             });
                         }
 
@@ -274,19 +257,15 @@ fn analyze_file(
                     }
 
                     // Check MSL compatibility
-                    if backends.contains(&"msl".to_string()) {
-                        if analysis.uses_cooperative_groups {
-                            issues.push(CompatibilityIssue {
-                                file: file_path.to_path_buf(),
-                                line: 0,
-                                kernel_name: name.clone(),
-                                message: "Uses cooperative groups (limited in Metal)".to_string(),
-                                severity: Severity::Warning,
-                                suggestion: Some(
-                                    "Use threadgroup_barrier instead".to_string(),
-                                ),
-                            });
-                        }
+                    if backends.contains(&"msl".to_string()) && analysis.uses_cooperative_groups {
+                        issues.push(CompatibilityIssue {
+                            file: file_path.to_path_buf(),
+                            line: 0,
+                            kernel_name: name.clone(),
+                            message: "Uses cooperative groups (limited in Metal)".to_string(),
+                            severity: Severity::Warning,
+                            suggestion: Some("Use threadgroup_barrier instead".to_string()),
+                        });
                     }
 
                     if detailed && issues.is_empty() {
@@ -367,8 +346,7 @@ fn analyze_kernel_features(func: &syn::ItemFn) -> KernelFeatures {
         features.uses_64bit_atomics = true;
     }
 
-    if code.contains("grid.sync") || code.contains("cg::grid_group") || code.contains("grid_sync")
-    {
+    if code.contains("grid.sync") || code.contains("cg::grid_group") || code.contains("grid_sync") {
         features.uses_cooperative_groups = true;
     }
 

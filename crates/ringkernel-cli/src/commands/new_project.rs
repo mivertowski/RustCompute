@@ -42,11 +42,7 @@ pub async fn execute(
         "→".bright_cyan(),
         name.bright_white().bold()
     );
-    println!(
-        "  {} Template: {}",
-        "•".dimmed(),
-        template.bright_yellow()
-    );
+    println!("  {} Template: {}", "•".dimmed(), template.bright_yellow());
     println!(
         "  {} Backends: {}",
         "•".dimmed(),
@@ -105,11 +101,7 @@ pub async fn execute(
     );
     println!();
     println!("  Next steps:");
-    println!(
-        "    {} {}",
-        "cd".bright_white(),
-        name.bright_yellow()
-    );
+    println!("    {} {}", "cd".bright_white(), name.bright_yellow());
     println!(
         "    {} {}",
         "cargo build".bright_white(),
@@ -126,14 +118,7 @@ pub async fn execute(
 }
 
 fn create_directory_structure(project_path: &Path) -> CliResult<()> {
-    let dirs = [
-        "",
-        "src",
-        "src/kernels",
-        "examples",
-        "benches",
-        "tests",
-    ];
+    let dirs = ["", "src", "src/kernels", "examples", "benches", "tests"];
 
     for dir in dirs {
         fs::create_dir_all(project_path.join(dir))?;
@@ -293,7 +278,7 @@ fn initialize_git(project_path: &Path) -> CliResult<()> {
 }
 
 fn to_pascal_case(s: &str) -> String {
-    s.split(|c| c == '-' || c == '_')
+    s.split(['-', '_'])
         .map(|word| {
             let mut chars = word.chars();
             match chars.next() {

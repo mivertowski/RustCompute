@@ -741,7 +741,12 @@ impl Default for GpuKernelArgs {
         Self {
             id: None,
             backends: vec![GpuBackend::Cuda, GpuBackend::Metal, GpuBackend::Wgpu],
-            fallback: vec![GpuBackend::Cuda, GpuBackend::Metal, GpuBackend::Wgpu, GpuBackend::Cpu],
+            fallback: vec![
+                GpuBackend::Cuda,
+                GpuBackend::Metal,
+                GpuBackend::Wgpu,
+                GpuBackend::Cpu,
+            ],
             requires: Vec::new(),
             block_size: None,
         }
@@ -757,7 +762,8 @@ impl GpuKernelArgs {
         if let Some(start) = attr_str.find("backends") {
             if let Some(bracket_start) = attr_str[start..].find('[') {
                 if let Some(bracket_end) = attr_str[start + bracket_start..].find(']') {
-                    let backends_str = &attr_str[start + bracket_start + 1..start + bracket_start + bracket_end];
+                    let backends_str =
+                        &attr_str[start + bracket_start + 1..start + bracket_start + bracket_end];
                     args.backends = backends_str
                         .split(',')
                         .filter_map(|s| GpuBackend::from_str(s.trim()))
@@ -770,7 +776,8 @@ impl GpuKernelArgs {
         if let Some(start) = attr_str.find("fallback") {
             if let Some(bracket_start) = attr_str[start..].find('[') {
                 if let Some(bracket_end) = attr_str[start + bracket_start..].find(']') {
-                    let fallback_str = &attr_str[start + bracket_start + 1..start + bracket_start + bracket_end];
+                    let fallback_str =
+                        &attr_str[start + bracket_start + 1..start + bracket_start + bracket_end];
                     args.fallback = fallback_str
                         .split(',')
                         .filter_map(|s| GpuBackend::from_str(s.trim()))
@@ -783,7 +790,8 @@ impl GpuKernelArgs {
         if let Some(start) = attr_str.find("requires") {
             if let Some(bracket_start) = attr_str[start..].find('[') {
                 if let Some(bracket_end) = attr_str[start + bracket_start..].find(']') {
-                    let requires_str = &attr_str[start + bracket_start + 1..start + bracket_start + bracket_end];
+                    let requires_str =
+                        &attr_str[start + bracket_start + 1..start + bracket_start + bracket_end];
                     args.requires = requires_str
                         .split(',')
                         .filter_map(|s| GpuCapability::from_str(s.trim()))
@@ -796,7 +804,10 @@ impl GpuKernelArgs {
         if let Some(start) = attr_str.find("id") {
             if let Some(quote_start) = attr_str[start..].find('"') {
                 if let Some(quote_end) = attr_str[start + quote_start + 1..].find('"') {
-                    args.id = Some(attr_str[start + quote_start + 1..start + quote_start + 1 + quote_end].to_string());
+                    args.id = Some(
+                        attr_str[start + quote_start + 1..start + quote_start + 1 + quote_end]
+                            .to_string(),
+                    );
                 }
             }
         }
@@ -805,7 +816,9 @@ impl GpuKernelArgs {
         if let Some(start) = attr_str.find("block_size") {
             if let Some(eq) = attr_str[start..].find('=') {
                 let rest = &attr_str[start + eq + 1..];
-                let num_end = rest.find(|c: char| !c.is_numeric() && c != ' ').unwrap_or(rest.len());
+                let num_end = rest
+                    .find(|c: char| !c.is_numeric() && c != ' ')
+                    .unwrap_or(rest.len());
                 if let Ok(n) = rest[..num_end].trim().parse() {
                     args.block_size = Some(n);
                 }
@@ -840,9 +853,7 @@ impl GpuKernelArgs {
     fn compatible_backends(&self) -> Vec<GpuBackend> {
         self.backends
             .iter()
-            .filter(|backend| {
-                self.requires.iter().all(|cap| cap.supported_by(**backend))
-            })
+            .filter(|backend| self.requires.iter().all(|cap| cap.supported_by(**backend)))
             .copied()
             .collect()
     }

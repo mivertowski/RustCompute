@@ -310,10 +310,7 @@ impl AuditEvent {
     }
 
     /// Create a security violation event.
-    pub fn security_violation(
-        actor: impl Into<String>,
-        violation: impl Into<String>,
-    ) -> Self {
+    pub fn security_violation(actor: impl Into<String>, violation: impl Into<String>) -> Self {
         Self::new(
             AuditLevel::Security,
             AuditEventType::SecurityViolation,
@@ -340,10 +337,7 @@ impl AuditEvent {
     }
 
     /// Create a health check event.
-    pub fn health_check(
-        kernel_id: impl Into<String>,
-        status: impl Into<String>,
-    ) -> Self {
+    pub fn health_check(kernel_id: impl Into<String>, status: impl Into<String>) -> Self {
         Self::new(
             AuditLevel::Info,
             AuditEventType::HealthCheck,
@@ -363,7 +357,12 @@ impl AuditEvent {
 
         let hlc_str = self
             .hlc
-            .map(|h| format!(r#","hlc":{{"wall":{},"logical":{}}}"#, h.physical, h.logical))
+            .map(|h| {
+                format!(
+                    r#","hlc":{{"wall":{},"logical":{}}}"#,
+                    h.physical, h.logical
+                )
+            })
             .unwrap_or_default();
 
         let target_str = self
@@ -389,7 +388,7 @@ impl AuditEvent {
         };
 
         format!(
-            r#"{{"id":{},"timestamp":{}{},"level":"{}","event_type":"{}","actor":"{}"{}{},"{}{}}}"#,
+            r#"{{"id":{},"timestamp":{}{},"level":"{}","event_type":"{}","actor":"{}"{}"description":"{}"{}"checksum":{}{}}}"#,
             self.id,
             timestamp,
             hlc_str,
@@ -397,9 +396,10 @@ impl AuditEvent {
             self.event_type.as_str(),
             escape_json(&self.actor),
             target_str,
-            format!(r#""description":"{}""#, escape_json(&self.description)),
+            escape_json(&self.description),
             metadata_str,
-            format!(r#""checksum":{}{}"#, self.checksum, prev_checksum_str),
+            self.checksum,
+            prev_checksum_str,
         )
     }
 }
@@ -852,8 +852,7 @@ mod tests {
     #[test]
     fn test_audit_event_chain() {
         let event1 = AuditEvent::kernel_launched("k1", "cuda");
-        let event2 = AuditEvent::kernel_launched("k2", "cuda")
-            .with_prev_checksum(event1.checksum);
+        let event2 = AuditEvent::kernel_launched("k2", "cuda").with_prev_checksum(event1.checksum);
 
         assert_eq!(event2.prev_checksum, Some(event1.checksum));
     }
@@ -902,7 +901,10 @@ mod tests {
         // Should only keep the last 3
         assert_eq!(sink.len(), 3);
         let events = sink.events();
-        assert_eq!(events[0].event_type, AuditEventType::Custom("event_2".to_string()));
+        assert_eq!(
+            events[0].event_type,
+            AuditEventType::Custom("event_2".to_string())
+        );
     }
 
     #[test]

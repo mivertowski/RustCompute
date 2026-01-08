@@ -29,8 +29,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_graphql::{
-    Context, Enum, InputObject, Object, Result as GqlResult, Schema, SimpleObject, Subscription,
-    ID,
+    Context, Enum, InputObject, Object, Result as GqlResult, Schema, SimpleObject, Subscription, ID,
 };
 use tokio::sync::broadcast;
 

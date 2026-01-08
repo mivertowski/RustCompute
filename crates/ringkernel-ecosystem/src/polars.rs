@@ -382,7 +382,7 @@ impl Default for GpuWindowSpec {
             order_by: Vec::new(),
             ascending: Vec::new(),
             frame_start: i64::MIN, // Unbounded preceding
-            frame_end: 0,         // Current row
+            frame_end: 0,          // Current row
         }
     }
 }
@@ -520,12 +520,7 @@ pub trait GpuPolarsOps: Send + Sync + 'static {
     ) -> Result<Vec<u8>>;
 
     /// GPU-accelerated sort.
-    async fn gpu_sort(
-        &self,
-        kernel_id: &str,
-        data: Vec<u8>,
-        descending: bool,
-    ) -> Result<Vec<u8>>;
+    async fn gpu_sort(&self, kernel_id: &str, data: Vec<u8>, descending: bool) -> Result<Vec<u8>>;
 }
 
 /// GPU join type for Polars.
@@ -591,9 +586,7 @@ impl<R: RuntimeHandle + GpuPolarsOps> GpuPolarsExecutor<R> {
     ) -> Result<GpuWindowResult> {
         let data = series_to_bytes(series)?;
 
-        let result_bytes = self.runtime
-            .gpu_window("window", data, func, spec)
-            .await?;
+        let result_bytes = self.runtime.gpu_window("window", data, func, spec).await?;
 
         let result = bytes_to_series(&result_bytes, series.name(), series.dtype())?;
 
@@ -607,9 +600,7 @@ impl<R: RuntimeHandle + GpuPolarsOps> GpuPolarsExecutor<R> {
     pub async fn sort(&self, series: &Series, descending: bool) -> Result<Series> {
         let data = series_to_bytes(series)?;
 
-        let result_bytes = self.runtime
-            .gpu_sort("sort", data, descending)
-            .await?;
+        let result_bytes = self.runtime.gpu_sort("sort", data, descending).await?;
 
         bytes_to_series(&result_bytes, series.name(), series.dtype())
     }
@@ -617,7 +608,9 @@ impl<R: RuntimeHandle + GpuPolarsOps> GpuPolarsExecutor<R> {
     /// Rolling mean on GPU.
     pub async fn rolling_mean(&self, series: &Series, window_size: i64) -> Result<Series> {
         let spec = GpuWindowSpec::new().rolling(window_size);
-        let result = self.window(series, GpuWindowFunction::CumSum, &spec).await?;
+        let result = self
+            .window(series, GpuWindowFunction::CumSum, &spec)
+            .await?;
 
         // Divide by window size for mean
         Ok(result.result)
@@ -626,14 +619,15 @@ impl<R: RuntimeHandle + GpuPolarsOps> GpuPolarsExecutor<R> {
     /// Cumulative sum on GPU.
     pub async fn cumsum(&self, series: &Series) -> Result<Series> {
         let spec = GpuWindowSpec::default();
-        let result = self.window(series, GpuWindowFunction::CumSum, &spec).await?;
+        let result = self
+            .window(series, GpuWindowFunction::CumSum, &spec)
+            .await?;
         Ok(result.result)
     }
 
     /// Rank on GPU.
     pub async fn rank(&self, series: &Series, descending: bool) -> Result<Series> {
-        let spec = GpuWindowSpec::new()
-            .order_by(&[series.name()], &[!descending]);
+        let spec = GpuWindowSpec::new().order_by(&[series.name()], &[!descending]);
         let result = self.window(series, GpuWindowFunction::Rank, &spec).await?;
         Ok(result.result)
     }

@@ -69,8 +69,8 @@ use ringkernel_wgpu::WgpuRuntime;
 
 use crate::error::{EcosystemError, Result as EcoResult};
 use crate::persistent::{
-    CommandId, PersistentCommand, PersistentConfig, PersistentHandle,
-    PersistentResponse, PersistentStats,
+    CommandId, PersistentCommand, PersistentConfig, PersistentHandle, PersistentResponse,
+    PersistentStats,
 };
 
 // ============================================================================
@@ -501,7 +501,13 @@ impl WgpuPersistentHandle {
             emulation_config.grid_size,
         ));
 
-        Self::with_dispatcher(runtime, kernel_id, emulation_config, persistent_config, dispatcher)
+        Self::with_dispatcher(
+            runtime,
+            kernel_id,
+            emulation_config,
+            persistent_config,
+            dispatcher,
+        )
     }
 
     /// Create a handle with a custom batch dispatcher.
@@ -702,7 +708,8 @@ impl WgpuPersistentHandle {
         // Execute batched steps
         let steps_to_run = std::cmp::min(
             cb.steps_remaining,
-            self.emulation_config.batch_size as u64 * self.emulation_config.max_dispatches_per_tick as u64,
+            self.emulation_config.batch_size as u64
+                * self.emulation_config.max_dispatches_per_tick as u64,
         );
 
         if steps_to_run == 0 {
@@ -853,7 +860,8 @@ impl WgpuPersistentHandle {
             let cb = self.control_block.lock();
             std::cmp::min(
                 cb.steps_remaining,
-                self.emulation_config.batch_size as u64 * self.emulation_config.max_dispatches_per_tick as u64,
+                self.emulation_config.batch_size as u64
+                    * self.emulation_config.max_dispatches_per_tick as u64,
             )
         };
 
@@ -880,9 +888,11 @@ impl WgpuPersistentHandle {
             let mut cb = self.control_block.lock();
             cb.current_step += stats.steps_executed;
             cb.steps_remaining = cb.steps_remaining.saturating_sub(stats.steps_executed);
-            self.total_steps.fetch_add(stats.steps_executed, Ordering::Relaxed);
+            self.total_steps
+                .fetch_add(stats.steps_executed, Ordering::Relaxed);
             self.total_batches.fetch_add(1, Ordering::Relaxed);
-            self.total_dispatch_time_us.fetch_add(stats.dispatch_time_us, Ordering::Relaxed);
+            self.total_dispatch_time_us
+                .fetch_add(stats.dispatch_time_us, Ordering::Relaxed);
 
             // Send acks for batch commands
             for cmd_id in &batch.ack_ids {
@@ -967,7 +977,9 @@ impl Clone for WgpuPersistentHandle {
             responses: Mutex::new(VecDeque::new()),
             total_steps: AtomicU64::new(self.total_steps.load(Ordering::Relaxed)),
             total_batches: AtomicU64::new(self.total_batches.load(Ordering::Relaxed)),
-            total_dispatch_time_us: AtomicU64::new(self.total_dispatch_time_us.load(Ordering::Relaxed)),
+            total_dispatch_time_us: AtomicU64::new(
+                self.total_dispatch_time_us.load(Ordering::Relaxed),
+            ),
             start_time: RwLock::new(*self.start_time.read()),
             shader_loaded: AtomicBool::new(self.shader_loaded.load(Ordering::Acquire)),
             dispatcher: self.dispatcher.clone(),

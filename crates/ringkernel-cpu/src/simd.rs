@@ -50,12 +50,24 @@ impl SimdOps {
         for i in 0..chunks {
             let offset = i * 8;
             let x_vec = f32x8::new([
-                x[offset], x[offset + 1], x[offset + 2], x[offset + 3],
-                x[offset + 4], x[offset + 5], x[offset + 6], x[offset + 7],
+                x[offset],
+                x[offset + 1],
+                x[offset + 2],
+                x[offset + 3],
+                x[offset + 4],
+                x[offset + 5],
+                x[offset + 6],
+                x[offset + 7],
             ]);
             let y_vec = f32x8::new([
-                y[offset], y[offset + 1], y[offset + 2], y[offset + 3],
-                y[offset + 4], y[offset + 5], y[offset + 6], y[offset + 7],
+                y[offset],
+                y[offset + 1],
+                y[offset + 2],
+                y[offset + 3],
+                y[offset + 4],
+                y[offset + 5],
+                y[offset + 6],
+                y[offset + 7],
             ]);
 
             let result = a_vec * x_vec + y_vec;
@@ -66,7 +78,7 @@ impl SimdOps {
         // Handle remainder
         let tail_start = chunks * 8;
         for i in 0..remainder {
-            y[tail_start + i] = a * x[tail_start + i] + y[tail_start + i];
+            y[tail_start + i] += a * x[tail_start + i];
         }
     }
 
@@ -84,12 +96,8 @@ impl SimdOps {
 
         for i in 0..chunks {
             let offset = i * 4;
-            let x_vec = f64x4::new([
-                x[offset], x[offset + 1], x[offset + 2], x[offset + 3],
-            ]);
-            let y_vec = f64x4::new([
-                y[offset], y[offset + 1], y[offset + 2], y[offset + 3],
-            ]);
+            let x_vec = f64x4::new([x[offset], x[offset + 1], x[offset + 2], x[offset + 3]]);
+            let y_vec = f64x4::new([y[offset], y[offset + 1], y[offset + 2], y[offset + 3]]);
 
             let result = a_vec * x_vec + y_vec;
             let arr: [f64; 4] = result.into();
@@ -99,7 +107,7 @@ impl SimdOps {
         // Handle remainder
         let tail_start = chunks * 4;
         for i in 0..remainder {
-            y[tail_start + i] = a * x[tail_start + i] + y[tail_start + i];
+            y[tail_start + i] += a * x[tail_start + i];
         }
     }
 
@@ -113,12 +121,24 @@ impl SimdOps {
         for i in 0..chunks {
             let offset = i * 8;
             let x_vec = f32x8::new([
-                x[offset], x[offset + 1], x[offset + 2], x[offset + 3],
-                x[offset + 4], x[offset + 5], x[offset + 6], x[offset + 7],
+                x[offset],
+                x[offset + 1],
+                x[offset + 2],
+                x[offset + 3],
+                x[offset + 4],
+                x[offset + 5],
+                x[offset + 6],
+                x[offset + 7],
             ]);
             let y_vec = f32x8::new([
-                y[offset], y[offset + 1], y[offset + 2], y[offset + 3],
-                y[offset + 4], y[offset + 5], y[offset + 6], y[offset + 7],
+                y[offset],
+                y[offset + 1],
+                y[offset + 2],
+                y[offset + 3],
+                y[offset + 4],
+                y[offset + 5],
+                y[offset + 6],
+                y[offset + 7],
             ]);
 
             let result = x_vec + y_vec;
@@ -142,12 +162,24 @@ impl SimdOps {
         for i in 0..chunks {
             let offset = i * 8;
             let x_vec = f32x8::new([
-                x[offset], x[offset + 1], x[offset + 2], x[offset + 3],
-                x[offset + 4], x[offset + 5], x[offset + 6], x[offset + 7],
+                x[offset],
+                x[offset + 1],
+                x[offset + 2],
+                x[offset + 3],
+                x[offset + 4],
+                x[offset + 5],
+                x[offset + 6],
+                x[offset + 7],
             ]);
             let y_vec = f32x8::new([
-                y[offset], y[offset + 1], y[offset + 2], y[offset + 3],
-                y[offset + 4], y[offset + 5], y[offset + 6], y[offset + 7],
+                y[offset],
+                y[offset + 1],
+                y[offset + 2],
+                y[offset + 3],
+                y[offset + 4],
+                y[offset + 5],
+                y[offset + 6],
+                y[offset + 7],
             ]);
 
             let result = x_vec - y_vec;
@@ -171,12 +203,24 @@ impl SimdOps {
         for i in 0..chunks {
             let offset = i * 8;
             let x_vec = f32x8::new([
-                x[offset], x[offset + 1], x[offset + 2], x[offset + 3],
-                x[offset + 4], x[offset + 5], x[offset + 6], x[offset + 7],
+                x[offset],
+                x[offset + 1],
+                x[offset + 2],
+                x[offset + 3],
+                x[offset + 4],
+                x[offset + 5],
+                x[offset + 6],
+                x[offset + 7],
             ]);
             let y_vec = f32x8::new([
-                y[offset], y[offset + 1], y[offset + 2], y[offset + 3],
-                y[offset + 4], y[offset + 5], y[offset + 6], y[offset + 7],
+                y[offset],
+                y[offset + 1],
+                y[offset + 2],
+                y[offset + 3],
+                y[offset + 4],
+                y[offset + 5],
+                y[offset + 6],
+                y[offset + 7],
             ]);
 
             let result = x_vec * y_vec;
@@ -202,15 +246,27 @@ impl SimdOps {
         for i in 0..chunks {
             let offset = i * 8;
             let x_vec = f32x8::new([
-                x[offset], x[offset + 1], x[offset + 2], x[offset + 3],
-                x[offset + 4], x[offset + 5], x[offset + 6], x[offset + 7],
+                x[offset],
+                x[offset + 1],
+                x[offset + 2],
+                x[offset + 3],
+                x[offset + 4],
+                x[offset + 5],
+                x[offset + 6],
+                x[offset + 7],
             ]);
             let y_vec = f32x8::new([
-                y[offset], y[offset + 1], y[offset + 2], y[offset + 3],
-                y[offset + 4], y[offset + 5], y[offset + 6], y[offset + 7],
+                y[offset],
+                y[offset + 1],
+                y[offset + 2],
+                y[offset + 3],
+                y[offset + 4],
+                y[offset + 5],
+                y[offset + 6],
+                y[offset + 7],
             ]);
 
-            acc = acc + x_vec * y_vec;
+            acc += x_vec * y_vec;
         }
 
         // Horizontal sum
@@ -237,8 +293,14 @@ impl SimdOps {
         for i in 0..chunks {
             let offset = i * 8;
             let x_vec = f32x8::new([
-                x[offset], x[offset + 1], x[offset + 2], x[offset + 3],
-                x[offset + 4], x[offset + 5], x[offset + 6], x[offset + 7],
+                x[offset],
+                x[offset + 1],
+                x[offset + 2],
+                x[offset + 3],
+                x[offset + 4],
+                x[offset + 5],
+                x[offset + 6],
+                x[offset + 7],
             ]);
 
             let result = a_vec * x_vec;
@@ -270,10 +332,16 @@ impl SimdOps {
         for i in 0..chunks {
             let offset = i * 8;
             let x_vec = f32x8::new([
-                x[offset], x[offset + 1], x[offset + 2], x[offset + 3],
-                x[offset + 4], x[offset + 5], x[offset + 6], x[offset + 7],
+                x[offset],
+                x[offset + 1],
+                x[offset + 2],
+                x[offset + 3],
+                x[offset + 4],
+                x[offset + 5],
+                x[offset + 6],
+                x[offset + 7],
             ]);
-            acc = acc + x_vec;
+            acc += x_vec;
         }
 
         let arr: [f32; 8] = acc.into();
@@ -298,10 +366,8 @@ impl SimdOps {
 
         for i in 0..chunks {
             let offset = i * 4;
-            let x_vec = f64x4::new([
-                x[offset], x[offset + 1], x[offset + 2], x[offset + 3],
-            ]);
-            acc = acc + x_vec;
+            let x_vec = f64x4::new([x[offset], x[offset + 1], x[offset + 2], x[offset + 3]]);
+            acc += x_vec;
         }
 
         let arr: [f64; 4] = acc.into();
@@ -331,8 +397,14 @@ impl SimdOps {
         for i in 0..chunks {
             let offset = i * 8;
             let x_vec = f32x8::new([
-                x[offset], x[offset + 1], x[offset + 2], x[offset + 3],
-                x[offset + 4], x[offset + 5], x[offset + 6], x[offset + 7],
+                x[offset],
+                x[offset + 1],
+                x[offset + 2],
+                x[offset + 3],
+                x[offset + 4],
+                x[offset + 5],
+                x[offset + 6],
+                x[offset + 7],
             ]);
             max_vec = max_vec.max(x_vec);
         }
@@ -364,8 +436,14 @@ impl SimdOps {
         for i in 0..chunks {
             let offset = i * 8;
             let x_vec = f32x8::new([
-                x[offset], x[offset + 1], x[offset + 2], x[offset + 3],
-                x[offset + 4], x[offset + 5], x[offset + 6], x[offset + 7],
+                x[offset],
+                x[offset + 1],
+                x[offset + 2],
+                x[offset + 3],
+                x[offset + 4],
+                x[offset + 5],
+                x[offset + 6],
+                x[offset + 7],
             ]);
             min_vec = min_vec.min(x_vec);
         }
@@ -402,12 +480,7 @@ impl SimdOps {
     ///
     /// This is the core operation for FDTD wave simulations.
     #[inline]
-    pub fn laplacian_2d_f32(
-        p: &[f32],
-        laplacian: &mut [f32],
-        width: usize,
-        height: usize,
-    ) {
+    pub fn laplacian_2d_f32(p: &[f32], laplacian: &mut [f32], width: usize, height: usize) {
         let four = f32x8::splat(4.0);
 
         // Skip boundary cells (halo of 1)
@@ -427,34 +500,64 @@ impl SimdOps {
 
                 // Center
                 let center = f32x8::new([
-                    p[idx], p[idx + 1], p[idx + 2], p[idx + 3],
-                    p[idx + 4], p[idx + 5], p[idx + 6], p[idx + 7],
+                    p[idx],
+                    p[idx + 1],
+                    p[idx + 2],
+                    p[idx + 3],
+                    p[idx + 4],
+                    p[idx + 5],
+                    p[idx + 6],
+                    p[idx + 7],
                 ]);
 
                 // North (y - 1)
                 let north_idx = row_above + x;
                 let north = f32x8::new([
-                    p[north_idx], p[north_idx + 1], p[north_idx + 2], p[north_idx + 3],
-                    p[north_idx + 4], p[north_idx + 5], p[north_idx + 6], p[north_idx + 7],
+                    p[north_idx],
+                    p[north_idx + 1],
+                    p[north_idx + 2],
+                    p[north_idx + 3],
+                    p[north_idx + 4],
+                    p[north_idx + 5],
+                    p[north_idx + 6],
+                    p[north_idx + 7],
                 ]);
 
                 // South (y + 1)
                 let south_idx = row_below + x;
                 let south = f32x8::new([
-                    p[south_idx], p[south_idx + 1], p[south_idx + 2], p[south_idx + 3],
-                    p[south_idx + 4], p[south_idx + 5], p[south_idx + 6], p[south_idx + 7],
+                    p[south_idx],
+                    p[south_idx + 1],
+                    p[south_idx + 2],
+                    p[south_idx + 3],
+                    p[south_idx + 4],
+                    p[south_idx + 5],
+                    p[south_idx + 6],
+                    p[south_idx + 7],
                 ]);
 
                 // West (x - 1)
                 let west = f32x8::new([
-                    p[idx - 1], p[idx], p[idx + 1], p[idx + 2],
-                    p[idx + 3], p[idx + 4], p[idx + 5], p[idx + 6],
+                    p[idx - 1],
+                    p[idx],
+                    p[idx + 1],
+                    p[idx + 2],
+                    p[idx + 3],
+                    p[idx + 4],
+                    p[idx + 5],
+                    p[idx + 6],
                 ]);
 
                 // East (x + 1)
                 let east = f32x8::new([
-                    p[idx + 1], p[idx + 2], p[idx + 3], p[idx + 4],
-                    p[idx + 5], p[idx + 6], p[idx + 7], p[idx + 8],
+                    p[idx + 1],
+                    p[idx + 2],
+                    p[idx + 3],
+                    p[idx + 4],
+                    p[idx + 5],
+                    p[idx + 6],
+                    p[idx + 7],
+                    p[idx + 8],
                 ]);
 
                 // Laplacian = north + south + west + east - 4 * center
@@ -468,9 +571,8 @@ impl SimdOps {
             for i in 0..remainder {
                 let x = tail_start + i;
                 let idx = row_start + x;
-                laplacian[idx] = p[row_above + x] + p[row_below + x]
-                    + p[idx - 1] + p[idx + 1]
-                    - 4.0 * p[idx];
+                laplacian[idx] =
+                    p[row_above + x] + p[row_below + x] + p[idx - 1] + p[idx + 1] - 4.0 * p[idx];
             }
         }
     }
@@ -481,13 +583,7 @@ impl SimdOps {
     ///
     /// This is a complete wave simulation timestep.
     #[inline]
-    pub fn fdtd_step_2d_f32(
-        p: &[f32],
-        p_prev: &mut [f32],
-        c2: f32,
-        width: usize,
-        height: usize,
-    ) {
+    pub fn fdtd_step_2d_f32(p: &[f32], p_prev: &mut [f32], c2: f32, width: usize, height: usize) {
         let two = f32x8::splat(2.0);
         let four = f32x8::splat(4.0);
         let c2_vec = f32x8::splat(c2);
@@ -506,35 +602,71 @@ impl SimdOps {
                 let idx = row_start + x;
 
                 let center = f32x8::new([
-                    p[idx], p[idx + 1], p[idx + 2], p[idx + 3],
-                    p[idx + 4], p[idx + 5], p[idx + 6], p[idx + 7],
+                    p[idx],
+                    p[idx + 1],
+                    p[idx + 2],
+                    p[idx + 3],
+                    p[idx + 4],
+                    p[idx + 5],
+                    p[idx + 6],
+                    p[idx + 7],
                 ]);
 
                 let prev = f32x8::new([
-                    p_prev[idx], p_prev[idx + 1], p_prev[idx + 2], p_prev[idx + 3],
-                    p_prev[idx + 4], p_prev[idx + 5], p_prev[idx + 6], p_prev[idx + 7],
+                    p_prev[idx],
+                    p_prev[idx + 1],
+                    p_prev[idx + 2],
+                    p_prev[idx + 3],
+                    p_prev[idx + 4],
+                    p_prev[idx + 5],
+                    p_prev[idx + 6],
+                    p_prev[idx + 7],
                 ]);
 
                 let north_idx = row_above + x;
                 let north = f32x8::new([
-                    p[north_idx], p[north_idx + 1], p[north_idx + 2], p[north_idx + 3],
-                    p[north_idx + 4], p[north_idx + 5], p[north_idx + 6], p[north_idx + 7],
+                    p[north_idx],
+                    p[north_idx + 1],
+                    p[north_idx + 2],
+                    p[north_idx + 3],
+                    p[north_idx + 4],
+                    p[north_idx + 5],
+                    p[north_idx + 6],
+                    p[north_idx + 7],
                 ]);
 
                 let south_idx = row_below + x;
                 let south = f32x8::new([
-                    p[south_idx], p[south_idx + 1], p[south_idx + 2], p[south_idx + 3],
-                    p[south_idx + 4], p[south_idx + 5], p[south_idx + 6], p[south_idx + 7],
+                    p[south_idx],
+                    p[south_idx + 1],
+                    p[south_idx + 2],
+                    p[south_idx + 3],
+                    p[south_idx + 4],
+                    p[south_idx + 5],
+                    p[south_idx + 6],
+                    p[south_idx + 7],
                 ]);
 
                 let west = f32x8::new([
-                    p[idx - 1], p[idx], p[idx + 1], p[idx + 2],
-                    p[idx + 3], p[idx + 4], p[idx + 5], p[idx + 6],
+                    p[idx - 1],
+                    p[idx],
+                    p[idx + 1],
+                    p[idx + 2],
+                    p[idx + 3],
+                    p[idx + 4],
+                    p[idx + 5],
+                    p[idx + 6],
                 ]);
 
                 let east = f32x8::new([
-                    p[idx + 1], p[idx + 2], p[idx + 3], p[idx + 4],
-                    p[idx + 5], p[idx + 6], p[idx + 7], p[idx + 8],
+                    p[idx + 1],
+                    p[idx + 2],
+                    p[idx + 3],
+                    p[idx + 4],
+                    p[idx + 5],
+                    p[idx + 6],
+                    p[idx + 7],
+                    p[idx + 8],
                 ]);
 
                 let laplacian = north + south + west + east - four * center;
@@ -548,9 +680,8 @@ impl SimdOps {
             for i in 0..remainder {
                 let x = tail_start + i;
                 let idx = row_start + x;
-                let laplacian = p[row_above + x] + p[row_below + x]
-                    + p[idx - 1] + p[idx + 1]
-                    - 4.0 * p[idx];
+                let laplacian =
+                    p[row_above + x] + p[row_below + x] + p[idx - 1] + p[idx + 1] - 4.0 * p[idx];
                 p_prev[idx] = 2.0 * p[idx] - p_prev[idx] + c2 * laplacian;
             }
         }
@@ -583,42 +714,84 @@ impl SimdOps {
                     let idx = row_start + x;
 
                     let center = f32x8::new([
-                        p[idx], p[idx + 1], p[idx + 2], p[idx + 3],
-                        p[idx + 4], p[idx + 5], p[idx + 6], p[idx + 7],
+                        p[idx],
+                        p[idx + 1],
+                        p[idx + 2],
+                        p[idx + 3],
+                        p[idx + 4],
+                        p[idx + 5],
+                        p[idx + 6],
+                        p[idx + 7],
                     ]);
 
                     // X neighbors
                     let west = f32x8::new([
-                        p[idx - 1], p[idx], p[idx + 1], p[idx + 2],
-                        p[idx + 3], p[idx + 4], p[idx + 5], p[idx + 6],
+                        p[idx - 1],
+                        p[idx],
+                        p[idx + 1],
+                        p[idx + 2],
+                        p[idx + 3],
+                        p[idx + 4],
+                        p[idx + 5],
+                        p[idx + 6],
                     ]);
                     let east = f32x8::new([
-                        p[idx + 1], p[idx + 2], p[idx + 3], p[idx + 4],
-                        p[idx + 5], p[idx + 6], p[idx + 7], p[idx + 8],
+                        p[idx + 1],
+                        p[idx + 2],
+                        p[idx + 3],
+                        p[idx + 4],
+                        p[idx + 5],
+                        p[idx + 6],
+                        p[idx + 7],
+                        p[idx + 8],
                     ]);
 
                     // Y neighbors
                     let north_idx = idx - stride_y;
                     let south_idx = idx + stride_y;
                     let north = f32x8::new([
-                        p[north_idx], p[north_idx + 1], p[north_idx + 2], p[north_idx + 3],
-                        p[north_idx + 4], p[north_idx + 5], p[north_idx + 6], p[north_idx + 7],
+                        p[north_idx],
+                        p[north_idx + 1],
+                        p[north_idx + 2],
+                        p[north_idx + 3],
+                        p[north_idx + 4],
+                        p[north_idx + 5],
+                        p[north_idx + 6],
+                        p[north_idx + 7],
                     ]);
                     let south = f32x8::new([
-                        p[south_idx], p[south_idx + 1], p[south_idx + 2], p[south_idx + 3],
-                        p[south_idx + 4], p[south_idx + 5], p[south_idx + 6], p[south_idx + 7],
+                        p[south_idx],
+                        p[south_idx + 1],
+                        p[south_idx + 2],
+                        p[south_idx + 3],
+                        p[south_idx + 4],
+                        p[south_idx + 5],
+                        p[south_idx + 6],
+                        p[south_idx + 7],
                     ]);
 
                     // Z neighbors
                     let up_idx = idx - stride_z;
                     let down_idx = idx + stride_z;
                     let up = f32x8::new([
-                        p[up_idx], p[up_idx + 1], p[up_idx + 2], p[up_idx + 3],
-                        p[up_idx + 4], p[up_idx + 5], p[up_idx + 6], p[up_idx + 7],
+                        p[up_idx],
+                        p[up_idx + 1],
+                        p[up_idx + 2],
+                        p[up_idx + 3],
+                        p[up_idx + 4],
+                        p[up_idx + 5],
+                        p[up_idx + 6],
+                        p[up_idx + 7],
                     ]);
                     let down = f32x8::new([
-                        p[down_idx], p[down_idx + 1], p[down_idx + 2], p[down_idx + 3],
-                        p[down_idx + 4], p[down_idx + 5], p[down_idx + 6], p[down_idx + 7],
+                        p[down_idx],
+                        p[down_idx + 1],
+                        p[down_idx + 2],
+                        p[down_idx + 3],
+                        p[down_idx + 4],
+                        p[down_idx + 5],
+                        p[down_idx + 6],
+                        p[down_idx + 7],
                     ]);
 
                     let result = west + east + north + south + up + down - six * center;
@@ -630,9 +803,12 @@ impl SimdOps {
                 for i in 0..remainder {
                     let x = tail_start + i;
                     let idx = row_start + x;
-                    laplacian[idx] = p[idx - 1] + p[idx + 1]
-                        + p[idx - stride_y] + p[idx + stride_y]
-                        + p[idx - stride_z] + p[idx + stride_z]
+                    laplacian[idx] = p[idx - 1]
+                        + p[idx + 1]
+                        + p[idx - stride_y]
+                        + p[idx + stride_y]
+                        + p[idx - stride_z]
+                        + p[idx + stride_z]
                         - 6.0 * p[idx];
                 }
             }
@@ -662,9 +838,7 @@ impl SimdOps {
     pub fn par_sum_f32(x: &[f32]) -> f32 {
         const CHUNK_SIZE: usize = 4096;
 
-        x.par_chunks(CHUNK_SIZE)
-            .map(Self::sum_f32)
-            .sum()
+        x.par_chunks(CHUNK_SIZE).map(Self::sum_f32).sum()
     }
 
     /// Parallel 2D FDTD step using Rayon + SIMD.
@@ -702,35 +876,71 @@ impl SimdOps {
                     let local_x = x;
 
                     let center = f32x8::new([
-                        p[idx], p[idx + 1], p[idx + 2], p[idx + 3],
-                        p[idx + 4], p[idx + 5], p[idx + 6], p[idx + 7],
+                        p[idx],
+                        p[idx + 1],
+                        p[idx + 2],
+                        p[idx + 3],
+                        p[idx + 4],
+                        p[idx + 5],
+                        p[idx + 6],
+                        p[idx + 7],
                     ]);
 
                     let prev = f32x8::new([
-                        row[local_x], row[local_x + 1], row[local_x + 2], row[local_x + 3],
-                        row[local_x + 4], row[local_x + 5], row[local_x + 6], row[local_x + 7],
+                        row[local_x],
+                        row[local_x + 1],
+                        row[local_x + 2],
+                        row[local_x + 3],
+                        row[local_x + 4],
+                        row[local_x + 5],
+                        row[local_x + 6],
+                        row[local_x + 7],
                     ]);
 
                     let north_idx = row_above + x;
                     let north = f32x8::new([
-                        p[north_idx], p[north_idx + 1], p[north_idx + 2], p[north_idx + 3],
-                        p[north_idx + 4], p[north_idx + 5], p[north_idx + 6], p[north_idx + 7],
+                        p[north_idx],
+                        p[north_idx + 1],
+                        p[north_idx + 2],
+                        p[north_idx + 3],
+                        p[north_idx + 4],
+                        p[north_idx + 5],
+                        p[north_idx + 6],
+                        p[north_idx + 7],
                     ]);
 
                     let south_idx = row_below + x;
                     let south = f32x8::new([
-                        p[south_idx], p[south_idx + 1], p[south_idx + 2], p[south_idx + 3],
-                        p[south_idx + 4], p[south_idx + 5], p[south_idx + 6], p[south_idx + 7],
+                        p[south_idx],
+                        p[south_idx + 1],
+                        p[south_idx + 2],
+                        p[south_idx + 3],
+                        p[south_idx + 4],
+                        p[south_idx + 5],
+                        p[south_idx + 6],
+                        p[south_idx + 7],
                     ]);
 
                     let west = f32x8::new([
-                        p[idx - 1], p[idx], p[idx + 1], p[idx + 2],
-                        p[idx + 3], p[idx + 4], p[idx + 5], p[idx + 6],
+                        p[idx - 1],
+                        p[idx],
+                        p[idx + 1],
+                        p[idx + 2],
+                        p[idx + 3],
+                        p[idx + 4],
+                        p[idx + 5],
+                        p[idx + 6],
                     ]);
 
                     let east = f32x8::new([
-                        p[idx + 1], p[idx + 2], p[idx + 3], p[idx + 4],
-                        p[idx + 5], p[idx + 6], p[idx + 7], p[idx + 8],
+                        p[idx + 1],
+                        p[idx + 2],
+                        p[idx + 3],
+                        p[idx + 4],
+                        p[idx + 5],
+                        p[idx + 6],
+                        p[idx + 7],
+                        p[idx + 8],
                     ]);
 
                     let laplacian = north + south + west + east - four * center;
@@ -744,8 +954,7 @@ impl SimdOps {
                 for i in 0..remainder {
                     let x = tail_start + i;
                     let idx = row_start + x;
-                    let laplacian = p[row_above + x] + p[row_below + x]
-                        + p[idx - 1] + p[idx + 1]
+                    let laplacian = p[row_above + x] + p[row_below + x] + p[idx - 1] + p[idx + 1]
                         - 4.0 * p[idx];
                     row[x] = 2.0 * p[idx] - row[x] + c2 * laplacian;
                 }
@@ -770,10 +979,16 @@ impl SimdOps {
         for i in 0..chunks {
             let offset = i * 8;
             let x_vec = i32x8::new([
-                x[offset], x[offset + 1], x[offset + 2], x[offset + 3],
-                x[offset + 4], x[offset + 5], x[offset + 6], x[offset + 7],
+                x[offset],
+                x[offset + 1],
+                x[offset + 2],
+                x[offset + 3],
+                x[offset + 4],
+                x[offset + 5],
+                x[offset + 6],
+                x[offset + 7],
             ]);
-            acc = acc + x_vec;
+            acc += x_vec;
         }
 
         let arr: [i32; 8] = acc.into();
@@ -797,12 +1012,24 @@ impl SimdOps {
         for i in 0..chunks {
             let offset = i * 8;
             let x_vec = i32x8::new([
-                x[offset], x[offset + 1], x[offset + 2], x[offset + 3],
-                x[offset + 4], x[offset + 5], x[offset + 6], x[offset + 7],
+                x[offset],
+                x[offset + 1],
+                x[offset + 2],
+                x[offset + 3],
+                x[offset + 4],
+                x[offset + 5],
+                x[offset + 6],
+                x[offset + 7],
             ]);
             let y_vec = i32x8::new([
-                y[offset], y[offset + 1], y[offset + 2], y[offset + 3],
-                y[offset + 4], y[offset + 5], y[offset + 6], y[offset + 7],
+                y[offset],
+                y[offset + 1],
+                y[offset + 2],
+                y[offset + 3],
+                y[offset + 4],
+                y[offset + 5],
+                y[offset + 6],
+                y[offset + 7],
             ]);
 
             let result = x_vec + y_vec;
@@ -907,7 +1134,7 @@ mod tests {
         // Neighbors should have laplacian of 1
         assert!((laplacian[11] - 1.0).abs() < 1e-6); // (1, 2)
         assert!((laplacian[13] - 1.0).abs() < 1e-6); // (3, 2)
-        assert!((laplacian[7] - 1.0).abs() < 1e-6);  // (2, 1)
+        assert!((laplacian[7] - 1.0).abs() < 1e-6); // (2, 1)
         assert!((laplacian[17] - 1.0).abs() < 1e-6); // (2, 3)
     }
 

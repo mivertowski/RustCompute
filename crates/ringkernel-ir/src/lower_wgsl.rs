@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use crate::{
-    nodes::*, BackendCapabilities, BlockId, CapabilityFlag, Dimension, IrModule, IrNode,
-    IrType, ScalarType, Terminator, ValueId,
+    nodes::*, BackendCapabilities, BlockId, CapabilityFlag, Dimension, IrModule, IrNode, IrType,
+    ScalarType, Terminator, ValueId,
 };
 
 /// WGSL lowering configuration.
@@ -107,14 +107,19 @@ impl WgslLowering {
         }
 
         // Check for atomic64
-        if module.required_capabilities.has(CapabilityFlag::Atomic64) && !self.config.emulate_atomic64 {
+        if module.required_capabilities.has(CapabilityFlag::Atomic64)
+            && !self.config.emulate_atomic64
+        {
             return Err(WgslLoweringError::UnsupportedCapability(
                 "64-bit atomics not supported in WGSL (use emulate_atomic64 option)".to_string(),
             ));
         }
 
         // Check for cooperative groups
-        if module.required_capabilities.has(CapabilityFlag::CooperativeGroups) {
+        if module
+            .required_capabilities
+            .has(CapabilityFlag::CooperativeGroups)
+        {
             return Err(WgslLoweringError::UnsupportedCapability(
                 "Cooperative groups / grid sync not supported in WebGPU".to_string(),
             ));
@@ -138,7 +143,7 @@ impl WgslLowering {
             self.emit_line("// Parameters");
             self.emit_line("struct Params {");
             self.indent += 1;
-            for (_i, param) in module.parameters.iter().enumerate() {
+            for param in module.parameters.iter() {
                 // Only emit non-pointer params in struct
                 if !matches!(param.ty, IrType::Ptr(_) | IrType::Slice(_)) {
                     let ty = self.lower_type(&param.ty);
@@ -155,9 +160,10 @@ impl WgslLowering {
         let mut binding_idx = 0;
 
         // Uniform buffer for params
-        let has_uniforms = module.parameters.iter().any(|p| {
-            !matches!(p.ty, IrType::Ptr(_) | IrType::Slice(_))
-        });
+        let has_uniforms = module
+            .parameters
+            .iter()
+            .any(|p| !matches!(p.ty, IrType::Ptr(_) | IrType::Slice(_)));
         if has_uniforms {
             self.emit_line(&format!(
                 "@group(0) @binding({}) var<uniform> params: Params;",
@@ -188,14 +194,8 @@ impl WgslLowering {
         // Workgroup size
         let (wx, wy, wz) = self.config.workgroup_size;
 
-        self.emit_line(&format!(
-            "@compute @workgroup_size({}, {}, {})",
-            wx, wy, wz
-        ));
-        self.emit_line(&format!(
-            "fn {}(",
-            module.name
-        ));
+        self.emit_line(&format!("@compute @workgroup_size({}, {}, {})", wx, wy, wz));
+        self.emit_line(&format!("fn {}(", module.name));
         self.indent += 1;
         self.emit_line("@builtin(global_invocation_id) global_id: vec3<u32>,");
         self.emit_line("@builtin(local_invocation_id) local_id: vec3<u32>,");
@@ -225,7 +225,11 @@ impl WgslLowering {
         }
     }
 
-    fn emit_block(&mut self, module: &IrModule, block_id: BlockId) -> Result<(), WgslLoweringError> {
+    fn emit_block(
+        &mut self,
+        module: &IrModule,
+        block_id: BlockId,
+    ) -> Result<(), WgslLoweringError> {
         let block = module
             .blocks
             .get(&block_id)
@@ -468,7 +472,10 @@ impl WgslLowering {
                 let args_str: Vec<String> = args.iter().map(|a| self.get_value_name(*a)).collect();
                 self.emit_line(&format!(
                     "var {}: {} = {}({});",
-                    result_name, ty, fn_name, args_str.join(", ")
+                    result_name,
+                    ty,
+                    fn_name,
+                    args_str.join(", ")
                 ));
             }
 
@@ -558,11 +565,7 @@ impl WgslLowering {
         match ty {
             IrType::Void => "void".to_string(),
             IrType::Scalar(s) => self.lower_scalar_type(s),
-            IrType::Vector(v) => format!(
-                "vec{}<{}>",
-                v.count,
-                self.lower_scalar_type(&v.element)
-            ),
+            IrType::Vector(v) => format!("vec{}<{}>", v.count, self.lower_scalar_type(&v.element)),
             IrType::Ptr(inner) => format!("ptr<storage, {}>", self.lower_type(inner)),
             IrType::Array(inner, size) => format!("array<{}, {}>", self.lower_type(inner), size),
             IrType::Slice(inner) => format!("array<{}>", self.lower_type(inner)),
@@ -575,13 +578,8 @@ impl WgslLowering {
         match ty {
             ScalarType::Bool => "bool",
             ScalarType::I8 | ScalarType::I16 | ScalarType::I32 => "i32",
-            ScalarType::I64 => {
-                if self.config.emulate_atomic64 {
-                    "i32" // Downcast
-                } else {
-                    "i32" // WGSL doesn't have i64
-                }
-            }
+            // WGSL doesn't have i64, always downcast
+            ScalarType::I64 => "i32",
             ScalarType::U8 | ScalarType::U16 | ScalarType::U32 => "u32",
             ScalarType::U64 => "u32", // Downcast
             ScalarType::F16 => "f16",
@@ -692,7 +690,7 @@ impl WgslLowering {
             MathOp::Exp2 => "exp2",
             MathOp::Log => "log",
             MathOp::Log2 => "log2",
-            MathOp::Log10 => "log",  // log10 not in WGSL, would need emulation
+            MathOp::Log10 => "log", // log10 not in WGSL, would need emulation
             MathOp::Lerp => "mix",
             MathOp::Clamp => "clamp",
             MathOp::Step => "step",

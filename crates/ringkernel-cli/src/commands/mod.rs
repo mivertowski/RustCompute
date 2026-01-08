@@ -10,11 +10,7 @@ use std::path::Path;
 /// Parse a comma-separated backend list.
 pub fn parse_backends(backends: &str) -> Vec<String> {
     if backends == "all" {
-        vec![
-            "cuda".to_string(),
-            "wgsl".to_string(),
-            "msl".to_string(),
-        ]
+        vec!["cuda".to_string(), "wgsl".to_string(), "msl".to_string()]
     } else {
         backends
             .split(',')
@@ -30,12 +26,17 @@ pub fn validate_project_name(name: &str) -> Result<(), String> {
         return Err("Project name cannot be empty".to_string());
     }
 
-    if !name.chars().next().unwrap().is_alphabetic() && name.chars().next().unwrap() != '_' {
+    if !name.chars().next().unwrap().is_alphabetic() && !name.starts_with('_') {
         return Err("Project name must start with a letter or underscore".to_string());
     }
 
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
-        return Err("Project name can only contain letters, numbers, underscores, and hyphens".to_string());
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(
+            "Project name can only contain letters, numbers, underscores, and hyphens".to_string(),
+        );
     }
 
     // Reserved names
@@ -48,6 +49,7 @@ pub fn validate_project_name(name: &str) -> Result<(), String> {
 }
 
 /// Find the workspace root by looking for Cargo.toml with [workspace].
+#[allow(dead_code)]
 pub fn find_workspace_root(start: &Path) -> Option<std::path::PathBuf> {
     let mut current = start.to_path_buf();
 

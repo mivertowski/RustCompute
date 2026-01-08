@@ -273,7 +273,8 @@ impl WgslTranspiler {
 
         // Add subgroup builtins if needed
         if self.needs_subgroup_extension.get() {
-            output.push_str(",\n    @builtin(subgroup_invocation_id) subgroup_invocation_id: u32,\n");
+            output
+                .push_str(",\n    @builtin(subgroup_invocation_id) subgroup_invocation_id: u32,\n");
             output.push_str("    @builtin(subgroup_size) subgroup_size: u32\n");
         } else {
             output.push('\n');

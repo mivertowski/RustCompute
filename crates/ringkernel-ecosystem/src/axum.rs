@@ -528,10 +528,7 @@ mod persistent_state {
         /// Send a command to the persistent kernel.
         ///
         /// Returns the command ID if successful.
-        pub fn send_command(
-            &self,
-            command: PersistentCommand,
-        ) -> crate::error::Result<CommandId> {
+        pub fn send_command(&self, command: PersistentCommand) -> crate::error::Result<CommandId> {
             self.handle.send_command(command)
         }
 
@@ -1244,7 +1241,9 @@ mod websocket {
                 let cmd = PersistentCommand::RunSteps { count };
                 match state.send_command(cmd) {
                     Ok(cmd_id) => {
-                        let response = ServerMessage::Ack { command_id: cmd_id.0 };
+                        let response = ServerMessage::Ack {
+                            command_id: cmd_id.0,
+                        };
                         let json = serde_json::to_string(&response)?;
                         sender.send(Message::Text(json.into())).await?;
                     }
@@ -1263,7 +1262,9 @@ mod websocket {
                 };
                 match state.send_command(cmd) {
                     Ok(cmd_id) => {
-                        let response = ServerMessage::Ack { command_id: cmd_id.0 };
+                        let response = ServerMessage::Ack {
+                            command_id: cmd_id.0,
+                        };
                         let json = serde_json::to_string(&response)?;
                         sender.send(Message::Text(json.into())).await?;
                     }
@@ -1275,36 +1276,36 @@ mod websocket {
                     }
                 }
             }
-            ClientMessage::Pause => {
-                match state.send_command(PersistentCommand::Pause) {
-                    Ok(cmd_id) => {
-                        let response = ServerMessage::Ack { command_id: cmd_id.0 };
-                        let json = serde_json::to_string(&response)?;
-                        sender.send(Message::Text(json.into())).await?;
-                    }
-                    Err(e) => {
-                        return Err(Box::new(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e.to_string(),
-                        )));
-                    }
+            ClientMessage::Pause => match state.send_command(PersistentCommand::Pause) {
+                Ok(cmd_id) => {
+                    let response = ServerMessage::Ack {
+                        command_id: cmd_id.0,
+                    };
+                    let json = serde_json::to_string(&response)?;
+                    sender.send(Message::Text(json.into())).await?;
                 }
-            }
-            ClientMessage::Resume => {
-                match state.send_command(PersistentCommand::Resume) {
-                    Ok(cmd_id) => {
-                        let response = ServerMessage::Ack { command_id: cmd_id.0 };
-                        let json = serde_json::to_string(&response)?;
-                        sender.send(Message::Text(json.into())).await?;
-                    }
-                    Err(e) => {
-                        return Err(Box::new(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e.to_string(),
-                        )));
-                    }
+                Err(e) => {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e.to_string(),
+                    )));
                 }
-            }
+            },
+            ClientMessage::Resume => match state.send_command(PersistentCommand::Resume) {
+                Ok(cmd_id) => {
+                    let response = ServerMessage::Ack {
+                        command_id: cmd_id.0,
+                    };
+                    let json = serde_json::to_string(&response)?;
+                    sender.send(Message::Text(json.into())).await?;
+                }
+                Err(e) => {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e.to_string(),
+                    )));
+                }
+            },
             ClientMessage::GetStats => {
                 let stats = state.kernel_stats();
                 let response = ServerMessage::Stats {
@@ -1319,7 +1320,9 @@ mod websocket {
             ClientMessage::GetProgress => {
                 match state.send_command(PersistentCommand::GetProgress) {
                     Ok(cmd_id) => {
-                        let response = ServerMessage::Ack { command_id: cmd_id.0 };
+                        let response = ServerMessage::Ack {
+                            command_id: cmd_id.0,
+                        };
                         let json = serde_json::to_string(&response)?;
                         sender.send(Message::Text(json.into())).await?;
                     }
@@ -1352,7 +1355,9 @@ mod websocket {
                 let cmd = PersistentCommand::Custom { type_id, payload };
                 match state.send_command(cmd) {
                     Ok(cmd_id) => {
-                        let response = ServerMessage::Ack { command_id: cmd_id.0 };
+                        let response = ServerMessage::Ack {
+                            command_id: cmd_id.0,
+                        };
                         let json = serde_json::to_string(&response)?;
                         sender.send(Message::Text(json.into())).await?;
                     }
@@ -1393,7 +1398,12 @@ mod websocket_tests {
         let msg: ClientMessage = serde_json::from_str(json).unwrap();
         assert!(matches!(
             msg,
-            ClientMessage::Inject { x: 10, y: 20, z: 30, .. }
+            ClientMessage::Inject {
+                x: 10,
+                y: 20,
+                z: 30,
+                ..
+            }
         ));
 
         let json = r#"{"type":"pause"}"#;

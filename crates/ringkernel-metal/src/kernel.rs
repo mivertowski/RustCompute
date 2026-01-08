@@ -412,7 +412,10 @@ impl MetalHaloMessage {
 
     /// Calculate payload size in bytes.
     pub fn payload_size(&self) -> usize {
-        (self.width as usize) * (self.height as usize) * (self.depth as usize) * (self.element_size as usize)
+        (self.width as usize)
+            * (self.height as usize)
+            * (self.depth as usize)
+            * (self.element_size as usize)
     }
 }
 
@@ -1148,15 +1151,13 @@ impl MetalHaloExchange {
             .as_ref()
             .ok_or_else(|| RingKernelError::LaunchFailed("Not initialized".to_string()))?;
 
-        let exchange_pipeline = self
-            .exchange_pipeline
-            .as_ref()
-            .ok_or_else(|| RingKernelError::LaunchFailed("Exchange pipeline not compiled".to_string()))?;
+        let exchange_pipeline = self.exchange_pipeline.as_ref().ok_or_else(|| {
+            RingKernelError::LaunchFailed("Exchange pipeline not compiled".to_string())
+        })?;
 
-        let apply_pipeline = self
-            .apply_pipeline
-            .as_ref()
-            .ok_or_else(|| RingKernelError::LaunchFailed("Apply pipeline not compiled".to_string()))?;
+        let apply_pipeline = self.apply_pipeline.as_ref().ok_or_else(|| {
+            RingKernelError::LaunchFailed("Apply pipeline not compiled".to_string())
+        })?;
 
         let inbox_buffer = self
             .inbox_buffer

@@ -32,6 +32,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod audit;
+pub mod checkpoint;
+pub mod config;
 pub mod context;
 pub mod control;
 pub mod error;
@@ -45,13 +47,11 @@ pub mod observability;
 pub mod pubsub;
 pub mod queue;
 pub mod runtime;
+pub mod runtime_context;
 pub mod security;
 pub mod telemetry;
 pub mod telemetry_pipeline;
 pub mod types;
-pub mod checkpoint;
-pub mod config;
-pub mod runtime_context;
 
 /// Private module for proc macro integration.
 /// Not part of the public API - exposed for macro-generated code only.
@@ -112,9 +112,10 @@ pub mod prelude {
     };
     pub use crate::security::{
         AccessLevel, ComplianceCheck, ComplianceReport, ComplianceReporter, ComplianceStandard,
-        ComplianceStatus, ComplianceSummary, EncryptedRegion, EncryptionAlgorithm, EncryptionConfig,
-        EncryptionKey, EncryptionStats, KeyDerivation, KernelSandbox, MemoryEncryption, ReportFormat,
-        ResourceLimits, SandboxPolicy, SandboxStats, SandboxViolation, ViolationType,
+        ComplianceStatus, ComplianceSummary, EncryptedRegion, EncryptionAlgorithm,
+        EncryptionConfig, EncryptionKey, EncryptionStats, KernelSandbox, KeyDerivation,
+        MemoryEncryption, ReportFormat, ResourceLimits, SandboxPolicy, SandboxStats,
+        SandboxViolation, ViolationType,
     };
     pub use crate::telemetry::*;
     pub use crate::telemetry_pipeline::{

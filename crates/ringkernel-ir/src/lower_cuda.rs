@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use crate::{
-    nodes::*, BackendCapabilities, BlockId, Dimension, IrModule, IrNode,
-    IrType, ScalarType, Terminator, ValueId,
+    nodes::*, BackendCapabilities, BlockId, Dimension, IrModule, IrNode, IrType, ScalarType,
+    Terminator, ValueId,
 };
 
 /// CUDA lowering configuration.
@@ -204,7 +204,7 @@ impl CudaLowering {
         self.emit_block(module, module.entry_block)?;
 
         // Emit other blocks
-        for (block_id, _) in &module.blocks {
+        for block_id in module.blocks.keys() {
             if *block_id != module.entry_block {
                 self.emit_block(module, *block_id)?;
             }
@@ -219,8 +219,7 @@ impl CudaLowering {
     fn assign_names(&mut self, module: &IrModule) {
         // Assign names to parameters
         for param in &module.parameters {
-            self.value_names
-                .insert(param.value_id, param.name.clone());
+            self.value_names.insert(param.value_id, param.name.clone());
         }
 
         // Assign names to blocks
@@ -317,15 +316,15 @@ impl CudaLowering {
             IrNode::GetElementPtr(ptr, indices) => {
                 let ptr_name = self.get_value_name(*ptr);
                 let idx_name = self.get_value_name(indices[0]);
-                self.emit_line(&format!("{} {} = &{}[{}];", ty, result_name, ptr_name, idx_name));
+                self.emit_line(&format!(
+                    "{} {} = &{}[{}];",
+                    ty, result_name, ptr_name, idx_name
+                ));
             }
 
             IrNode::SharedAlloc(elem_ty, count) => {
                 let elem = self.lower_type(elem_ty);
-                self.emit_line(&format!(
-                    "__shared__ {} {}[{}];",
-                    elem, result_name, count
-                ));
+                self.emit_line(&format!("__shared__ {} {}[{}];", elem, result_name, count));
             }
 
             // GPU indexing
@@ -439,7 +438,10 @@ impl CudaLowering {
                     WarpVoteOp::Any => "__any_sync(0xFFFFFFFF, ",
                     WarpVoteOp::Ballot => "__ballot_sync(0xFFFFFFFF, ",
                 };
-                self.emit_line(&format!("{} {} = {}{})", ty, result_name, vote_fn, val_name));
+                self.emit_line(&format!(
+                    "{} {} = {}{})",
+                    ty, result_name, vote_fn, val_name
+                ));
             }
 
             IrNode::WarpShuffle(op, val, lane) => {
@@ -474,7 +476,10 @@ impl CudaLowering {
                 let args_str: Vec<String> = args.iter().map(|a| self.get_value_name(*a)).collect();
                 self.emit_line(&format!(
                     "{} {} = {}({});",
-                    ty, result_name, fn_name, args_str.join(", ")
+                    ty,
+                    result_name,
+                    fn_name,
+                    args_str.join(", ")
                 ));
             }
 
@@ -517,8 +522,16 @@ impl CudaLowering {
             }
             Terminator::CondBranch(cond, then_block, else_block) => {
                 let cond_name = self.get_value_name(*cond);
-                let then_label = self.block_labels.get(then_block).cloned().unwrap_or_default();
-                let else_label = self.block_labels.get(else_block).cloned().unwrap_or_default();
+                let then_label = self
+                    .block_labels
+                    .get(then_block)
+                    .cloned()
+                    .unwrap_or_default();
+                let else_label = self
+                    .block_labels
+                    .get(else_block)
+                    .cloned()
+                    .unwrap_or_default();
                 self.emit_line(&format!(
                     "if ({}) goto {}; else goto {};",
                     cond_name, then_label, else_label
@@ -549,10 +562,7 @@ impl CudaLowering {
         match ty {
             IrType::Void => "void".to_string(),
             IrType::Scalar(s) => self.lower_scalar_type(s),
-            IrType::Vector(v) => format!("{}{}",
-                self.lower_scalar_type(&v.element),
-                v.count
-            ),
+            IrType::Vector(v) => format!("{}{}", self.lower_scalar_type(&v.element), v.count),
             IrType::Ptr(inner) => format!("{}*", self.lower_type(inner)),
             IrType::Array(inner, size) => format!("{}[{}]", self.lower_type(inner), size),
             IrType::Slice(inner) => format!("{}*", self.lower_type(inner)),
@@ -594,7 +604,8 @@ impl CudaLowering {
                 format!("{{{}}}", elems_str.join(", "))
             }
             ConstantValue::Struct(fields) => {
-                let fields_str: Vec<String> = fields.iter().map(|f| self.lower_constant(f)).collect();
+                let fields_str: Vec<String> =
+                    fields.iter().map(|f| self.lower_constant(f)).collect();
                 format!("{{{}}}", fields_str.join(", "))
             }
         }

@@ -16,6 +16,9 @@
 //! - Completed Tutorial 01
 //! - Understanding of Rust structs and traits
 
+// Tutorial code uses doc comments for educational explanations between sections
+#![allow(clippy::empty_line_after_doc_comments)]
+
 use ringkernel_core::prelude::*;
 use ringkernel_cpu::CpuRuntime;
 
@@ -108,7 +111,7 @@ fn demonstrate_hlc() {
     println!("   └────────────────────────────────────┘\n");
 
     // Create an HLC clock
-    let clock = HlcClock::new(1);  // Node ID = 1
+    let clock = HlcClock::new(1); // Node ID = 1
 
     // Generate timestamps
     let ts1 = clock.now();
@@ -128,11 +131,17 @@ fn demonstrate_hlc() {
     println!();
 
     // Demonstrate update from remote timestamp
-    let remote_ts = HlcTimestamp::new(ts3.physical + 1000, 5, 2);  // From node 2
+    let remote_ts = HlcTimestamp::new(ts3.physical + 1000, 5, 2); // From node 2
     if let Ok(updated) = clock.update(&remote_ts) {
         println!("   After receiving remote timestamp:");
-        println!("   remote: physical={}, logical={}, node=2", remote_ts.physical, remote_ts.logical);
-        println!("   updated local: physical={}, logical={}", updated.physical, updated.logical);
+        println!(
+            "   remote: physical={}, logical={}, node=2",
+            remote_ts.physical, remote_ts.logical
+        );
+        println!(
+            "   updated local: physical={}, logical={}",
+            updated.physical, updated.logical
+        );
     }
     println!();
 }
@@ -210,9 +219,7 @@ fn demonstrate_patterns() {
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     println!("===========================================");
     println!("   Tutorial 02: Message Passing");
@@ -243,7 +250,9 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("Step 5: Using Queues with Kernels\n");
 
     // Launch a kernel to demonstrate
-    let kernel = runtime.launch("message_demo", LaunchOptions::default()).await?;
+    let kernel = runtime
+        .launch("message_demo", LaunchOptions::default())
+        .await?;
     println!("   Launched kernel: {}", kernel.id());
     println!();
 
@@ -295,15 +304,19 @@ mod tests {
     #[tokio::test]
     async fn test_hlc_ordering() {
         let clock = HlcClock::new(1);
-        let ts1 = clock.now();
-        let ts2 = clock.now();
+        // tick() advances the clock, ensuring strictly increasing timestamps
+        let ts1 = clock.tick();
+        let ts2 = clock.tick();
         assert!(ts1 < ts2);
     }
 
     #[tokio::test]
     async fn test_tutorial_completes() {
         let runtime = CpuRuntime::new().await.unwrap();
-        let kernel = runtime.launch("test", LaunchOptions::default()).await.unwrap();
+        let kernel = runtime
+            .launch("test", LaunchOptions::default())
+            .await
+            .unwrap();
         kernel.terminate().await.unwrap();
     }
 }

@@ -30,10 +30,12 @@ use std::time::{Duration, Instant};
 
 use parking_lot::RwLock;
 
-use crate::config::{CheckpointStorageType, RingKernelConfig};
 use crate::checkpoint::{CheckpointStorage, FileStorage, MemoryStorage};
+use crate::config::{CheckpointStorageType, RingKernelConfig};
 use crate::error::{Result, RingKernelError};
-use crate::health::{CircuitBreaker, CircuitState, DegradationManager, HealthChecker, HealthStatus, KernelWatchdog};
+use crate::health::{
+    CircuitBreaker, CircuitState, DegradationManager, HealthChecker, HealthStatus, KernelWatchdog,
+};
 use crate::multi_gpu::{KernelMigrator, MultiGpuBuilder, MultiGpuCoordinator};
 use crate::observability::{ObservabilityContext, PrometheusExporter};
 
@@ -396,17 +398,23 @@ impl RingKernelContext {
 
     /// Record messages processed.
     pub fn record_messages(&self, count: u64) {
-        self.stats.messages_processed.fetch_add(count, Ordering::Relaxed);
+        self.stats
+            .messages_processed
+            .fetch_add(count, Ordering::Relaxed);
     }
 
     /// Record a migration completion.
     pub fn record_migration(&self) {
-        self.stats.migrations_completed.fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .migrations_completed
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Record a checkpoint creation.
     pub fn record_checkpoint(&self) {
-        self.stats.checkpoints_created.fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .checkpoints_created
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Record a health check run.
@@ -416,7 +424,9 @@ impl RingKernelContext {
 
     /// Record a circuit breaker trip.
     pub fn record_circuit_trip(&self) {
-        self.stats.circuit_breaker_trips.fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .circuit_breaker_trips
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     // ========================================================================
@@ -536,9 +546,15 @@ impl RingKernelContext {
             health_check_age: self.background_tasks.health_check_age(),
             watchdog_scan_age: self.background_tasks.watchdog_scan_age(),
             metrics_flush_age: self.background_tasks.metrics_flush_age(),
-            active_health_loops: self.background_tasks.health_check_loops.load(Ordering::Relaxed),
+            active_health_loops: self
+                .background_tasks
+                .health_check_loops
+                .load(Ordering::Relaxed),
             active_watchdog_loops: self.background_tasks.watchdog_loops.load(Ordering::Relaxed),
-            active_metrics_loops: self.background_tasks.metrics_flush_loops.load(Ordering::Relaxed),
+            active_metrics_loops: self
+                .background_tasks
+                .metrics_flush_loops
+                .load(Ordering::Relaxed),
         }
     }
 
@@ -719,12 +735,10 @@ impl RingKernelContext {
                 // Already shutting down
                 Ok(())
             }
-            LifecycleState::Stopped => {
-                Err(RingKernelError::InvalidState {
-                    expected: "Running or Draining".to_string(),
-                    actual: "Stopped".to_string(),
-                })
-            }
+            LifecycleState::Stopped => Err(RingKernelError::InvalidState {
+                expected: "Running or Draining".to_string(),
+                actual: "Stopped".to_string(),
+            }),
             LifecycleState::Initializing => {
                 // Can shutdown from initializing too
                 *state = LifecycleState::ShuttingDown;
@@ -961,16 +975,17 @@ impl RuntimeBuilder {
         config.validate()?;
 
         // Create health checker
-        let health_checker = self.health_checker.unwrap_or_else(HealthChecker::new);
+        let health_checker = self.health_checker.unwrap_or_default();
 
         // Create watchdog
-        let watchdog = self.watchdog.unwrap_or_else(KernelWatchdog::new);
+        let watchdog = self.watchdog.unwrap_or_default();
 
         // Create circuit breaker
         let circuit_breaker = CircuitBreaker::with_config(config.health.circuit_breaker.clone());
 
         // Create degradation manager
-        let degradation_manager = DegradationManager::with_policy(config.health.load_shedding.clone());
+        let degradation_manager =
+            DegradationManager::with_policy(config.health.load_shedding.clone());
 
         // Create Prometheus exporter
         let prometheus_exporter = PrometheusExporter::new();
@@ -990,18 +1005,19 @@ impl RuntimeBuilder {
         });
 
         // Create checkpoint storage
-        let checkpoint_storage: Arc<dyn CheckpointStorage> = self.checkpoint_storage.unwrap_or_else(|| {
-            match config.migration.storage {
-                CheckpointStorageType::Memory => Arc::new(MemoryStorage::new()),
-                CheckpointStorageType::File => {
-                    Arc::new(FileStorage::new(&config.migration.checkpoint_dir))
+        let checkpoint_storage: Arc<dyn CheckpointStorage> =
+            self.checkpoint_storage.unwrap_or_else(|| {
+                match config.migration.storage {
+                    CheckpointStorageType::Memory => Arc::new(MemoryStorage::new()),
+                    CheckpointStorageType::File => {
+                        Arc::new(FileStorage::new(&config.migration.checkpoint_dir))
+                    }
+                    CheckpointStorageType::Cloud => {
+                        // Cloud storage not implemented yet, fall back to memory
+                        Arc::new(MemoryStorage::new())
+                    }
                 }
-                CheckpointStorageType::Cloud => {
-                    // Cloud storage not implemented yet, fall back to memory
-                    Arc::new(MemoryStorage::new())
-                }
-            }
-        });
+            });
 
         // Create kernel migrator
         let migrator = Arc::new(KernelMigrator::with_storage(
@@ -1100,10 +1116,18 @@ impl<'a> DegradationGuard<'a> {
             crate::health::DegradationLevel::Normal => true,
             crate::health::DegradationLevel::Light => true,
             crate::health::DegradationLevel::Moderate => {
-                matches!(priority, OperationPriority::Normal | OperationPriority::High | OperationPriority::Critical)
+                matches!(
+                    priority,
+                    OperationPriority::Normal
+                        | OperationPriority::High
+                        | OperationPriority::Critical
+                )
             }
             crate::health::DegradationLevel::Severe => {
-                matches!(priority, OperationPriority::High | OperationPriority::Critical)
+                matches!(
+                    priority,
+                    OperationPriority::High | OperationPriority::Critical
+                )
             }
             crate::health::DegradationLevel::Critical => {
                 matches!(priority, OperationPriority::Critical)
@@ -1112,11 +1136,7 @@ impl<'a> DegradationGuard<'a> {
     }
 
     /// Execute an operation if allowed by degradation level.
-    pub fn execute_if_allowed<T, F>(
-        &self,
-        priority: OperationPriority,
-        f: F,
-    ) -> Result<T>
+    pub fn execute_if_allowed<T, F>(&self, priority: OperationPriority, f: F) -> Result<T>
     where
         F: FnOnce() -> Result<T>,
     {
@@ -1226,10 +1246,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let runtime = RuntimeBuilder::new()
-            .with_config(config)
-            .build()
-            .unwrap();
+        let runtime = RuntimeBuilder::new().with_config(config).build().unwrap();
 
         assert_eq!(runtime.config().general.app_name, "test_app");
     }
@@ -1304,10 +1321,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let runtime = RuntimeBuilder::new()
-            .with_config(config)
-            .build()
-            .unwrap();
+        let runtime = RuntimeBuilder::new().with_config(config).build().unwrap();
 
         let info = runtime.app_info();
         assert_eq!(info.name, "my_app");
@@ -1326,9 +1340,8 @@ mod tests {
         assert_eq!(result.unwrap(), 42);
 
         // Failure case
-        let result: Result<i32> = guard.execute(|| {
-            Err(RingKernelError::Internal("test error".to_string()))
-        });
+        let result: Result<i32> =
+            guard.execute(|| Err(RingKernelError::Internal("test error".to_string())));
         assert!(result.is_err());
     }
 
@@ -1381,7 +1394,12 @@ mod tests {
         let runtime = RuntimeBuilder::new().build().unwrap();
         let metrics = runtime.export_metrics();
         // Prometheus format should be valid
-        assert!(metrics.is_empty() || metrics.contains('#') || metrics.contains('\n') || metrics.len() > 0);
+        assert!(
+            metrics.is_empty()
+                || metrics.contains('#')
+                || metrics.contains('\n')
+                || metrics.len() > 0
+        );
     }
 
     // ========================================================================
@@ -1505,17 +1523,11 @@ mod tests {
     fn test_enterprise_full_lifecycle() {
         // Build runtime with custom config
         let config = ConfigBuilder::new()
-            .with_general(|g| {
-                g.app_name("integration-test")
-                    .app_version("1.0.0")
-            })
+            .with_general(|g| g.app_name("integration-test").app_version("1.0.0"))
             .build()
             .unwrap();
 
-        let runtime = RuntimeBuilder::new()
-            .with_config(config)
-            .build()
-            .unwrap();
+        let runtime = RuntimeBuilder::new().with_config(config).build().unwrap();
 
         // Verify initial state
         assert_eq!(runtime.lifecycle_state(), LifecycleState::Initializing);
@@ -1584,7 +1596,10 @@ mod tests {
 
         // Initially at normal level
         let result = runtime.run_health_check_cycle();
-        assert_eq!(result.degradation_level, crate::health::DegradationLevel::Normal);
+        assert_eq!(
+            result.degradation_level,
+            crate::health::DegradationLevel::Normal
+        );
 
         // Force circuit open
         let cb = runtime.circuit_breaker();
@@ -1595,7 +1610,10 @@ mod tests {
         // Health check should increase degradation
         let result = runtime.run_health_check_cycle();
         // Degradation should have increased from Normal
-        assert_ne!(result.degradation_level, crate::health::DegradationLevel::Normal);
+        assert_ne!(
+            result.degradation_level,
+            crate::health::DegradationLevel::Normal
+        );
     }
 
     #[test]
@@ -1772,8 +1790,7 @@ mod tests {
         let runtime = RuntimeBuilder::new().build().unwrap();
         runtime.start().unwrap();
 
-        let config = MonitoringConfig::new()
-            .health_check_interval(Duration::from_millis(50));
+        let config = MonitoringConfig::new().health_check_interval(Duration::from_millis(50));
 
         let handles = runtime.start_monitoring(config);
 
@@ -1792,8 +1809,7 @@ mod tests {
         let runtime = RuntimeBuilder::new().build().unwrap();
         runtime.start().unwrap();
 
-        let config = MonitoringConfig::new()
-            .health_check_interval(Duration::from_millis(100));
+        let config = MonitoringConfig::new().health_check_interval(Duration::from_millis(100));
 
         let handles = runtime.start_monitoring(config);
         assert!(handles.is_running());

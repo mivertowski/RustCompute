@@ -55,9 +55,15 @@ pub mod optimize;
 pub use builder::{IrBuilder, IrBuilderScope};
 pub use capabilities::{BackendCapabilities, Capabilities, CapabilityFlag};
 pub use error::{IrError, IrResult};
-pub use lower_cuda::{lower_to_cuda, lower_to_cuda_with_config, CudaLowering, CudaLoweringConfig, LoweringError};
-pub use lower_msl::{lower_to_msl, lower_to_msl_with_config, MslLowering, MslLoweringConfig, MslLoweringError};
-pub use lower_wgsl::{lower_to_wgsl, lower_to_wgsl_with_config, WgslLowering, WgslLoweringConfig, WgslLoweringError};
+pub use lower_cuda::{
+    lower_to_cuda, lower_to_cuda_with_config, CudaLowering, CudaLoweringConfig, LoweringError,
+};
+pub use lower_msl::{
+    lower_to_msl, lower_to_msl_with_config, MslLowering, MslLoweringConfig, MslLoweringError,
+};
+pub use lower_wgsl::{
+    lower_to_wgsl, lower_to_wgsl_with_config, WgslLowering, WgslLoweringConfig, WgslLoweringError,
+};
 pub use nodes::*;
 pub use optimize::{
     optimize, run_constant_folding, run_dce, AlgebraicSimplification, ConstantFolding,
@@ -189,7 +195,9 @@ impl IrModule {
 
     /// Get the entry block.
     pub fn entry(&self) -> &Block {
-        self.blocks.get(&self.entry_block).expect("entry block must exist")
+        self.blocks
+            .get(&self.entry_block)
+            .expect("entry block must exist")
     }
 
     /// Validate the module.

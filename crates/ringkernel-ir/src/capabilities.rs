@@ -269,10 +269,7 @@ mod tests {
     #[test]
     fn test_capabilities_missing() {
         let available = Capabilities::with_flags([CapabilityFlag::Float64]);
-        let required = Capabilities::with_flags([
-            CapabilityFlag::Float64,
-            CapabilityFlag::Int64,
-        ]);
+        let required = Capabilities::with_flags([CapabilityFlag::Float64, CapabilityFlag::Int64]);
 
         let missing = available.missing(&required);
         assert_eq!(missing.len(), 1);

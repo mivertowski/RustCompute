@@ -28,19 +28,21 @@
 
 mod kernel;
 mod memory;
+pub mod mock;
 mod runtime;
 pub mod simd;
-pub mod mock;
 
 pub use kernel::CpuKernel;
 pub use memory::CpuBuffer;
+pub use mock::{MockAtomics, MockGpu, MockKernelConfig, MockSharedMemory, MockThread, MockWarp};
 pub use runtime::CpuRuntime;
 pub use simd::SimdOps;
-pub use mock::{MockGpu, MockKernelConfig, MockThread, MockWarp, MockSharedMemory, MockAtomics};
 
 /// Prelude for convenient imports.
 pub mod prelude {
-    pub use crate::mock::{MockAtomics, MockGpu, MockKernelConfig, MockSharedMemory, MockThread, MockWarp};
+    pub use crate::mock::{
+        MockAtomics, MockGpu, MockKernelConfig, MockSharedMemory, MockThread, MockWarp,
+    };
     pub use crate::simd::SimdOps;
     pub use crate::CpuKernel;
     pub use crate::CpuRuntime;

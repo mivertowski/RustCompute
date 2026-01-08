@@ -24,7 +24,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.3"
+version = "0.2.0"
 edition = "2021"
 authors = ["Michael Ivertowski <mivertowski@outlook.com>"]
 license = "Apache-2.0"
@@ -82,18 +82,18 @@ toml = "0.8"
 serde_yaml = "0.9"
 
 # Internal crates - version must match workspace version for publishing
-ringkernel-core = { version = "0.1.3", path = "crates/ringkernel-core" }
-ringkernel-derive = { version = "0.1.3", path = "crates/ringkernel-derive" }
-ringkernel-cpu = { version = "0.1.3", path = "crates/ringkernel-cpu" }
-ringkernel-cuda = { version = "0.1.3", path = "crates/ringkernel-cuda" }
-ringkernel-wgpu = { version = "0.1.3", path = "crates/ringkernel-wgpu" }
-ringkernel-metal = { version = "0.1.3", path = "crates/ringkernel-metal" }
-ringkernel-codegen = { version = "0.1.3", path = "crates/ringkernel-codegen" }
-ringkernel-cuda-codegen = { version = "0.1.3", path = "crates/ringkernel-cuda-codegen" }
-ringkernel-wgpu-codegen = { version = "0.1.3", path = "crates/ringkernel-wgpu-codegen" }
-ringkernel-ir = { version = "0.1.3", path = "crates/ringkernel-ir" }
-ringkernel-wavesim = { version = "0.1.3", path = "crates/ringkernel-wavesim" }
-ringkernel-ecosystem = { version = "0.1.3", path = "crates/ringkernel-ecosystem" }
+ringkernel-core = { version = "0.2.0", path = "crates/ringkernel-core" }
+ringkernel-derive = { version = "0.2.0", path = "crates/ringkernel-derive" }
+ringkernel-cpu = { version = "0.2.0", path = "crates/ringkernel-cpu" }
+ringkernel-cuda = { version = "0.2.0", path = "crates/ringkernel-cuda" }
+ringkernel-wgpu = { version = "0.2.0", path = "crates/ringkernel-wgpu" }
+ringkernel-metal = { version = "0.2.0", path = "crates/ringkernel-metal" }
+ringkernel-codegen = { version = "0.2.0", path = "crates/ringkernel-codegen" }
+ringkernel-cuda-codegen = { version = "0.2.0", path = "crates/ringkernel-cuda-codegen" }
+ringkernel-wgpu-codegen = { version = "0.2.0", path = "crates/ringkernel-wgpu-codegen" }
+ringkernel-ir = { version = "0.2.0", path = "crates/ringkernel-ir" }
+ringkernel-wavesim = { version = "0.2.0", path = "crates/ringkernel-wavesim" }
+ringkernel-ecosystem = { version = "0.2.0", path = "crates/ringkernel-ecosystem" }
 
 [profile.release]
 lto = true

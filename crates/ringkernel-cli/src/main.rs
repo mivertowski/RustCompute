@@ -206,7 +206,16 @@ async fn main() -> ExitCode {
             output,
             kernel,
             dry_run,
-        } => codegen::execute(&file, &backend, output.as_deref(), kernel.as_deref(), dry_run).await,
+        } => {
+            codegen::execute(
+                &file,
+                &backend,
+                output.as_deref(),
+                kernel.as_deref(),
+                dry_run,
+            )
+            .await
+        }
 
         Commands::Check {
             path,

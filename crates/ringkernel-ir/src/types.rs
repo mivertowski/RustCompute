@@ -112,7 +112,7 @@ pub struct VectorType {
 impl VectorType {
     /// Create a new vector type.
     pub fn new(element: ScalarType, count: u8) -> Self {
-        debug_assert!(count >= 2 && count <= 4, "Vector count must be 2, 3, or 4");
+        debug_assert!((2..=4).contains(&count), "Vector count must be 2, 3, or 4");
         Self { element, count }
     }
 

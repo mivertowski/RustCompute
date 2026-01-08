@@ -568,11 +568,7 @@ impl ConstantFolding {
 
     /// Get a constant value for a value ID if available (for future use).
     #[allow(dead_code)]
-    fn get_constant<'a>(
-        &'a self,
-        id: ValueId,
-        module: &'a IrModule,
-    ) -> Option<&'a ConstantValue> {
+    fn get_constant<'a>(&'a self, id: ValueId, module: &'a IrModule) -> Option<&'a ConstantValue> {
         // First check our map
         if let Some(c) = self.constants.get(&id) {
             return Some(c);
@@ -642,11 +638,7 @@ impl OptimizationPass for ConstantFolding {
                         if let Some(ConstantValue::Bool(c)) = constants.get(cond) {
                             // Fold to one branch
                             let selected = if *c { then_val } else { else_val };
-                            if let Some(c) = constants.get(selected) {
-                                Some(c.clone())
-                            } else {
-                                None
-                            }
+                            constants.get(selected).cloned()
                         } else {
                             None
                         }
@@ -849,46 +841,46 @@ impl OptimizationPass for AlgebraicSimplification {
 
                         match op {
                             // x + 0 = x
-                            BinaryOp::Add if rhs_const.map_or(false, Self::is_zero) => {
+                            BinaryOp::Add if rhs_const.is_some_and(Self::is_zero) => {
                                 Some(IrNode::Parameter(0)) // Placeholder, replaced below
                             }
                             // 0 + x = x
-                            BinaryOp::Add if lhs_const.map_or(false, Self::is_zero) => {
+                            BinaryOp::Add if lhs_const.is_some_and(Self::is_zero) => {
                                 Some(IrNode::Parameter(1))
                             }
                             // x * 1 = x
-                            BinaryOp::Mul if rhs_const.map_or(false, Self::is_one) => {
+                            BinaryOp::Mul if rhs_const.is_some_and(Self::is_one) => {
                                 Some(IrNode::Parameter(0))
                             }
                             // 1 * x = x
-                            BinaryOp::Mul if lhs_const.map_or(false, Self::is_one) => {
+                            BinaryOp::Mul if lhs_const.is_some_and(Self::is_one) => {
                                 Some(IrNode::Parameter(1))
                             }
                             // x * 0 = 0
                             BinaryOp::Mul
-                                if rhs_const.map_or(false, Self::is_zero)
-                                    || lhs_const.map_or(false, Self::is_zero) =>
+                                if rhs_const.is_some_and(Self::is_zero)
+                                    || lhs_const.is_some_and(Self::is_zero) =>
                             {
                                 Self::zero_for_type(&inst.result_type).map(IrNode::Constant)
                             }
                             // x - 0 = x
-                            BinaryOp::Sub if rhs_const.map_or(false, Self::is_zero) => {
+                            BinaryOp::Sub if rhs_const.is_some_and(Self::is_zero) => {
                                 Some(IrNode::Parameter(0))
                             }
                             // x / 1 = x
-                            BinaryOp::Div if rhs_const.map_or(false, Self::is_one) => {
+                            BinaryOp::Div if rhs_const.is_some_and(Self::is_one) => {
                                 Some(IrNode::Parameter(0))
                             }
                             // x & 0 = 0
-                            BinaryOp::And if rhs_const.map_or(false, Self::is_zero) => {
+                            BinaryOp::And if rhs_const.is_some_and(Self::is_zero) => {
                                 Self::zero_for_type(&inst.result_type).map(IrNode::Constant)
                             }
                             // x | 0 = x
-                            BinaryOp::Or if rhs_const.map_or(false, Self::is_zero) => {
+                            BinaryOp::Or if rhs_const.is_some_and(Self::is_zero) => {
                                 Some(IrNode::Parameter(0))
                             }
                             // x ^ 0 = x
-                            BinaryOp::Xor if rhs_const.map_or(false, Self::is_zero) => {
+                            BinaryOp::Xor if rhs_const.is_some_and(Self::is_zero) => {
                                 Some(IrNode::Parameter(0))
                             }
                             _ => None,

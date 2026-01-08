@@ -284,7 +284,7 @@ impl ChunkHeader {
 // ============================================================================
 
 /// Kernel-specific metadata stored in checkpoint.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CheckpointMetadata {
     /// Unique kernel identifier.
     pub kernel_id: String,
@@ -300,20 +300,6 @@ pub struct CheckpointMetadata {
     pub hlc_timestamp: HlcTimestamp,
     /// Custom key-value metadata.
     pub custom: HashMap<String, String>,
-}
-
-impl Default for CheckpointMetadata {
-    fn default() -> Self {
-        Self {
-            kernel_id: String::new(),
-            kernel_type: String::new(),
-            current_step: 0,
-            grid_size: (0, 0, 0),
-            tile_size: (0, 0, 0),
-            hlc_timestamp: HlcTimestamp::default(),
-            custom: HashMap::new(),
-        }
-    }
 }
 
 impl CheckpointMetadata {
@@ -857,8 +843,9 @@ impl CheckpointStorage for FileStorage {
         let path = self.checkpoint_path(name);
         let bytes = checkpoint.to_bytes();
 
-        let mut file = std::fs::File::create(&path)
-            .map_err(|e| RingKernelError::IoError(format!("Failed to create checkpoint file: {}", e)))?;
+        let mut file = std::fs::File::create(&path).map_err(|e| {
+            RingKernelError::IoError(format!("Failed to create checkpoint file: {}", e))
+        })?;
 
         file.write_all(&bytes)
             .map_err(|e| RingKernelError::IoError(format!("Failed to write checkpoint: {}", e)))?;
@@ -869,8 +856,9 @@ impl CheckpointStorage for FileStorage {
     fn load(&self, name: &str) -> Result<Checkpoint> {
         let path = self.checkpoint_path(name);
 
-        let mut file = std::fs::File::open(&path)
-            .map_err(|e| RingKernelError::IoError(format!("Failed to open checkpoint file: {}", e)))?;
+        let mut file = std::fs::File::open(&path).map_err(|e| {
+            RingKernelError::IoError(format!("Failed to open checkpoint file: {}", e))
+        })?;
 
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)
@@ -885,13 +873,11 @@ impl CheckpointStorage for FileStorage {
         })?;
 
         let mut names = Vec::new();
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.extension().map(|e| e == "rkcp").unwrap_or(false) {
-                    if let Some(stem) = path.file_stem() {
-                        names.push(stem.to_string_lossy().to_string());
-                    }
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map(|e| e == "rkcp").unwrap_or(false) {
+                if let Some(stem) = path.file_stem() {
+                    names.push(stem.to_string_lossy().to_string());
                 }
             }
         }
@@ -940,29 +926,32 @@ impl Default for MemoryStorage {
 impl CheckpointStorage for MemoryStorage {
     fn save(&self, checkpoint: &Checkpoint, name: &str) -> Result<()> {
         let bytes = checkpoint.to_bytes();
-        let mut checkpoints = self.checkpoints.write().map_err(|_| {
-            RingKernelError::IoError("Failed to acquire write lock".to_string())
-        })?;
+        let mut checkpoints = self
+            .checkpoints
+            .write()
+            .map_err(|_| RingKernelError::IoError("Failed to acquire write lock".to_string()))?;
         checkpoints.insert(name.to_string(), bytes);
         Ok(())
     }
 
     fn load(&self, name: &str) -> Result<Checkpoint> {
-        let checkpoints = self.checkpoints.read().map_err(|_| {
-            RingKernelError::IoError("Failed to acquire read lock".to_string())
-        })?;
+        let checkpoints = self
+            .checkpoints
+            .read()
+            .map_err(|_| RingKernelError::IoError("Failed to acquire read lock".to_string()))?;
 
-        let bytes = checkpoints.get(name).ok_or_else(|| {
-            RingKernelError::IoError(format!("Checkpoint not found: {}", name))
-        })?;
+        let bytes = checkpoints
+            .get(name)
+            .ok_or_else(|| RingKernelError::IoError(format!("Checkpoint not found: {}", name)))?;
 
         Checkpoint::from_bytes(bytes)
     }
 
     fn list(&self) -> Result<Vec<String>> {
-        let checkpoints = self.checkpoints.read().map_err(|_| {
-            RingKernelError::IoError("Failed to acquire read lock".to_string())
-        })?;
+        let checkpoints = self
+            .checkpoints
+            .read()
+            .map_err(|_| RingKernelError::IoError("Failed to acquire read lock".to_string()))?;
 
         let mut names: Vec<_> = checkpoints.keys().cloned().collect();
         names.sort();
@@ -970,13 +959,14 @@ impl CheckpointStorage for MemoryStorage {
     }
 
     fn delete(&self, name: &str) -> Result<()> {
-        let mut checkpoints = self.checkpoints.write().map_err(|_| {
-            RingKernelError::IoError("Failed to acquire write lock".to_string())
-        })?;
+        let mut checkpoints = self
+            .checkpoints
+            .write()
+            .map_err(|_| RingKernelError::IoError("Failed to acquire write lock".to_string()))?;
 
-        checkpoints.remove(name).ok_or_else(|| {
-            RingKernelError::IoError(format!("Checkpoint not found: {}", name))
-        })?;
+        checkpoints
+            .remove(name)
+            .ok_or_else(|| RingKernelError::IoError(format!("Checkpoint not found: {}", name)))?;
 
         Ok(())
     }
@@ -1158,9 +1148,7 @@ mod tests {
     fn test_memory_storage() {
         let storage = MemoryStorage::new();
 
-        let checkpoint = CheckpointBuilder::new("mem_test", "test")
-            .step(100)
-            .build();
+        let checkpoint = CheckpointBuilder::new("mem_test", "test").step(100).build();
 
         storage.save(&checkpoint, "test_001").unwrap();
         assert!(storage.exists("test_001"));

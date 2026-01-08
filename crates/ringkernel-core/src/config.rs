@@ -58,7 +58,7 @@ use std::path::Path;
 // ============================================================================
 
 /// Unified configuration for RingKernel.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RingKernelConfig {
     /// General settings.
     pub general: GeneralConfig,
@@ -72,19 +72,6 @@ pub struct RingKernelConfig {
     pub migration: MigrationConfig,
     /// Custom settings.
     pub custom: HashMap<String, String>,
-}
-
-impl Default for RingKernelConfig {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            observability: ObservabilityConfig::default(),
-            health: HealthConfig::default(),
-            multi_gpu: MultiGpuConfig::default(),
-            migration: MigrationConfig::default(),
-            custom: HashMap::new(),
-        }
-    }
 }
 
 impl RingKernelConfig {
@@ -977,7 +964,10 @@ impl RingKernelConfig {
     /// Create a minimal configuration for development.
     pub fn development() -> Self {
         ConfigBuilder::new()
-            .with_general(|g| g.environment(Environment::Development).log_level(LogLevel::Debug))
+            .with_general(|g| {
+                g.environment(Environment::Development)
+                    .log_level(LogLevel::Debug)
+            })
             .with_observability(|o| o.trace_sample_rate(1.0))
             .with_health(|h| h.enable_health_checks(true))
             .build_unchecked()
@@ -986,7 +976,10 @@ impl RingKernelConfig {
     /// Create a production-ready configuration.
     pub fn production() -> Self {
         ConfigBuilder::new()
-            .with_general(|g| g.environment(Environment::Production).log_level(LogLevel::Info))
+            .with_general(|g| {
+                g.environment(Environment::Production)
+                    .log_level(LogLevel::Info)
+            })
             .with_observability(|o| {
                 o.enable_tracing(true)
                     .enable_metrics(true)
@@ -1018,7 +1011,10 @@ impl RingKernelConfig {
     /// Create a high-performance configuration.
     pub fn high_performance() -> Self {
         ConfigBuilder::new()
-            .with_general(|g| g.environment(Environment::Production).log_level(LogLevel::Warn))
+            .with_general(|g| {
+                g.environment(Environment::Production)
+                    .log_level(LogLevel::Warn)
+            })
             .with_observability(|o| {
                 o.enable_tracing(false) // Disable tracing for max performance
                     .enable_metrics(true)
@@ -1411,7 +1407,9 @@ mod file_config {
                 circuit_breaker: CircuitBreakerConfig {
                     failure_threshold: file.circuit_breaker_failure_threshold,
                     success_threshold: 1, // Default: 1 success to close
-                    recovery_timeout: Duration::from_millis(file.circuit_breaker_recovery_timeout_ms),
+                    recovery_timeout: Duration::from_millis(
+                        file.circuit_breaker_recovery_timeout_ms,
+                    ),
                     window_duration: Duration::from_secs(60), // Default: 60 second window
                     half_open_max_requests: file.circuit_breaker_half_open_max_requests,
                 },
@@ -1439,8 +1437,13 @@ mod file_config {
                 check_interval_ms: config.check_interval.as_millis() as u64,
                 heartbeat_timeout_ms: config.heartbeat_timeout.as_millis() as u64,
                 circuit_breaker_failure_threshold: config.circuit_breaker.failure_threshold,
-                circuit_breaker_recovery_timeout_ms: config.circuit_breaker.recovery_timeout.as_millis() as u64,
-                circuit_breaker_half_open_max_requests: config.circuit_breaker.half_open_max_requests,
+                circuit_breaker_recovery_timeout_ms: config
+                    .circuit_breaker
+                    .recovery_timeout
+                    .as_millis() as u64,
+                circuit_breaker_half_open_max_requests: config
+                    .circuit_breaker
+                    .half_open_max_requests,
                 retry_max_attempts: config.retry.max_attempts,
                 retry_jitter: config.retry.jitter,
                 retry_max_backoff_ms: config.retry.max_backoff.as_millis() as u64,
@@ -1458,7 +1461,9 @@ mod file_config {
                     "round_robin" | "roundrobin" => LoadBalancingStrategy::RoundRobin,
                     "first_available" | "firstavailable" => LoadBalancingStrategy::FirstAvailable,
                     "memory_based" | "memorybased" => LoadBalancingStrategy::MemoryBased,
-                    "compute_capability" | "computecapability" => LoadBalancingStrategy::ComputeCapability,
+                    "compute_capability" | "computecapability" => {
+                        LoadBalancingStrategy::ComputeCapability
+                    }
                     "custom" => LoadBalancingStrategy::Custom,
                     _ => LoadBalancingStrategy::LeastLoaded,
                 },
@@ -1840,10 +1845,7 @@ mod tests {
             ConfigFormat::from_extension(Path::new("config.TOML")),
             Some(ConfigFormat::Toml)
         );
-        assert_eq!(
-            ConfigFormat::from_extension(Path::new("config.json")),
-            None
-        );
+        assert_eq!(ConfigFormat::from_extension(Path::new("config.json")), None);
         assert_eq!(ConfigFormat::from_extension(Path::new("config")), None);
     }
 }
@@ -1950,10 +1952,16 @@ custom:
         assert_eq!(config.observability.trace_sample_rate, 0.5);
 
         assert_eq!(config.health.check_interval, Duration::from_millis(5000));
-        assert_eq!(config.health.heartbeat_timeout, Duration::from_millis(15000));
+        assert_eq!(
+            config.health.heartbeat_timeout,
+            Duration::from_millis(15000)
+        );
         assert_eq!(config.health.circuit_breaker.failure_threshold, 10);
 
-        assert_eq!(config.multi_gpu.load_balancing, LoadBalancingStrategy::RoundRobin);
+        assert_eq!(
+            config.multi_gpu.load_balancing,
+            LoadBalancingStrategy::RoundRobin
+        );
         assert!(!config.multi_gpu.p2p_enabled);
         assert_eq!(config.multi_gpu.max_kernels_per_device, 64);
 
@@ -1980,10 +1988,16 @@ custom:
         assert_eq!(config.observability.trace_sample_rate, 0.5);
 
         assert_eq!(config.health.check_interval, Duration::from_millis(5000));
-        assert_eq!(config.health.heartbeat_timeout, Duration::from_millis(15000));
+        assert_eq!(
+            config.health.heartbeat_timeout,
+            Duration::from_millis(15000)
+        );
         assert_eq!(config.health.circuit_breaker.failure_threshold, 10);
 
-        assert_eq!(config.multi_gpu.load_balancing, LoadBalancingStrategy::RoundRobin);
+        assert_eq!(
+            config.multi_gpu.load_balancing,
+            LoadBalancingStrategy::RoundRobin
+        );
         assert!(!config.multi_gpu.p2p_enabled);
         assert_eq!(config.multi_gpu.max_kernels_per_device, 64);
 
@@ -2140,6 +2154,9 @@ environment = "prod"
 load_balancing = "roundrobin"
 "#;
         let config = RingKernelConfig::from_toml_str(toml).unwrap();
-        assert_eq!(config.multi_gpu.load_balancing, LoadBalancingStrategy::RoundRobin);
+        assert_eq!(
+            config.multi_gpu.load_balancing,
+            LoadBalancingStrategy::RoundRobin
+        );
     }
 }

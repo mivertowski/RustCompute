@@ -339,7 +339,8 @@ impl Validator {
     fn validate_types(&mut self, module: &IrModule) {
         for block in module.blocks.values() {
             for inst in &block.instructions {
-                if let Err(msg) = self.check_instruction_types(module, &inst.node, &inst.result_type)
+                if let Err(msg) =
+                    self.check_instruction_types(module, &inst.node, &inst.result_type)
                 {
                     self.result.add_error(ValidationError {
                         kind: ValidationErrorKind::TypeMismatch,

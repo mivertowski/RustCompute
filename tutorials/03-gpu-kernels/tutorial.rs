@@ -16,6 +16,9 @@
 //! - Completed Tutorials 01-02
 //! - Basic understanding of parallel computing concepts
 
+// Tutorial code uses doc comments for educational explanations between sections
+#![allow(clippy::empty_line_after_doc_comments, clippy::mixed_attributes_style)]
+
 // ============================================================================
 // STEP 1: Understanding the DSL
 // ============================================================================

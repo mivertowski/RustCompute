@@ -508,7 +508,10 @@ impl PrometheusExporter {
                 timestamp_ms: None,
             };
             // Find and replace existing sample with same labels, or add new
-            let existing = metric.samples.iter_mut().find(|s| s.label_values == sample.label_values);
+            let existing = metric
+                .samples
+                .iter_mut()
+                .find(|s| s.label_values == sample.label_values);
             if let Some(existing) = existing {
                 existing.value = value;
             } else {
@@ -527,7 +530,10 @@ impl PrometheusExporter {
         let mut metrics = self.custom_metrics.write();
         if let Some(metric) = metrics.get_mut(name) {
             let label_vec: Vec<String> = label_values.iter().map(|s| s.to_string()).collect();
-            let existing = metric.samples.iter_mut().find(|s| s.label_values == label_vec);
+            let existing = metric
+                .samples
+                .iter_mut()
+                .find(|s| s.label_values == label_vec);
             if let Some(existing) = existing {
                 existing.value += delta;
             } else {
@@ -579,7 +585,12 @@ impl PrometheusExporter {
         // Collect custom metrics
         let custom = self.custom_metrics.read();
         for metric in custom.values() {
-            writeln!(output, "# HELP {} {}", metric.definition.name, metric.definition.help).unwrap();
+            writeln!(
+                output,
+                "# HELP {} {}",
+                metric.definition.name, metric.definition.help
+            )
+            .unwrap();
             writeln!(
                 output,
                 "# TYPE {} {}",
@@ -610,7 +621,14 @@ impl PrometheusExporter {
                 .zip(sample.label_values.iter())
                 .map(|(k, v)| format!("{}=\"{}\"", k, v))
                 .collect();
-            writeln!(output, "{}{{{}}} {}", sample.name, label_pairs.join(","), sample.value).unwrap();
+            writeln!(
+                output,
+                "{}{{{}}} {}",
+                sample.name,
+                label_pairs.join(","),
+                sample.value
+            )
+            .unwrap();
         }
     }
 
@@ -821,9 +839,7 @@ impl GrafanaDashboard {
         self.panels.push(GrafanaPanel {
             title: "Message Throughput".to_string(),
             panel_type: PanelType::Graph,
-            queries: vec![
-                "rate(ringkernel_messages_processed_total[1m])".to_string(),
-            ],
+            queries: vec!["rate(ringkernel_messages_processed_total[1m])".to_string()],
             grid_pos: (0, 0, 12, 8),
             unit: Some("msg/s".to_string()),
         });
@@ -850,9 +866,7 @@ impl GrafanaDashboard {
         self.panels.push(GrafanaPanel {
             title: "Active Kernels".to_string(),
             panel_type: PanelType::Stat,
-            queries: vec![
-                "count(ringkernel_messages_processed_total)".to_string(),
-            ],
+            queries: vec!["count(ringkernel_messages_processed_total)".to_string()],
             grid_pos: (0, 8, 6, 4),
             unit: None,
         });
@@ -878,9 +892,7 @@ impl GrafanaDashboard {
         self.panels.push(GrafanaPanel {
             title: "GPU Memory Usage".to_string(),
             panel_type: PanelType::BarGauge,
-            queries: vec![
-                "ringkernel_gpu_memory_used_bytes".to_string(),
-            ],
+            queries: vec!["ringkernel_gpu_memory_used_bytes".to_string()],
             grid_pos: (12, 8, 12, 4),
             unit: Some("bytes".to_string()),
         });
@@ -898,25 +910,36 @@ impl GrafanaDashboard {
 
     /// Build dashboard JSON.
     pub fn build(&self) -> String {
-        let panels_json: Vec<String> = self.panels.iter().enumerate().map(|(i, panel)| {
-            let queries_json: Vec<String> = panel.queries.iter().enumerate().map(|(j, q)| {
-                format!(
-                    r#"{{
+        let panels_json: Vec<String> = self
+            .panels
+            .iter()
+            .enumerate()
+            .map(|(i, panel)| {
+                let queries_json: Vec<String> = panel
+                    .queries
+                    .iter()
+                    .enumerate()
+                    .map(|(j, q)| {
+                        format!(
+                            r#"{{
                         "expr": "{}",
                         "refId": "{}",
                         "legendFormat": "{{}}"
                     }}"#,
-                    q,
-                    (b'A' + j as u8) as char
-                )
-            }).collect();
+                            q,
+                            (b'A' + j as u8) as char
+                        )
+                    })
+                    .collect();
 
-            let unit_field = panel.unit.as_ref()
-                .map(|u| format!(r#""unit": "{}","#, u))
-                .unwrap_or_default();
+                let unit_field = panel
+                    .unit
+                    .as_ref()
+                    .map(|u| format!(r#""unit": "{}","#, u))
+                    .unwrap_or_default();
 
-            format!(
-                r#"{{
+                format!(
+                    r#"{{
                     "id": {},
                     "title": "{}",
                     "type": "{}",
@@ -925,23 +948,24 @@ impl GrafanaDashboard {
                     "targets": [{}],
                     "datasource": {{"type": "prometheus", "uid": "${{datasource}}"}}
                 }}"#,
-                i + 1,
-                panel.title,
-                match panel.panel_type {
-                    PanelType::Graph => "timeseries",
-                    PanelType::Stat => "stat",
-                    PanelType::Table => "table",
-                    PanelType::Heatmap => "heatmap",
-                    PanelType::BarGauge => "bargauge",
-                },
-                panel.grid_pos.0,
-                panel.grid_pos.1,
-                panel.grid_pos.2,
-                panel.grid_pos.3,
-                unit_field,
-                queries_json.join(",")
-            )
-        }).collect();
+                    i + 1,
+                    panel.title,
+                    match panel.panel_type {
+                        PanelType::Graph => "timeseries",
+                        PanelType::Stat => "stat",
+                        PanelType::Table => "table",
+                        PanelType::Heatmap => "heatmap",
+                        PanelType::BarGauge => "bargauge",
+                    },
+                    panel.grid_pos.0,
+                    panel.grid_pos.1,
+                    panel.grid_pos.2,
+                    panel.grid_pos.3,
+                    unit_field,
+                    queries_json.join(",")
+                )
+            })
+            .collect();
 
         let tags_json: Vec<String> = self.tags.iter().map(|t| format!(r#""{}""#, t)).collect();
 
@@ -1544,7 +1568,12 @@ impl<'a> ProfilerScope<'a> {
         Self { profiler, enabled }
     }
 
-    fn new_colored(name: &str, profiler: &'a dyn GpuProfiler, enabled: bool, color: ProfilerColor) -> Self {
+    fn new_colored(
+        name: &str,
+        profiler: &'a dyn GpuProfiler,
+        enabled: bool,
+        color: ProfilerColor,
+    ) -> Self {
         if enabled {
             profiler.push_range(name, color);
         }
@@ -1826,7 +1855,10 @@ impl GpuMemoryDashboard {
         self.allocations.write().insert(id, allocation);
 
         // Update totals
-        let new_total = self.total_allocated.fetch_add(size as u64, Ordering::Relaxed) + size as u64;
+        let new_total = self
+            .total_allocated
+            .fetch_add(size as u64, Ordering::Relaxed)
+            + size as u64;
         let mut peak = self.peak_allocated.load(Ordering::Relaxed);
         while new_total > peak {
             match self.peak_allocated.compare_exchange_weak(
@@ -1850,7 +1882,8 @@ impl GpuMemoryDashboard {
     pub fn track_deallocation(&self, id: u64) {
         let mut allocations = self.allocations.write();
         if let Some(alloc) = allocations.remove(&id) {
-            self.total_allocated.fetch_sub(alloc.size as u64, Ordering::Relaxed);
+            self.total_allocated
+                .fetch_sub(alloc.size as u64, Ordering::Relaxed);
         }
     }
 
@@ -1882,7 +1915,9 @@ impl GpuMemoryDashboard {
         if let Some(device) = stats.get_mut(&device_index) {
             device.free_memory = free_memory;
             device.ringkernel_used = ringkernel_used;
-            device.other_used = device.total_memory.saturating_sub(free_memory + ringkernel_used);
+            device.other_used = device
+                .total_memory
+                .saturating_sub(free_memory + ringkernel_used);
         }
     }
 
@@ -1968,17 +2003,44 @@ impl GpuMemoryDashboard {
         // Total allocated
         writeln!(output, "# HELP ringkernel_gpu_memory_allocated_bytes Current GPU memory allocated by RingKernel").unwrap();
         writeln!(output, "# TYPE ringkernel_gpu_memory_allocated_bytes gauge").unwrap();
-        writeln!(output, "ringkernel_gpu_memory_allocated_bytes {}", self.total_allocated()).unwrap();
+        writeln!(
+            output,
+            "ringkernel_gpu_memory_allocated_bytes {}",
+            self.total_allocated()
+        )
+        .unwrap();
 
         // Peak allocated
-        writeln!(output, "# HELP ringkernel_gpu_memory_peak_bytes Peak GPU memory allocated by RingKernel").unwrap();
+        writeln!(
+            output,
+            "# HELP ringkernel_gpu_memory_peak_bytes Peak GPU memory allocated by RingKernel"
+        )
+        .unwrap();
         writeln!(output, "# TYPE ringkernel_gpu_memory_peak_bytes gauge").unwrap();
-        writeln!(output, "ringkernel_gpu_memory_peak_bytes {}", self.peak_allocated()).unwrap();
+        writeln!(
+            output,
+            "ringkernel_gpu_memory_peak_bytes {}",
+            self.peak_allocated()
+        )
+        .unwrap();
 
         // Allocation count
-        writeln!(output, "# HELP ringkernel_gpu_memory_allocation_count Number of active GPU allocations").unwrap();
-        writeln!(output, "# TYPE ringkernel_gpu_memory_allocation_count gauge").unwrap();
-        writeln!(output, "ringkernel_gpu_memory_allocation_count {}", self.allocation_count()).unwrap();
+        writeln!(
+            output,
+            "# HELP ringkernel_gpu_memory_allocation_count Number of active GPU allocations"
+        )
+        .unwrap();
+        writeln!(
+            output,
+            "# TYPE ringkernel_gpu_memory_allocation_count gauge"
+        )
+        .unwrap();
+        writeln!(
+            output,
+            "ringkernel_gpu_memory_allocation_count {}",
+            self.allocation_count()
+        )
+        .unwrap();
 
         // Per-device stats
         let device_stats = self.device_stats.read();
@@ -1998,7 +2060,8 @@ impl GpuMemoryDashboard {
             writeln!(
                 output,
                 "ringkernel_gpu_device_memory_used_bytes{{device=\"{}\"}} {}",
-                device.device_name, device.used_memory()
+                device.device_name,
+                device.used_memory()
             )
             .unwrap();
             writeln!(
@@ -2026,12 +2089,32 @@ impl GpuMemoryDashboard {
         // Device summary
         let device_stats = self.device_stats.read();
         for device in device_stats.values() {
-            writeln!(report, "--- Device {} ({}) ---", device.device_index, device.device_name).unwrap();
-            writeln!(report, "  Total: {} MB", device.total_memory / (1024 * 1024)).unwrap();
+            writeln!(
+                report,
+                "--- Device {} ({}) ---",
+                device.device_index, device.device_name
+            )
+            .unwrap();
+            writeln!(
+                report,
+                "  Total: {} MB",
+                device.total_memory / (1024 * 1024)
+            )
+            .unwrap();
             writeln!(report, "  Free: {} MB", device.free_memory / (1024 * 1024)).unwrap();
-            writeln!(report, "  RingKernel: {} MB", device.ringkernel_used / (1024 * 1024)).unwrap();
+            writeln!(
+                report,
+                "  RingKernel: {} MB",
+                device.ringkernel_used / (1024 * 1024)
+            )
+            .unwrap();
             writeln!(report, "  Utilization: {:.1}%", device.utilization()).unwrap();
-            writeln!(report, "  Pressure: {:?}", self.check_pressure(device.device_index)).unwrap();
+            writeln!(
+                report,
+                "  Pressure: {:?}",
+                self.check_pressure(device.device_index)
+            )
+            .unwrap();
         }
 
         // Top allocations by size
@@ -2422,7 +2505,10 @@ mod tests {
 
         // OOM
         dashboard.update_device_stats(0, 0, 1024 * 1024 * 1024);
-        assert_eq!(dashboard.check_pressure(0), MemoryPressureLevel::OutOfMemory);
+        assert_eq!(
+            dashboard.check_pressure(0),
+            MemoryPressureLevel::OutOfMemory
+        );
     }
 
     #[test]
@@ -2430,9 +2516,30 @@ mod tests {
         let dashboard = GpuMemoryDashboard::new();
 
         // Track allocations for different kernels
-        dashboard.track_allocation(1, "buf1", 1000, GpuMemoryType::DeviceLocal, 0, Some("kernel_a"));
-        dashboard.track_allocation(2, "buf2", 2000, GpuMemoryType::DeviceLocal, 0, Some("kernel_a"));
-        dashboard.track_allocation(3, "buf3", 3000, GpuMemoryType::DeviceLocal, 0, Some("kernel_b"));
+        dashboard.track_allocation(
+            1,
+            "buf1",
+            1000,
+            GpuMemoryType::DeviceLocal,
+            0,
+            Some("kernel_a"),
+        );
+        dashboard.track_allocation(
+            2,
+            "buf2",
+            2000,
+            GpuMemoryType::DeviceLocal,
+            0,
+            Some("kernel_a"),
+        );
+        dashboard.track_allocation(
+            3,
+            "buf3",
+            3000,
+            GpuMemoryType::DeviceLocal,
+            0,
+            Some("kernel_b"),
+        );
 
         let kernel_a_allocs = dashboard.get_kernel_allocations("kernel_a");
         assert_eq!(kernel_a_allocs.len(), 2);
@@ -2459,7 +2566,14 @@ mod tests {
     #[test]
     fn test_gpu_memory_summary_report() {
         let dashboard = GpuMemoryDashboard::new();
-        dashboard.track_allocation(1, "large_buffer", 1024 * 1024, GpuMemoryType::DeviceLocal, 0, None);
+        dashboard.track_allocation(
+            1,
+            "large_buffer",
+            1024 * 1024,
+            GpuMemoryType::DeviceLocal,
+            0,
+            None,
+        );
         dashboard.register_device(0, "GPU0", 1024 * 1024 * 1024);
 
         let report = dashboard.summary_report();

@@ -22,6 +22,12 @@
 //! - Basic understanding of async Rust
 //! - No GPU required (we'll use the CPU backend)
 
+// Tutorial code uses doc comments for educational explanations between sections
+#![allow(
+    clippy::empty_line_after_doc_comments,
+    clippy::empty_line_after_outer_attr
+)]
+
 use ringkernel_core::prelude::*;
 use ringkernel_cpu::CpuRuntime;
 
@@ -70,9 +76,7 @@ use ringkernel_cpu::CpuRuntime;
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Initialize logging for better debugging
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     println!("===========================================");
     println!("   Tutorial 01: Getting Started");
@@ -82,15 +86,21 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("Step 1: Creating CPU Runtime...");
     let runtime = CpuRuntime::new().await?;
     println!("   Runtime created with backend: CPU");
-    println!("   K2K messaging: {}", if runtime.is_k2k_enabled() { "enabled" } else { "disabled" });
+    println!(
+        "   K2K messaging: {}",
+        if runtime.is_k2k_enabled() {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
     println!();
 
     // STEP 2: Launch a kernel
     println!("Step 2: Launching a kernel...");
 
     // Configure the kernel launch options
-    let options = LaunchOptions::default()
-        .with_queue_capacity(128);  // Messages the queue can hold
+    let options = LaunchOptions::default().with_queue_capacity(128); // Messages the queue can hold
 
     // Launch the kernel
     let kernel = runtime.launch("tutorial_kernel", options).await?;
@@ -161,7 +171,10 @@ mod tests {
     #[tokio::test]
     async fn test_tutorial_completes() {
         let runtime = CpuRuntime::new().await.unwrap();
-        let kernel = runtime.launch("test", LaunchOptions::default()).await.unwrap();
+        let kernel = runtime
+            .launch("test", LaunchOptions::default())
+            .await
+            .unwrap();
         kernel.terminate().await.unwrap();
     }
 }

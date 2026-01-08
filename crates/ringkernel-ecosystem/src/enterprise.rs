@@ -203,11 +203,7 @@ impl From<RuntimeStatsSnapshot> for EnterpriseStatsResponse {
 pub mod axum_integration {
     use super::*;
     use ::axum::{
-        extract::State,
-        http::StatusCode,
-        response::IntoResponse,
-        routing::get,
-        Json, Router,
+        extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router,
     };
 
     /// Create enterprise routes for Axum.
@@ -229,9 +225,7 @@ pub mod axum_integration {
     }
 
     /// Health check handler.
-    pub async fn health_handler(
-        State(state): State<EnterpriseState>,
-    ) -> impl IntoResponse {
+    pub async fn health_handler(State(state): State<EnterpriseState>) -> impl IntoResponse {
         let health_result = state.run_health_check();
         let watchdog_result = state.run_watchdog_scan();
 
@@ -254,9 +248,7 @@ pub mod axum_integration {
     }
 
     /// Liveness probe handler.
-    pub async fn liveness_handler(
-        State(state): State<EnterpriseState>,
-    ) -> impl IntoResponse {
+    pub async fn liveness_handler(State(state): State<EnterpriseState>) -> impl IntoResponse {
         let lifecycle = state.lifecycle_state();
         let alive = lifecycle.is_active();
 
@@ -275,9 +267,7 @@ pub mod axum_integration {
     }
 
     /// Readiness probe handler.
-    pub async fn readiness_handler(
-        State(state): State<EnterpriseState>,
-    ) -> impl IntoResponse {
+    pub async fn readiness_handler(State(state): State<EnterpriseState>) -> impl IntoResponse {
         let lifecycle = state.lifecycle_state();
         let ready = state.is_accepting_work();
 
@@ -303,18 +293,14 @@ pub mod axum_integration {
     }
 
     /// Statistics handler.
-    pub async fn stats_handler(
-        State(state): State<EnterpriseState>,
-    ) -> impl IntoResponse {
+    pub async fn stats_handler(State(state): State<EnterpriseState>) -> impl IntoResponse {
         let stats = state.stats();
         let response: EnterpriseStatsResponse = stats.into();
         Json(response)
     }
 
     /// Prometheus metrics handler.
-    pub async fn metrics_handler(
-        State(state): State<EnterpriseState>,
-    ) -> impl IntoResponse {
+    pub async fn metrics_handler(State(state): State<EnterpriseState>) -> impl IntoResponse {
         let metrics = state.prometheus_metrics();
         (
             StatusCode::OK,
@@ -337,10 +323,10 @@ pub use axum_integration::*;
 /// Provides circuit breaker and degradation-aware middleware layers.
 pub mod tower_integration {
     use super::*;
+    use ::tower::{Layer, Service};
     use std::future::Future;
     use std::pin::Pin;
     use std::task::{Context, Poll};
-    use ::tower::{Layer, Service};
 
     /// Layer that adds circuit breaker protection to a service.
     #[derive(Clone)]
@@ -395,7 +381,8 @@ pub mod tower_integration {
                 return Poll::Ready(Err(format!(
                     "Circuit breaker open for operation: {}",
                     self.operation_name
-                ).into()));
+                )
+                .into()));
             }
 
             self.inner.poll_ready(cx).map_err(Into::into)
@@ -512,7 +499,8 @@ pub mod tower_integration {
                 return Poll::Ready(Err(format!(
                     "Load shedding: operation priority {:?} rejected at current degradation level",
                     self.priority
-                ).into()));
+                )
+                .into()));
             }
 
             self.inner.poll_ready(cx).map_err(Into::into)

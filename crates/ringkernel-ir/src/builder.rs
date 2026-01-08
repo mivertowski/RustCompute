@@ -3,8 +3,8 @@
 //! Provides an ergonomic interface for constructing IR modules.
 
 use crate::{
-    nodes::*, Block, BlockId, CapabilityFlag, Dimension, IrModule, IrType,
-    Instruction, KernelConfig, KernelMode, Parameter, Terminator, Value, ValueId,
+    nodes::*, Block, BlockId, CapabilityFlag, Dimension, Instruction, IrModule, IrType,
+    KernelConfig, KernelMode, Parameter, Terminator, Value, ValueId,
 };
 
 /// Builder for constructing IR modules.

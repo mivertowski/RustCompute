@@ -156,12 +156,12 @@ impl InterconnectType {
     /// Estimated bandwidth in GB/s for this interconnect type.
     pub fn estimated_bandwidth_gbps(&self) -> f64 {
         match self {
-            InterconnectType::None => 16.0,        // PCIe 3.0 x16 through host
-            InterconnectType::Pcie => 32.0,        // PCIe 4.0 x16 P2P
-            InterconnectType::NvLink => 300.0,     // NVLink 3.0 (A100)
-            InterconnectType::NvSwitch => 600.0,   // NVSwitch full bisection
+            InterconnectType::None => 16.0,      // PCIe 3.0 x16 through host
+            InterconnectType::Pcie => 32.0,      // PCIe 4.0 x16 P2P
+            InterconnectType::NvLink => 300.0,   // NVLink 3.0 (A100)
+            InterconnectType::NvSwitch => 600.0, // NVSwitch full bisection
             InterconnectType::InfinityFabric => 200.0, // MI250X
-            InterconnectType::XeLink => 100.0,     // Intel Data Center GPUs
+            InterconnectType::XeLink => 100.0,   // Intel Data Center GPUs
             InterconnectType::SameDevice => 2000.0, // Internal bandwidth
         }
     }
@@ -169,10 +169,10 @@ impl InterconnectType {
     /// Estimated latency in microseconds.
     pub fn estimated_latency_us(&self) -> f64 {
         match self {
-            InterconnectType::None => 10.0,       // Through host memory
-            InterconnectType::Pcie => 5.0,        // P2P PCIe
-            InterconnectType::NvLink => 1.0,      // Direct NVLink
-            InterconnectType::NvSwitch => 2.0,    // Through switch
+            InterconnectType::None => 10.0,    // Through host memory
+            InterconnectType::Pcie => 5.0,     // P2P PCIe
+            InterconnectType::NvLink => 1.0,   // Direct NVLink
+            InterconnectType::NvSwitch => 2.0, // Through switch
             InterconnectType::InfinityFabric => 1.5,
             InterconnectType::XeLink => 2.0,
             InterconnectType::SameDevice => 0.0,
@@ -258,8 +258,8 @@ impl GpuTopology {
         let mut connections = vec![vec![None; device_count]; device_count];
 
         // Initialize self-connections
-        for i in 0..device_count {
-            connections[i][i] = Some(GpuConnection::new(i, i, InterconnectType::SameDevice));
+        for (i, row) in connections.iter_mut().enumerate().take(device_count) {
+            row[i] = Some(GpuConnection::new(i, i, InterconnectType::SameDevice));
         }
 
         Self {
@@ -345,7 +345,12 @@ impl GpuTopology {
             .iter()
             .enumerate()
             .filter_map(|(i, conn)| {
-                if i != device && conn.as_ref().map(|c| c.interconnect.supports_p2p()).unwrap_or(false) {
+                if i != device
+                    && conn
+                        .as_ref()
+                        .map(|c| c.interconnect.supports_p2p())
+                        .unwrap_or(false)
+                {
                     Some(i)
                 } else {
                     None
@@ -1017,9 +1022,9 @@ impl MultiGpuCoordinator {
         kernel_id: &KernelId,
         target_device: usize,
     ) -> Result<MigrationRequest> {
-        let source_device = self.get_kernel_device(kernel_id).ok_or_else(|| {
-            RingKernelError::KernelNotFound(kernel_id.as_str().to_string())
-        })?;
+        let source_device = self
+            .get_kernel_device(kernel_id)
+            .ok_or_else(|| RingKernelError::KernelNotFound(kernel_id.as_str().to_string()))?;
 
         if source_device == target_device {
             return Err(RingKernelError::InvalidConfig(
@@ -1611,11 +1616,13 @@ impl KernelMigrator {
             request.source_device,
             request.target_device
         );
-        self.storage.save(&checkpoint, &checkpoint_name).map_err(|e| {
-            self.stats.failed_migrations.fetch_add(1, Ordering::Relaxed);
-            request.state = MigrationState::Failed;
-            RingKernelError::MigrationFailed(format!("Checkpoint transfer failed: {}", e))
-        })?;
+        self.storage
+            .save(&checkpoint, &checkpoint_name)
+            .map_err(|e| {
+                self.stats.failed_migrations.fetch_add(1, Ordering::Relaxed);
+                request.state = MigrationState::Failed;
+                RingKernelError::MigrationFailed(format!("Checkpoint transfer failed: {}", e))
+            })?;
 
         let transfer_duration = transfer_start.elapsed();
         self.stats
@@ -1875,7 +1882,11 @@ impl KernelCodeSource {
 
     /// Create from WGSL code.
     pub fn from_wgsl(wgsl: &str, entry_point: impl Into<String>) -> Self {
-        Self::new(KernelCodeFormat::Wgsl, wgsl.as_bytes().to_vec(), entry_point)
+        Self::new(
+            KernelCodeFormat::Wgsl,
+            wgsl.as_bytes().to_vec(),
+            entry_point,
+        )
     }
 
     /// Create from MSL code.
@@ -1918,9 +1929,10 @@ impl KernelCodeSource {
     /// Get code as string (if text format).
     pub fn as_str(&self) -> Option<&str> {
         match self.format {
-            KernelCodeFormat::Ptx | KernelCodeFormat::Wgsl | KernelCodeFormat::Msl | KernelCodeFormat::Source => {
-                std::str::from_utf8(&self.code).ok()
-            }
+            KernelCodeFormat::Ptx
+            | KernelCodeFormat::Wgsl
+            | KernelCodeFormat::Msl
+            | KernelCodeFormat::Source => std::str::from_utf8(&self.code).ok(),
             _ => None,
         }
     }
@@ -2159,7 +2171,9 @@ impl HotReloadManager {
 
         // Check kernel is registered
         if !self.kernels.read().contains_key(kernel_id) {
-            return Err(RingKernelError::KernelNotFound(kernel_id.as_str().to_string()));
+            return Err(RingKernelError::KernelNotFound(
+                kernel_id.as_str().to_string(),
+            ));
         }
 
         // Check no reload already in progress
@@ -2179,9 +2193,10 @@ impl HotReloadManager {
         let new_code = new_code.with_version(version);
 
         let request = HotReloadRequest::new(kernel_id.clone(), new_code);
-        self.active_requests
-            .write()
-            .insert(kernel_id.clone(), HotReloadRequest::new(kernel_id.clone(), request.new_code.clone()));
+        self.active_requests.write().insert(
+            kernel_id.clone(),
+            HotReloadRequest::new(kernel_id.clone(), request.new_code.clone()),
+        );
 
         Ok(request)
     }
@@ -2279,9 +2294,13 @@ impl HotReloadManager {
 
         // Mark completed
         request.state = HotReloadState::Completed;
-        self.stats.successful_reloads.fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .successful_reloads
+            .fetch_add(1, Ordering::Relaxed);
         if self.config.preserve_state && checkpoint_size > 0 {
-            self.stats.state_preserved_count.fetch_add(1, Ordering::Relaxed);
+            self.stats
+                .state_preserved_count
+                .fetch_add(1, Ordering::Relaxed);
         }
 
         // Clean up active request
@@ -2304,11 +2323,10 @@ impl HotReloadManager {
 
     /// Rollback to previous kernel version.
     pub fn rollback(&self, kernel_id: &KernelId) -> Result<()> {
-        let fallback = self
-            .fallbacks
-            .write()
-            .remove(kernel_id)
-            .ok_or_else(|| RingKernelError::ValidationError("No fallback available".to_string()))?;
+        let fallback =
+            self.fallbacks.write().remove(kernel_id).ok_or_else(|| {
+                RingKernelError::ValidationError("No fallback available".to_string())
+            })?;
 
         self.kernels.write().insert(kernel_id.clone(), fallback);
         self.stats.rollbacks.fetch_add(1, Ordering::Relaxed);
@@ -2516,9 +2534,18 @@ mod tests {
 
     #[test]
     fn test_interconnect_bandwidth() {
-        assert!(InterconnectType::NvLink.estimated_bandwidth_gbps() > InterconnectType::Pcie.estimated_bandwidth_gbps());
-        assert!(InterconnectType::Pcie.estimated_bandwidth_gbps() > InterconnectType::None.estimated_bandwidth_gbps());
-        assert!(InterconnectType::SameDevice.estimated_bandwidth_gbps() > InterconnectType::NvLink.estimated_bandwidth_gbps());
+        assert!(
+            InterconnectType::NvLink.estimated_bandwidth_gbps()
+                > InterconnectType::Pcie.estimated_bandwidth_gbps()
+        );
+        assert!(
+            InterconnectType::Pcie.estimated_bandwidth_gbps()
+                > InterconnectType::None.estimated_bandwidth_gbps()
+        );
+        assert!(
+            InterconnectType::SameDevice.estimated_bandwidth_gbps()
+                > InterconnectType::NvLink.estimated_bandwidth_gbps()
+        );
     }
 
     #[test]
@@ -2781,7 +2808,11 @@ mod tests {
         let decision = router.route_message(&k1, &k2, msg).unwrap();
 
         match decision {
-            RoutingDecision::DirectP2P { source_device, dest_device, .. } => {
+            RoutingDecision::DirectP2P {
+                source_device,
+                dest_device,
+                ..
+            } => {
                 assert_eq!(source_device, 0);
                 assert_eq!(dest_device, 1);
             }
@@ -2933,7 +2964,9 @@ mod tests {
         assert_eq!(request.state, MigrationState::Pending);
 
         // Perform migration
-        let result = migrator.migrate_with_checkpoint(&kernel, &mut request).unwrap();
+        let result = migrator
+            .migrate_with_checkpoint(&kernel, &mut request)
+            .unwrap();
 
         // Verify result
         assert_eq!(result.kernel_id.as_str(), "migratable_kernel");
@@ -2966,7 +2999,9 @@ mod tests {
         let kernel = MockCheckpointableKernel::new("test_kernel", 4096);
         let mut request = coord.request_migration(&kernel_id, 1).unwrap();
 
-        let result = migrator.migrate_with_checkpoint(&kernel, &mut request).unwrap();
+        let result = migrator
+            .migrate_with_checkpoint(&kernel, &mut request)
+            .unwrap();
 
         // All durations should be non-negative
         assert!(result.checkpoint_duration >= Duration::ZERO);
@@ -2991,14 +3026,18 @@ mod tests {
         coord.assign_kernel(k1.clone(), 0);
         let kernel1 = MockCheckpointableKernel::new("k1", 1000);
         let mut req1 = coord.request_migration(&k1, 1).unwrap();
-        migrator.migrate_with_checkpoint(&kernel1, &mut req1).unwrap();
+        migrator
+            .migrate_with_checkpoint(&kernel1, &mut req1)
+            .unwrap();
 
         // Migrate kernel 2: 0 -> 1
         let k2 = KernelId::new("k2");
         coord.assign_kernel(k2.clone(), 0);
         let kernel2 = MockCheckpointableKernel::new("k2", 2000);
         let mut req2 = coord.request_migration(&k2, 1).unwrap();
-        migrator.migrate_with_checkpoint(&kernel2, &mut req2).unwrap();
+        migrator
+            .migrate_with_checkpoint(&kernel2, &mut req2)
+            .unwrap();
 
         let stats = migrator.stats();
         assert_eq!(stats.successful_migrations, 2);

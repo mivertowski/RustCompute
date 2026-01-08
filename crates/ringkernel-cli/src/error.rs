@@ -7,6 +7,7 @@ pub type CliResult<T> = Result<T, CliError>;
 
 /// CLI error type.
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum CliError {
     /// IO error during file operations.
     #[error("IO error: {0}")]

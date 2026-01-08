@@ -131,9 +131,8 @@ pub mod prelude {
 
     #[cfg(feature = "persistent-wgpu")]
     pub use crate::wgpu_bridge::{
-        BatchDispatchStats, BatchDispatcher, BatchedCommand, CommandBatch,
-        CpuBatchDispatcher, WgpuEmulationConfig, WgpuPersistentHandle,
-        WgpuPersistentHandleBuilder,
+        BatchDispatchStats, BatchDispatcher, BatchedCommand, CommandBatch, CpuBatchDispatcher,
+        WgpuEmulationConfig, WgpuPersistentHandle, WgpuPersistentHandleBuilder,
     };
 
     #[cfg(feature = "arrow")]
@@ -154,11 +153,6 @@ pub mod prelude {
     #[cfg(feature = "prometheus")]
     pub use crate::metrics::*;
 
-    #[cfg(feature = "enterprise")]
-    pub use crate::enterprise::{
-        EnterpriseHealthResponse, EnterpriseState, EnterpriseStatsResponse, LivenessResponse,
-        ReadinessResponse,
-    };
     #[cfg(all(feature = "enterprise", feature = "axum"))]
     pub use crate::enterprise::{
         enterprise_routes, health_handler as enterprise_health_handler, liveness_handler,
@@ -168,6 +162,11 @@ pub mod prelude {
     pub use crate::enterprise::{
         CircuitBreakerFuture, CircuitBreakerLayer, CircuitBreakerService, DegradationFuture,
         DegradationLayer, DegradationService,
+    };
+    #[cfg(feature = "enterprise")]
+    pub use crate::enterprise::{
+        EnterpriseHealthResponse, EnterpriseState, EnterpriseStatsResponse, LivenessResponse,
+        ReadinessResponse,
     };
 
     #[cfg(feature = "graphql")]

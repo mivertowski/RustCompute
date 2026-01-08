@@ -239,12 +239,12 @@ impl PyTorchBridge {
     pub fn export_metadata(&self, tensor: &PyTorchTensor) -> HashMap<String, String> {
         let mut metadata = HashMap::new();
         metadata.insert("dtype".to_string(), tensor.dtype.to_torch_str().to_string());
-        metadata.insert(
-            "shape".to_string(),
-            format!("{:?}", tensor.shape),
-        );
+        metadata.insert("shape".to_string(), format!("{:?}", tensor.shape));
         metadata.insert("device".to_string(), tensor.device.clone());
-        metadata.insert("requires_grad".to_string(), tensor.requires_grad.to_string());
+        metadata.insert(
+            "requires_grad".to_string(),
+            tensor.requires_grad.to_string(),
+        );
         metadata.insert("numel".to_string(), tensor.numel().to_string());
         metadata
     }
@@ -819,21 +819,36 @@ impl<R: HuggingFaceRuntime> HuggingFacePipeline<R> {
     }
 
     /// Run text generation.
-    pub async fn generate(&mut self, prompt: &str, max_tokens: usize) -> Result<TextGenerationResult> {
+    pub async fn generate(
+        &mut self,
+        prompt: &str,
+        max_tokens: usize,
+    ) -> Result<TextGenerationResult> {
         let handle = self.ensure_loaded().await?.to_string();
-        self.runtime.text_generation(&handle, prompt, max_tokens).await
+        self.runtime
+            .text_generation(&handle, prompt, max_tokens)
+            .await
     }
 
     /// Run feature extraction.
-    pub async fn extract_features(&mut self, texts: &[&str]) -> Result<Vec<FeatureExtractionResult>> {
+    pub async fn extract_features(
+        &mut self,
+        texts: &[&str],
+    ) -> Result<Vec<FeatureExtractionResult>> {
         let handle = self.ensure_loaded().await?.to_string();
         self.runtime.feature_extraction(&handle, texts).await
     }
 
     /// Run question answering.
-    pub async fn answer(&mut self, question: &str, context: &str) -> Result<QuestionAnsweringResult> {
+    pub async fn answer(
+        &mut self,
+        question: &str,
+        context: &str,
+    ) -> Result<QuestionAnsweringResult> {
         let handle = self.ensure_loaded().await?.to_string();
-        self.runtime.question_answering(&handle, question, context).await
+        self.runtime
+            .question_answering(&handle, question, context)
+            .await
     }
 
     /// Get the model specification.
@@ -932,11 +947,7 @@ mod tests {
 
     #[test]
     fn test_pytorch_tensor() {
-        let tensor = PyTorchTensor::new(
-            vec![0; 16],
-            vec![2, 2],
-            PyTorchDType::Float32,
-        );
+        let tensor = PyTorchTensor::new(vec![0; 16], vec![2, 2], PyTorchDType::Float32);
         assert_eq!(tensor.numel(), 4);
         assert_eq!(tensor.size_bytes(), 16);
     }
@@ -945,7 +956,9 @@ mod tests {
     fn test_pytorch_bridge() {
         let bridge = PyTorchBridge::new();
         let data = vec![0u8; 16];
-        let tensor = bridge.to_pytorch(&data, &[2, 2], PyTorchDType::Float32).unwrap();
+        let tensor = bridge
+            .to_pytorch(&data, &[2, 2], PyTorchDType::Float32)
+            .unwrap();
         assert_eq!(tensor.shape, vec![2, 2]);
     }
 
@@ -961,8 +974,14 @@ mod tests {
 
     #[test]
     fn test_huggingface_task() {
-        assert_eq!(HuggingFaceTask::TextClassification.task_name(), "text-classification");
-        assert_eq!(HuggingFaceTask::TextGeneration.task_name(), "text-generation");
+        assert_eq!(
+            HuggingFaceTask::TextClassification.task_name(),
+            "text-classification"
+        );
+        assert_eq!(
+            HuggingFaceTask::TextGeneration.task_name(),
+            "text-generation"
+        );
     }
 
     #[test]

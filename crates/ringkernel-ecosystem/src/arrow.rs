@@ -381,13 +381,28 @@ pub enum GpuSortOrder {
 #[async_trait::async_trait]
 pub trait GpuArrowOps: Send + Sync + 'static {
     /// GPU-accelerated filter operation.
-    async fn gpu_filter(&self, kernel_id: &str, data: Vec<u8>, predicate: &GpuPredicate) -> Result<Vec<u8>>;
+    async fn gpu_filter(
+        &self,
+        kernel_id: &str,
+        data: Vec<u8>,
+        predicate: &GpuPredicate,
+    ) -> Result<Vec<u8>>;
 
     /// GPU-accelerated sort operation.
-    async fn gpu_sort(&self, kernel_id: &str, data: Vec<u8>, order: GpuSortOrder) -> Result<Vec<u8>>;
+    async fn gpu_sort(
+        &self,
+        kernel_id: &str,
+        data: Vec<u8>,
+        order: GpuSortOrder,
+    ) -> Result<Vec<u8>>;
 
     /// GPU-accelerated aggregation operation.
-    async fn gpu_aggregate(&self, kernel_id: &str, data: Vec<u8>, agg: GpuAggregation) -> Result<f64>;
+    async fn gpu_aggregate(
+        &self,
+        kernel_id: &str,
+        data: Vec<u8>,
+        agg: GpuAggregation,
+    ) -> Result<f64>;
 
     /// GPU-accelerated scatter/gather (select by indices).
     async fn gpu_take(&self, kernel_id: &str, data: Vec<u8>, indices: Vec<u32>) -> Result<Vec<u8>>;
@@ -396,7 +411,12 @@ pub trait GpuArrowOps: Send + Sync + 'static {
     async fn gpu_unique(&self, kernel_id: &str, data: Vec<u8>) -> Result<Vec<u8>>;
 
     /// GPU-accelerated histogram.
-    async fn gpu_histogram(&self, kernel_id: &str, data: Vec<u8>, num_bins: u32) -> Result<Vec<u64>>;
+    async fn gpu_histogram(
+        &self,
+        kernel_id: &str,
+        data: Vec<u8>,
+        num_bins: u32,
+    ) -> Result<Vec<u64>>;
 }
 
 /// GPU filter result with statistics.
@@ -474,12 +494,19 @@ impl<R: RuntimeHandle + GpuArrowOps> GpuArrowExecutor<R> {
     }
 
     /// GPU-accelerated filter on Float32Array.
-    pub async fn filter_f32(&self, array: &Float32Array, predicate: &GpuPredicate) -> Result<GpuFilterResult> {
+    pub async fn filter_f32(
+        &self,
+        array: &Float32Array,
+        predicate: &GpuPredicate,
+    ) -> Result<GpuFilterResult> {
         let values = array.values();
         let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
         let rows_before = array.len();
 
-        let result_bytes = self.runtime.gpu_filter("filter_f32", bytes, predicate).await?;
+        let result_bytes = self
+            .runtime
+            .gpu_filter("filter_f32", bytes, predicate)
+            .await?;
 
         let result_values: Vec<f32> = result_bytes
             .chunks_exact(4)
@@ -487,7 +514,11 @@ impl<R: RuntimeHandle + GpuArrowOps> GpuArrowExecutor<R> {
             .collect();
 
         let rows_after = result_values.len();
-        let selectivity = if rows_before > 0 { rows_after as f64 / rows_before as f64 } else { 0.0 };
+        let selectivity = if rows_before > 0 {
+            rows_after as f64 / rows_before as f64
+        } else {
+            0.0
+        };
 
         Ok(GpuFilterResult {
             data: Arc::new(Float32Array::from(result_values)),
@@ -498,7 +529,11 @@ impl<R: RuntimeHandle + GpuArrowOps> GpuArrowExecutor<R> {
     }
 
     /// GPU-accelerated sort on Float32Array.
-    pub async fn sort_f32(&self, array: &Float32Array, order: GpuSortOrder) -> Result<GpuSortResult> {
+    pub async fn sort_f32(
+        &self,
+        array: &Float32Array,
+        order: GpuSortOrder,
+    ) -> Result<GpuSortResult> {
         let values = array.values();
         let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
 
@@ -510,11 +545,9 @@ impl<R: RuntimeHandle + GpuArrowOps> GpuArrowExecutor<R> {
             .collect();
 
         // Check if already sorted
-        let was_sorted = values.windows(2).all(|w| {
-            match order {
-                GpuSortOrder::Ascending => w[0] <= w[1],
-                GpuSortOrder::Descending => w[0] >= w[1],
-            }
+        let was_sorted = values.windows(2).all(|w| match order {
+            GpuSortOrder::Ascending => w[0] <= w[1],
+            GpuSortOrder::Descending => w[0] >= w[1],
         });
 
         Ok(GpuSortResult {
@@ -525,7 +558,11 @@ impl<R: RuntimeHandle + GpuArrowOps> GpuArrowExecutor<R> {
     }
 
     /// GPU-accelerated aggregation on Float32Array.
-    pub async fn aggregate_f32(&self, array: &Float32Array, agg: GpuAggregation) -> Result<GpuAggResult> {
+    pub async fn aggregate_f32(
+        &self,
+        array: &Float32Array,
+        agg: GpuAggregation,
+    ) -> Result<GpuAggResult> {
         let values = array.values();
         let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
 
@@ -543,7 +580,9 @@ impl<R: RuntimeHandle + GpuArrowOps> GpuArrowExecutor<R> {
         let values = array.values();
         let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
 
-        self.runtime.gpu_histogram("histogram_f32", bytes, num_bins).await
+        self.runtime
+            .gpu_histogram("histogram_f32", bytes, num_bins)
+            .await
     }
 
     /// Get execution statistics.

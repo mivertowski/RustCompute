@@ -2,9 +2,7 @@
 //!
 //! Produces human-readable text representation of IR modules.
 
-use crate::{
-    nodes::*, BlockId, IrModule, IrNode, IrType, Terminator, ValueId,
-};
+use crate::{nodes::*, BlockId, IrModule, IrNode, IrType, Terminator, ValueId};
 use std::fmt::Write;
 
 /// IR pretty printer.
@@ -31,7 +29,12 @@ impl IrPrinter {
     fn print_module(&mut self, module: &IrModule) {
         // Header
         writeln!(self.output, "; RingKernel IR Module: {}", module.name).unwrap();
-        writeln!(self.output, "; Capabilities: {:?}", module.required_capabilities.flags()).unwrap();
+        writeln!(
+            self.output,
+            "; Capabilities: {:?}",
+            module.required_capabilities.flags()
+        )
+        .unwrap();
         writeln!(self.output).unwrap();
 
         // Parameters
@@ -49,7 +52,7 @@ impl IrPrinter {
 
         // Print blocks in order (entry first)
         self.print_block(module, module.entry_block);
-        for (block_id, _) in &module.blocks {
+        for block_id in module.blocks.keys() {
             if *block_id != module.entry_block {
                 self.print_block(module, *block_id);
             }
@@ -80,7 +83,13 @@ impl IrPrinter {
         }
     }
 
-    fn print_instruction(&mut self, _module: &IrModule, result: ValueId, ty: &IrType, node: &IrNode) {
+    fn print_instruction(
+        &mut self,
+        _module: &IrModule,
+        result: ValueId,
+        ty: &IrType,
+        node: &IrNode,
+    ) {
         let indent = "  ".repeat(self.indent);
 
         let node_str = match node {

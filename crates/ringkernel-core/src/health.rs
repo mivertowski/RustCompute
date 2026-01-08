@@ -83,7 +83,8 @@ pub struct HealthCheckResult {
 }
 
 /// Type alias for async health check functions.
-pub type HealthCheckFn = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = HealthStatus> + Send>> + Send + Sync>;
+pub type HealthCheckFn =
+    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = HealthStatus> + Send>> + Send + Sync>;
 
 /// A health check definition.
 pub struct HealthCheck {
@@ -431,8 +432,7 @@ impl CircuitBreaker {
             CircuitState::Closed => true,
             CircuitState::Open => false,
             CircuitState::HalfOpen => {
-                self.half_open_requests.load(Ordering::SeqCst)
-                    < self.config.half_open_max_requests
+                self.half_open_requests.load(Ordering::SeqCst) < self.config.half_open_max_requests
             }
         }
     }
@@ -656,6 +656,7 @@ pub struct RetryPolicy {
     /// Whether to add jitter to delays.
     pub jitter: bool,
     /// Retryable error predicate.
+    #[allow(clippy::type_complexity)]
     retryable: Option<Arc<dyn Fn(&str) -> bool + Send + Sync>>,
 }
 
@@ -708,10 +709,7 @@ impl RetryPolicy {
 
     /// Check if an error is retryable.
     pub fn is_retryable(&self, error: &str) -> bool {
-        self.retryable
-            .as_ref()
-            .map(|p| p(error))
-            .unwrap_or(true)
+        self.retryable.as_ref().map(|p| p(error)).unwrap_or(true)
     }
 
     /// Get delay for an attempt with optional jitter.
@@ -862,6 +860,7 @@ pub struct DegradationManager {
     /// Load shedding policy.
     policy: LoadSheddingPolicy,
     /// Level change callbacks.
+    #[allow(clippy::type_complexity)]
     callbacks: RwLock<Vec<Arc<dyn Fn(DegradationLevel, DegradationLevel) + Send + Sync>>>,
     /// Shed counter for probabilistic shedding.
     shed_counter: AtomicU64,
@@ -1040,6 +1039,7 @@ pub struct KernelWatchdog {
     #[allow(dead_code)]
     running: std::sync::atomic::AtomicBool,
     /// Unhealthy kernel callbacks.
+    #[allow(clippy::type_complexity)]
     callbacks: RwLock<Vec<Arc<dyn Fn(&KernelHealth) + Send + Sync>>>,
 }
 
@@ -1092,12 +1092,7 @@ impl KernelWatchdog {
     }
 
     /// Update kernel metrics.
-    pub fn update_metrics(
-        &self,
-        kernel_id: &KernelId,
-        messages_per_sec: f64,
-        queue_depth: usize,
-    ) {
+    pub fn update_metrics(&self, kernel_id: &KernelId, messages_per_sec: f64, queue_depth: usize) {
         if let Some(health) = self.kernels.write().get_mut(kernel_id) {
             health.messages_per_sec = messages_per_sec;
             health.queue_depth = queue_depth;
@@ -1127,7 +1122,10 @@ impl KernelWatchdog {
         // Notify callbacks for unhealthy kernels
         drop(kernels);
         let callbacks = self.callbacks.read().clone();
-        for health in results.iter().filter(|h| h.status == HealthStatus::Unhealthy) {
+        for health in results
+            .iter()
+            .filter(|h| h.status == HealthStatus::Unhealthy)
+        {
             for callback in &callbacks {
                 callback(health);
             }

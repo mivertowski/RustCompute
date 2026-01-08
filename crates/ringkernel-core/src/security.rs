@@ -59,9 +59,10 @@ use crate::KernelId;
 // ============================================================================
 
 /// Encryption algorithm for GPU memory protection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum EncryptionAlgorithm {
     /// AES-256-GCM (recommended for most use cases)
+    #[default]
     Aes256Gcm,
     /// AES-128-GCM (faster, still secure)
     Aes128Gcm,
@@ -69,12 +70,6 @@ pub enum EncryptionAlgorithm {
     ChaCha20Poly1305,
     /// XChaCha20-Poly1305 (extended nonce variant)
     XChaCha20Poly1305,
-}
-
-impl Default for EncryptionAlgorithm {
-    fn default() -> Self {
-        Self::Aes256Gcm
-    }
 }
 
 impl fmt::Display for EncryptionAlgorithm {
@@ -89,9 +84,10 @@ impl fmt::Display for EncryptionAlgorithm {
 }
 
 /// Key derivation function for encryption keys.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum KeyDerivation {
     /// HKDF with SHA-256
+    #[default]
     HkdfSha256,
     /// HKDF with SHA-384
     HkdfSha384,
@@ -99,12 +95,6 @@ pub enum KeyDerivation {
     Argon2id,
     /// PBKDF2 with SHA-256
     Pbkdf2Sha256,
-}
-
-impl Default for KeyDerivation {
-    fn default() -> Self {
-        Self::HkdfSha256
-    }
 }
 
 /// Configuration for memory encryption.
@@ -209,7 +199,9 @@ impl EncryptionKey {
     pub fn new(key_id: u64, algorithm: EncryptionAlgorithm) -> Self {
         // Generate random key material (simulation - in production use proper RNG)
         let key_size = match algorithm {
-            EncryptionAlgorithm::Aes256Gcm | EncryptionAlgorithm::ChaCha20Poly1305 | EncryptionAlgorithm::XChaCha20Poly1305 => 32,
+            EncryptionAlgorithm::Aes256Gcm
+            | EncryptionAlgorithm::ChaCha20Poly1305
+            | EncryptionAlgorithm::XChaCha20Poly1305 => 32,
             EncryptionAlgorithm::Aes128Gcm => 16,
         };
 
@@ -228,7 +220,9 @@ impl EncryptionKey {
 
     /// Check if the key has expired.
     pub fn is_expired(&self) -> bool {
-        self.expires_at.map(|exp| Instant::now() > exp).unwrap_or(false)
+        self.expires_at
+            .map(|exp| Instant::now() > exp)
+            .unwrap_or(false)
     }
 
     /// Get the key size in bytes.
@@ -349,7 +343,10 @@ impl MemoryEncryption {
 
         // Add authentication tag (simulated)
         let tag: Vec<u8> = (0..16)
-            .map(|i| ciphertext.get(i).copied().unwrap_or(0) ^ key.key_material[i % key.key_material.len()])
+            .map(|i| {
+                ciphertext.get(i).copied().unwrap_or(0)
+                    ^ key.key_material[i % key.key_material.len()]
+            })
             .collect();
         ciphertext.extend(tag);
 
@@ -361,7 +358,8 @@ impl MemoryEncryption {
             stats.bytes_encrypted += plaintext.len() as u64;
             stats.encrypt_ops += 1;
             let total_time = stats.avg_encrypt_time_us * (stats.encrypt_ops - 1) as f64;
-            stats.avg_encrypt_time_us = (total_time + elapsed.as_micros() as f64) / stats.encrypt_ops as f64;
+            stats.avg_encrypt_time_us =
+                (total_time + elapsed.as_micros() as f64) / stats.encrypt_ops as f64;
         }
 
         EncryptedRegion {
@@ -412,7 +410,8 @@ impl MemoryEncryption {
             stats.bytes_decrypted += plaintext.len() as u64;
             stats.decrypt_ops += 1;
             let total_time = stats.avg_decrypt_time_us * (stats.decrypt_ops - 1) as f64;
-            stats.avg_decrypt_time_us = (total_time + elapsed.as_micros() as f64) / stats.decrypt_ops as f64;
+            stats.avg_decrypt_time_us =
+                (total_time + elapsed.as_micros() as f64) / stats.decrypt_ops as f64;
         }
 
         Ok(plaintext)
@@ -482,22 +481,17 @@ impl fmt::Debug for MemoryEncryption {
 // ============================================================================
 
 /// Access control for kernel operations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AccessLevel {
     /// No access
     Deny,
     /// Read-only access
     ReadOnly,
     /// Read-write access
+    #[default]
     ReadWrite,
     /// Full access including execute
     Full,
-}
-
-impl Default for AccessLevel {
-    fn default() -> Self {
-        Self::ReadWrite
-    }
 }
 
 /// Resource limits for sandboxed kernels.
@@ -650,13 +644,15 @@ impl SandboxPolicy {
 
     /// Allow K2K to specific destinations.
     pub fn allow_k2k_to(mut self, destinations: &[&str]) -> Self {
-        self.allowed_k2k_destinations.extend(destinations.iter().map(|s| s.to_string()));
+        self.allowed_k2k_destinations
+            .extend(destinations.iter().map(|s| s.to_string()));
         self
     }
 
     /// Deny K2K to specific destinations.
     pub fn deny_k2k_to(mut self, destinations: &[&str]) -> Self {
-        self.denied_k2k_destinations.extend(destinations.iter().map(|s| s.to_string()));
+        self.denied_k2k_destinations
+            .extend(destinations.iter().map(|s| s.to_string()));
         self
     }
 
@@ -739,15 +735,38 @@ impl SandboxPolicy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ViolationType {
     /// Memory limit exceeded
-    MemoryLimitExceeded { used: u64, limit: u64 },
+    MemoryLimitExceeded {
+        /// Amount of memory used in bytes
+        used: u64,
+        /// Maximum allowed memory in bytes
+        limit: u64,
+    },
     /// Execution time exceeded
-    ExecutionTimeExceeded { elapsed: Duration, limit: Duration },
+    ExecutionTimeExceeded {
+        /// Elapsed execution time
+        elapsed: Duration,
+        /// Maximum allowed execution time
+        limit: Duration,
+    },
     /// Message rate exceeded
-    MessageRateExceeded { rate: u32, limit: u32 },
+    MessageRateExceeded {
+        /// Current message rate per second
+        rate: u32,
+        /// Maximum allowed rate per second
+        limit: u32,
+    },
     /// Unauthorized K2K destination
-    UnauthorizedK2K { destination: String },
+    UnauthorizedK2K {
+        /// The destination kernel that was blocked
+        destination: String,
+    },
     /// Unauthorized memory access
-    UnauthorizedMemoryAccess { region: String, requested: AccessLevel },
+    UnauthorizedMemoryAccess {
+        /// The memory region that was accessed
+        region: String,
+        /// The access level that was requested
+        requested: AccessLevel,
+    },
     /// Checkpoint not allowed
     CheckpointNotAllowed,
     /// Migration not allowed
@@ -774,7 +793,11 @@ impl fmt::Display for ViolationType {
                 write!(f, "Unauthorized K2K to: {}", destination)
             }
             Self::UnauthorizedMemoryAccess { region, requested } => {
-                write!(f, "Unauthorized {:?} access to region: {}", requested, region)
+                write!(
+                    f,
+                    "Unauthorized {:?} access to region: {}",
+                    requested, region
+                )
             }
             Self::CheckpointNotAllowed => write!(f, "Checkpointing not allowed"),
             Self::MigrationNotAllowed => write!(f, "Migration not allowed"),
@@ -860,7 +883,10 @@ impl KernelSandbox {
                     used: bytes,
                     limit: self.policy.limits.max_memory_bytes,
                 },
-                kernel_id: self.kernel_id.clone().unwrap_or_else(|| KernelId("unknown".to_string())),
+                kernel_id: self
+                    .kernel_id
+                    .clone()
+                    .unwrap_or_else(|| KernelId("unknown".to_string())),
                 timestamp: Instant::now(),
                 context: None,
             };
@@ -884,7 +910,10 @@ impl KernelSandbox {
                         elapsed,
                         limit: self.policy.limits.max_execution_time,
                     },
-                    kernel_id: self.kernel_id.clone().unwrap_or_else(|| KernelId("unknown".to_string())),
+                    kernel_id: self
+                        .kernel_id
+                        .clone()
+                        .unwrap_or_else(|| KernelId("unknown".to_string())),
                     timestamp: Instant::now(),
                     context: None,
                 };
@@ -904,7 +933,10 @@ impl KernelSandbox {
                 violation_type: ViolationType::UnauthorizedK2K {
                     destination: destination.to_string(),
                 },
-                kernel_id: self.kernel_id.clone().unwrap_or_else(|| KernelId("unknown".to_string())),
+                kernel_id: self
+                    .kernel_id
+                    .clone()
+                    .unwrap_or_else(|| KernelId("unknown".to_string())),
                 timestamp: Instant::now(),
                 context: None,
             };
@@ -921,7 +953,10 @@ impl KernelSandbox {
         if !self.policy.can_checkpoint {
             let violation = SandboxViolation {
                 violation_type: ViolationType::CheckpointNotAllowed,
-                kernel_id: self.kernel_id.clone().unwrap_or_else(|| KernelId("unknown".to_string())),
+                kernel_id: self
+                    .kernel_id
+                    .clone()
+                    .unwrap_or_else(|| KernelId("unknown".to_string())),
                 timestamp: Instant::now(),
                 context: None,
             };
@@ -938,7 +973,10 @@ impl KernelSandbox {
         if !self.policy.can_migrate {
             let violation = SandboxViolation {
                 violation_type: ViolationType::MigrationNotAllowed,
-                kernel_id: self.kernel_id.clone().unwrap_or_else(|| KernelId("unknown".to_string())),
+                kernel_id: self
+                    .kernel_id
+                    .clone()
+                    .unwrap_or_else(|| KernelId("unknown".to_string())),
                 timestamp: Instant::now(),
                 context: None,
             };
@@ -966,7 +1004,10 @@ impl KernelSandbox {
                         rate: count,
                         limit: self.policy.limits.max_messages_per_sec,
                     },
-                    kernel_id: self.kernel_id.clone().unwrap_or_else(|| KernelId("unknown".to_string())),
+                    kernel_id: self
+                        .kernel_id
+                        .clone()
+                        .unwrap_or_else(|| KernelId("unknown".to_string())),
                     timestamp: Instant::now(),
                     context: None,
                 };
@@ -1058,9 +1099,10 @@ impl fmt::Display for ComplianceStandard {
 }
 
 /// Report output format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ReportFormat {
     /// JSON format
+    #[default]
     Json,
     /// HTML format
     Html,
@@ -1072,21 +1114,21 @@ pub enum ReportFormat {
     Csv,
 }
 
-impl Default for ReportFormat {
-    fn default() -> Self {
-        Self::Json
-    }
-}
-
 /// Compliance check result.
 #[derive(Debug, Clone)]
 pub enum ComplianceStatus {
     /// Fully compliant
     Compliant,
     /// Partially compliant with notes
-    PartiallyCompliant { notes: Vec<String> },
+    PartiallyCompliant {
+        /// Notes describing partial compliance
+        notes: Vec<String>,
+    },
     /// Non-compliant with reasons
-    NonCompliant { reasons: Vec<String> },
+    NonCompliant {
+        /// Reasons for non-compliance
+        reasons: Vec<String>,
+    },
     /// Not applicable
     NotApplicable,
 }
@@ -1176,14 +1218,32 @@ impl ComplianceReport {
         json.push_str("{\n");
         json.push_str(&format!("  \"id\": \"{}\",\n", self.id));
         json.push_str(&format!("  \"title\": \"{}\",\n", self.title));
-        json.push_str(&format!("  \"standards\": [{}],\n",
-            self.standards.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(", ")));
-        json.push_str(&format!("  \"summary\": {{\n"));
-        json.push_str(&format!("    \"total_checks\": {},\n", self.summary.total_checks));
+        json.push_str(&format!(
+            "  \"standards\": [{}],\n",
+            self.standards
+                .iter()
+                .map(|s| format!("\"{}\"", s))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        json.push_str("  \"summary\": {\n");
+        json.push_str(&format!(
+            "    \"total_checks\": {},\n",
+            self.summary.total_checks
+        ));
         json.push_str(&format!("    \"compliant\": {},\n", self.summary.compliant));
-        json.push_str(&format!("    \"partially_compliant\": {},\n", self.summary.partially_compliant));
-        json.push_str(&format!("    \"non_compliant\": {},\n", self.summary.non_compliant));
-        json.push_str(&format!("    \"compliance_percentage\": {:.1}\n", self.summary.compliance_percentage));
+        json.push_str(&format!(
+            "    \"partially_compliant\": {},\n",
+            self.summary.partially_compliant
+        ));
+        json.push_str(&format!(
+            "    \"non_compliant\": {},\n",
+            self.summary.non_compliant
+        ));
+        json.push_str(&format!(
+            "    \"compliance_percentage\": {:.1}\n",
+            self.summary.compliance_percentage
+        ));
         json.push_str("  },\n");
         json.push_str(&format!("  \"checks_count\": {}\n", self.checks.len()));
         json.push_str("}\n");
@@ -1200,10 +1260,22 @@ impl ComplianceReport {
         html.push_str(&format!("<p>Report ID: {}</p>\n", self.id));
         html.push_str("<h2>Summary</h2>\n");
         html.push_str("<table>\n");
-        html.push_str(&format!("<tr><td>Total Checks</td><td>{}</td></tr>\n", self.summary.total_checks));
-        html.push_str(&format!("<tr><td>Compliant</td><td class=\"compliant\">{}</td></tr>\n", self.summary.compliant));
-        html.push_str(&format!("<tr><td>Non-Compliant</td><td class=\"non-compliant\">{}</td></tr>\n", self.summary.non_compliant));
-        html.push_str(&format!("<tr><td>Compliance</td><td>{:.1}%</td></tr>\n", self.summary.compliance_percentage));
+        html.push_str(&format!(
+            "<tr><td>Total Checks</td><td>{}</td></tr>\n",
+            self.summary.total_checks
+        ));
+        html.push_str(&format!(
+            "<tr><td>Compliant</td><td class=\"compliant\">{}</td></tr>\n",
+            self.summary.compliant
+        ));
+        html.push_str(&format!(
+            "<tr><td>Non-Compliant</td><td class=\"non-compliant\">{}</td></tr>\n",
+            self.summary.non_compliant
+        ));
+        html.push_str(&format!(
+            "<tr><td>Compliance</td><td>{:.1}%</td></tr>\n",
+            self.summary.compliance_percentage
+        ));
         html.push_str("</table>\n");
         html.push_str("<h2>Checks</h2>\n");
         for check in &self.checks {
@@ -1221,11 +1293,23 @@ impl ComplianceReport {
         md.push_str("## Summary\n\n");
         md.push_str("| Metric | Value |\n");
         md.push_str("|--------|-------|\n");
-        md.push_str(&format!("| Total Checks | {} |\n", self.summary.total_checks));
+        md.push_str(&format!(
+            "| Total Checks | {} |\n",
+            self.summary.total_checks
+        ));
         md.push_str(&format!("| Compliant | {} |\n", self.summary.compliant));
-        md.push_str(&format!("| Partially Compliant | {} |\n", self.summary.partially_compliant));
-        md.push_str(&format!("| Non-Compliant | {} |\n", self.summary.non_compliant));
-        md.push_str(&format!("| Compliance | {:.1}% |\n", self.summary.compliance_percentage));
+        md.push_str(&format!(
+            "| Partially Compliant | {} |\n",
+            self.summary.partially_compliant
+        ));
+        md.push_str(&format!(
+            "| Non-Compliant | {} |\n",
+            self.summary.non_compliant
+        ));
+        md.push_str(&format!(
+            "| Compliance | {:.1}% |\n",
+            self.summary.compliance_percentage
+        ));
         md.push_str("\n## Detailed Checks\n\n");
         for check in &self.checks {
             let status_icon = match &check.status {
@@ -1250,8 +1334,10 @@ impl ComplianceReport {
                 ComplianceStatus::NonCompliant { .. } => "Non-Compliant",
                 ComplianceStatus::NotApplicable => "N/A",
             };
-            csv.push_str(&format!("\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"\n",
-                check.id, check.name, check.standard, status, check.description));
+            csv.push_str(&format!(
+                "\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"\n",
+                check.id, check.name, check.standard, status, check.description
+            ));
         }
         csv
     }
@@ -1315,10 +1401,22 @@ impl ComplianceReporter {
 
         // Calculate summary
         let total = checks.len();
-        let compliant = checks.iter().filter(|c| matches!(c.status, ComplianceStatus::Compliant)).count();
-        let partial = checks.iter().filter(|c| matches!(c.status, ComplianceStatus::PartiallyCompliant { .. })).count();
-        let non_compliant = checks.iter().filter(|c| matches!(c.status, ComplianceStatus::NonCompliant { .. })).count();
-        let na = checks.iter().filter(|c| matches!(c.status, ComplianceStatus::NotApplicable)).count();
+        let compliant = checks
+            .iter()
+            .filter(|c| matches!(c.status, ComplianceStatus::Compliant))
+            .count();
+        let partial = checks
+            .iter()
+            .filter(|c| matches!(c.status, ComplianceStatus::PartiallyCompliant { .. }))
+            .count();
+        let non_compliant = checks
+            .iter()
+            .filter(|c| matches!(c.status, ComplianceStatus::NonCompliant { .. }))
+            .count();
+        let na = checks
+            .iter()
+            .filter(|c| matches!(c.status, ComplianceStatus::NotApplicable))
+            .count();
 
         let applicable = total - na;
         let compliance_pct = if applicable > 0 {
@@ -1328,7 +1426,12 @@ impl ComplianceReporter {
         };
 
         ComplianceReport {
-            id: format!("RPT-{}", now.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()),
+            id: format!(
+                "RPT-{}",
+                now.duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+            ),
             title: format!("{} Compliance Report", self.organization),
             standards: self.standards.iter().copied().collect(),
             checks,
@@ -1356,9 +1459,14 @@ impl ComplianceReporter {
                     id: "SOC2-CC1.1".to_string(),
                     name: "Control Environment".to_string(),
                     standard,
-                    description: "The entity demonstrates commitment to integrity and ethical values.".to_string(),
+                    description:
+                        "The entity demonstrates commitment to integrity and ethical values."
+                            .to_string(),
                     status: ComplianceStatus::Compliant,
-                    evidence: vec!["Audit logging enabled".to_string(), "Access controls implemented".to_string()],
+                    evidence: vec![
+                        "Audit logging enabled".to_string(),
+                        "Access controls implemented".to_string(),
+                    ],
                     recommendations: vec![],
                     checked_at: now,
                 },
@@ -1366,9 +1474,14 @@ impl ComplianceReporter {
                     id: "SOC2-CC6.1".to_string(),
                     name: "Logical Access Controls".to_string(),
                     standard,
-                    description: "Logical access security software, infrastructure, and architectures.".to_string(),
+                    description:
+                        "Logical access security software, infrastructure, and architectures."
+                            .to_string(),
                     status: ComplianceStatus::Compliant,
-                    evidence: vec!["Kernel sandboxing available".to_string(), "Memory encryption available".to_string()],
+                    evidence: vec![
+                        "Kernel sandboxing available".to_string(),
+                        "Memory encryption available".to_string(),
+                    ],
                     recommendations: vec![],
                     checked_at: now,
                 },
@@ -1376,9 +1489,13 @@ impl ComplianceReporter {
                     id: "SOC2-CC7.2".to_string(),
                     name: "System Monitoring".to_string(),
                     standard,
-                    description: "System components are monitored and anomalies are identified.".to_string(),
+                    description: "System components are monitored and anomalies are identified."
+                        .to_string(),
                     status: ComplianceStatus::Compliant,
-                    evidence: vec!["Health monitoring enabled".to_string(), "GPU memory dashboard available".to_string()],
+                    evidence: vec![
+                        "Health monitoring enabled".to_string(),
+                        "GPU memory dashboard available".to_string(),
+                    ],
                     recommendations: vec![],
                     checked_at: now,
                 },
@@ -1388,7 +1505,8 @@ impl ComplianceReporter {
                     id: "GDPR-32".to_string(),
                     name: "Security of Processing".to_string(),
                     standard,
-                    description: "Implement appropriate technical and organizational measures.".to_string(),
+                    description: "Implement appropriate technical and organizational measures."
+                        .to_string(),
                     status: ComplianceStatus::Compliant,
                     evidence: vec!["Memory encryption available".to_string()],
                     recommendations: vec!["Consider enabling encryption by default".to_string()],
@@ -1398,9 +1516,11 @@ impl ComplianceReporter {
                     id: "GDPR-33".to_string(),
                     name: "Breach Notification".to_string(),
                     standard,
-                    description: "Notify supervisory authority of personal data breach.".to_string(),
+                    description: "Notify supervisory authority of personal data breach."
+                        .to_string(),
                     status: ComplianceStatus::PartiallyCompliant {
-                        notes: vec!["Audit logging available but breach detection not automated".to_string()]
+                        notes: vec!["Audit logging available but breach detection not automated"
+                            .to_string()],
                     },
                     evidence: vec!["Audit logging enabled".to_string()],
                     recommendations: vec!["Add automated breach detection".to_string()],
@@ -1412,9 +1532,13 @@ impl ComplianceReporter {
                     id: "HIPAA-164.312(a)".to_string(),
                     name: "Access Control".to_string(),
                     standard,
-                    description: "Implement technical policies for electronic PHI access.".to_string(),
+                    description: "Implement technical policies for electronic PHI access."
+                        .to_string(),
                     status: ComplianceStatus::Compliant,
-                    evidence: vec!["Kernel sandboxing available".to_string(), "Access levels configurable".to_string()],
+                    evidence: vec![
+                        "Kernel sandboxing available".to_string(),
+                        "Access levels configurable".to_string(),
+                    ],
                     recommendations: vec![],
                     checked_at: now,
                 },
@@ -1444,37 +1568,35 @@ impl ComplianceReporter {
                     id: "PCI-10.1".to_string(),
                     name: "Audit Trails".to_string(),
                     standard,
-                    description: "Implement audit trails to link access to individual users.".to_string(),
+                    description: "Implement audit trails to link access to individual users."
+                        .to_string(),
                     status: ComplianceStatus::Compliant,
                     evidence: vec!["Comprehensive audit logging".to_string()],
                     recommendations: vec![],
                     checked_at: now,
                 },
             ],
-            ComplianceStandard::ISO27001 => vec![
-                ComplianceCheck {
-                    id: "ISO-A.10.1".to_string(),
-                    name: "Cryptographic Controls".to_string(),
-                    standard,
-                    description: "Policy on use of cryptographic controls.".to_string(),
-                    status: ComplianceStatus::Compliant,
-                    evidence: vec!["Multiple encryption algorithms supported".to_string()],
-                    recommendations: vec![],
-                    checked_at: now,
-                },
-            ],
-            ComplianceStandard::FedRAMP => vec![
-                ComplianceCheck {
-                    id: "FedRAMP-SC-28".to_string(),
-                    name: "Protection of Information at Rest".to_string(),
-                    standard,
-                    description: "Protect confidentiality and integrity of information at rest.".to_string(),
-                    status: ComplianceStatus::Compliant,
-                    evidence: vec!["FIPS-compliant algorithms available".to_string()],
-                    recommendations: vec![],
-                    checked_at: now,
-                },
-            ],
+            ComplianceStandard::ISO27001 => vec![ComplianceCheck {
+                id: "ISO-A.10.1".to_string(),
+                name: "Cryptographic Controls".to_string(),
+                standard,
+                description: "Policy on use of cryptographic controls.".to_string(),
+                status: ComplianceStatus::Compliant,
+                evidence: vec!["Multiple encryption algorithms supported".to_string()],
+                recommendations: vec![],
+                checked_at: now,
+            }],
+            ComplianceStandard::FedRAMP => vec![ComplianceCheck {
+                id: "FedRAMP-SC-28".to_string(),
+                name: "Protection of Information at Rest".to_string(),
+                standard,
+                description: "Protect confidentiality and integrity of information at rest."
+                    .to_string(),
+                status: ComplianceStatus::Compliant,
+                evidence: vec!["FIPS-compliant algorithms available".to_string()],
+                recommendations: vec![],
+                checked_at: now,
+            }],
             ComplianceStandard::NIST => vec![
                 ComplianceCheck {
                     id: "NIST-PR.DS-1".to_string(),
@@ -1490,9 +1612,13 @@ impl ComplianceReporter {
                     id: "NIST-DE.CM-1".to_string(),
                     name: "Network Monitoring".to_string(),
                     standard,
-                    description: "The network is monitored to detect cybersecurity events.".to_string(),
+                    description: "The network is monitored to detect cybersecurity events."
+                        .to_string(),
                     status: ComplianceStatus::Compliant,
-                    evidence: vec!["Observability context".to_string(), "GPU profiler integration".to_string()],
+                    evidence: vec![
+                        "Observability context".to_string(),
+                        "GPU profiler integration".to_string(),
+                    ],
                     recommendations: vec![],
                     checked_at: now,
                 },
@@ -1643,7 +1769,10 @@ mod tests {
         assert!(result.is_err());
 
         if let Err(violation) = result {
-            assert!(matches!(violation.violation_type, ViolationType::MemoryLimitExceeded { .. }));
+            assert!(matches!(
+                violation.violation_type,
+                ViolationType::MemoryLimitExceeded { .. }
+            ));
         }
     }
 
@@ -1723,8 +1852,7 @@ mod tests {
 
     #[test]
     fn test_report_json_export() {
-        let reporter = ComplianceReporter::new()
-            .with_standard(ComplianceStandard::HIPAA);
+        let reporter = ComplianceReporter::new().with_standard(ComplianceStandard::HIPAA);
 
         let report = reporter.generate_report(ReportFormat::Json);
         let json = report.export(ReportFormat::Json);
@@ -1735,8 +1863,7 @@ mod tests {
 
     #[test]
     fn test_report_markdown_export() {
-        let reporter = ComplianceReporter::new()
-            .with_standard(ComplianceStandard::NIST);
+        let reporter = ComplianceReporter::new().with_standard(ComplianceStandard::NIST);
 
         let report = reporter.generate_report(ReportFormat::Markdown);
         let md = report.export(ReportFormat::Markdown);
@@ -1748,8 +1875,7 @@ mod tests {
 
     #[test]
     fn test_report_html_export() {
-        let reporter = ComplianceReporter::new()
-            .with_standard(ComplianceStandard::PCIDSS);
+        let reporter = ComplianceReporter::new().with_standard(ComplianceStandard::PCIDSS);
 
         let report = reporter.generate_report(ReportFormat::Html);
         let html = report.export(ReportFormat::Html);
@@ -1760,8 +1886,7 @@ mod tests {
 
     #[test]
     fn test_report_csv_export() {
-        let reporter = ComplianceReporter::new()
-            .with_standard(ComplianceStandard::ISO27001);
+        let reporter = ComplianceReporter::new().with_standard(ComplianceStandard::ISO27001);
 
         let report = reporter.generate_report(ReportFormat::Csv);
         let csv = report.export(ReportFormat::Csv);
@@ -1778,8 +1903,10 @@ mod tests {
 
         let report = reporter.generate_report(ReportFormat::Json);
 
-        let sum = report.summary.compliant + report.summary.partially_compliant
-            + report.summary.non_compliant + report.summary.not_applicable;
+        let sum = report.summary.compliant
+            + report.summary.partially_compliant
+            + report.summary.non_compliant
+            + report.summary.not_applicable;
         assert_eq!(sum, report.summary.total_checks);
     }
 

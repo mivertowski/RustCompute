@@ -643,11 +643,17 @@ impl<R: RuntimeHandle + GpuCandleOps> GpuCandleExecutor<R> {
         let (data, _dtype_str) = tensor_to_bytes(tensor)?;
         let shape = tensor.dims().to_vec();
 
-        let result_bytes = self.runtime
+        let result_bytes = self
+            .runtime
             .gpu_activation("activation", data, shape.clone(), activation)
             .await?;
 
-        bytes_to_tensor(&result_bytes, &shape, tensor.dtype(), &self.config.result_device)
+        bytes_to_tensor(
+            &result_bytes,
+            &shape,
+            tensor.dtype(),
+            &self.config.result_device,
+        )
     }
 
     /// ReLU activation.
@@ -686,14 +692,17 @@ impl<R: RuntimeHandle + GpuCandleOps> GpuCandleExecutor<R> {
             None
         };
 
-        let result_bytes = self.runtime
+        let result_bytes = self
+            .runtime
             .gpu_conv2d("conv2d", input_data, weight_data, bias_data, config)
             .await?;
 
         // Calculate output shape
         let in_shape = input.dims();
-        let out_h = (in_shape[2] + 2 * config.padding.0 - config.kernel_size.0) / config.stride.0 + 1;
-        let out_w = (in_shape[3] + 2 * config.padding.1 - config.kernel_size.1) / config.stride.1 + 1;
+        let out_h =
+            (in_shape[2] + 2 * config.padding.0 - config.kernel_size.0) / config.stride.0 + 1;
+        let out_w =
+            (in_shape[3] + 2 * config.padding.1 - config.kernel_size.1) / config.stride.1 + 1;
         let out_channels = weight.dims()[0];
 
         bytes_to_tensor(
@@ -716,7 +725,8 @@ impl<R: RuntimeHandle + GpuCandleOps> GpuCandleExecutor<R> {
         let (data, _) = tensor_to_bytes(tensor)?;
         let shape = tensor.dims().to_vec();
 
-        let result_bytes = self.runtime
+        let result_bytes = self
+            .runtime
             .gpu_pooling("max_pool", data, shape.clone(), &config)
             .await?;
 
@@ -736,11 +746,22 @@ impl<R: RuntimeHandle + GpuCandleOps> GpuCandleExecutor<R> {
         let (data, _) = tensor_to_bytes(tensor)?;
         let shape = tensor.dims().to_vec();
 
-        let result_bytes = self.runtime
-            .gpu_normalize("batch_norm", data, shape.clone(), GpuNormalization::BatchNorm)
+        let result_bytes = self
+            .runtime
+            .gpu_normalize(
+                "batch_norm",
+                data,
+                shape.clone(),
+                GpuNormalization::BatchNorm,
+            )
             .await?;
 
-        bytes_to_tensor(&result_bytes, &shape, tensor.dtype(), &self.config.result_device)
+        bytes_to_tensor(
+            &result_bytes,
+            &shape,
+            tensor.dtype(),
+            &self.config.result_device,
+        )
     }
 
     /// Apply layer normalization.
@@ -748,11 +769,22 @@ impl<R: RuntimeHandle + GpuCandleOps> GpuCandleExecutor<R> {
         let (data, _) = tensor_to_bytes(tensor)?;
         let shape = tensor.dims().to_vec();
 
-        let result_bytes = self.runtime
-            .gpu_normalize("layer_norm", data, shape.clone(), GpuNormalization::LayerNorm)
+        let result_bytes = self
+            .runtime
+            .gpu_normalize(
+                "layer_norm",
+                data,
+                shape.clone(),
+                GpuNormalization::LayerNorm,
+            )
             .await?;
 
-        bytes_to_tensor(&result_bytes, &shape, tensor.dtype(), &self.config.result_device)
+        bytes_to_tensor(
+            &result_bytes,
+            &shape,
+            tensor.dtype(),
+            &self.config.result_device,
+        )
     }
 
     /// Apply multi-head attention.
@@ -767,11 +799,17 @@ impl<R: RuntimeHandle + GpuCandleOps> GpuCandleExecutor<R> {
         let (k_data, _) = tensor_to_bytes(k)?;
         let (v_data, _) = tensor_to_bytes(v)?;
 
-        let result_bytes = self.runtime
+        let result_bytes = self
+            .runtime
             .gpu_attention("attention", q_data, k_data, v_data, config)
             .await?;
 
-        bytes_to_tensor(&result_bytes, q.dims(), q.dtype(), &self.config.result_device)
+        bytes_to_tensor(
+            &result_bytes,
+            q.dims(),
+            q.dtype(),
+            &self.config.result_device,
+        )
     }
 
     /// Apply linear transformation.
@@ -789,7 +827,8 @@ impl<R: RuntimeHandle + GpuCandleOps> GpuCandleExecutor<R> {
             None
         };
 
-        let result_bytes = self.runtime
+        let result_bytes = self
+            .runtime
             .gpu_linear("linear", input_data, weight_data, bias_data)
             .await?;
 
@@ -798,15 +837,16 @@ impl<R: RuntimeHandle + GpuCandleOps> GpuCandleExecutor<R> {
         let mut out_shape = in_shape.to_vec();
         *out_shape.last_mut().unwrap() = out_features;
 
-        bytes_to_tensor(&result_bytes, &out_shape, input.dtype(), &self.config.result_device)
+        bytes_to_tensor(
+            &result_bytes,
+            &out_shape,
+            input.dtype(),
+            &self.config.result_device,
+        )
     }
 
     /// Embedding lookup.
-    pub async fn embedding(
-        &self,
-        indices: &Tensor,
-        weight: &Tensor,
-    ) -> Result<Tensor> {
+    pub async fn embedding(&self, indices: &Tensor, weight: &Tensor) -> Result<Tensor> {
         let indices_vec: Vec<u32> = indices
             .flatten_all()
             .map_err(|e| EcosystemError::Candle(e.to_string()))?
@@ -817,14 +857,20 @@ impl<R: RuntimeHandle + GpuCandleOps> GpuCandleExecutor<R> {
         let vocab_size = weight.dims()[0];
         let embed_dim = weight.dims()[1];
 
-        let result_bytes = self.runtime
+        let result_bytes = self
+            .runtime
             .gpu_embedding("embedding", indices_vec, weight_data, vocab_size, embed_dim)
             .await?;
 
         let mut out_shape = indices.dims().to_vec();
         out_shape.push(embed_dim);
 
-        bytes_to_tensor(&result_bytes, &out_shape, weight.dtype(), &self.config.result_device)
+        bytes_to_tensor(
+            &result_bytes,
+            &out_shape,
+            weight.dtype(),
+            &self.config.result_device,
+        )
     }
 }
 
@@ -832,7 +878,10 @@ impl<R: RuntimeHandle + GpuCandleOps> GpuCandleExecutor<R> {
 #[derive(Debug, Clone)]
 pub enum GpuLayer {
     /// Linear layer
-    Linear { in_features: usize, out_features: usize },
+    Linear {
+        in_features: usize,
+        out_features: usize,
+    },
     /// Conv2d layer
     Conv2d(GpuConv2dConfig),
     /// Pooling layer
@@ -866,7 +915,10 @@ impl GpuModelBuilder {
 
     /// Add a linear layer.
     pub fn linear(mut self, in_features: usize, out_features: usize) -> Self {
-        self.layers.push(GpuLayer::Linear { in_features, out_features });
+        self.layers.push(GpuLayer::Linear {
+            in_features,
+            out_features,
+        });
         self
     }
 
@@ -901,13 +953,15 @@ impl GpuModelBuilder {
 
     /// Add batch normalization.
     pub fn batch_norm(mut self) -> Self {
-        self.layers.push(GpuLayer::Normalization(GpuNormalization::BatchNorm));
+        self.layers
+            .push(GpuLayer::Normalization(GpuNormalization::BatchNorm));
         self
     }
 
     /// Add layer normalization.
     pub fn layer_norm(mut self) -> Self {
-        self.layers.push(GpuLayer::Normalization(GpuNormalization::LayerNorm));
+        self.layers
+            .push(GpuLayer::Normalization(GpuNormalization::LayerNorm));
         self
     }
 

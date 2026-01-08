@@ -522,8 +522,9 @@ mod tests {
             kernel_id: "k1".to_string()
         }
         .is_migration_error());
-        assert!(RingKernelError::MigrationDestinationUnavailable { device_id: 0 }
-            .is_migration_error());
+        assert!(
+            RingKernelError::MigrationDestinationUnavailable { device_id: 0 }.is_migration_error()
+        );
         assert!(
             RingKernelError::MigrationDestinationUnavailable { device_id: 0 }.is_resource_error()
         );

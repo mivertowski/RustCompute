@@ -237,7 +237,8 @@ impl MockThread {
             + self.block_idx.1 as u64 * self.grid_dim.0 as u64
             + self.block_idx.2 as u64 * self.grid_dim.0 as u64 * self.grid_dim.1 as u64;
 
-        let threads_per_block = self.block_dim.0 as u64 * self.block_dim.1 as u64 * self.block_dim.2 as u64;
+        let threads_per_block =
+            self.block_dim.0 as u64 * self.block_dim.1 as u64 * self.block_dim.2 as u64;
         let thread_linear = self.thread_idx.0 as u64
             + self.thread_idx.1 as u64 * self.block_dim.0 as u64
             + self.thread_idx.2 as u64 * self.block_dim.0 as u64 * self.block_dim.1 as u64;
@@ -333,7 +334,7 @@ impl MockSharedMemory {
     /// Write a slice.
     pub fn write_slice<T: Copy>(&self, offset: usize, values: &[T]) {
         let mut data = self.data.borrow_mut();
-        let byte_size = values.len() * std::mem::size_of::<T>();
+        let byte_size = std::mem::size_of_val(values);
         assert!(offset + byte_size <= self.size);
 
         unsafe {
@@ -466,11 +467,8 @@ impl MockGpu {
                     for tz in 0..self.config.block_dim.2 {
                         for ty in 0..self.config.block_dim.1 {
                             for tx in 0..self.config.block_dim.0 {
-                                let thread = MockThread::new(
-                                    (tx, ty, tz),
-                                    (bx, by, bz),
-                                    &self.config,
-                                );
+                                let thread =
+                                    MockThread::new((tx, ty, tz), (bx, by, bz), &self.config);
                                 kernel(&thread);
                             }
                         }
@@ -502,11 +500,8 @@ impl MockGpu {
                                     let config = &self.config;
                                     let kernel_ref = &kernel;
                                     s.spawn(move || {
-                                        let thread = MockThread::new(
-                                            (tx, ty, tz),
-                                            (bx, by, bz),
-                                            config,
-                                        );
+                                        let thread =
+                                            MockThread::new((tx, ty, tz), (bx, by, bz), config);
                                         kernel_ref(&thread, &barrier);
                                     });
                                 }
@@ -549,7 +544,10 @@ impl MockWarp {
 
     /// Simulate warp shuffle.
     pub fn shuffle(&self, src_lane: u32) -> u32 {
-        self.lane_values.get(src_lane as usize).copied().unwrap_or(0)
+        self.lane_values
+            .get(src_lane as usize)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Simulate warp shuffle XOR.
@@ -589,12 +587,12 @@ impl MockWarp {
 
     /// Simulate warp any.
     pub fn any(&self, predicate: impl Fn(u32) -> bool) -> bool {
-        (0..self.warp_size).any(|lane| predicate(lane))
+        (0..self.warp_size).any(predicate)
     }
 
     /// Simulate warp all.
     pub fn all(&self, predicate: impl Fn(u32) -> bool) -> bool {
-        (0..self.warp_size).all(|lane| predicate(lane))
+        (0..self.warp_size).all(predicate)
     }
 
     /// Simulate warp reduction (sum).
@@ -646,7 +644,7 @@ mod tests {
         assert_eq!(thread.block_idx_x(), 1);
         assert_eq!(thread.block_dim_x(), 16);
         assert_eq!(thread.global_x(), 21); // 1*16 + 5
-        assert_eq!(thread.global_y(), 3);  // 0*16 + 3
+        assert_eq!(thread.global_y(), 3); // 0*16 + 3
     }
 
     #[test]
@@ -708,8 +706,8 @@ mod tests {
         assert_eq!(warp.shuffle(15), 30);
 
         // Test shuffle XOR
-        assert_eq!(warp.shuffle_xor(0, 1), 2);  // lane 0 XOR 1 = lane 1 value
-        assert_eq!(warp.shuffle_xor(2, 1), 6);  // lane 2 XOR 1 = lane 3 value
+        assert_eq!(warp.shuffle_xor(0, 1), 2); // lane 0 XOR 1 = lane 1 value
+        assert_eq!(warp.shuffle_xor(2, 1), 6); // lane 2 XOR 1 = lane 3 value
     }
 
     #[test]

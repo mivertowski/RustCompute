@@ -303,7 +303,10 @@ impl IntrinsicRegistry {
         // Subgroup operations - basic queries
         mappings.insert("lane_id", WgslIntrinsic::SubgroupInvocationId);
         mappings.insert("subgroup_id", WgslIntrinsic::SubgroupInvocationId);
-        mappings.insert("subgroup_invocation_id", WgslIntrinsic::SubgroupInvocationId);
+        mappings.insert(
+            "subgroup_invocation_id",
+            WgslIntrinsic::SubgroupInvocationId,
+        );
         mappings.insert("warp_size", WgslIntrinsic::SubgroupSize);
         mappings.insert("subgroup_size", WgslIntrinsic::SubgroupSize);
 
@@ -328,8 +331,14 @@ impl IntrinsicRegistry {
         mappings.insert("warp_shuffle_xor", WgslIntrinsic::SubgroupShuffleXor);
         mappings.insert("subgroup_broadcast", WgslIntrinsic::SubgroupBroadcast);
         mappings.insert("warp_broadcast", WgslIntrinsic::SubgroupBroadcast);
-        mappings.insert("subgroup_broadcast_first", WgslIntrinsic::SubgroupBroadcastFirst);
-        mappings.insert("warp_broadcast_first", WgslIntrinsic::SubgroupBroadcastFirst);
+        mappings.insert(
+            "subgroup_broadcast_first",
+            WgslIntrinsic::SubgroupBroadcastFirst,
+        );
+        mappings.insert(
+            "warp_broadcast_first",
+            WgslIntrinsic::SubgroupBroadcastFirst,
+        );
 
         // Subgroup arithmetic reductions
         mappings.insert("subgroup_add", WgslIntrinsic::SubgroupAdd);
@@ -348,12 +357,24 @@ impl IntrinsicRegistry {
         mappings.insert("warp_reduce_xor", WgslIntrinsic::SubgroupXor);
 
         // Subgroup scan operations
-        mappings.insert("subgroup_inclusive_add", WgslIntrinsic::SubgroupInclusiveAdd);
+        mappings.insert(
+            "subgroup_inclusive_add",
+            WgslIntrinsic::SubgroupInclusiveAdd,
+        );
         mappings.insert("warp_prefix_sum", WgslIntrinsic::SubgroupInclusiveAdd);
-        mappings.insert("subgroup_exclusive_add", WgslIntrinsic::SubgroupExclusiveAdd);
+        mappings.insert(
+            "subgroup_exclusive_add",
+            WgslIntrinsic::SubgroupExclusiveAdd,
+        );
         mappings.insert("warp_exclusive_sum", WgslIntrinsic::SubgroupExclusiveAdd);
-        mappings.insert("subgroup_inclusive_mul", WgslIntrinsic::SubgroupInclusiveMul);
-        mappings.insert("subgroup_exclusive_mul", WgslIntrinsic::SubgroupExclusiveMul);
+        mappings.insert(
+            "subgroup_inclusive_mul",
+            WgslIntrinsic::SubgroupInclusiveMul,
+        );
+        mappings.insert(
+            "subgroup_exclusive_mul",
+            WgslIntrinsic::SubgroupExclusiveMul,
+        );
 
         Self { mappings }
     }
@@ -423,29 +444,80 @@ mod tests {
         let registry = IntrinsicRegistry::new();
 
         // Vote/ballot operations
-        assert_eq!(registry.lookup("subgroup_all"), Some(WgslIntrinsic::SubgroupAll));
-        assert_eq!(registry.lookup("warp_all"), Some(WgslIntrinsic::SubgroupAll));
-        assert_eq!(registry.lookup("subgroup_any"), Some(WgslIntrinsic::SubgroupAny));
-        assert_eq!(registry.lookup("subgroup_ballot"), Some(WgslIntrinsic::SubgroupBallot));
-        assert_eq!(registry.lookup("subgroup_elect"), Some(WgslIntrinsic::SubgroupElect));
+        assert_eq!(
+            registry.lookup("subgroup_all"),
+            Some(WgslIntrinsic::SubgroupAll)
+        );
+        assert_eq!(
+            registry.lookup("warp_all"),
+            Some(WgslIntrinsic::SubgroupAll)
+        );
+        assert_eq!(
+            registry.lookup("subgroup_any"),
+            Some(WgslIntrinsic::SubgroupAny)
+        );
+        assert_eq!(
+            registry.lookup("subgroup_ballot"),
+            Some(WgslIntrinsic::SubgroupBallot)
+        );
+        assert_eq!(
+            registry.lookup("subgroup_elect"),
+            Some(WgslIntrinsic::SubgroupElect)
+        );
 
         // Shuffle operations
-        assert_eq!(registry.lookup("subgroup_shuffle"), Some(WgslIntrinsic::SubgroupShuffle));
-        assert_eq!(registry.lookup("warp_shuffle"), Some(WgslIntrinsic::SubgroupShuffle));
-        assert_eq!(registry.lookup("subgroup_shuffle_xor"), Some(WgslIntrinsic::SubgroupShuffleXor));
-        assert_eq!(registry.lookup("subgroup_broadcast"), Some(WgslIntrinsic::SubgroupBroadcast));
-        assert_eq!(registry.lookup("subgroup_broadcast_first"), Some(WgslIntrinsic::SubgroupBroadcastFirst));
+        assert_eq!(
+            registry.lookup("subgroup_shuffle"),
+            Some(WgslIntrinsic::SubgroupShuffle)
+        );
+        assert_eq!(
+            registry.lookup("warp_shuffle"),
+            Some(WgslIntrinsic::SubgroupShuffle)
+        );
+        assert_eq!(
+            registry.lookup("subgroup_shuffle_xor"),
+            Some(WgslIntrinsic::SubgroupShuffleXor)
+        );
+        assert_eq!(
+            registry.lookup("subgroup_broadcast"),
+            Some(WgslIntrinsic::SubgroupBroadcast)
+        );
+        assert_eq!(
+            registry.lookup("subgroup_broadcast_first"),
+            Some(WgslIntrinsic::SubgroupBroadcastFirst)
+        );
 
         // Arithmetic reductions
-        assert_eq!(registry.lookup("subgroup_add"), Some(WgslIntrinsic::SubgroupAdd));
-        assert_eq!(registry.lookup("warp_reduce_add"), Some(WgslIntrinsic::SubgroupAdd));
-        assert_eq!(registry.lookup("subgroup_min"), Some(WgslIntrinsic::SubgroupMin));
-        assert_eq!(registry.lookup("subgroup_max"), Some(WgslIntrinsic::SubgroupMax));
+        assert_eq!(
+            registry.lookup("subgroup_add"),
+            Some(WgslIntrinsic::SubgroupAdd)
+        );
+        assert_eq!(
+            registry.lookup("warp_reduce_add"),
+            Some(WgslIntrinsic::SubgroupAdd)
+        );
+        assert_eq!(
+            registry.lookup("subgroup_min"),
+            Some(WgslIntrinsic::SubgroupMin)
+        );
+        assert_eq!(
+            registry.lookup("subgroup_max"),
+            Some(WgslIntrinsic::SubgroupMax)
+        );
 
         // Scan operations
-        assert_eq!(registry.lookup("subgroup_inclusive_add"), Some(WgslIntrinsic::SubgroupInclusiveAdd));
-        assert_eq!(registry.lookup("warp_prefix_sum"), Some(WgslIntrinsic::SubgroupInclusiveAdd));
-        assert_eq!(registry.lookup("subgroup_exclusive_add"), Some(WgslIntrinsic::SubgroupExclusiveAdd));
+        assert_eq!(
+            registry.lookup("subgroup_inclusive_add"),
+            Some(WgslIntrinsic::SubgroupInclusiveAdd)
+        );
+        assert_eq!(
+            registry.lookup("warp_prefix_sum"),
+            Some(WgslIntrinsic::SubgroupInclusiveAdd)
+        );
+        assert_eq!(
+            registry.lookup("subgroup_exclusive_add"),
+            Some(WgslIntrinsic::SubgroupExclusiveAdd)
+        );
     }
 
     #[test]
@@ -458,8 +530,14 @@ mod tests {
 
         // Shuffle
         assert_eq!(WgslIntrinsic::SubgroupShuffle.to_wgsl(), "subgroupShuffle");
-        assert_eq!(WgslIntrinsic::SubgroupShuffleXor.to_wgsl(), "subgroupShuffleXor");
-        assert_eq!(WgslIntrinsic::SubgroupBroadcast.to_wgsl(), "subgroupBroadcast");
+        assert_eq!(
+            WgslIntrinsic::SubgroupShuffleXor.to_wgsl(),
+            "subgroupShuffleXor"
+        );
+        assert_eq!(
+            WgslIntrinsic::SubgroupBroadcast.to_wgsl(),
+            "subgroupBroadcast"
+        );
 
         // Arithmetic
         assert_eq!(WgslIntrinsic::SubgroupAdd.to_wgsl(), "subgroupAdd");
@@ -467,11 +545,20 @@ mod tests {
         assert_eq!(WgslIntrinsic::SubgroupMax.to_wgsl(), "subgroupMax");
 
         // Scans
-        assert_eq!(WgslIntrinsic::SubgroupInclusiveAdd.to_wgsl(), "subgroupInclusiveAdd");
-        assert_eq!(WgslIntrinsic::SubgroupExclusiveAdd.to_wgsl(), "subgroupExclusiveAdd");
+        assert_eq!(
+            WgslIntrinsic::SubgroupInclusiveAdd.to_wgsl(),
+            "subgroupInclusiveAdd"
+        );
+        assert_eq!(
+            WgslIntrinsic::SubgroupExclusiveAdd.to_wgsl(),
+            "subgroupExclusiveAdd"
+        );
 
         // Builtins
-        assert_eq!(WgslIntrinsic::SubgroupInvocationId.to_wgsl(), "subgroup_invocation_id");
+        assert_eq!(
+            WgslIntrinsic::SubgroupInvocationId.to_wgsl(),
+            "subgroup_invocation_id"
+        );
         assert_eq!(WgslIntrinsic::SubgroupSize.to_wgsl(), "subgroup_size");
     }
 

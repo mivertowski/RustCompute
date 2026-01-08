@@ -10,11 +10,11 @@
 //!
 //! Run with: `cargo run -p ringkernel --example enterprise_runtime`
 
-use ringkernel_core::prelude::*;
 use ringkernel_core::config::ConfigBuilder;
 use ringkernel_core::health::DegradationLevel;
-use std::time::Duration;
+use ringkernel_core::prelude::*;
 use std::thread;
+use std::time::Duration;
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("=== RingKernel Enterprise Runtime Demo ===\n");
@@ -25,9 +25,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("--- Part 1: Configuration Presets ---\n");
 
     // Development preset (verbose logging, relaxed limits)
-    let dev_runtime = RuntimeBuilder::new()
-        .development()
-        .build()?;
+    let dev_runtime = RuntimeBuilder::new().development().build()?;
     println!(
         "Development config: env={:?}, tracing={}",
         dev_runtime.config().general.environment,
@@ -35,9 +33,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
 
     // Production preset (optimized for reliability)
-    let prod_runtime = RuntimeBuilder::new()
-        .production()
-        .build()?;
+    let prod_runtime = RuntimeBuilder::new().production().build()?;
     println!(
         "Production config: env={:?}, tracing={}",
         prod_runtime.config().general.environment,
@@ -45,9 +41,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
 
     // High-performance preset (minimal overhead)
-    let perf_runtime = RuntimeBuilder::new()
-        .high_performance()
-        .build()?;
+    let perf_runtime = RuntimeBuilder::new().high_performance().build()?;
     println!(
         "High-perf config: env={:?}, tracing={}",
         perf_runtime.config().general.environment,
@@ -72,9 +66,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         })
         .build()?;
 
-    let custom_runtime = RuntimeBuilder::new()
-        .with_config(custom_config)
-        .build()?;
+    let custom_runtime = RuntimeBuilder::new().with_config(custom_config).build()?;
     println!(
         "Custom config: app={}, version={}",
         custom_runtime.config().general.app_name,
@@ -88,9 +80,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // =========================================================================
     println!("--- Part 2: Lifecycle Management ---\n");
 
-    let runtime = RuntimeBuilder::new()
-        .development()
-        .build()?;
+    let runtime = RuntimeBuilder::new().development().build()?;
 
     // Check initial state
     println!("Initial state: {:?}", runtime.lifecycle_state());
@@ -184,10 +174,22 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // Check what operations are allowed at each priority level
     println!("At Normal degradation level:");
-    println!("  Low priority allowed: {}", degradation_guard.allow_operation(OperationPriority::Low));
-    println!("  Normal priority allowed: {}", degradation_guard.allow_operation(OperationPriority::Normal));
-    println!("  High priority allowed: {}", degradation_guard.allow_operation(OperationPriority::High));
-    println!("  Critical priority allowed: {}", degradation_guard.allow_operation(OperationPriority::Critical));
+    println!(
+        "  Low priority allowed: {}",
+        degradation_guard.allow_operation(OperationPriority::Low)
+    );
+    println!(
+        "  Normal priority allowed: {}",
+        degradation_guard.allow_operation(OperationPriority::Normal)
+    );
+    println!(
+        "  High priority allowed: {}",
+        degradation_guard.allow_operation(OperationPriority::High)
+    );
+    println!(
+        "  Critical priority allowed: {}",
+        degradation_guard.allow_operation(OperationPriority::Critical)
+    );
 
     // Demonstrate level progression
     println!("\nDegradation level progression:");
@@ -222,7 +224,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // Export Prometheus metrics
     let prometheus_metrics = runtime.flush_metrics();
-    println!("\nPrometheus metrics exported ({} bytes)", prometheus_metrics.len());
+    println!(
+        "\nPrometheus metrics exported ({} bytes)",
+        prometheus_metrics.len()
+    );
 
     println!();
 
@@ -242,8 +247,14 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("  State: {:?}", runtime.lifecycle_state());
     println!("  Shutdown duration: {:?}", shutdown_report.duration);
     println!("  Total uptime: {:?}", shutdown_report.total_uptime);
-    println!("  Final kernels launched: {}", shutdown_report.final_stats.kernels_launched);
-    println!("  Final messages: {}", shutdown_report.final_stats.messages_processed);
+    println!(
+        "  Final kernels launched: {}",
+        shutdown_report.final_stats.kernels_launched
+    );
+    println!(
+        "  Final messages: {}",
+        shutdown_report.final_stats.messages_processed
+    );
 
     println!("\n=== Enterprise Runtime Demo Complete ===");
 

@@ -44,8 +44,8 @@ mod runtime;
 pub use device::MetalDevice;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub use kernel::{
-    HaloExchangeConfig, HaloExchangeStats, MetalHaloExchange, MetalHaloMessage, MetalK2KInboxHeader,
-    MetalK2KRouteEntry, MetalK2KRoutingTable, MetalKernel,
+    HaloExchangeConfig, HaloExchangeStats, MetalHaloExchange, MetalHaloMessage,
+    MetalK2KInboxHeader, MetalK2KRouteEntry, MetalK2KRoutingTable, MetalKernel,
 };
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub use memory::MetalBuffer;

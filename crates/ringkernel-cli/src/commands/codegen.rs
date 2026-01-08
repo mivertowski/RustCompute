@@ -53,11 +53,7 @@ pub async fn execute(
         "→".bright_cyan(),
         kernels.len().to_string().bright_white()
     );
-    println!(
-        "  {} Source: {}",
-        "•".dimmed(),
-        file.bright_yellow()
-    );
+    println!("  {} Source: {}", "•".dimmed(), file.bright_yellow());
     println!(
         "  {} Backends: {}",
         "•".dimmed(),
@@ -67,10 +63,7 @@ pub async fn execute(
 
     // Filter kernels if specific one requested
     let kernels_to_generate: Vec<_> = if let Some(name) = kernel {
-        kernels
-            .into_iter()
-            .filter(|k| k.name == name)
-            .collect()
+        kernels.into_iter().filter(|k| k.name == name).collect()
     } else {
         kernels
     };
@@ -133,16 +126,14 @@ pub async fn execute(
     }
 
     println!();
-    println!(
-        "{} Code generation completed!",
-        "✓".bright_green().bold()
-    );
+    println!("{} Code generation completed!", "✓".bright_green().bold());
 
     Ok(())
 }
 
 /// Information about a kernel function.
 #[derive(Debug)]
+#[allow(dead_code)]
 struct KernelInfo {
     name: String,
     mode: String,
@@ -176,20 +167,21 @@ fn find_kernel_functions(syntax_tree: &syn::File) -> Vec<KernelInfo> {
 }
 
 /// Parse the #[ring_kernel(...)] attribute.
-fn parse_ring_kernel_attr(
-    attr: &syn::Attribute,
-    fn_name: &syn::Ident,
-) -> (String, String, u32) {
+fn parse_ring_kernel_attr(attr: &syn::Attribute, fn_name: &syn::Ident) -> (String, String, u32) {
     let mut name = fn_name.to_string();
     let mut mode = "standard".to_string();
     let mut block_size = 256u32;
 
-    if let Ok(nested) = attr.parse_args_with(
-        syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
-    ) {
+    if let Ok(nested) = attr
+        .parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+    {
         for meta in nested {
             if let syn::Meta::NameValue(nv) = meta {
-                let key = nv.path.get_ident().map(|i| i.to_string()).unwrap_or_default();
+                let key = nv
+                    .path
+                    .get_ident()
+                    .map(|i| i.to_string())
+                    .unwrap_or_default();
                 if let syn::Expr::Lit(syn::ExprLit { lit, .. }) = &nv.value {
                     match lit {
                         syn::Lit::Str(s) => {
@@ -232,8 +224,8 @@ fn generate_cuda_kernel(kernel: &KernelInfo) -> CliResult<String> {
     {
         use ringkernel_cuda_codegen::{transpile_ring_kernel, RingKernelConfig};
 
-        let config = RingKernelConfig::new(&kernel.name)
-            .with_block_size(kernel.block_size as usize);
+        let config =
+            RingKernelConfig::new(&kernel.name).with_block_size(kernel.block_size as usize);
 
         match transpile_ring_kernel(&kernel.function, &config) {
             Ok(code) => return Ok(code),

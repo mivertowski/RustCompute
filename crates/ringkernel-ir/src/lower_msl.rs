@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use crate::{
-    nodes::*, BlockId, CapabilityFlag, Dimension, IrModule, IrNode,
-    IrType, ScalarType, Terminator, ValueId,
+    nodes::*, BlockId, CapabilityFlag, Dimension, IrModule, IrNode, IrType, ScalarType, Terminator,
+    ValueId,
 };
 
 /// MSL lowering configuration.
@@ -104,7 +104,10 @@ impl MslLowering {
         }
 
         // Metal doesn't have true cooperative groups for grid sync
-        if module.required_capabilities.has(CapabilityFlag::CooperativeGroups) {
+        if module
+            .required_capabilities
+            .has(CapabilityFlag::CooperativeGroups)
+        {
             return Err(MslLoweringError::UnsupportedCapability(
                 "Grid-wide sync not supported in Metal".to_string(),
             ));
@@ -140,12 +143,11 @@ impl MslLowering {
 
         // Kernel signature (threadgroup size set at dispatch time)
         self.emit_line("kernel void");
-        write!(self.output, "{}(\n", module.name).unwrap();
+        writeln!(self.output, "{}(", module.name).unwrap();
         self.indent += 1;
 
         // Parameters
-        let mut buffer_idx = 0;
-        for param in &module.parameters {
+        for (buffer_idx, param) in module.parameters.iter().enumerate() {
             let ty = self.lower_type(&param.ty);
             let qualifier = if param.ty.is_ptr() {
                 "device"
@@ -156,7 +158,6 @@ impl MslLowering {
                 "{} {}& {} [[buffer({})]],",
                 qualifier, ty, param.name, buffer_idx
             ));
-            buffer_idx += 1;
         }
 
         // Built-in arguments
@@ -287,10 +288,7 @@ impl MslLowering {
 
             IrNode::SharedAlloc(elem_ty, count) => {
                 let elem = self.lower_type(elem_ty);
-                self.emit_line(&format!(
-                    "threadgroup {} {}[{}];",
-                    elem, result_name, count
-                ));
+                self.emit_line(&format!("threadgroup {} {}[{}];", elem, result_name, count));
             }
 
             // GPU indexing
@@ -392,10 +390,7 @@ impl MslLowering {
                 let ptr_name = self.get_value_name(*ptr);
                 let exp_name = self.get_value_name(*expected);
                 let des_name = self.get_value_name(*desired);
-                self.emit_line(&format!(
-                    "{} {} = {};",
-                    ty, result_name, exp_name
-                ));
+                self.emit_line(&format!("{} {} = {};", ty, result_name, exp_name));
                 self.emit_line(&format!(
                     "atomic_compare_exchange_weak_explicit(&{}, &{}, {}, memory_order_relaxed, memory_order_relaxed);",
                     ptr_name, result_name, des_name
@@ -458,7 +453,10 @@ impl MslLowering {
                 let args_str: Vec<String> = args.iter().map(|a| self.get_value_name(*a)).collect();
                 self.emit_line(&format!(
                     "{} {} = {}({});",
-                    ty, result_name, fn_name, args_str.join(", ")
+                    ty,
+                    result_name,
+                    fn_name,
+                    args_str.join(", ")
                 ));
             }
 
@@ -506,8 +504,16 @@ impl MslLowering {
             }
             Terminator::CondBranch(cond, then_block, else_block) => {
                 let cond_name = self.get_value_name(*cond);
-                let then_label = self.block_labels.get(then_block).cloned().unwrap_or_default();
-                let else_label = self.block_labels.get(else_block).cloned().unwrap_or_default();
+                let then_label = self
+                    .block_labels
+                    .get(then_block)
+                    .cloned()
+                    .unwrap_or_default();
+                let else_label = self
+                    .block_labels
+                    .get(else_block)
+                    .cloned()
+                    .unwrap_or_default();
                 self.emit_line(&format!(
                     "if ({}) goto {}; else goto {};",
                     cond_name, then_label, else_label
@@ -538,11 +544,7 @@ impl MslLowering {
         match ty {
             IrType::Void => "void".to_string(),
             IrType::Scalar(s) => self.lower_scalar_type(s),
-            IrType::Vector(v) => format!(
-                "{}{}",
-                self.lower_scalar_type(&v.element),
-                v.count
-            ),
+            IrType::Vector(v) => format!("{}{}", self.lower_scalar_type(&v.element), v.count),
             IrType::Ptr(inner) => format!("device {}*", self.lower_type(inner)),
             IrType::Array(inner, size) => format!("array<{}, {}>", self.lower_type(inner), size),
             IrType::Slice(inner) => format!("device {}*", self.lower_type(inner)),
@@ -584,7 +586,8 @@ impl MslLowering {
                 format!("{{{}}}", elems_str.join(", "))
             }
             ConstantValue::Struct(fields) => {
-                let fields_str: Vec<String> = fields.iter().map(|f| self.lower_constant(f)).collect();
+                let fields_str: Vec<String> =
+                    fields.iter().map(|f| self.lower_constant(f)).collect();
                 format!("{{{}}}", fields_str.join(", "))
             }
         }
