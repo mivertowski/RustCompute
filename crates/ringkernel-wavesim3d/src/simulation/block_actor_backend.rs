@@ -19,7 +19,8 @@ use std::sync::Arc;
 
 #[cfg(feature = "cuda")]
 use cudarc::driver::{
-    CudaDevice, CudaSlice, DeviceRepr, LaunchAsync, LaunchConfig, ValidAsZeroBits,
+    CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, DeviceRepr, LaunchConfig,
+    PushKernelArg, ValidAsZeroBits,
 };
 #[cfg(feature = "cuda")]
 use cudarc::nvrtc;
@@ -1066,7 +1067,16 @@ extern "C" __global__ void persistent_fdtd(
 /// Block-based actor GPU backend for 3D wave simulation.
 #[cfg(feature = "cuda")]
 pub struct BlockActorGpuBackend {
-    device: Arc<CudaDevice>,
+    ctx: Arc<CudaContext>,
+    stream: Arc<CudaStream>,
+    module: Arc<CudaModule>,
+    /// Kernel functions
+    fn_extract_faces: CudaFunction,
+    fn_compute_fdtd: CudaFunction,
+    fn_init_blocks: CudaFunction,
+    fn_extract_pressure: CudaFunction,
+    fn_inject_impulse: CudaFunction,
+    fn_fused_step: CudaFunction,
     /// Block states
     blocks: CudaSlice<BlockState>,
     /// Ghost faces (double-buffered)
@@ -1109,33 +1119,43 @@ impl BlockActorGpuBackend {
             damping: grid.params.simple_damping,
         };
 
-        // Initialize CUDA
-        let device = CudaDevice::new(0).map_err(|e| BlockActorError::DeviceError(e.to_string()))?;
+        // Initialize CUDA context and stream (cudarc 0.18.2 API)
+        let ctx = CudaContext::new(0).map_err(|e| BlockActorError::DeviceError(e.to_string()))?;
+        let stream = ctx.default_stream();
 
         // Compile standard kernels
         let kernel_source = generate_block_actor_kernel();
         let ptx = nvrtc::compile_ptx(&kernel_source)
             .map_err(|e| BlockActorError::CompileError(e.to_string()))?;
 
-        device
-            .load_ptx(
-                ptx,
-                "block_actor",
-                &[
-                    "extract_faces",
-                    "compute_fdtd",
-                    "init_blocks",
-                    "extract_pressure",
-                    "inject_impulse_block",
-                    "fused_step",
-                ],
-            )
+        // Load module and functions (cudarc 0.18.2 API)
+        let module = ctx
+            .load_module(ptx)
+            .map_err(|e| BlockActorError::CompileError(e.to_string()))?;
+
+        let fn_extract_faces = module
+            .load_function("extract_faces")
+            .map_err(|e| BlockActorError::CompileError(e.to_string()))?;
+        let fn_compute_fdtd = module
+            .load_function("compute_fdtd")
+            .map_err(|e| BlockActorError::CompileError(e.to_string()))?;
+        let fn_init_blocks = module
+            .load_function("init_blocks")
+            .map_err(|e| BlockActorError::CompileError(e.to_string()))?;
+        let fn_extract_pressure = module
+            .load_function("extract_pressure")
+            .map_err(|e| BlockActorError::CompileError(e.to_string()))?;
+        let fn_inject_impulse = module
+            .load_function("inject_impulse_block")
+            .map_err(|e| BlockActorError::CompileError(e.to_string()))?;
+        let fn_fused_step = module
+            .load_function("fused_step")
             .map_err(|e| BlockActorError::CompileError(e.to_string()))?;
 
         // Try to load pre-compiled cooperative kernel (when cooperative feature is enabled)
         #[cfg(feature = "cooperative")]
         let (cooperative_available, cooperative_kernel) = if config.use_persistent_kernel {
-            match Self::try_load_cooperative_kernel(&device) {
+            match Self::try_load_cooperative_kernel(&ctx) {
                 Ok(kernel) => {
                     println!(
                         "Cooperative kernel loaded: max {} concurrent blocks",
@@ -1155,23 +1175,47 @@ impl BlockActorGpuBackend {
         #[cfg(not(feature = "cooperative"))]
         let cooperative_available = false;
 
-        // Allocate block states
+        // Allocate block states (cudarc 0.18.2 API)
         let blocks_data: Vec<BlockState> = vec![BlockState::default(); num_blocks];
-        let blocks = device
-            .htod_sync_copy(&blocks_data)
+        let mut blocks = unsafe {
+            stream
+                .alloc::<BlockState>(num_blocks)
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        stream
+            .memcpy_htod(&blocks_data, &mut blocks)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
         // Allocate double-buffered ghost faces
         let ghost_data: Vec<GhostFaces> = vec![GhostFaces::default(); num_blocks];
-        let ghost_a = device
-            .htod_sync_copy(&ghost_data)
+        let mut ghost_a = unsafe {
+            stream
+                .alloc::<GhostFaces>(num_blocks)
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        stream
+            .memcpy_htod(&ghost_data, &mut ghost_a)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
-        let ghost_b = device
-            .htod_sync_copy(&ghost_data)
+
+        let mut ghost_b = unsafe {
+            stream
+                .alloc::<GhostFaces>(num_blocks)
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        stream
+            .memcpy_htod(&ghost_data, &mut ghost_b)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
         let mut backend = Self {
-            device,
+            ctx,
+            stream,
+            module,
+            fn_extract_faces,
+            fn_compute_fdtd,
+            fn_init_blocks,
+            fn_extract_pressure,
+            fn_inject_impulse,
+            fn_fused_step,
             blocks,
             ghost_a,
             ghost_b,
@@ -1194,7 +1238,7 @@ impl BlockActorGpuBackend {
     /// Returns Ok(kernel) if cooperative groups are supported, Err otherwise.
     #[cfg(feature = "cooperative")]
     fn try_load_cooperative_kernel(
-        _device: &Arc<CudaDevice>,
+        _ctx: &Arc<CudaContext>,
     ) -> Result<CooperativeKernel, BlockActorError> {
         // Check if cooperative support was compiled at build time
         if !has_cooperative_support() {
@@ -1244,34 +1288,30 @@ impl BlockActorGpuBackend {
             shared_mem_bytes: 0,
         };
 
-        // Upload params once
-        let params_gpu = self
-            .device
-            .htod_sync_copy(&[self.params])
+        // Upload params once (cudarc 0.18.2 API)
+        let mut params_gpu = unsafe {
+            self.stream
+                .alloc::<BlockGridParams>(1)
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&[self.params], &mut params_gpu)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
         for _step in 0..num_steps {
-            let fused_kernel = self
-                .device
-                .get_func("block_actor", "fused_step")
-                .ok_or_else(|| BlockActorError::LaunchError("fused_step not found".into()))?;
-
             // Determine buffer to use (alternating)
             let use_buffer_b: u32 = if self.read_from_a { 1 } else { 0 };
 
-            // Launch fused kernel
+            // Launch fused kernel (cudarc 0.18.2 API)
             unsafe {
-                fused_kernel
-                    .launch(
-                        launch_config,
-                        (
-                            &self.blocks,
-                            &self.ghost_a,
-                            &self.ghost_b,
-                            &params_gpu,
-                            use_buffer_b,
-                        ),
-                    )
+                self.stream
+                    .launch_builder(&self.fn_fused_step)
+                    .arg(&self.blocks)
+                    .arg(&self.ghost_a)
+                    .arg(&self.ghost_b)
+                    .arg(&params_gpu)
+                    .arg(&use_buffer_b)
+                    .launch(launch_config)
                     .map_err(|e| BlockActorError::LaunchError(e.to_string()))?;
             }
 
@@ -1280,7 +1320,7 @@ impl BlockActorGpuBackend {
         }
 
         // Synchronize at end
-        self.device
+        self.ctx
             .synchronize()
             .map_err(|e| BlockActorError::LaunchError(e.to_string()))?;
 
@@ -1358,24 +1398,17 @@ impl BlockActorGpuBackend {
             shared_mem_bytes: 0,
         };
 
-        // Upload params
-        let params_gpu = self
-            .device
-            .htod_sync_copy(&[self.params])
+        // Upload params (cudarc 0.18.2 API)
+        let mut params_gpu = unsafe {
+            self.stream
+                .alloc::<BlockGridParams>(1)
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&[self.params], &mut params_gpu)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
         for _ in 0..num_steps {
-            // Get kernels fresh each iteration (they consume self on launch)
-            let extract_kernel = self
-                .device
-                .get_func("block_actor", "extract_faces")
-                .ok_or_else(|| BlockActorError::LaunchError("extract_faces not found".into()))?;
-
-            let compute_kernel = self
-                .device
-                .get_func("block_actor", "compute_fdtd")
-                .ok_or_else(|| BlockActorError::LaunchError("compute_fdtd not found".into()))?;
-
             // Get write buffer for this step
             let ghost_write = if self.read_from_a {
                 &self.ghost_b
@@ -1383,22 +1416,30 @@ impl BlockActorGpuBackend {
                 &self.ghost_a
             };
 
-            // Phase 1: Extract faces and write to ghost buffers
+            // Phase 1: Extract faces and write to ghost buffers (cudarc 0.18.2 API)
             unsafe {
-                extract_kernel
-                    .launch(launch_config, (&self.blocks, ghost_write, &params_gpu))
+                self.stream
+                    .launch_builder(&self.fn_extract_faces)
+                    .arg(&self.blocks)
+                    .arg(ghost_write)
+                    .arg(&params_gpu)
+                    .launch(launch_config)
                     .map_err(|e| BlockActorError::LaunchError(e.to_string()))?;
             }
 
             // Synchronize to ensure face data is ready
-            self.device
+            self.ctx
                 .synchronize()
                 .map_err(|e| BlockActorError::LaunchError(e.to_string()))?;
 
-            // Phase 2: Compute FDTD using ghost data
+            // Phase 2: Compute FDTD using ghost data (cudarc 0.18.2 API)
             unsafe {
-                compute_kernel
-                    .launch(launch_config, (&self.blocks, ghost_write, &params_gpu))
+                self.stream
+                    .launch_builder(&self.fn_compute_fdtd)
+                    .arg(&self.blocks)
+                    .arg(ghost_write)
+                    .arg(&params_gpu)
+                    .launch(launch_config)
                     .map_err(|e| BlockActorError::LaunchError(e.to_string()))?;
             }
 
@@ -1407,7 +1448,7 @@ impl BlockActorGpuBackend {
         }
 
         // Synchronize
-        self.device
+        self.ctx
             .synchronize()
             .map_err(|e| BlockActorError::LaunchError(e.to_string()))?;
 
@@ -1419,23 +1460,33 @@ impl BlockActorGpuBackend {
 
     /// Download pressure from GPU to CPU grid.
     pub fn download_pressure(&self, grid: &mut SimulationGrid3D) -> Result<(), BlockActorError> {
-        let extract_kernel = self
-            .device
-            .get_func("block_actor", "extract_pressure")
-            .ok_or_else(|| BlockActorError::LaunchError("extract_pressure not found".into()))?;
-
-        let params_gpu = self
-            .device
-            .htod_sync_copy(&[self.params])
+        // Upload params (cudarc 0.18.2 API)
+        let mut params_gpu = unsafe {
+            self.stream
+                .alloc::<BlockGridParams>(1)
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&[self.params], &mut params_gpu)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
-        let pressure_gpu = self
-            .device
-            .htod_sync_copy(&grid.pressure)
+        // Allocate and upload pressure buffers
+        let mut pressure_gpu = unsafe {
+            self.stream
+                .alloc::<f32>(grid.pressure.len())
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&grid.pressure, &mut pressure_gpu)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
-        let pressure_prev_gpu = self
-            .device
-            .htod_sync_copy(&grid.pressure_prev)
+
+        let mut pressure_prev_gpu = unsafe {
+            self.stream
+                .alloc::<f32>(grid.pressure_prev.len())
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&grid.pressure_prev, &mut pressure_prev_gpu)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
         let launch_config = LaunchConfig {
@@ -1444,20 +1495,24 @@ impl BlockActorGpuBackend {
             shared_mem_bytes: 0,
         };
 
+        // Launch extract pressure kernel (cudarc 0.18.2 API)
         unsafe {
-            extract_kernel
-                .launch(
-                    launch_config,
-                    (&self.blocks, &pressure_gpu, &pressure_prev_gpu, &params_gpu),
-                )
+            self.stream
+                .launch_builder(&self.fn_extract_pressure)
+                .arg(&self.blocks)
+                .arg(&pressure_gpu)
+                .arg(&pressure_prev_gpu)
+                .arg(&params_gpu)
+                .launch(launch_config)
                 .map_err(|e| BlockActorError::LaunchError(e.to_string()))?;
         }
 
-        self.device
-            .dtoh_sync_copy_into(&pressure_gpu, &mut grid.pressure)
+        // Copy results back to host
+        self.stream
+            .memcpy_dtoh(&pressure_gpu, &mut grid.pressure)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
-        self.device
-            .dtoh_sync_copy_into(&pressure_prev_gpu, &mut grid.pressure_prev)
+        self.stream
+            .memcpy_dtoh(&pressure_prev_gpu, &mut grid.pressure_prev)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
         Ok(())
@@ -1465,25 +1520,36 @@ impl BlockActorGpuBackend {
 
     /// Upload pressure from CPU grid to GPU.
     pub fn upload_pressure(&mut self, grid: &SimulationGrid3D) -> Result<(), BlockActorError> {
-        let init_kernel = self
-            .device
-            .get_func("block_actor", "init_blocks")
-            .ok_or_else(|| BlockActorError::LaunchError("init_blocks not found".into()))?;
-
-        let params_gpu = self
-            .device
-            .htod_sync_copy(&[self.params])
+        // Upload params (cudarc 0.18.2 API)
+        let mut params_gpu = unsafe {
+            self.stream
+                .alloc::<BlockGridParams>(1)
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&[self.params], &mut params_gpu)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
-        let pressure_gpu = self
-            .device
-            .htod_sync_copy(&grid.pressure)
-            .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
-        let pressure_prev_gpu = self
-            .device
-            .htod_sync_copy(&grid.pressure_prev)
+        // Upload pressure buffers
+        let mut pressure_gpu = unsafe {
+            self.stream
+                .alloc::<f32>(grid.pressure.len())
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&grid.pressure, &mut pressure_gpu)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
+        let mut pressure_prev_gpu = unsafe {
+            self.stream
+                .alloc::<f32>(grid.pressure_prev.len())
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&grid.pressure_prev, &mut pressure_prev_gpu)
+            .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
+
+        // Convert cell types
         let cell_types_u8: Vec<u8> = grid
             .cell_types
             .iter()
@@ -1494,13 +1560,22 @@ impl BlockActorGpuBackend {
                 CellType::Obstacle => 3u8,
             })
             .collect();
-        let cell_types_gpu = self
-            .device
-            .htod_sync_copy(&cell_types_u8)
+        let mut cell_types_gpu = unsafe {
+            self.stream
+                .alloc::<u8>(cell_types_u8.len())
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&cell_types_u8, &mut cell_types_gpu)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
-        let reflection_gpu = self
-            .device
-            .htod_sync_copy(&grid.reflection_coeff)
+
+        let mut reflection_gpu = unsafe {
+            self.stream
+                .alloc::<f32>(grid.reflection_coeff.len())
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&grid.reflection_coeff, &mut reflection_gpu)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
         let launch_config = LaunchConfig {
@@ -1509,19 +1584,17 @@ impl BlockActorGpuBackend {
             shared_mem_bytes: 0,
         };
 
+        // Launch init blocks kernel (cudarc 0.18.2 API)
         unsafe {
-            init_kernel
-                .launch(
-                    launch_config,
-                    (
-                        &self.blocks,
-                        &pressure_gpu,
-                        &pressure_prev_gpu,
-                        &cell_types_gpu,
-                        &reflection_gpu,
-                        &params_gpu,
-                    ),
-                )
+            self.stream
+                .launch_builder(&self.fn_init_blocks)
+                .arg(&self.blocks)
+                .arg(&pressure_gpu)
+                .arg(&pressure_prev_gpu)
+                .arg(&cell_types_gpu)
+                .arg(&reflection_gpu)
+                .arg(&params_gpu)
+                .launch(launch_config)
                 .map_err(|e| BlockActorError::LaunchError(e.to_string()))?;
         }
 
@@ -1532,13 +1605,13 @@ impl BlockActorGpuBackend {
     pub fn reset(&mut self, grid: &SimulationGrid3D) -> Result<(), BlockActorError> {
         self.upload_pressure(grid)?;
 
-        // Clear ghost buffers
+        // Clear ghost buffers (cudarc 0.18.2 API)
         let ghost_data: Vec<GhostFaces> = vec![GhostFaces::default(); self.num_blocks];
-        self.device
-            .htod_sync_copy_into(&ghost_data, &mut self.ghost_a)
+        self.stream
+            .memcpy_htod(&ghost_data, &mut self.ghost_a)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
-        self.device
-            .htod_sync_copy_into(&ghost_data, &mut self.ghost_b)
+        self.stream
+            .memcpy_htod(&ghost_data, &mut self.ghost_b)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
         self.read_from_a = true;
 
@@ -1553,14 +1626,14 @@ impl BlockActorGpuBackend {
         z: u32,
         amplitude: f32,
     ) -> Result<(), BlockActorError> {
-        let kernel = self
-            .device
-            .get_func("block_actor", "inject_impulse_block")
-            .ok_or_else(|| BlockActorError::LaunchError("inject_impulse_block not found".into()))?;
-
-        let params_gpu = self
-            .device
-            .htod_sync_copy(&[self.params])
+        // Upload params (cudarc 0.18.2 API)
+        let mut params_gpu = unsafe {
+            self.stream
+                .alloc::<BlockGridParams>(1)
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&[self.params], &mut params_gpu)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
         let launch_config = LaunchConfig {
@@ -1569,12 +1642,17 @@ impl BlockActorGpuBackend {
             shared_mem_bytes: 0,
         };
 
+        // Launch inject impulse kernel (cudarc 0.18.2 API)
         unsafe {
-            kernel
-                .launch(
-                    launch_config,
-                    (&self.blocks, x, y, z, amplitude, &params_gpu),
-                )
+            self.stream
+                .launch_builder(&self.fn_inject_impulse)
+                .arg(&self.blocks)
+                .arg(&x)
+                .arg(&y)
+                .arg(&z)
+                .arg(&amplitude)
+                .arg(&params_gpu)
+                .launch(launch_config)
                 .map_err(|e| BlockActorError::LaunchError(e.to_string()))?;
         }
 

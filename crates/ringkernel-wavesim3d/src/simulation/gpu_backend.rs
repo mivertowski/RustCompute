@@ -4,7 +4,9 @@
 //! for efficient memory access and halo exchange.
 
 use super::grid3d::{GridParams, SimulationGrid3D};
-use cudarc::driver::{CudaDevice, CudaSlice, LaunchAsync, LaunchConfig};
+use cudarc::driver::{
+    CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, LaunchConfig, PushKernelArg,
+};
 use std::sync::Arc;
 
 /// GPU error types.
@@ -177,8 +179,19 @@ extern "C" __global__ void inject_spherical_impulse(
 
 /// GPU backend for 3D FDTD simulation.
 pub struct GpuBackend3D {
-    /// CUDA device
-    device: Arc<CudaDevice>,
+    /// CUDA context
+    ctx: Arc<CudaContext>,
+    /// CUDA stream
+    stream: Arc<CudaStream>,
+    /// CUDA module
+    #[allow(dead_code)]
+    module: Arc<CudaModule>,
+    /// Kernel functions
+    fn_fdtd_step: CudaFunction,
+    fn_boundary: CudaFunction,
+    fn_swap: CudaFunction,
+    fn_impulse: CudaFunction,
+    fn_spherical_impulse: CudaFunction,
     /// Pressure buffer
     pressure: CudaSlice<f32>,
     /// Previous pressure buffer
@@ -198,37 +211,55 @@ pub struct GpuBackend3D {
 impl GpuBackend3D {
     /// Create a new GPU backend from a CPU grid.
     pub fn new(grid: &SimulationGrid3D) -> Result<Self, GpuError> {
-        // Initialize CUDA device
-        let device = CudaDevice::new(0).map_err(|e| GpuError::DeviceError(e.to_string()))?;
+        // Initialize CUDA context and stream (cudarc 0.18.2 API)
+        let ctx = CudaContext::new(0).map_err(|e| GpuError::DeviceError(e.to_string()))?;
+        let stream = ctx.default_stream();
 
         // Compile CUDA kernel
         let ptx = cudarc::nvrtc::compile_ptx(FDTD_3D_KERNEL)
             .map_err(|e| GpuError::CompileError(e.to_string()))?;
 
-        device
-            .load_ptx(
-                ptx,
-                "fdtd3d",
-                &[
-                    "fdtd_3d_step",
-                    "apply_boundary_conditions",
-                    "swap_buffers",
-                    "inject_impulse",
-                    "inject_spherical_impulse",
-                ],
-            )
+        // Load module and functions (cudarc 0.18.2 API)
+        let module = ctx
+            .load_module(ptx)
+            .map_err(|e| GpuError::CompileError(e.to_string()))?;
+
+        let fn_fdtd_step = module
+            .load_function("fdtd_3d_step")
+            .map_err(|e| GpuError::CompileError(e.to_string()))?;
+        let fn_boundary = module
+            .load_function("apply_boundary_conditions")
+            .map_err(|e| GpuError::CompileError(e.to_string()))?;
+        let fn_swap = module
+            .load_function("swap_buffers")
+            .map_err(|e| GpuError::CompileError(e.to_string()))?;
+        let fn_impulse = module
+            .load_function("inject_impulse")
+            .map_err(|e| GpuError::CompileError(e.to_string()))?;
+        let fn_spherical_impulse = module
+            .load_function("inject_spherical_impulse")
             .map_err(|e| GpuError::CompileError(e.to_string()))?;
 
         let total_cells = grid.width * grid.height * grid.depth;
         let params = GridParams::from(grid);
 
-        // Allocate GPU buffers
-        let pressure = device
-            .htod_sync_copy(&grid.pressure)
+        // Allocate GPU buffers (cudarc 0.18.2 API)
+        let mut pressure = unsafe {
+            stream
+                .alloc::<f32>(grid.pressure.len())
+                .map_err(|e| GpuError::MemoryError(e.to_string()))?
+        };
+        stream
+            .memcpy_htod(&grid.pressure, &mut pressure)
             .map_err(|e| GpuError::MemoryError(e.to_string()))?;
 
-        let pressure_prev = device
-            .htod_sync_copy(&grid.pressure_prev)
+        let mut pressure_prev = unsafe {
+            stream
+                .alloc::<f32>(grid.pressure_prev.len())
+                .map_err(|e| GpuError::MemoryError(e.to_string()))?
+        };
+        stream
+            .memcpy_htod(&grid.pressure_prev, &mut pressure_prev)
             .map_err(|e| GpuError::MemoryError(e.to_string()))?;
 
         // Convert cell types to u8
@@ -243,16 +274,33 @@ impl GpuBackend3D {
             })
             .collect();
 
-        let cell_types = device
-            .htod_sync_copy(&cell_types_u8)
+        let mut cell_types = unsafe {
+            stream
+                .alloc::<u8>(cell_types_u8.len())
+                .map_err(|e| GpuError::MemoryError(e.to_string()))?
+        };
+        stream
+            .memcpy_htod(&cell_types_u8, &mut cell_types)
             .map_err(|e| GpuError::MemoryError(e.to_string()))?;
 
-        let reflection_coeff = device
-            .htod_sync_copy(&grid.reflection_coeff)
+        let mut reflection_coeff = unsafe {
+            stream
+                .alloc::<f32>(grid.reflection_coeff.len())
+                .map_err(|e| GpuError::MemoryError(e.to_string()))?
+        };
+        stream
+            .memcpy_htod(&grid.reflection_coeff, &mut reflection_coeff)
             .map_err(|e| GpuError::MemoryError(e.to_string()))?;
 
         Ok(Self {
-            device,
+            ctx,
+            stream,
+            module,
+            fn_fdtd_step,
+            fn_boundary,
+            fn_swap,
+            fn_impulse,
+            fn_spherical_impulse,
             pressure,
             pressure_prev,
             cell_types,
@@ -265,16 +313,6 @@ impl GpuBackend3D {
 
     /// Perform one FDTD step on the GPU.
     pub fn step(&mut self, grid: &mut SimulationGrid3D) -> Result<(), GpuError> {
-        let fdtd_kernel = self
-            .device
-            .get_func("fdtd3d", "fdtd_3d_step")
-            .ok_or_else(|| GpuError::LaunchError("Kernel not found".into()))?;
-
-        let boundary_kernel = self
-            .device
-            .get_func("fdtd3d", "apply_boundary_conditions")
-            .ok_or_else(|| GpuError::LaunchError("Boundary kernel not found".into()))?;
-
         // Calculate launch configuration for 3D kernel
         let block_size = (8u32, 8u32, 4u32); // 256 threads per block
         let grid_size = (
@@ -289,24 +327,21 @@ impl GpuBackend3D {
             shared_mem_bytes: 0,
         };
 
-        // Launch FDTD kernel
+        // Launch FDTD kernel (cudarc 0.18.2 API)
         unsafe {
-            fdtd_kernel
-                .launch(
-                    config_3d,
-                    (
-                        &self.pressure,
-                        &mut self.pressure_prev,
-                        &self.cell_types,
-                        &self.reflection_coeff,
-                        self.params.width,
-                        self.params.height,
-                        self.params.depth,
-                        self.params.slice_size,
-                        self.params.c_squared,
-                        self.params.damping,
-                    ),
-                )
+            self.stream
+                .launch_builder(&self.fn_fdtd_step)
+                .arg(&self.pressure)
+                .arg(&self.pressure_prev)
+                .arg(&self.cell_types)
+                .arg(&self.reflection_coeff)
+                .arg(&self.params.width)
+                .arg(&self.params.height)
+                .arg(&self.params.depth)
+                .arg(&self.params.slice_size)
+                .arg(&self.params.c_squared)
+                .arg(&self.params.damping)
+                .launch(config_3d)
                 .map_err(|e| GpuError::LaunchError(e.to_string()))?;
         }
 
@@ -318,17 +353,15 @@ impl GpuBackend3D {
             shared_mem_bytes: 0,
         };
 
+        let total_cells_u32 = self.total_cells as u32;
         unsafe {
-            boundary_kernel
-                .launch(
-                    config_1d,
-                    (
-                        &mut self.pressure_prev,
-                        &self.cell_types,
-                        &self.reflection_coeff,
-                        self.total_cells as u32,
-                    ),
-                )
+            self.stream
+                .launch_builder(&self.fn_boundary)
+                .arg(&self.pressure_prev)
+                .arg(&self.cell_types)
+                .arg(&self.reflection_coeff)
+                .arg(&total_cells_u32)
+                .launch(config_1d)
                 .map_err(|e| GpuError::LaunchError(e.to_string()))?;
         }
 
@@ -345,20 +378,20 @@ impl GpuBackend3D {
 
     /// Download pressure data from GPU to CPU grid.
     pub fn download_pressure(&self, grid: &mut SimulationGrid3D) -> Result<(), GpuError> {
-        self.device
-            .dtoh_sync_copy_into(&self.pressure, &mut grid.pressure)
+        self.stream
+            .memcpy_dtoh(&self.pressure, &mut grid.pressure)
             .map_err(|e| GpuError::MemoryError(e.to_string()))?;
         Ok(())
     }
 
     /// Upload pressure data from CPU grid to GPU.
     pub fn upload_pressure(&mut self, grid: &SimulationGrid3D) -> Result<(), GpuError> {
-        self.device
-            .htod_sync_copy_into(&grid.pressure, &mut self.pressure)
+        self.stream
+            .memcpy_htod(&grid.pressure, &mut self.pressure)
             .map_err(|e| GpuError::MemoryError(e.to_string()))?;
 
-        self.device
-            .htod_sync_copy_into(&grid.pressure_prev, &mut self.pressure_prev)
+        self.stream
+            .memcpy_htod(&grid.pressure_prev, &mut self.pressure_prev)
             .map_err(|e| GpuError::MemoryError(e.to_string()))?;
 
         Ok(())
@@ -379,11 +412,6 @@ impl GpuBackend3D {
         z: u32,
         amplitude: f32,
     ) -> Result<(), GpuError> {
-        let kernel = self
-            .device
-            .get_func("fdtd3d", "inject_impulse")
-            .ok_or_else(|| GpuError::LaunchError("Inject kernel not found".into()))?;
-
         let config = LaunchConfig {
             block_dim: (1, 1, 1),
             grid_dim: (1, 1, 1),
@@ -391,20 +419,17 @@ impl GpuBackend3D {
         };
 
         unsafe {
-            kernel
-                .launch(
-                    config,
-                    (
-                        &mut self.pressure,
-                        &mut self.pressure_prev,
-                        x,
-                        y,
-                        z,
-                        self.params.width,
-                        self.params.slice_size,
-                        amplitude,
-                    ),
-                )
+            self.stream
+                .launch_builder(&self.fn_impulse)
+                .arg(&self.pressure)
+                .arg(&self.pressure_prev)
+                .arg(&x)
+                .arg(&y)
+                .arg(&z)
+                .arg(&self.params.width)
+                .arg(&self.params.slice_size)
+                .arg(&amplitude)
+                .launch(config)
                 .map_err(|e| GpuError::LaunchError(e.to_string()))?;
         }
 
@@ -420,11 +445,6 @@ impl GpuBackend3D {
         amplitude: f32,
         radius: f32,
     ) -> Result<(), GpuError> {
-        let kernel = self
-            .device
-            .get_func("fdtd3d", "inject_spherical_impulse")
-            .ok_or_else(|| GpuError::LaunchError("Spherical inject kernel not found".into()))?;
-
         let block_size = (8u32, 8u32, 4u32);
         let grid_size = (
             self.params.width.div_ceil(block_size.0),
@@ -439,23 +459,20 @@ impl GpuBackend3D {
         };
 
         unsafe {
-            kernel
-                .launch(
-                    config,
-                    (
-                        &mut self.pressure,
-                        &mut self.pressure_prev,
-                        cx,
-                        cy,
-                        cz,
-                        self.params.width,
-                        self.params.height,
-                        self.params.depth,
-                        self.params.slice_size,
-                        amplitude,
-                        radius,
-                    ),
-                )
+            self.stream
+                .launch_builder(&self.fn_spherical_impulse)
+                .arg(&self.pressure)
+                .arg(&self.pressure_prev)
+                .arg(&cx)
+                .arg(&cy)
+                .arg(&cz)
+                .arg(&self.params.width)
+                .arg(&self.params.height)
+                .arg(&self.params.depth)
+                .arg(&self.params.slice_size)
+                .arg(&amplitude)
+                .arg(&radius)
+                .launch(config)
                 .map_err(|e| GpuError::LaunchError(e.to_string()))?;
         }
 

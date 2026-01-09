@@ -42,7 +42,8 @@ use std::sync::Arc;
 
 #[cfg(feature = "cuda")]
 use cudarc::driver::{
-    CudaDevice, CudaSlice, DeviceRepr, LaunchAsync, LaunchConfig, ValidAsZeroBits,
+    CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, DeviceRepr, LaunchConfig,
+    PushKernelArg, ValidAsZeroBits,
 };
 #[cfg(feature = "cuda")]
 use cudarc::nvrtc;
@@ -1027,8 +1028,19 @@ impl Default for ActorBackendConfig {
 /// is an independent actor that communicates with neighbors via message passing.
 #[cfg(feature = "cuda")]
 pub struct ActorGpuBackend3D {
-    /// CUDA device.
-    device: Arc<CudaDevice>,
+    /// CUDA context.
+    ctx: Arc<CudaContext>,
+    /// CUDA stream.
+    stream: Arc<CudaStream>,
+    /// CUDA module.
+    #[allow(dead_code)]
+    module: Arc<CudaModule>,
+    /// Kernel functions.
+    fn_cell_actor: CudaFunction,
+    fn_init_states: CudaFunction,
+    fn_extract_pressure: CudaFunction,
+    fn_inject_impulse: CudaFunction,
+    fn_init_inbox: CudaFunction,
     /// Cell actor states.
     cell_states: CudaSlice<CellActorState>,
     /// Inbox headers (one per cell).
@@ -1056,32 +1068,40 @@ impl ActorGpuBackend3D {
             ));
         }
 
-        // Initialize CUDA device
-        let device = CudaDevice::new(0).map_err(|e| ActorError::DeviceError(e.to_string()))?;
+        // Initialize CUDA context and stream (cudarc 0.18.2 API)
+        let ctx = CudaContext::new(0).map_err(|e| ActorError::DeviceError(e.to_string()))?;
+        let stream = ctx.default_stream();
 
         // Compile CUDA kernel
         let kernel_source = generate_cell_actor_kernel();
         let ptx = nvrtc::compile_ptx(&kernel_source)
             .map_err(|e| ActorError::CompileError(e.to_string()))?;
 
-        device
-            .load_ptx(
-                ptx,
-                "actor_wavesim",
-                &[
-                    "cell_actor_kernel",
-                    "init_cell_states",
-                    "extract_pressure",
-                    "inject_impulse_actor",
-                    "init_inbox_headers",
-                ],
-            )
+        // Load module and functions (cudarc 0.18.2 API)
+        let module = ctx
+            .load_module(ptx)
+            .map_err(|e| ActorError::CompileError(e.to_string()))?;
+
+        let fn_cell_actor = module
+            .load_function("cell_actor_kernel")
+            .map_err(|e| ActorError::CompileError(e.to_string()))?;
+        let fn_init_states = module
+            .load_function("init_cell_states")
+            .map_err(|e| ActorError::CompileError(e.to_string()))?;
+        let fn_extract_pressure = module
+            .load_function("extract_pressure")
+            .map_err(|e| ActorError::CompileError(e.to_string()))?;
+        let fn_inject_impulse = module
+            .load_function("inject_impulse_actor")
+            .map_err(|e| ActorError::CompileError(e.to_string()))?;
+        let fn_init_inbox = module
+            .load_function("init_inbox_headers")
             .map_err(|e| ActorError::CompileError(e.to_string()))?;
 
         let total_cells = grid.width * grid.height * grid.depth;
         let params = GridParams::from(grid);
 
-        // Allocate cell states
+        // Allocate cell states (cudarc 0.18.2 API)
         let initial_states: Vec<CellActorState> = (0..total_cells)
             .map(|i| CellActorState {
                 pressure: grid.pressure[i],
@@ -1102,22 +1122,37 @@ impl ActorGpuBackend3D {
             })
             .collect();
 
-        let cell_states = device
-            .htod_sync_copy(&initial_states)
+        let mut cell_states = unsafe {
+            stream
+                .alloc::<CellActorState>(total_cells)
+                .map_err(|e| ActorError::MemoryError(e.to_string()))?
+        };
+        stream
+            .memcpy_htod(&initial_states, &mut cell_states)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
-        // Allocate inbox headers (InboxHeader struct, 32 bytes each)
+        // Allocate inbox headers (cudarc 0.18.2 API)
         let inbox_headers_data: Vec<InboxHeader> = vec![InboxHeader::default(); total_cells];
-        let inbox_headers = device
-            .htod_sync_copy(&inbox_headers_data)
+        let mut inbox_headers = unsafe {
+            stream
+                .alloc::<InboxHeader>(total_cells)
+                .map_err(|e| ActorError::MemoryError(e.to_string()))?
+        };
+        stream
+            .memcpy_htod(&inbox_headers_data, &mut inbox_headers)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
         // Allocate inbox buffers
         let inbox_buffer_size = total_cells * config.inbox_capacity as usize;
         let inbox_buffers_data: Vec<HaloMessage> =
             vec![HaloMessage::new(0, 0, Direction3D::West, 0.0, 0.0); inbox_buffer_size];
-        let inbox_buffers = device
-            .htod_sync_copy(&inbox_buffers_data)
+        let mut inbox_buffers = unsafe {
+            stream
+                .alloc::<HaloMessage>(inbox_buffer_size)
+                .map_err(|e| ActorError::MemoryError(e.to_string()))?
+        };
+        stream
+            .memcpy_htod(&inbox_buffers_data, &mut inbox_buffers)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
         // Allocate tile control
@@ -1134,16 +1169,17 @@ impl ActorGpuBackend3D {
             params.c_squared,
             params.damping,
         );
-        let tile_control = device
-            .htod_sync_copy(&[tile_ctrl])
+        let mut tile_control = unsafe {
+            stream
+                .alloc::<ActorTileControl>(1)
+                .map_err(|e| ActorError::MemoryError(e.to_string()))?
+        };
+        stream
+            .memcpy_htod(&[tile_ctrl], &mut tile_control)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
-        // Initialize inbox headers on GPU
+        // Initialize inbox headers on GPU (cudarc 0.18.2 API)
         {
-            let init_kernel = device
-                .get_func("actor_wavesim", "init_inbox_headers")
-                .ok_or_else(|| ActorError::LaunchError("init_inbox_headers not found".into()))?;
-
             let blocks = total_cells.div_ceil(config.block_size as usize);
             let launch_config = LaunchConfig {
                 block_dim: (config.block_size, 1, 1),
@@ -1151,18 +1187,27 @@ impl ActorGpuBackend3D {
                 shared_mem_bytes: 0,
             };
 
+            let total_cells_u32 = total_cells as u32;
             unsafe {
-                init_kernel
-                    .launch(
-                        launch_config,
-                        (&inbox_headers, total_cells as u32, config.inbox_capacity),
-                    )
+                stream
+                    .launch_builder(&fn_init_inbox)
+                    .arg(&inbox_headers)
+                    .arg(&total_cells_u32)
+                    .arg(&config.inbox_capacity)
+                    .launch(launch_config)
                     .map_err(|e| ActorError::LaunchError(e.to_string()))?;
             }
         }
 
         Ok(Self {
-            device,
+            ctx,
+            stream,
+            module,
+            fn_cell_actor,
+            fn_init_states,
+            fn_extract_pressure,
+            fn_inject_impulse,
+            fn_init_inbox,
             cell_states,
             inbox_headers,
             inbox_buffers,
@@ -1175,7 +1220,7 @@ impl ActorGpuBackend3D {
 
     /// Perform one or more simulation steps using the actor model.
     pub fn step(&mut self, grid: &mut SimulationGrid3D, num_steps: u32) -> Result<(), ActorError> {
-        // Activate the tile
+        // Activate the tile (cudarc 0.18.2 API)
         {
             let mut ctrl = vec![ActorTileControl::new(
                 0,
@@ -1193,16 +1238,10 @@ impl ActorGpuBackend3D {
             ctrl[0].is_active = 1;
             ctrl[0].should_terminate = 0;
             ctrl[0].has_terminated = 0;
-            self.device
-                .htod_sync_copy_into(&ctrl, &mut self.tile_control)
+            self.stream
+                .memcpy_htod(&ctrl, &mut self.tile_control)
                 .map_err(|e| ActorError::MemoryError(e.to_string()))?;
         }
-
-        // Launch the actor kernel
-        let actor_kernel = self
-            .device
-            .get_func("actor_wavesim", "cell_actor_kernel")
-            .ok_or_else(|| ActorError::LaunchError("cell_actor_kernel not found".into()))?;
 
         let blocks = self.total_cells.div_ceil(self.config.block_size as usize);
         let launch_config = LaunchConfig {
@@ -1213,30 +1252,32 @@ impl ActorGpuBackend3D {
 
         // Create dummy routing table (not used in single-tile mode)
         let routing_table = K2KRoutingTable3D::for_tile(0, 0, 0, 1, 1, 1);
-        let routing_tables = self
-            .device
-            .htod_sync_copy(&[routing_table])
+        let mut routing_tables = unsafe {
+            self.stream
+                .alloc::<K2KRoutingTable3D>(1)
+                .map_err(|e| ActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&[routing_table], &mut routing_tables)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
+        // Launch the actor kernel (cudarc 0.18.2 API)
         unsafe {
-            actor_kernel
-                .launch(
-                    launch_config,
-                    (
-                        &self.tile_control,
-                        &self.cell_states,
-                        &self.inbox_headers,
-                        &self.inbox_buffers,
-                        &routing_tables,
-                        self.config.inbox_capacity,
-                        num_steps,
-                    ),
-                )
+            self.stream
+                .launch_builder(&self.fn_cell_actor)
+                .arg(&self.tile_control)
+                .arg(&self.cell_states)
+                .arg(&self.inbox_headers)
+                .arg(&self.inbox_buffers)
+                .arg(&routing_tables)
+                .arg(&self.config.inbox_capacity)
+                .arg(&num_steps)
+                .launch(launch_config)
                 .map_err(|e| ActorError::LaunchError(e.to_string()))?;
         }
 
         // Synchronize
-        self.device
+        self.ctx
             .synchronize()
             .map_err(|e| ActorError::SyncError(e.to_string()))?;
 
@@ -1249,20 +1290,23 @@ impl ActorGpuBackend3D {
 
     /// Download pressure data from GPU to CPU grid.
     pub fn download_pressure(&self, grid: &mut SimulationGrid3D) -> Result<(), ActorError> {
-        // Extract pressure from cell states
-        let extract_kernel = self
-            .device
-            .get_func("actor_wavesim", "extract_pressure")
-            .ok_or_else(|| ActorError::LaunchError("extract_pressure not found".into()))?;
-
-        // Allocate temporary buffers on GPU
-        let pressure_gpu = self
-            .device
-            .htod_sync_copy(&grid.pressure)
+        // Allocate temporary buffers on GPU (cudarc 0.18.2 API)
+        let mut pressure_gpu = unsafe {
+            self.stream
+                .alloc::<f32>(grid.pressure.len())
+                .map_err(|e| ActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&grid.pressure, &mut pressure_gpu)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
-        let pressure_prev_gpu = self
-            .device
-            .htod_sync_copy(&grid.pressure_prev)
+
+        let mut pressure_prev_gpu = unsafe {
+            self.stream
+                .alloc::<f32>(grid.pressure_prev.len())
+                .map_err(|e| ActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&grid.pressure_prev, &mut pressure_prev_gpu)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
         let blocks = self.total_cells.div_ceil(self.config.block_size as usize);
@@ -1272,26 +1316,25 @@ impl ActorGpuBackend3D {
             shared_mem_bytes: 0,
         };
 
+        // Launch extract pressure kernel (cudarc 0.18.2 API)
+        let total_cells_u32 = self.total_cells as u32;
         unsafe {
-            extract_kernel
-                .launch(
-                    launch_config,
-                    (
-                        &self.cell_states,
-                        &pressure_gpu,
-                        &pressure_prev_gpu,
-                        self.total_cells as u32,
-                    ),
-                )
+            self.stream
+                .launch_builder(&self.fn_extract_pressure)
+                .arg(&self.cell_states)
+                .arg(&pressure_gpu)
+                .arg(&pressure_prev_gpu)
+                .arg(&total_cells_u32)
+                .launch(launch_config)
                 .map_err(|e| ActorError::LaunchError(e.to_string()))?;
         }
 
-        // Download
-        self.device
-            .dtoh_sync_copy_into(&pressure_gpu, &mut grid.pressure)
+        // Download (cudarc 0.18.2 API)
+        self.stream
+            .memcpy_dtoh(&pressure_gpu, &mut grid.pressure)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
-        self.device
-            .dtoh_sync_copy_into(&pressure_prev_gpu, &mut grid.pressure_prev)
+        self.stream
+            .memcpy_dtoh(&pressure_prev_gpu, &mut grid.pressure_prev)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
         Ok(())
@@ -1311,30 +1354,44 @@ impl ActorGpuBackend3D {
             })
             .collect();
 
-        // Upload to GPU
-        let pressure_gpu = self
-            .device
-            .htod_sync_copy(&grid.pressure)
-            .map_err(|e| ActorError::MemoryError(e.to_string()))?;
-        let pressure_prev_gpu = self
-            .device
-            .htod_sync_copy(&grid.pressure_prev)
-            .map_err(|e| ActorError::MemoryError(e.to_string()))?;
-        let cell_types_gpu = self
-            .device
-            .htod_sync_copy(&cell_types_u8)
-            .map_err(|e| ActorError::MemoryError(e.to_string()))?;
-        let reflection_coeff_gpu = self
-            .device
-            .htod_sync_copy(&grid.reflection_coeff)
+        // Upload to GPU (cudarc 0.18.2 API)
+        let mut pressure_gpu = unsafe {
+            self.stream
+                .alloc::<f32>(grid.pressure.len())
+                .map_err(|e| ActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&grid.pressure, &mut pressure_gpu)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
-        // Initialize cell states
-        let init_kernel = self
-            .device
-            .get_func("actor_wavesim", "init_cell_states")
-            .ok_or_else(|| ActorError::LaunchError("init_cell_states not found".into()))?;
+        let mut pressure_prev_gpu = unsafe {
+            self.stream
+                .alloc::<f32>(grid.pressure_prev.len())
+                .map_err(|e| ActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&grid.pressure_prev, &mut pressure_prev_gpu)
+            .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
+        let mut cell_types_gpu = unsafe {
+            self.stream
+                .alloc::<u8>(cell_types_u8.len())
+                .map_err(|e| ActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&cell_types_u8, &mut cell_types_gpu)
+            .map_err(|e| ActorError::MemoryError(e.to_string()))?;
+
+        let mut reflection_coeff_gpu = unsafe {
+            self.stream
+                .alloc::<f32>(grid.reflection_coeff.len())
+                .map_err(|e| ActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&grid.reflection_coeff, &mut reflection_coeff_gpu)
+            .map_err(|e| ActorError::MemoryError(e.to_string()))?;
+
+        // Initialize cell states (cudarc 0.18.2 API)
         let blocks = self.total_cells.div_ceil(self.config.block_size as usize);
         let launch_config = LaunchConfig {
             block_dim: (self.config.block_size, 1, 1),
@@ -1342,19 +1399,17 @@ impl ActorGpuBackend3D {
             shared_mem_bytes: 0,
         };
 
+        let total_cells_u32 = self.total_cells as u32;
         unsafe {
-            init_kernel
-                .launch(
-                    launch_config,
-                    (
-                        &self.cell_states,
-                        &pressure_gpu,
-                        &pressure_prev_gpu,
-                        &cell_types_gpu,
-                        &reflection_coeff_gpu,
-                        self.total_cells as u32,
-                    ),
-                )
+            self.stream
+                .launch_builder(&self.fn_init_states)
+                .arg(&self.cell_states)
+                .arg(&pressure_gpu)
+                .arg(&pressure_prev_gpu)
+                .arg(&cell_types_gpu)
+                .arg(&reflection_coeff_gpu)
+                .arg(&total_cells_u32)
+                .launch(launch_config)
                 .map_err(|e| ActorError::LaunchError(e.to_string()))?;
         }
 
@@ -1365,12 +1420,7 @@ impl ActorGpuBackend3D {
     pub fn reset(&mut self, grid: &SimulationGrid3D) -> Result<(), ActorError> {
         self.upload_pressure(grid)?;
 
-        // Reset inbox headers
-        let init_inbox_kernel = self
-            .device
-            .get_func("actor_wavesim", "init_inbox_headers")
-            .ok_or_else(|| ActorError::LaunchError("init_inbox_headers not found".into()))?;
-
+        // Reset inbox headers (cudarc 0.18.2 API)
         let blocks = self.total_cells.div_ceil(self.config.block_size as usize);
         let launch_config = LaunchConfig {
             block_dim: (self.config.block_size, 1, 1),
@@ -1378,16 +1428,14 @@ impl ActorGpuBackend3D {
             shared_mem_bytes: 0,
         };
 
+        let total_cells_u32 = self.total_cells as u32;
         unsafe {
-            init_inbox_kernel
-                .launch(
-                    launch_config,
-                    (
-                        &self.inbox_headers,
-                        self.total_cells as u32,
-                        self.config.inbox_capacity,
-                    ),
-                )
+            self.stream
+                .launch_builder(&self.fn_init_inbox)
+                .arg(&self.inbox_headers)
+                .arg(&total_cells_u32)
+                .arg(&self.config.inbox_capacity)
+                .launch(launch_config)
                 .map_err(|e| ActorError::LaunchError(e.to_string()))?;
         }
 
@@ -1402,31 +1450,24 @@ impl ActorGpuBackend3D {
         z: u32,
         amplitude: f32,
     ) -> Result<(), ActorError> {
-        let kernel = self
-            .device
-            .get_func("actor_wavesim", "inject_impulse_actor")
-            .ok_or_else(|| ActorError::LaunchError("inject_impulse_actor not found".into()))?;
-
         let launch_config = LaunchConfig {
             block_dim: (1, 1, 1),
             grid_dim: (1, 1, 1),
             shared_mem_bytes: 0,
         };
 
+        // cudarc 0.18.2 API
         unsafe {
-            kernel
-                .launch(
-                    launch_config,
-                    (
-                        &self.cell_states,
-                        x,
-                        y,
-                        z,
-                        self.params.width,
-                        self.params.slice_size,
-                        amplitude,
-                    ),
-                )
+            self.stream
+                .launch_builder(&self.fn_inject_impulse)
+                .arg(&self.cell_states)
+                .arg(&x)
+                .arg(&y)
+                .arg(&z)
+                .arg(&self.params.width)
+                .arg(&self.params.slice_size)
+                .arg(&amplitude)
+                .launch(launch_config)
                 .map_err(|e| ActorError::LaunchError(e.to_string()))?;
         }
 

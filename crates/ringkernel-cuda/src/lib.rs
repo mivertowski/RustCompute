@@ -19,6 +19,7 @@
 //!
 //! ```ignore
 //! use ringkernel_cuda::CudaRuntime;
+//! use ringkernel_core::runtime::RingKernelRuntime;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
