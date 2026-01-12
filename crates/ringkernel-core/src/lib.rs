@@ -33,6 +33,11 @@
 
 pub mod audit;
 pub mod checkpoint;
+
+/// Cloud storage backends for checkpoints (requires `cloud-storage` feature).
+#[cfg(feature = "cloud-storage")]
+pub mod cloud_storage;
+
 pub mod config;
 pub mod context;
 pub mod control;
@@ -67,10 +72,10 @@ pub mod prelude {
         AuditSink, FileSink, MemorySink,
     };
     pub use crate::config::{
-        CheckpointStorageType, ConfigBuilder, Environment, GeneralConfig, GeneralConfigBuilder,
-        HealthConfig, HealthConfigBuilder, LogLevel, MigrationConfig, MigrationConfigBuilder,
-        MultiGpuConfig, MultiGpuConfigBuilder, ObservabilityConfig, ObservabilityConfigBuilder,
-        RetryConfig, RingKernelConfig,
+        CheckpointStorageType, CloudStorageConfig, ConfigBuilder, Environment, GeneralConfig,
+        GeneralConfigBuilder, HealthConfig, HealthConfigBuilder, LogLevel, MigrationConfig,
+        MigrationConfigBuilder, MultiGpuConfig, MultiGpuConfigBuilder, ObservabilityConfig,
+        ObservabilityConfigBuilder, RetryConfig, RingKernelConfig,
     };
     pub use crate::context::*;
     pub use crate::control::*;
@@ -131,6 +136,12 @@ pub mod prelude {
         TelemetryPipeline,
     };
     pub use crate::types::*;
+
+    // Cloud storage types (feature-gated)
+    #[cfg(feature = "cloud-storage")]
+    pub use crate::cloud_storage::{
+        AsyncCheckpointStorage, CloudProvider, S3Config, S3Storage,
+    };
 }
 
 // Re-exports for convenience

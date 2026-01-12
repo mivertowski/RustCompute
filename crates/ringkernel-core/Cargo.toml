@@ -44,6 +44,11 @@ serde = { workspace = true, optional = true }
 toml = { workspace = true, optional = true }
 serde_yaml = { workspace = true, optional = true }
 
+# Cloud storage (optional)
+aws-sdk-s3 = { workspace = true, optional = true }
+aws-config = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+
 # Proc macro support
 inventory = { workspace = true }
 
@@ -55,3 +60,4 @@ tokio = { workspace = true, features = ["test-util", "macros"] }
 default = []
 validation = ["rkyv/validation"]
 config-file = ["serde", "toml", "serde_yaml"]
+cloud-storage = ["aws-sdk-s3", "aws-config", "bytes"]

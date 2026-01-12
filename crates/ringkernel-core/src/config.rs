@@ -432,6 +432,23 @@ pub struct MigrationConfig {
     pub migration_timeout: Duration,
     /// Enable incremental checkpoints.
     pub incremental_enabled: bool,
+    /// Cloud storage configuration.
+    pub cloud_config: CloudStorageConfig,
+}
+
+/// Cloud storage configuration for checkpoint persistence.
+#[derive(Debug, Clone, Default)]
+pub struct CloudStorageConfig {
+    /// S3 bucket name.
+    pub s3_bucket: String,
+    /// S3 key prefix (e.g., "checkpoints/").
+    pub s3_prefix: String,
+    /// AWS region (e.g., "us-east-1").
+    pub s3_region: Option<String>,
+    /// Custom S3 endpoint URL (for MinIO, R2, etc.).
+    pub s3_endpoint: Option<String>,
+    /// Enable server-side encryption.
+    pub s3_encryption: bool,
 }
 
 impl Default for MigrationConfig {
@@ -445,6 +462,7 @@ impl Default for MigrationConfig {
             compression_level: 3,
             migration_timeout: Duration::from_secs(60),
             incremental_enabled: false,
+            cloud_config: CloudStorageConfig::default(),
         }
     }
 }
@@ -941,6 +959,36 @@ impl MigrationConfigBuilder {
     /// Enable or disable incremental checkpoints.
     pub fn enable_incremental(mut self, enabled: bool) -> Self {
         self.config.incremental_enabled = enabled;
+        self
+    }
+
+    /// Configure S3 bucket for cloud storage.
+    pub fn s3_bucket(mut self, bucket: impl Into<String>) -> Self {
+        self.config.cloud_config.s3_bucket = bucket.into();
+        self
+    }
+
+    /// Set S3 key prefix.
+    pub fn s3_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.config.cloud_config.s3_prefix = prefix.into();
+        self
+    }
+
+    /// Set AWS region for S3.
+    pub fn s3_region(mut self, region: impl Into<String>) -> Self {
+        self.config.cloud_config.s3_region = Some(region.into());
+        self
+    }
+
+    /// Set custom S3 endpoint (for MinIO, R2, etc.).
+    pub fn s3_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.config.cloud_config.s3_endpoint = Some(endpoint.into());
+        self
+    }
+
+    /// Enable S3 server-side encryption.
+    pub fn s3_encryption(mut self, enabled: bool) -> Self {
+        self.config.cloud_config.s3_encryption = enabled;
         self
     }
 

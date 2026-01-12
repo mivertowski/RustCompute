@@ -31,6 +31,8 @@ use std::time::{Duration, Instant};
 use parking_lot::RwLock;
 
 use crate::checkpoint::{CheckpointStorage, FileStorage, MemoryStorage};
+#[cfg(feature = "cloud-storage")]
+use crate::cloud_storage::{S3Config, S3Storage};
 use crate::config::{CheckpointStorageType, RingKernelConfig};
 use crate::error::{Result, RingKernelError};
 use crate::health::{
@@ -1013,8 +1015,51 @@ impl RuntimeBuilder {
                         Arc::new(FileStorage::new(&config.migration.checkpoint_dir))
                     }
                     CheckpointStorageType::Cloud => {
-                        // Cloud storage not implemented yet, fall back to memory
-                        Arc::new(MemoryStorage::new())
+                        #[cfg(feature = "cloud-storage")]
+                        {
+                            // Create S3 storage from cloud configuration
+                            let cloud_cfg = &config.migration.cloud_config;
+                            let s3_config = S3Config::new(&cloud_cfg.s3_bucket)
+                                .with_prefix(&cloud_cfg.s3_prefix);
+                            let s3_config = if let Some(ref region) = cloud_cfg.s3_region {
+                                s3_config.with_region(region)
+                            } else {
+                                s3_config
+                            };
+                            let s3_config = if let Some(ref endpoint) = cloud_cfg.s3_endpoint {
+                                s3_config.with_endpoint(endpoint)
+                            } else {
+                                s3_config
+                            };
+                            let s3_config = if cloud_cfg.s3_encryption {
+                                s3_config.with_encryption()
+                            } else {
+                                s3_config
+                            };
+
+                            // S3Storage::new is async, we use block_in_place for the sync context
+                            match tokio::task::block_in_place(|| {
+                                tokio::runtime::Handle::current()
+                                    .block_on(S3Storage::new(s3_config))
+                            }) {
+                                Ok(storage) => Arc::new(storage) as Arc<dyn CheckpointStorage>,
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Failed to create S3 storage: {}, falling back to memory",
+                                        e
+                                    );
+                                    Arc::new(MemoryStorage::new())
+                                }
+                            }
+                        }
+                        #[cfg(not(feature = "cloud-storage"))]
+                        {
+                            tracing::warn!(
+                                "Cloud storage requested but cloud-storage feature not enabled, \
+                                 falling back to memory storage"
+                            );
+                            Arc::new(MemoryStorage::new())
+                        }
                     }
                 }
             });
