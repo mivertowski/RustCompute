@@ -175,7 +175,9 @@ impl CudaLowering {
 
             // K2K messaging intrinsic declarations
             self.emit_line("// K2K Messaging Intrinsics (provided by runtime)");
-            self.emit_line("__device__ bool __ringkernel_k2k_send(uint64_t target_id, const void* msg);");
+            self.emit_line(
+                "__device__ bool __ringkernel_k2k_send(uint64_t target_id, const void* msg);",
+            );
             self.emit_line("__device__ void* __ringkernel_k2k_recv();");
             self.emit_line("struct K2KOptionalMsg { bool valid; void* data; };");
             self.emit_line("__device__ K2KOptionalMsg __ringkernel_k2k_try_recv();");
@@ -578,10 +580,7 @@ impl CudaLowering {
             // Get current HLC time
             IrNode::HlcNow => {
                 // Returns current HLC timestamp (u64)
-                self.emit_line(&format!(
-                    "{} {} = __ringkernel_hlc_now();",
-                    ty, result_name
-                ));
+                self.emit_line(&format!("{} {} = __ringkernel_hlc_now();", ty, result_name));
             }
 
             // Tick HLC and return new time

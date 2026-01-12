@@ -571,10 +571,7 @@ impl MslLowering {
             // K2K blocking receive
             IrNode::K2KRecv => {
                 // Blocking receive returns the message struct
-                self.emit_line(&format!(
-                    "{} {} = ringkernel_k2k_recv();",
-                    ty, result_name
-                ));
+                self.emit_line(&format!("{} {} = ringkernel_k2k_recv();", ty, result_name));
             }
 
             // K2K non-blocking try receive
@@ -593,19 +590,13 @@ impl MslLowering {
             // Get current HLC time
             IrNode::HlcNow => {
                 // Returns current HLC timestamp (uint64_t)
-                self.emit_line(&format!(
-                    "{} {} = ringkernel_hlc_now();",
-                    ty, result_name
-                ));
+                self.emit_line(&format!("{} {} = ringkernel_hlc_now();", ty, result_name));
             }
 
             // Tick HLC and return new time
             IrNode::HlcTick => {
                 // Increments logical counter and returns new timestamp
-                self.emit_line(&format!(
-                    "{} {} = ringkernel_hlc_tick();",
-                    ty, result_name
-                ));
+                self.emit_line(&format!("{} {} = ringkernel_hlc_tick();", ty, result_name));
             }
 
             // Update HLC from incoming timestamp

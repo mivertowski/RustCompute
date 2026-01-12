@@ -139,9 +139,7 @@ pub mod prelude {
 
     // Cloud storage types (feature-gated)
     #[cfg(feature = "cloud-storage")]
-    pub use crate::cloud_storage::{
-        AsyncCheckpointStorage, CloudProvider, S3Config, S3Storage,
-    };
+    pub use crate::cloud_storage::{AsyncCheckpointStorage, CloudProvider, S3Config, S3Storage};
 }
 
 // Re-exports for convenience

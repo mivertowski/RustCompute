@@ -165,8 +165,7 @@ pub async fn execute(
     output: Option<&str>,
     detailed: bool,
 ) -> CliResult<()> {
-    let output_format = OutputFormat::from_str(format)
-        .map_err(|e| CliError::Validation(e))?;
+    let output_format = OutputFormat::from_str(format).map_err(|e| CliError::Validation(e))?;
 
     let config = ProfileConfig {
         kernel: kernel.to_string(),
@@ -197,7 +196,8 @@ pub async fn execute(
 
     // Check if kernel file exists (for file-based profiling)
     let kernel_path = Path::new(kernel);
-    let is_file_based = kernel_path.exists() && kernel_path.extension().map_or(false, |e| e == "rs");
+    let is_file_based =
+        kernel_path.exists() && kernel_path.extension().map_or(false, |e| e == "rs");
 
     let result = if is_file_based {
         profile_kernel_file(&config).await?
@@ -221,17 +221,21 @@ async fn profile_kernel_file(config: &ProfileConfig) -> CliResult<ProfileResult>
     let syntax_tree = syn::parse_file(&source)?;
 
     // Find kernel functions
-    let kernel_fns: Vec<_> = syntax_tree.items.iter().filter_map(|item| {
-        if let syn::Item::Fn(func) = item {
-            let has_kernel_attr = func.attrs.iter().any(|attr| {
-                attr.path().is_ident("ring_kernel") || attr.path().is_ident("kernel")
-            });
-            if has_kernel_attr {
-                return Some(func.sig.ident.to_string());
+    let kernel_fns: Vec<_> = syntax_tree
+        .items
+        .iter()
+        .filter_map(|item| {
+            if let syn::Item::Fn(func) = item {
+                let has_kernel_attr = func.attrs.iter().any(|attr| {
+                    attr.path().is_ident("ring_kernel") || attr.path().is_ident("kernel")
+                });
+                if has_kernel_attr {
+                    return Some(func.sig.ident.to_string());
+                }
             }
-        }
-        None
-    }).collect();
+            None
+        })
+        .collect();
 
     if kernel_fns.is_empty() {
         return Err(CliError::Validation(format!(
@@ -306,16 +310,24 @@ async fn profile_simulated(config: &ProfileConfig) -> CliResult<ProfileResult> {
     let max_ns = *durations.last().unwrap_or(&0);
     let mean_ns = durations.iter().sum::<u64>() / durations.len().max(1) as u64;
     let median_ns = durations.get(durations.len() / 2).copied().unwrap_or(0);
-    let p95_ns = durations.get((durations.len() * 95) / 100).copied().unwrap_or(0);
-    let p99_ns = durations.get((durations.len() * 99) / 100).copied().unwrap_or(0);
+    let p95_ns = durations
+        .get((durations.len() * 95) / 100)
+        .copied()
+        .unwrap_or(0);
+    let p99_ns = durations
+        .get((durations.len() * 99) / 100)
+        .copied()
+        .unwrap_or(0);
 
     // Calculate standard deviation
-    let variance = durations.iter()
+    let variance = durations
+        .iter()
         .map(|&d| {
             let diff = d as i64 - mean_ns as i64;
             (diff * diff) as u64
         })
-        .sum::<u64>() / durations.len().max(1) as u64;
+        .sum::<u64>()
+        / durations.len().max(1) as u64;
     let std_dev_ns = (variance as f64).sqrt() as u64;
 
     let ops_per_second = if mean_ns > 0 {
@@ -391,8 +403,7 @@ fn format_text(result: &ProfileResult) -> String {
 
     output.push_str(&format!(
         "{}\n",
-        "═══════════════════════════════════════════════════════════════"
-            .bright_cyan()
+        "═══════════════════════════════════════════════════════════════".bright_cyan()
     ));
     output.push_str(&format!(
         "  {} Profile Results: {}\n",
@@ -401,8 +412,7 @@ fn format_text(result: &ProfileResult) -> String {
     ));
     output.push_str(&format!(
         "{}\n\n",
-        "═══════════════════════════════════════════════════════════════"
-            .bright_cyan()
+        "═══════════════════════════════════════════════════════════════".bright_cyan()
     ));
 
     output.push_str(&format!("  {} Timing Statistics\n", "⏱️".to_string()));
@@ -562,10 +572,7 @@ fn format_flamegraph(result: &ProfileResult) -> String {
             let duration_us = bucket * bucket_size / 1000;
             output.push_str(&format!(
                 "{};{}_{}us {}\n",
-                result.kernel_name,
-                result.kernel_name,
-                duration_us,
-                count
+                result.kernel_name, result.kernel_name, duration_us, count
             ));
         }
     } else {

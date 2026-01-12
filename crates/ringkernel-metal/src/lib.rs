@@ -423,24 +423,65 @@ kernel void k2k_halo_exchange(
 ) {
     // Extract halos from local data and send to neighbors
     // Direction: 0=North, 1=South, 2=West, 3=East, 4=Up, 5=Down
+    // Note: Only thread 0 performs sends; other threads synchronize
 
     uint tw = tile_width;
     uint th = tile_height;
+    uint self_id = routing->self_id;
 
-    // Send North halo (top row)
-    if (routing->grid_dim_y > 1) {
-        device float* north_halo = local_data;  // First halo_size rows
-        // k2k_send_halo would be called here with actual neighbor ID
+    // Calculate neighbor IDs based on grid position
+    uint gx = routing->grid_dim_x;
+    uint gy = routing->grid_dim_y;
+    uint x = self_id % gx;
+    uint y = self_id / gx;
+
+    // Threadgroup-local halo buffer for column gather
+    threadgroup float column_halo[256];  // Max halo height
+
+    // Send North halo (top row) to neighbor above (y-1)
+    if (y > 0) {
+        uint north_neighbor = self_id - gx;
+        device float* north_halo = local_data + halo_size * tw;  // First interior row
+        k2k_send_halo(routing, inbox_buffer, north_neighbor,
+                      north_halo, tw, halo_size, 1, 0, thread_id);  // dir=0 (North)
     }
 
-    // Send South halo (bottom row)
-    if (routing->grid_dim_y > 1) {
-        device float* south_halo = local_data + (th - halo_size) * tw;
-        // k2k_send_halo would be called here
+    // Send South halo (bottom row) to neighbor below (y+1)
+    if (y < gy - 1) {
+        uint south_neighbor = self_id + gx;
+        device float* south_halo = local_data + (th - 2 * halo_size) * tw;  // Last interior row
+        k2k_send_halo(routing, inbox_buffer, south_neighbor,
+                      south_halo, tw, halo_size, 1, 1, thread_id);  // dir=1 (South)
     }
 
-    // Send West halo (left column) - needs gather
-    // Send East halo (right column) - needs gather
+    // Send West halo (left column) to neighbor left (x-1)
+    // Gather column data to threadgroup memory first
+    if (x > 0) {
+        uint west_neighbor = self_id - 1;
+        // Gather left interior column
+        if (thread_id < th && thread_id < 256) {
+            column_halo[thread_id] = local_data[thread_id * tw + halo_size];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // Thread 0 sends the gathered column
+        k2k_send_halo(routing, inbox_buffer, west_neighbor,
+                      column_halo, halo_size, th, 1, 2, thread_id);  // dir=2 (West)
+    }
+
+    // Send East halo (right column) to neighbor right (x+1)
+    if (x < gx - 1) {
+        uint east_neighbor = self_id + 1;
+        // Gather right interior column
+        if (thread_id < th && thread_id < 256) {
+            column_halo[thread_id] = local_data[thread_id * tw + (tw - 2 * halo_size)];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // Thread 0 sends the gathered column
+        k2k_send_halo(routing, inbox_buffer, east_neighbor,
+                      column_halo, halo_size, th, 1, 3, thread_id);  // dir=3 (East)
+    }
 
     threadgroup_barrier(mem_flags::mem_device);
 }
@@ -457,26 +498,81 @@ kernel void k2k_halo_apply(
     uint threadgroup_id [[threadgroup_position_in_grid]]
 ) {
     // Receive halo data from neighbors and apply to local ghost cells
-    float recv_buffer[256];  // Max halo size
-    uint source, direction;
+    // Thread 0 receives messages, then all threads cooperate to apply them
+
+    uint tw = tile_width;
+    uint th = tile_height;
+
+    // Threadgroup-shared receive buffer
+    threadgroup float recv_buffer[256];  // Max halo size
+    threadgroup uint msg_source;
+    threadgroup uint msg_direction;
+    threadgroup bool has_message;
 
     // Keep receiving until inbox is empty
-    while (k2k_recv_halo(routing, inbox_buffer, recv_buffer, &source, &direction, thread_id)) {
-        // Apply received halo based on direction
-        switch (direction) {
-            case 0:  // From North - apply to top ghost row
-                break;
-            case 1:  // From South - apply to bottom ghost row
-                break;
-            case 2:  // From West - apply to left ghost column
-                break;
-            case 3:  // From East - apply to right ghost column
-                break;
-            case 4:  // From Up - apply to top ghost plane
-                break;
-            case 5:  // From Down - apply to bottom ghost plane
-                break;
+    while (true) {
+        // Thread 0 attempts to receive
+        if (thread_id == 0) {
+            has_message = k2k_recv_halo(routing, inbox_buffer, recv_buffer, &msg_source, &msg_direction, 0);
         }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        if (!has_message) break;
+
+        // All threads cooperate to apply the received halo
+        switch (msg_direction) {
+            case 0: {
+                // From North - apply to top ghost row (row 0)
+                // Received data is a row of width tw
+                if (thread_id < tw) {
+                    for (uint h = 0; h < halo_size; h++) {
+                        local_data[h * tw + thread_id] = recv_buffer[h * tw + thread_id];
+                    }
+                }
+                break;
+            }
+            case 1: {
+                // From South - apply to bottom ghost row (row th-halo_size to th-1)
+                if (thread_id < tw) {
+                    for (uint h = 0; h < halo_size; h++) {
+                        uint row = th - halo_size + h;
+                        local_data[row * tw + thread_id] = recv_buffer[h * tw + thread_id];
+                    }
+                }
+                break;
+            }
+            case 2: {
+                // From West - apply to left ghost column (col 0)
+                if (thread_id < th) {
+                    for (uint h = 0; h < halo_size; h++) {
+                        local_data[thread_id * tw + h] = recv_buffer[thread_id];
+                    }
+                }
+                break;
+            }
+            case 3: {
+                // From East - apply to right ghost column (col tw-halo_size to tw-1)
+                if (thread_id < th) {
+                    for (uint h = 0; h < halo_size; h++) {
+                        uint col = tw - halo_size + h;
+                        local_data[thread_id * tw + col] = recv_buffer[thread_id];
+                    }
+                }
+                break;
+            }
+            case 4: {
+                // From Up - apply to top ghost plane (3D)
+                // Would need depth dimension; placeholder for 3D support
+                break;
+            }
+            case 5: {
+                // From Down - apply to bottom ghost plane (3D)
+                // Would need depth dimension; placeholder for 3D support
+                break;
+            }
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
     threadgroup_barrier(mem_flags::mem_device);

@@ -514,9 +514,7 @@ pub enum CloudProvider {
 }
 
 /// Create a cloud storage backend from configuration.
-pub async fn create_cloud_storage(
-    provider: CloudProvider,
-) -> Result<Box<dyn CheckpointStorage>> {
+pub async fn create_cloud_storage(provider: CloudProvider) -> Result<Box<dyn CheckpointStorage>> {
     match provider {
         CloudProvider::S3(config) => {
             let storage = S3Storage::new(config).await?;
