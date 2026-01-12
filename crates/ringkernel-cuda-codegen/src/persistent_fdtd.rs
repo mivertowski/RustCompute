@@ -391,6 +391,41 @@ __device__ bool k2h_send(
 "#,
     );
 
+    // Energy reduction function
+    code.push_str(&format!(
+        r#"
+// ============================================================================
+// ENERGY CALCULATION (Parallel Reduction)
+// ============================================================================
+
+// Block-level parallel reduction for energy: E = sum(p^2)
+// Uses shared memory for efficient reduction within a block
+__device__ float block_reduce_energy(
+    float my_energy,
+    float* shared_reduce,
+    int threads_per_block
+) {{
+    int tid = threadIdx.x;
+
+    // Store initial value in shared memory
+    shared_reduce[tid] = my_energy;
+    __syncthreads();
+
+    // Parallel reduction tree
+    for (int stride = threads_per_block / 2; stride > 0; stride >>= 1) {{
+        if (tid < stride) {{
+            shared_reduce[tid] += shared_reduce[tid + stride];
+        }}
+        __syncthreads();
+    }}
+
+    // Return the total for this block (only thread 0 has final sum)
+    return shared_reduce[0];
+}}
+
+"#
+    ));
+
     // Halo exchange functions
     code.push_str(&format!(
         r#"
@@ -542,6 +577,9 @@ extern "C" __global__ void __launch_bounds__({threads_per_block}, 2)
     // Shared memory for tile + ghost cells
     __shared__ float tile[{tz} + 2][{ty} + 2][{tx} + 2];
 
+    // Shared memory for energy reduction
+    __shared__ float energy_reduce[{threads_per_block}];
+
     // Get my routing info
     const K2KRouteEntry* my_route = &routes[block_id];
 
@@ -692,6 +730,33 @@ extern "C" __global__ void __launch_bounds__({threads_per_block}, 2)
             p_prev[global_idx] = p_new;
         }}
 
+        // --- Phase 5b: Energy Calculation (periodic) ---
+        // Check if this step will report progress (after counter increment)
+        bool is_progress_step = ((ctrl->current_step + 1) % {progress_interval}) == 0;
+
+        if (is_progress_step) {{
+            // Reset energy accumulator (coordinator only, before reduction)
+            if (is_coordinator) {{
+                ctrl->total_energy = 0.0f;
+            }}
+            __threadfence();  // Ensure reset is visible
+
+            // Compute this thread's energy contribution: E = p^2
+            float my_energy = 0.0f;
+            if (gx < sim_x && gy < sim_y && gz < sim_z) {{
+                float p_val = p_prev[global_idx];  // Just written value
+                my_energy = p_val * p_val;
+            }}
+
+            // Block-level parallel reduction
+            float block_energy = block_reduce_energy(my_energy, energy_reduce, {threads_per_block});
+
+            // Block leader accumulates to global energy
+            if (tid == 0) {{
+                atomicAdd(&ctrl->total_energy, block_energy);
+            }}
+        }}
+
         // Grid-wide sync before buffer swap
         {grid_sync}
 
@@ -711,7 +776,7 @@ extern "C" __global__ void __launch_bounds__({threads_per_block}, 2)
                 resp.cmd_id = 0;
                 resp.step = ctrl->current_step;
                 resp.steps_remaining = ctrl->steps_remaining;
-                resp.energy = 0.0f;  // TODO: calculate energy
+                resp.energy = ctrl->total_energy;  // Computed in Phase 5b
                 k2h_send(k2h_header, k2h_slots, &resp);
             }}
         }}
@@ -724,6 +789,30 @@ extern "C" __global__ void __launch_bounds__({threads_per_block}, 2)
         {grid_sync}
     }}
 
+    // ========== FINAL ENERGY CALCULATION ==========
+    // Compute final energy before termination (all threads participate)
+    if (is_coordinator) {{
+        ctrl->total_energy = 0.0f;
+    }}
+    __threadfence();
+
+    // Each thread's final energy contribution
+    float final_energy = 0.0f;
+    if (gx < sim_x && gy < sim_y && gz < sim_z) {{
+        float p_val = p_curr[global_idx];  // Current buffer has final state
+        final_energy = p_val * p_val;
+    }}
+
+    // Block-level parallel reduction
+    float block_final_energy = block_reduce_energy(final_energy, energy_reduce, {threads_per_block});
+
+    // Block leader accumulates to global energy
+    if (tid == 0) {{
+        atomicAdd(&ctrl->total_energy, block_final_energy);
+    }}
+
+    {grid_sync}
+
     // ========== CLEANUP ==========
     if (is_coordinator) {{
         ctrl->has_terminated = 1;
@@ -733,7 +822,7 @@ extern "C" __global__ void __launch_bounds__({threads_per_block}, 2)
         resp.cmd_id = 0;
         resp.step = ctrl->current_step;
         resp.steps_remaining = 0;
-        resp.energy = 0.0f;
+        resp.energy = ctrl->total_energy;  // Final computed energy
         k2h_send(k2h_header, k2h_slots, &resp);
     }}
 }}
@@ -934,5 +1023,42 @@ mod tests {
         // Must handle no-work case
         assert!(code.contains("if (ctrl->steps_remaining == 0)"));
         assert!(code.contains("volatile int spin_count"));
+    }
+
+    #[test]
+    fn test_kernel_contains_energy_calculation() {
+        let config = PersistentFdtdConfig::new("test_energy")
+            .with_tile_size(8, 8, 8)
+            .with_progress_interval(100);
+
+        let code = generate_persistent_fdtd_kernel(&config);
+
+        // Must have energy reduction function
+        assert!(code.contains("block_reduce_energy"));
+        assert!(code.contains("E = sum(p^2)"));
+        assert!(code.contains("Parallel reduction tree"));
+
+        // Must have shared memory for energy reduction
+        assert!(code.contains("energy_reduce[512]")); // 8*8*8 = 512 threads
+
+        // Must compute energy periodically (progress interval check)
+        assert!(code.contains("is_progress_step"));
+        assert!(code.contains("% 100"));
+
+        // Must reset energy accumulator before reduction
+        assert!(code.contains("ctrl->total_energy = 0.0f"));
+
+        // Must compute p^2 for energy
+        assert!(code.contains("p_val * p_val"));
+
+        // Must accumulate via atomicAdd
+        assert!(code.contains("atomicAdd(&ctrl->total_energy"));
+
+        // Must use energy in progress response
+        assert!(code.contains("resp.energy = ctrl->total_energy"));
+
+        // Must compute final energy at termination
+        assert!(code.contains("FINAL ENERGY CALCULATION"));
+        assert!(code.contains("block_final_energy"));
     }
 }
