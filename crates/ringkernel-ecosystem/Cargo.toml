@@ -110,7 +110,7 @@ candle-core = { version = "0.4", optional = true }
 config = { version = "0.14", optional = true, default-features = false, features = ["toml"] }
 
 # Optional: Metrics
-prometheus = { version = "0.13", optional = true }
+prometheus = { version = "0.14", optional = true, default-features = false }
 
 # Optional: Persistent kernel support (enables cuda feature for full functionality)
 ringkernel-cuda = { workspace = true, optional = true, features = ["cuda"] }

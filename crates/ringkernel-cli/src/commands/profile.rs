@@ -165,7 +165,7 @@ pub async fn execute(
     output: Option<&str>,
     detailed: bool,
 ) -> CliResult<()> {
-    let output_format = OutputFormat::from_str(format).map_err(|e| CliError::Validation(e))?;
+    let output_format = OutputFormat::from_str(format).map_err(CliError::Validation)?;
 
     let config = ProfileConfig {
         kernel: kernel.to_string(),
@@ -197,7 +197,7 @@ pub async fn execute(
     // Check if kernel file exists (for file-based profiling)
     let kernel_path = Path::new(kernel);
     let is_file_based =
-        kernel_path.exists() && kernel_path.extension().map_or(false, |e| e == "rs");
+        kernel_path.exists() && kernel_path.extension().is_some_and(|e| e == "rs");
 
     let result = if is_file_based {
         profile_kernel_file(&config).await?
@@ -407,7 +407,7 @@ fn format_text(result: &ProfileResult) -> String {
     ));
     output.push_str(&format!(
         "  {} Profile Results: {}\n",
-        "📊".to_string(),
+        "📊",
         result.kernel_name.bright_white()
     ));
     output.push_str(&format!(
@@ -415,7 +415,7 @@ fn format_text(result: &ProfileResult) -> String {
         "═══════════════════════════════════════════════════════════════".bright_cyan()
     ));
 
-    output.push_str(&format!("  {} Timing Statistics\n", "⏱️".to_string()));
+    output.push_str(&format!("  {} Timing Statistics\n", "⏱️"));
     output.push_str(&format!(
         "    Iterations: {} (+ {} warmup)\n",
         result.iterations.to_string().bright_yellow(),
@@ -455,7 +455,7 @@ fn format_text(result: &ProfileResult) -> String {
     ));
 
     if let Some(ref mem) = result.memory {
-        output.push_str(&format!("  {} Memory Bandwidth\n", "💾".to_string()));
+        output.push_str(&format!("  {} Memory Bandwidth\n", "💾"));
         output.push_str(&format!(
             "    Read:       {:.2} GB/s\n",
             mem.read_bandwidth_gbps

@@ -392,7 +392,7 @@ __device__ bool k2h_send(
     );
 
     // Energy reduction function
-    code.push_str(&format!(
+    code.push_str(
         r#"
 // ============================================================================
 // ENERGY CALCULATION (Parallel Reduction)
@@ -404,7 +404,7 @@ __device__ float block_reduce_energy(
     float my_energy,
     float* shared_reduce,
     int threads_per_block
-) {{
+) {
     int tid = threadIdx.x;
 
     // Store initial value in shared memory
@@ -412,19 +412,19 @@ __device__ float block_reduce_energy(
     __syncthreads();
 
     // Parallel reduction tree
-    for (int stride = threads_per_block / 2; stride > 0; stride >>= 1) {{
-        if (tid < stride) {{
+    for (int stride = threads_per_block / 2; stride > 0; stride >>= 1) {
+        if (tid < stride) {
             shared_reduce[tid] += shared_reduce[tid + stride];
-        }}
+        }
         __syncthreads();
-    }}
+    }
 
     // Return the total for this block (only thread 0 has final sum)
     return shared_reduce[0];
-}}
+}
 
-"#
-    ));
+"#,
+    );
 
     // Halo exchange functions
     code.push_str(&format!(
