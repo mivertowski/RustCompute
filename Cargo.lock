@@ -7563,6 +7563,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
+ "chrono",
  "clap",
  "clap_complete",
  "colored",

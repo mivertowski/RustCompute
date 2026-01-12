@@ -4,6 +4,7 @@ pub mod check;
 pub mod codegen;
 pub mod init;
 pub mod new_project;
+pub mod profile;
 
 use std::path::Path;
 

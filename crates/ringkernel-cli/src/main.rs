@@ -29,7 +29,7 @@ mod commands;
 mod error;
 mod templates;
 
-use commands::{check, codegen, init, new_project};
+use commands::{check, codegen, init, new_project, profile};
 
 /// RingKernel CLI - GPU-native persistent actor framework tooling
 #[derive(Parser)]
@@ -121,18 +121,30 @@ enum Commands {
         detailed: bool,
     },
 
-    /// Profile kernel performance (placeholder for future implementation)
+    /// Profile kernel performance
     Profile {
-        /// Kernel to profile
+        /// Kernel to profile (name or path to .rs file)
         kernel: String,
 
         /// Number of iterations
         #[arg(short, long, default_value = "1000")]
         iterations: u32,
 
-        /// Output format (text, json, flamegraph)
+        /// Output format (text, json, chrome-trace, flamegraph)
         #[arg(short, long, default_value = "text")]
         format: String,
+
+        /// Number of warmup iterations
+        #[arg(short, long, default_value = "10")]
+        warmup: u32,
+
+        /// Output file (default: stdout)
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// Enable detailed per-iteration timing
+        #[arg(long)]
+        detailed: bool,
     },
 
     /// Generate shell completions
@@ -227,18 +239,19 @@ async fn main() -> ExitCode {
             kernel,
             iterations,
             format,
+            warmup,
+            output,
+            detailed,
         } => {
-            println!(
-                "{} Profile command is not yet implemented",
-                "Warning:".yellow()
-            );
-            println!(
-                "  Would profile kernel '{}' for {} iterations with {} format",
-                kernel.bright_white(),
-                iterations.to_string().bright_white(),
-                format.bright_white()
-            );
-            Ok(())
+            profile::execute(
+                &kernel,
+                iterations,
+                &format,
+                Some(warmup),
+                output.as_deref(),
+                detailed,
+            )
+            .await
         }
 
         Commands::Completions { shell } => {

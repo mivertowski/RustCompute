@@ -39,6 +39,9 @@ console = "0.15"
 thiserror = { workspace = true }
 anyhow = "1.0"
 
+# Time/date handling
+chrono = { version = "0.4", features = ["serde"] }
+
 # Async runtime
 tokio = { workspace = true }
 
