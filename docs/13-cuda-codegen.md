@@ -485,9 +485,51 @@ cargo run -p ringkernel --example ring_kernel_codegen
 
 See the `/examples/cuda-codegen/` directory for the full source code.
 
+## Persistent FDTD Features
+
+The `persistent_fdtd.rs` module generates truly persistent GPU kernels that run for the entire simulation lifetime:
+
+### Energy Calculation
+
+Persistent FDTD kernels include parallel energy calculation using block-level reduction:
+
+```cuda
+// Generated device function for energy computation
+__device__ float block_reduce_energy(
+    float my_energy,
+    float* shared_reduce,
+    int threads_per_block
+) {
+    int tid = threadIdx.x;
+    shared_reduce[tid] = my_energy;
+    __syncthreads();
+
+    // Parallel reduction within block
+    for (int stride = threads_per_block / 2; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            shared_reduce[tid] += shared_reduce[tid + stride];
+        }
+        __syncthreads();
+    }
+    return shared_reduce[0];
+}
+```
+
+- **Energy formula**: E = Σ(p²) where p is pressure at each cell
+- **Computed at**: Progress intervals and before termination
+- **Aggregation**: Block reduction with `atomicAdd` for cross-block accumulation
+
+### Message Checksum
+
+Ring kernel responses include CRC32 checksum verification:
+
+```cuda
+response->checksum = compute_crc32(response_data, response_size);
+```
+
 ## Testing
 
-The crate includes 183 tests (171 unit + 12 integration) covering all features:
+The crate includes 190+ tests covering all features:
 
 ```bash
 cargo test -p ringkernel-cuda-codegen
@@ -498,6 +540,7 @@ cargo test -p ringkernel-cuda-codegen
 - Stencil kernel generation (GridPos, tile configs)
 - Ring kernel actors (ControlBlock, message loop, HLC)
 - Envelope format (MessageHeader, serialization, K2K)
+- Persistent FDTD (energy calculation, checksum)
 - 120+ GPU intrinsics across 13 categories
 
 ## Benchmark Results

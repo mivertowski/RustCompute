@@ -231,6 +231,17 @@ __global__ void ring_kernel_persistent(
 
 ## Metal Backend
 
+### Implementation Status
+
+The Metal backend is implemented as a **scaffold** with the following components:
+
+- **`MetalRuntime`** - Compute command queue management
+- **`MetalBuffer`** - GPU buffer allocation with shared/private storage modes
+- **`MetalPipeline`** - Compute pipeline state creation
+- **Fence-based synchronization** - Metal lacks cooperative groups, uses fences instead
+
+**Note:** True persistent kernels are not yet implemented. Metal requires a host-driven dispatch pattern where the host re-dispatches compute kernels until termination.
+
 ### Implementation with `metal-rs`
 
 ```rust

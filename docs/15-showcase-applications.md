@@ -163,6 +163,15 @@ cargo run -p ringkernel-txmon --release
 - **Fraud Detection**: Circular flows, threshold clustering, Benford's Law violations
 - **GAAP Compliance**: Automated detection of accounting rule violations
 - **Temporal Analysis**: Seasonality, trends, behavioral anomalies
+- **Industry Chart of Accounts**: Pre-built templates for different industries
+
+### Industry Templates
+
+| Template | Key Accounts |
+|----------|-------------|
+| **Manufacturing** | Raw Materials, WIP, Finished Goods, Direct Labor/Materials/Overhead |
+| **Professional Services** | Unbilled Receivables, WIP-Billable, Client Retainers, Fee Income |
+| **Financial Services** | Trading Securities, Loans Receivable, Customer Deposits, Custody Assets |
 
 ### GPU Kernels
 

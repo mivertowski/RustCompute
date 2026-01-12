@@ -190,13 +190,51 @@ loop {
 ### Shared Memory (Workgroup Variables)
 
 ```rust
-use ringkernel_wgpu_codegen::{SharedTile, SharedArray};
+use ringkernel_wgpu_codegen::{SharedTile, SharedArray, SharedVolume};
+
+// 1D array: var<workgroup> cache: array<f32, 256>;
+let cache: SharedArray<f32, 256>;
 
 // 2D tile: var<workgroup> tile: array<array<f32, 16>, 16>;
 let tile: SharedTile<f32, 16, 16>;
 
-// 1D array: var<workgroup> cache: array<f32, 256>;
-let cache: SharedArray<f32, 256>;
+// 3D volume: var<workgroup> volume: array<array<array<f32, 8>, 8>, 8>;
+let volume: SharedVolume<f32, 8, 8, 8>;
+```
+
+### Higher-Dimensional Shared Memory
+
+The transpiler supports 2D, 3D, and 4D+ shared memory arrays:
+
+```rust
+use ringkernel_wgpu_codegen::SharedMemoryConfig;
+
+let mut shared = SharedMemoryConfig::new();
+
+// 2D: array<array<T, Width>, Height>
+shared.add_2d("tile", WgslType::F32, 16, 16);
+
+// 3D: array<array<array<T, X>, Y>, Z>
+shared.add_3d("volume", WgslType::F32, 8, 8, 8);
+
+// 4D+: Linearized indexing with generated formula
+shared.add_nd("hypercube", WgslType::F32, &[4, 4, 4, 4]);
+```
+
+**Generated WGSL:**
+
+```wgsl
+// 2D tile
+var<workgroup> tile: array<array<f32, 16>, 16>;
+
+// 3D volume
+var<workgroup> volume: array<array<array<f32, 8>, 8>, 8>;
+
+// 4D+ linearized (with helper function)
+var<workgroup> hypercube: array<f32, 256>;  // 4*4*4*4 = 256
+fn hypercube_index(w: u32, x: u32, y: u32, z: u32) -> u32 {
+    return w * 64u + x * 16u + y * 4u + z;
+}
 ```
 
 ### Struct Literals
@@ -366,7 +404,7 @@ The transpiler uses validation modes to control what constructs are allowed:
 
 ## Testing
 
-The crate includes 50 tests covering all features:
+The crate includes 55+ tests covering all features:
 
 ```bash
 cargo test -p ringkernel-wgpu-codegen
@@ -378,5 +416,6 @@ Test categories:
 - Intrinsics (thread indices, barriers, math)
 - Loops (for/while/loop patterns)
 - Validation (mode-specific constraints)
+- Higher-dimensional shared memory (2D, 3D, 4D+)
 
 ## Next: [Migration Guide](./12-migration.md)
