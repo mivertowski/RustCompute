@@ -67,6 +67,8 @@ pub struct CudaKernel {
     pending_correlations: Mutex<HashMap<u64, oneshot::Sender<MessageEnvelope>>>,
     /// Buffer for unclaimed messages that arrived but weren't matched.
     unclaimed_messages: Mutex<VecDeque<MessageEnvelope>>,
+    /// K2K route slot allocator (tracks which slots are in use).
+    k2k_used_slots: Mutex<u8>,
 }
 
 impl CudaKernel {
@@ -107,6 +109,7 @@ impl CudaKernel {
             k2k_buffers,
             pending_correlations: Mutex::new(HashMap::new()),
             unclaimed_messages: Mutex::new(VecDeque::new()),
+            k2k_used_slots: Mutex::new(0),
         })
     }
 
@@ -124,6 +127,41 @@ impl CudaKernel {
     /// Get K2K buffers if enabled.
     pub fn k2k_buffers(&self) -> Option<&CudaK2KBuffers> {
         self.k2k_buffers.as_ref()
+    }
+
+    /// Allocate the next available K2K route slot.
+    ///
+    /// Returns the slot index, or an error if all 8 slots are in use.
+    pub fn allocate_k2k_slot(&self) -> Result<usize> {
+        use crate::k2k_gpu::MAX_K2K_ROUTES;
+
+        let mut used_slots = self.k2k_used_slots.lock();
+        let used = *used_slots;
+
+        // Find first unused slot using bitset
+        for slot in 0..MAX_K2K_ROUTES {
+            if used & (1 << slot) == 0 {
+                // Mark slot as used
+                *used_slots = used | (1 << slot);
+                return Ok(slot);
+            }
+        }
+
+        Err(RingKernelError::K2KError(format!(
+            "Kernel {} has reached max K2K routes ({})",
+            self.id, MAX_K2K_ROUTES
+        )))
+    }
+
+    /// Release a K2K route slot.
+    #[allow(dead_code)]
+    pub fn release_k2k_slot(&self, slot: usize) {
+        use crate::k2k_gpu::MAX_K2K_ROUTES;
+
+        if slot < MAX_K2K_ROUTES {
+            let mut used_slots = self.k2k_used_slots.lock();
+            *used_slots &= !(1 << slot);
+        }
     }
 
     /// Load and compile the kernel PTX.

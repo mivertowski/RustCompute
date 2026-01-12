@@ -185,10 +185,8 @@ impl CudaRuntime {
             ))
         })?;
 
-        // Find next available route slot
-        // For now, we just use a simple counter based on current connections
-        // A more sophisticated approach would track used slots per kernel
-        let slot = 0; // TODO: Track and find available slots
+        // Allocate the next available route slot from source kernel
+        let slot = source.allocate_k2k_slot()?;
 
         // Add route from source to target
         source_buffers.add_route(slot, target_buffers, target.kernel_id_num())?;
