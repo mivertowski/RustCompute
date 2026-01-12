@@ -27,6 +27,10 @@
 pub mod algorithms;
 pub mod models;
 
+/// GPU-accelerated implementations (requires `cuda` feature).
+#[cfg(feature = "cuda")]
+pub mod gpu;
+
 // Re-export main types
 pub use algorithms::bfs::{bfs_parallel, bfs_sequential, BfsConfig};
 pub use algorithms::scc::{scc_kosaraju, scc_tarjan, SccConfig};

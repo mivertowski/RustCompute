@@ -6926,8 +6926,10 @@ version = "0.2.0"
 dependencies = [
  "bytemuck",
  "criterion",
+ "cudarc",
  "ringkernel-core",
  "thiserror 2.0.17",
+ "tokio",
 ]
 
 [[package]]
@@ -6961,10 +6963,12 @@ version = "0.2.0"
 dependencies = [
  "bytemuck",
  "criterion",
+ "cudarc",
  "rand 0.8.5",
  "rand_xoshiro",
  "ringkernel-core",
  "thiserror 2.0.17",
+ "tokio",
 ]
 
 [[package]]

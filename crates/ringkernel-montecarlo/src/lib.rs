@@ -34,6 +34,10 @@
 pub mod rng;
 pub mod variance;
 
+/// GPU-accelerated implementations (requires `cuda` feature).
+#[cfg(feature = "cuda")]
+pub mod gpu;
+
 /// Error types for Monte Carlo operations.
 #[derive(Debug, thiserror::Error)]
 pub enum MonteCarloError {
@@ -59,6 +63,12 @@ pub mod prelude {
         ControlVariates, ImportanceSampling,
     };
     pub use crate::{MonteCarloError, Result};
+
+    // GPU types (when cuda feature is enabled)
+    #[cfg(feature = "cuda")]
+    pub use crate::gpu::{
+        GpuAntitheticVariates, GpuImportanceSampling, GpuMonteCarloError, GpuPhiloxRng,
+    };
 }
 
 // Re-exports
