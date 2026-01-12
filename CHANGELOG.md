@@ -9,6 +9,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Metal Backend Scaffold
+- **`ringkernel-metal`** - Apple Metal backend implementation (scaffold)
+  - `MetalRuntime` with compute command queue management
+  - `MetalBuffer` for GPU buffer allocation and mapping
+  - `MetalPipeline` for compute pipeline state
+  - Fence-based synchronization (Metal lacks cooperative groups)
+  - MSL kernel compilation via metal-rs 0.31
+  - Note: True persistent kernels not yet implemented (requires host-driven dispatch)
+
+#### CUDA Enhancements
+- **Correlation Tracking** - Request/response message matching via `CorrelationId`
+  - `receive_with_correlation()` with timeout support
+  - `HashMap<CorrelationId, oneshot::Sender>` for pending correlations
+- **Kernel Slot Management** - `SlotAllocator` for K2K route management
+  - BitSet-based slot allocation with `allocate()`/`release()`
+  - Prevents slot collisions in multi-kernel topologies
+- **Cooperative Kernel Fallback** - Software synchronization when grid exceeds limits
+  - Automatic fallback to barrier-based sync using atomics
+  - `cuLaunchCooperativeKernel` integration via cudarc 0.18.2
+
+#### IR Node Lowering
+- **CUDA Backend** - Full messaging and HLC node implementation
+  - `K2HEnqueue`, `H2KDequeue`, `H2KIsEmpty` - Host↔Kernel queues
+  - `K2KSend`, `K2KRecv`, `K2KTryRecv` - Kernel-to-kernel messaging
+  - `HlcNow`, `HlcTick`, `HlcUpdate` - Hybrid logical clock operations
+- **MSL Backend** - Metal shading language equivalents
+  - Same 9 node types with Metal-specific implementations
+
+#### Persistent FDTD Enhancements
+- **Energy Calculation** - Parallel reduction for total field energy
+  - `block_reduce_energy()` device function with shared memory
+  - E = Σ(p²) computed at progress intervals
+  - `atomicAdd` for cross-block accumulation
+- **Message Checksum** - CRC32 integrity verification
+  - Checksum computation in ring kernel response messages
+  - Optional bypass for performance-critical paths
+
+#### WGSL Code Generation
+- **Higher-Dimensional Shared Memory** - 2D, 3D, and 4D+ support
+  - `SharedTile::new_3d()` for 3D nested arrays
+  - 3D generates: `array<array<array<T, X>, Y>, Z>`
+  - 4D+ uses linearized indexing with formula generation
+  - `SharedVolume<T, X, Y, Z>` marker type for type safety
+
+#### Graph Algorithms
+- **Parallel Union-Find** - Shiloach-Vishkin algorithm implementation
+  - GPU-accelerated connected components
+  - Parallel pointer jumping for path compression
+
+#### Audio Processing
+- **Proper Resampling** - Linear interpolation + windowed sinc
+  - `LinearResampler` for low-overhead conversion
+  - `SincResampler` for high-quality audio
+  - Sample rate conversion 44.1kHz ↔ 48kHz
+
+#### Simulation Backends
+- **GPU Boundary Reflection** - CUDA kernel for boundary conditions
+  - Support for absorbing, reflecting, and periodic boundaries
+  - Integrated with tile-based GPU actor system
+- **True Cooperative Launch** - `step_cooperative()` with `grid.sync()`
+  - Uses `CooperativeLaunchConfig` and `PersistentParams`
+  - Grid-wide synchronization without fallback
+
+#### Accounting
+- **Industry Chart of Accounts Templates** - Realistic account structures
+  - `manufacturing_standard()` - Raw Materials, WIP, Finished Goods, Direct Labor/Materials/Overhead
+  - `professional_services_standard()` - Unbilled Receivables, WIP-Billable, Client Retainers
+  - `financial_services_standard()` - Trading Securities, Loans Receivable, Customer Deposits, Custody Assets
+
 #### New Crates
 
 - **`ringkernel-montecarlo`** - GPU-accelerated Monte Carlo primitives for variance reduction

@@ -161,7 +161,7 @@ Enterprise features include:
 | CPU | Stable | All | None |
 | CUDA | Stable | Linux, Windows | NVIDIA GPU, CUDA 12.x, cudarc 0.18.2 |
 | WebGPU | Stable | All | Vulkan/Metal/DX12 capable GPU, wgpu 27.0 |
-| Metal | Planned | macOS, iOS | — |
+| Metal | Scaffold | macOS, iOS | Apple GPU, metal-rs 0.31 |
 
 ## Core Concepts
 
@@ -332,7 +332,7 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 ## Testing
 
 ```bash
-# Run all tests (750+ tests)
+# Run all tests (775+ tests)
 cargo test --workspace
 
 # CUDA backend tests (requires NVIDIA GPU)
@@ -620,11 +620,11 @@ let wgsl_code = transpile_ring_kernel(&handler, &config)?;
 
 ## Known Limitations
 
-- Metal backend is not yet implemented
+- Metal backend is scaffolded but not production-ready (no true persistent kernels yet)
 - WebGPU lacks 64-bit atomics (WGSL limitation)
 - Persistent kernel mode requires CUDA compute capability 7.0+
 - Cooperative groups (`grid.sync()`) requires CUDA compute capability 6.0+ and `cooperative` feature flag
-- Cooperative kernel launch limited to 48-512 concurrent blocks (GPU-dependent); larger grids require software synchronization
+- Cooperative kernel launch limited to 48-512 concurrent blocks (GPU-dependent); larger grids fall back to software synchronization
 
 ## License
 
@@ -634,7 +634,7 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for detai
 
 Contributions welcome. Priority areas:
 
-- Metal backend implementation
+- Metal backend completion (persistent kernels, compute pipelines)
 - Additional examples and documentation
 - Performance optimization
 - Testing on diverse hardware

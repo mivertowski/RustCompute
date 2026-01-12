@@ -96,7 +96,7 @@ The project is a Cargo workspace with these crates:
 - **`ringkernel-cpu`** - CPU backend implementation (always available, used for testing/fallback)
 - **`ringkernel-cuda`** - NVIDIA CUDA backend with cooperative groups support (feature-gated)
 - **`ringkernel-wgpu`** - WebGPU cross-platform backend (feature-gated)
-- **`ringkernel-metal`** - Apple Metal backend (feature-gated, macOS only, scaffolded)
+- **`ringkernel-metal`** - Apple Metal backend (feature-gated, macOS only, scaffold implementation with runtime/buffer/pipeline)
 - **`ringkernel-codegen`** - GPU kernel code generation
 - **`ringkernel-cuda-codegen`** - Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL
 - **`ringkernel-wgpu-codegen`** - Rust-to-WGSL transpiler for writing GPU kernels in Rust DSL (WebGPU backend)
@@ -182,7 +182,7 @@ Backends implement `RingKernelRuntime` trait. Selection via features:
 - `cpu` (default) - Always available
 - `cuda` - Requires NVIDIA GPU + CUDA toolkit
 - `wgpu` - Cross-platform via WebGPU (Vulkan, Metal, DX12)
-- `metal` - macOS/iOS only (scaffolded)
+- `metal` - macOS/iOS only (scaffold with runtime/buffer/pipeline, no true persistent kernels yet)
 
 Auto-detection: `Backend::Auto` tries CUDA → Metal → WebGPU → CPU.
 
@@ -478,24 +478,26 @@ let handle = CudaPersistentHandle::new(simulation, "fdtd_3d");
 
 ### Test Count Summary
 
-750+ tests across the workspace:
+775+ tests across the workspace:
 - ringkernel-core: 65 tests
 - ringkernel-cpu: 11 tests
-- ringkernel-cuda: 6 GPU execution tests
-- ringkernel-cuda-codegen: 183 tests (171 unit + 12 integration; loops, shared memory, ring kernels, K2K, envelope format, reference expressions, 120+ GPU intrinsics)
-- ringkernel-wgpu-codegen: 50 tests (types, intrinsics, transpiler, validation)
+- ringkernel-cuda: 6 GPU execution tests + correlation tracking tests
+- ringkernel-cuda-codegen: 190+ tests (loops, shared memory, ring kernels, K2K, envelope format, energy calculation, checksums, 120+ GPU intrinsics)
+- ringkernel-wgpu-codegen: 55+ tests (types, intrinsics, transpiler, validation, 2D/3D/4D shared memory)
+- ringkernel-ir: 40+ tests (IR nodes, CUDA lowering, MSL lowering, messaging nodes, HLC nodes)
 - ringkernel-derive: 14 macro tests
 - ringkernel-ecosystem: 30 tests (persistent handle, CUDA bridge, Actix, Axum, Tower, gRPC integrations)
 - ringkernel-wavesim: 63 tests (including educational modes, tile actor kernels, envelope format)
-- ringkernel-wavesim3d: 72 tests (3D FDTD, binaural audio, volumetric rendering, block actor kernels, ring kernel actors)
+- ringkernel-wavesim3d: 75+ tests (3D FDTD, binaural audio, volumetric rendering, block actor kernels, cooperative launch)
 - ringkernel-txmon: 40 tests (GPU types, batch kernel, stencil kernel, ring kernel backends)
 - ringkernel-procint: 77 tests (DFG construction, pattern detection, partial order, conformance checking)
+- ringkernel-accnet: 25+ tests (chart of accounts, industry templates, GAAP compliance)
 - ringkernel-montecarlo: 16 tests (Philox RNG, antithetic variates, control variates, importance sampling)
-- ringkernel-graph: 51 tests (CSR matrix, BFS, SCC algorithms, Union-Find, SpMV, power iteration)
+- ringkernel-graph: 55+ tests (CSR matrix, BFS, SCC algorithms, Union-Find with Shiloach-Vishkin, SpMV, power iteration)
 - k2k_integration: 11 tests
 - control_block: 29 tests
 - hlc: 16 tests
-- ringkernel-audio-fft: 32 tests
+- ringkernel-audio-fft: 35+ tests (including resampling tests)
 - Plus additional integration and doc tests
 
 ### GPU Benchmark Results (RTX Ada)
