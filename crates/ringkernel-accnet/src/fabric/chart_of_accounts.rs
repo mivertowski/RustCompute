@@ -472,14 +472,452 @@ impl ChartOfAccountsTemplate {
         template
     }
 
+    /// Create a manufacturing-specific template with inventory tracking.
+    ///
+    /// Includes accounts for:
+    /// - Raw materials, work-in-progress, and finished goods inventory
+    /// - Manufacturing overhead allocation
+    /// - Direct and indirect labor
+    /// - Factory equipment and depreciation
+    pub fn manufacturing_standard() -> Self {
+        let mut template = Self::gaap_minimal();
+        template.industry = Industry::Manufacturing;
+        template.name = "Manufacturing Standard".to_string();
+
+        // Manufacturing-specific accounts
+        template.accounts.extend(vec![
+            // Detailed inventory accounts
+            AccountDefinition::new("1310", "Raw Materials Inventory", AccountType::Asset)
+                .with_class(1, 3)
+                .with_parent("1300")
+                .with_semantics(AccountSemantics::IS_INVENTORY)
+                .with_activity(40.0)
+                .with_description("Materials awaiting production"),
+            AccountDefinition::new("1320", "Work in Progress", AccountType::Asset)
+                .with_class(1, 3)
+                .with_parent("1300")
+                .with_semantics(AccountSemantics::IS_INVENTORY)
+                .with_activity(60.0)
+                .with_description("Partially completed goods"),
+            AccountDefinition::new("1330", "Finished Goods Inventory", AccountType::Asset)
+                .with_class(1, 3)
+                .with_parent("1300")
+                .with_semantics(AccountSemantics::IS_INVENTORY)
+                .with_activity(50.0)
+                .with_description("Completed goods ready for sale"),
+            AccountDefinition::new("1340", "Factory Supplies", AccountType::Asset)
+                .with_class(1, 3)
+                .with_parent("1300")
+                .with_activity(15.0)
+                .with_description("Consumable manufacturing supplies"),
+            // Manufacturing equipment
+            AccountDefinition::new("1520", "Manufacturing Equipment", AccountType::Asset)
+                .with_class(1, 5)
+                .with_parent("1500")
+                .with_activity(5.0)
+                .with_description("Production machinery"),
+            AccountDefinition::new("1525", "Accum Depreciation - Mfg Equipment", AccountType::Contra)
+                .with_class(1, 5)
+                .with_parent("1520")
+                .with_semantics(AccountSemantics::IS_DEPRECIATION)
+                .with_activity(12.0)
+                .with_description("Accumulated depreciation on manufacturing equipment"),
+            // Manufacturing costs
+            AccountDefinition::new("5100", "Direct Materials", AccountType::Expense)
+                .with_class(5, 1)
+                .with_parent("5000")
+                .with_semantics(AccountSemantics::IS_COGS)
+                .with_activity(100.0)
+                .with_description("Raw materials used in production"),
+            AccountDefinition::new("5200", "Direct Labor", AccountType::Expense)
+                .with_class(5, 2)
+                .with_parent("5000")
+                .with_semantics(AccountSemantics::IS_COGS | AccountSemantics::IS_PAYROLL)
+                .with_activity(60.0)
+                .with_description("Labor directly applied to production"),
+            AccountDefinition::new("5300", "Manufacturing Overhead", AccountType::Expense)
+                .with_class(5, 3)
+                .with_parent("5000")
+                .with_activity(30.0)
+                .with_description("Indirect manufacturing costs"),
+            AccountDefinition::new("5310", "Factory Utilities", AccountType::Expense)
+                .with_class(5, 3)
+                .with_parent("5300")
+                .with_activity(12.0)
+                .with_description("Factory electricity, water, gas"),
+            AccountDefinition::new("5320", "Indirect Labor", AccountType::Expense)
+                .with_class(5, 3)
+                .with_parent("5300")
+                .with_semantics(AccountSemantics::IS_PAYROLL)
+                .with_activity(24.0)
+                .with_description("Supervisory and maintenance labor"),
+            AccountDefinition::new("5330", "Equipment Maintenance", AccountType::Expense)
+                .with_class(5, 3)
+                .with_parent("5300")
+                .with_activity(12.0)
+                .with_description("Machine repairs and maintenance"),
+            AccountDefinition::new("5340", "Factory Depreciation", AccountType::Expense)
+                .with_class(5, 3)
+                .with_parent("5300")
+                .with_activity(12.0)
+                .with_description("Depreciation on manufacturing assets"),
+            // Work order clearing
+            AccountDefinition::new("9110", "Work Order Clearing", AccountType::Asset)
+                .with_class(9, 1)
+                .with_parent("9100")
+                .with_semantics(AccountSemantics::IS_SUSPENSE)
+                .with_activity(80.0)
+                .with_description("Production job cost accumulation"),
+        ]);
+
+        // Manufacturing-specific flows
+        template.expected_flows = vec![
+            // Material purchasing
+            ExpectedFlow::new("1310", "2100", 0.20, (1000.0, 50000.0))
+                .with_description("Purchase raw materials on credit"),
+            ExpectedFlow::new("2100", "1100", 0.20, (1000.0, 50000.0))
+                .with_description("Pay supplier for materials"),
+            // Production flow
+            ExpectedFlow::new("5100", "1310", 0.25, (500.0, 20000.0))
+                .with_description("Issue materials to production"),
+            ExpectedFlow::new("1320", "5100", 0.15, (500.0, 20000.0))
+                .with_description("Accumulate direct materials in WIP"),
+            ExpectedFlow::new("1320", "5200", 0.15, (2000.0, 30000.0))
+                .with_description("Accumulate direct labor in WIP"),
+            ExpectedFlow::new("1320", "5300", 0.10, (1000.0, 15000.0))
+                .with_description("Allocate overhead to WIP"),
+            ExpectedFlow::new("1330", "1320", 0.20, (5000.0, 100000.0))
+                .with_description("Transfer completed goods from WIP"),
+            // Sales
+            ExpectedFlow::new("5000", "1330", 0.25, (3000.0, 80000.0))
+                .with_description("Cost of goods sold from finished goods"),
+            ExpectedFlow::new("4100", "1200", 0.30, (5000.0, 150000.0))
+                .with_description("Revenue recognized on sale"),
+            ExpectedFlow::new("1200", "1100", 0.25, (5000.0, 150000.0))
+                .with_description("Customer payment received"),
+            // Payroll
+            ExpectedFlow::new("5200", "1100", 0.08, (10000.0, 100000.0))
+                .with_description("Direct labor payroll"),
+            ExpectedFlow::new("5320", "1100", 0.05, (5000.0, 40000.0))
+                .with_description("Indirect labor payroll"),
+        ];
+
+        template
+    }
+
+    /// Create a professional services template.
+    ///
+    /// Includes accounts for:
+    /// - Billable and unbilled work in progress
+    /// - Client retainers and advances
+    /// - Professional fee revenue categories
+    /// - Reimbursable expenses
+    pub fn professional_services_standard() -> Self {
+        let mut template = Self::gaap_minimal();
+        template.industry = Industry::ProfessionalServices;
+        template.name = "Professional Services".to_string();
+
+        // Professional services-specific accounts
+        template.accounts.extend(vec![
+            // Unbilled work
+            AccountDefinition::new("1210", "Unbilled Receivables", AccountType::Asset)
+                .with_class(1, 2)
+                .with_parent("1200")
+                .with_semantics(AccountSemantics::IS_RECEIVABLE)
+                .with_activity(100.0)
+                .with_description("Work completed but not yet invoiced"),
+            AccountDefinition::new("1220", "Work in Progress - Billable", AccountType::Asset)
+                .with_class(1, 2)
+                .with_parent("1200")
+                .with_activity(150.0)
+                .with_description("Time and expenses in progress"),
+            AccountDefinition::new("1230", "Reimbursable Expenses", AccountType::Asset)
+                .with_class(1, 2)
+                .with_parent("1200")
+                .with_activity(40.0)
+                .with_description("Client-reimbursable expenses pending"),
+            // Client advances
+            AccountDefinition::new("2310", "Client Retainers", AccountType::Liability)
+                .with_class(2, 3)
+                .with_parent("2300")
+                .with_activity(30.0)
+                .with_description("Advance payments from clients"),
+            AccountDefinition::new("2320", "Client Deposits", AccountType::Liability)
+                .with_class(2, 3)
+                .with_parent("2300")
+                .with_activity(20.0)
+                .with_description("Project deposits held"),
+            // Revenue categories
+            AccountDefinition::new("4110", "Professional Fees - Hourly", AccountType::Revenue)
+                .with_class(4, 1)
+                .with_parent("4100")
+                .with_semantics(AccountSemantics::IS_REVENUE)
+                .with_activity(200.0)
+                .with_description("Revenue from billable hours"),
+            AccountDefinition::new("4120", "Professional Fees - Fixed", AccountType::Revenue)
+                .with_class(4, 1)
+                .with_parent("4100")
+                .with_semantics(AccountSemantics::IS_REVENUE)
+                .with_activity(50.0)
+                .with_description("Revenue from fixed-fee projects"),
+            AccountDefinition::new("4130", "Retainer Fees", AccountType::Revenue)
+                .with_class(4, 1)
+                .with_parent("4100")
+                .with_semantics(AccountSemantics::IS_REVENUE)
+                .with_activity(40.0)
+                .with_description("Monthly retainer revenue"),
+            AccountDefinition::new("4210", "Reimbursed Expenses", AccountType::Revenue)
+                .with_class(4, 2)
+                .with_parent("4200")
+                .with_activity(30.0)
+                .with_description("Client-reimbursed expenses"),
+            // Direct costs
+            AccountDefinition::new("5100", "Professional Labor Cost", AccountType::Expense)
+                .with_class(5, 1)
+                .with_parent("5000")
+                .with_semantics(AccountSemantics::IS_PAYROLL)
+                .with_activity(24.0)
+                .with_description("Cost of billable staff time"),
+            AccountDefinition::new("5200", "Subcontractor Fees", AccountType::Expense)
+                .with_class(5, 2)
+                .with_parent("5000")
+                .with_activity(20.0)
+                .with_description("Outside contractor costs"),
+            // Indirect expenses
+            AccountDefinition::new("6110", "Professional Development", AccountType::Expense)
+                .with_class(6, 1)
+                .with_parent("6100")
+                .with_activity(12.0)
+                .with_description("Training and certifications"),
+            AccountDefinition::new("6510", "Business Development", AccountType::Expense)
+                .with_class(6, 5)
+                .with_parent("6500")
+                .with_activity(25.0)
+                .with_description("Client acquisition and networking"),
+            AccountDefinition::new("6520", "Professional Liability Insurance", AccountType::Expense)
+                .with_class(6, 5)
+                .with_parent("6500")
+                .with_activity(12.0)
+                .with_description("E&O insurance premiums"),
+        ]);
+
+        // Professional services flows
+        template.expected_flows = vec![
+            // Time & expense billing
+            ExpectedFlow::new("1220", "5100", 0.30, (500.0, 20000.0))
+                .with_description("Record billable time as WIP"),
+            ExpectedFlow::new("1210", "1220", 0.25, (1000.0, 50000.0))
+                .with_description("Transfer completed WIP to unbilled"),
+            ExpectedFlow::new("1200", "1210", 0.25, (1000.0, 50000.0))
+                .with_description("Invoice unbilled work"),
+            ExpectedFlow::new("4110", "1200", 0.30, (1000.0, 50000.0))
+                .with_description("Recognize hourly fee revenue"),
+            ExpectedFlow::new("1200", "1100", 0.25, (1000.0, 50000.0))
+                .with_description("Client payment received"),
+            // Retainer flow
+            ExpectedFlow::new("1100", "2310", 0.10, (5000.0, 50000.0))
+                .with_description("Receive client retainer"),
+            ExpectedFlow::new("2310", "4130", 0.15, (1000.0, 10000.0))
+                .with_description("Apply retainer to revenue"),
+            // Reimbursables
+            ExpectedFlow::new("1230", "1100", 0.08, (100.0, 2000.0))
+                .with_description("Pay reimbursable expense"),
+            ExpectedFlow::new("4210", "1230", 0.08, (100.0, 2000.0))
+                .with_description("Bill reimbursable to client"),
+            // Payroll
+            ExpectedFlow::new("6100", "1100", 0.08, (10000.0, 100000.0))
+                .with_description("Staff payroll"),
+        ];
+
+        template
+    }
+
+    /// Create a financial services template.
+    ///
+    /// Includes accounts for:
+    /// - Trading and investment securities
+    /// - Customer custody and fiduciary accounts
+    /// - Regulatory capital requirements
+    /// - Interest income and expense
+    pub fn financial_services_standard() -> Self {
+        let mut template = Self::gaap_minimal();
+        template.industry = Industry::FinancialServices;
+        template.name = "Financial Services".to_string();
+
+        // Financial services-specific accounts
+        template.accounts.extend(vec![
+            // Trading and investment accounts
+            AccountDefinition::new("1110", "Trading Securities", AccountType::Asset)
+                .with_class(1, 1)
+                .with_parent("1100")
+                .with_activity(500.0)
+                .with_description("Securities held for trading"),
+            AccountDefinition::new("1120", "Available-for-Sale Securities", AccountType::Asset)
+                .with_class(1, 1)
+                .with_parent("1100")
+                .with_activity(100.0)
+                .with_description("Securities available for sale"),
+            AccountDefinition::new("1130", "Held-to-Maturity Securities", AccountType::Asset)
+                .with_class(1, 1)
+                .with_parent("1100")
+                .with_activity(20.0)
+                .with_description("Securities held to maturity"),
+            // Loan portfolio
+            AccountDefinition::new("1250", "Loans Receivable", AccountType::Asset)
+                .with_class(1, 2)
+                .with_parent("1200")
+                .with_semantics(AccountSemantics::IS_RECEIVABLE)
+                .with_activity(100.0)
+                .with_description("Outstanding loan portfolio"),
+            AccountDefinition::new("1255", "Allowance for Loan Losses", AccountType::Contra)
+                .with_class(1, 2)
+                .with_parent("1250")
+                .with_activity(24.0)
+                .with_description("Reserve for expected credit losses"),
+            AccountDefinition::new("1260", "Accrued Interest Receivable", AccountType::Asset)
+                .with_class(1, 2)
+                .with_parent("1200")
+                .with_activity(50.0)
+                .with_description("Interest earned but not yet received"),
+            // Fiduciary accounts (off-balance sheet tracking)
+            AccountDefinition::new("1610", "Customer Custody Assets", AccountType::Asset)
+                .with_class(1, 6)
+                .with_parent("1600")
+                .with_activity(200.0)
+                .with_description("Assets held in custody for clients"),
+            AccountDefinition::new("2610", "Customer Custody Liabilities", AccountType::Liability)
+                .with_class(2, 6)
+                .with_parent("2600")
+                .with_activity(200.0)
+                .with_description("Obligation to return custody assets"),
+            // Deposits
+            AccountDefinition::new("2110", "Customer Deposits - Demand", AccountType::Liability)
+                .with_class(2, 1)
+                .with_parent("2100")
+                .with_activity(300.0)
+                .with_description("Checking/demand deposit accounts"),
+            AccountDefinition::new("2120", "Customer Deposits - Savings", AccountType::Liability)
+                .with_class(2, 1)
+                .with_parent("2100")
+                .with_activity(100.0)
+                .with_description("Savings deposit accounts"),
+            AccountDefinition::new("2130", "Customer Deposits - Time", AccountType::Liability)
+                .with_class(2, 1)
+                .with_parent("2100")
+                .with_activity(50.0)
+                .with_description("CDs and time deposits"),
+            // Regulatory accounts
+            AccountDefinition::new("3110", "Regulatory Capital Reserve", AccountType::Equity)
+                .with_class(3, 1)
+                .with_parent("3100")
+                .with_activity(12.0)
+                .with_description("Capital held for regulatory requirements"),
+            AccountDefinition::new("2510", "Accrued Interest Payable", AccountType::Liability)
+                .with_class(2, 5)
+                .with_parent("2500")
+                .with_activity(50.0)
+                .with_description("Interest owed but not yet paid"),
+            // Revenue accounts
+            AccountDefinition::new("4110", "Interest Income - Loans", AccountType::Revenue)
+                .with_class(4, 1)
+                .with_parent("4100")
+                .with_semantics(AccountSemantics::IS_REVENUE)
+                .with_activity(100.0)
+                .with_description("Interest earned on loan portfolio"),
+            AccountDefinition::new("4120", "Interest Income - Securities", AccountType::Revenue)
+                .with_class(4, 1)
+                .with_parent("4100")
+                .with_semantics(AccountSemantics::IS_REVENUE)
+                .with_activity(80.0)
+                .with_description("Interest and dividends from investments"),
+            AccountDefinition::new("4130", "Trading Gains (Losses)", AccountType::Revenue)
+                .with_class(4, 1)
+                .with_parent("4100")
+                .with_activity(200.0)
+                .with_description("Net gains/losses from trading"),
+            AccountDefinition::new("4210", "Fee Income", AccountType::Revenue)
+                .with_class(4, 2)
+                .with_parent("4200")
+                .with_activity(150.0)
+                .with_description("Transaction and service fees"),
+            AccountDefinition::new("4220", "Custody Fees", AccountType::Revenue)
+                .with_class(4, 2)
+                .with_parent("4200")
+                .with_activity(50.0)
+                .with_description("Asset custody service fees"),
+            // Expense accounts
+            AccountDefinition::new("5100", "Interest Expense - Deposits", AccountType::Expense)
+                .with_class(5, 1)
+                .with_parent("5000")
+                .with_activity(100.0)
+                .with_description("Interest paid on customer deposits"),
+            AccountDefinition::new("5200", "Interest Expense - Borrowings", AccountType::Expense)
+                .with_class(5, 2)
+                .with_parent("5000")
+                .with_activity(50.0)
+                .with_description("Interest on wholesale borrowings"),
+            AccountDefinition::new("5300", "Provision for Loan Losses", AccountType::Expense)
+                .with_class(5, 3)
+                .with_parent("5000")
+                .with_activity(24.0)
+                .with_description("Additions to loan loss reserve"),
+            AccountDefinition::new("6110", "Compliance Costs", AccountType::Expense)
+                .with_class(6, 1)
+                .with_parent("6100")
+                .with_activity(24.0)
+                .with_description("Regulatory compliance expenses"),
+            AccountDefinition::new("6120", "Technology Infrastructure", AccountType::Expense)
+                .with_class(6, 1)
+                .with_parent("6100")
+                .with_activity(36.0)
+                .with_description("Trading systems and IT infrastructure"),
+        ]);
+
+        // Financial services flows
+        template.expected_flows = vec![
+            // Deposit flows
+            ExpectedFlow::new("1100", "2110", 0.20, (1000.0, 500000.0))
+                .with_description("Customer deposit received"),
+            ExpectedFlow::new("2110", "1100", 0.15, (500.0, 100000.0))
+                .with_description("Customer withdrawal"),
+            // Lending flows
+            ExpectedFlow::new("1250", "1100", 0.10, (10000.0, 1000000.0))
+                .with_description("Loan disbursement"),
+            ExpectedFlow::new("1100", "1250", 0.12, (1000.0, 100000.0))
+                .with_description("Loan repayment principal"),
+            ExpectedFlow::new("1100", "4110", 0.15, (100.0, 50000.0))
+                .with_description("Loan interest payment"),
+            // Trading flows
+            ExpectedFlow::new("1110", "1100", 0.25, (10000.0, 10000000.0))
+                .with_description("Security purchase"),
+            ExpectedFlow::new("1100", "1110", 0.25, (10000.0, 10000000.0))
+                .with_description("Security sale"),
+            ExpectedFlow::new("4130", "1110", 0.20, (100.0, 500000.0))
+                .with_description("Trading gain recognized"),
+            // Interest expense
+            ExpectedFlow::new("5100", "2510", 0.10, (100.0, 100000.0))
+                .with_description("Accrue interest on deposits"),
+            ExpectedFlow::new("2510", "1100", 0.08, (100.0, 100000.0))
+                .with_description("Pay accrued interest"),
+            // Fee income
+            ExpectedFlow::new("4210", "1100", 0.15, (10.0, 10000.0))
+                .with_description("Transaction fees collected"),
+            // Loan loss provision
+            ExpectedFlow::new("5300", "1255", 0.05, (1000.0, 100000.0))
+                .with_description("Provision for expected losses"),
+        ];
+
+        template
+    }
+
     /// Get template for a company archetype.
     pub fn for_archetype(archetype: &CompanyArchetype) -> Self {
         match archetype.industry() {
             Industry::Retail => Self::retail_standard(),
             Industry::SaaS => Self::saas_standard(),
-            Industry::Manufacturing => Self::gaap_minimal(), // TODO: manufacturing template
-            Industry::ProfessionalServices => Self::gaap_minimal(), // TODO
-            Industry::FinancialServices => Self::gaap_minimal(), // TODO
+            Industry::Manufacturing => Self::manufacturing_standard(),
+            Industry::ProfessionalServices => Self::professional_services_standard(),
+            Industry::FinancialServices => Self::financial_services_standard(),
             _ => Self::gaap_minimal(),
         }
     }
@@ -538,5 +976,78 @@ mod tests {
         // Should have SaaS-specific accounts
         assert!(template.find_by_code("2310").is_some()); // Deferred Revenue
         assert!(template.find_by_code("4110").is_some()); // Subscription Revenue
+    }
+
+    #[test]
+    fn test_manufacturing_template() {
+        let template = ChartOfAccountsTemplate::manufacturing_standard();
+        assert_eq!(template.industry, Industry::Manufacturing);
+        assert!(template.account_count() > 35);
+
+        // Should have manufacturing-specific inventory accounts
+        assert!(template.find_by_code("1310").is_some()); // Raw Materials
+        assert!(template.find_by_code("1320").is_some()); // Work in Progress
+        assert!(template.find_by_code("1330").is_some()); // Finished Goods
+
+        // Should have manufacturing cost accounts
+        assert!(template.find_by_code("5100").is_some()); // Direct Materials
+        assert!(template.find_by_code("5200").is_some()); // Direct Labor
+        assert!(template.find_by_code("5300").is_some()); // Manufacturing Overhead
+
+        // Should have manufacturing equipment
+        assert!(template.find_by_code("1520").is_some()); // Manufacturing Equipment
+
+        // Should have expected flows
+        assert!(!template.expected_flows.is_empty());
+    }
+
+    #[test]
+    fn test_professional_services_template() {
+        let template = ChartOfAccountsTemplate::professional_services_standard();
+        assert_eq!(template.industry, Industry::ProfessionalServices);
+        assert!(template.account_count() > 35);
+
+        // Should have professional services-specific accounts
+        assert!(template.find_by_code("1210").is_some()); // Unbilled Receivables
+        assert!(template.find_by_code("1220").is_some()); // WIP - Billable
+        assert!(template.find_by_code("2310").is_some()); // Client Retainers
+
+        // Should have fee revenue accounts
+        assert!(template.find_by_code("4110").is_some()); // Professional Fees - Hourly
+        assert!(template.find_by_code("4130").is_some()); // Retainer Fees
+
+        // Should have expected flows for billing cycle
+        assert!(!template.expected_flows.is_empty());
+    }
+
+    #[test]
+    fn test_financial_services_template() {
+        let template = ChartOfAccountsTemplate::financial_services_standard();
+        assert_eq!(template.industry, Industry::FinancialServices);
+        assert!(template.account_count() > 40);
+
+        // Should have securities accounts
+        assert!(template.find_by_code("1110").is_some()); // Trading Securities
+        assert!(template.find_by_code("1120").is_some()); // Available-for-Sale
+        assert!(template.find_by_code("1130").is_some()); // Held-to-Maturity
+
+        // Should have loan portfolio accounts
+        assert!(template.find_by_code("1250").is_some()); // Loans Receivable
+        assert!(template.find_by_code("1255").is_some()); // Allowance for Loan Losses
+
+        // Should have deposit accounts
+        assert!(template.find_by_code("2110").is_some()); // Customer Deposits - Demand
+        assert!(template.find_by_code("2120").is_some()); // Customer Deposits - Savings
+
+        // Should have interest income/expense
+        assert!(template.find_by_code("4110").is_some()); // Interest Income - Loans
+        assert!(template.find_by_code("5100").is_some()); // Interest Expense - Deposits
+
+        // Should have custody accounts
+        assert!(template.find_by_code("1610").is_some()); // Customer Custody Assets
+        assert!(template.find_by_code("4220").is_some()); // Custody Fees
+
+        // Should have expected flows
+        assert!(!template.expected_flows.is_empty());
     }
 }
