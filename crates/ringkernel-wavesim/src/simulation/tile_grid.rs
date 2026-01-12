@@ -971,24 +971,32 @@ impl TileKernelGrid {
             if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
                 // Apply absorbing boundary for edges without neighbors
                 if tile.neighbor_north.is_none() {
-                    state
-                        .backend
-                        .apply_boundary(buffers, Edge::North, BoundaryCondition::Absorbing)?;
+                    state.backend.apply_boundary(
+                        buffers,
+                        Edge::North,
+                        BoundaryCondition::Absorbing,
+                    )?;
                 }
                 if tile.neighbor_south.is_none() {
-                    state
-                        .backend
-                        .apply_boundary(buffers, Edge::South, BoundaryCondition::Absorbing)?;
+                    state.backend.apply_boundary(
+                        buffers,
+                        Edge::South,
+                        BoundaryCondition::Absorbing,
+                    )?;
                 }
                 if tile.neighbor_west.is_none() {
-                    state
-                        .backend
-                        .apply_boundary(buffers, Edge::West, BoundaryCondition::Absorbing)?;
+                    state.backend.apply_boundary(
+                        buffers,
+                        Edge::West,
+                        BoundaryCondition::Absorbing,
+                    )?;
                 }
                 if tile.neighbor_east.is_none() {
-                    state
-                        .backend
-                        .apply_boundary(buffers, Edge::East, BoundaryCondition::Absorbing)?;
+                    state.backend.apply_boundary(
+                        buffers,
+                        Edge::East,
+                        BoundaryCondition::Absorbing,
+                    )?;
                 }
             }
         }

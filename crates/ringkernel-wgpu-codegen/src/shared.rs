@@ -74,11 +74,7 @@ impl SharedMemoryDecl {
                 // 3D: array<array<array<T, X>, Y>, Z> - [depth][height][width] indexing
                 format!(
                     "var<workgroup> {}: array<array<array<{}, {}>, {}>, {}>;",
-                    self.name,
-                    type_str,
-                    self.dimensions[0],
-                    self.dimensions[1],
-                    self.dimensions[2]
+                    self.name, type_str, self.dimensions[0], self.dimensions[1], self.dimensions[2]
                 )
             }
             _ => {
@@ -293,7 +289,9 @@ mod tests {
         };
 
         // Formula: x + y*4 + z*32 + t*64
-        let formula = decl.linearized_index_formula(&["x", "y", "z", "t"]).unwrap();
+        let formula = decl
+            .linearized_index_formula(&["x", "y", "z", "t"])
+            .unwrap();
         assert_eq!(formula, "x + y * 4u + z * 32u + t * 64u");
     }
 

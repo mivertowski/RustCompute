@@ -516,12 +516,16 @@ impl ChartOfAccountsTemplate {
                 .with_parent("1500")
                 .with_activity(5.0)
                 .with_description("Production machinery"),
-            AccountDefinition::new("1525", "Accum Depreciation - Mfg Equipment", AccountType::Contra)
-                .with_class(1, 5)
-                .with_parent("1520")
-                .with_semantics(AccountSemantics::IS_DEPRECIATION)
-                .with_activity(12.0)
-                .with_description("Accumulated depreciation on manufacturing equipment"),
+            AccountDefinition::new(
+                "1525",
+                "Accum Depreciation - Mfg Equipment",
+                AccountType::Contra,
+            )
+            .with_class(1, 5)
+            .with_parent("1520")
+            .with_semantics(AccountSemantics::IS_DEPRECIATION)
+            .with_activity(12.0)
+            .with_description("Accumulated depreciation on manufacturing equipment"),
             // Manufacturing costs
             AccountDefinition::new("5100", "Direct Materials", AccountType::Expense)
                 .with_class(5, 1)
@@ -694,11 +698,15 @@ impl ChartOfAccountsTemplate {
                 .with_parent("6500")
                 .with_activity(25.0)
                 .with_description("Client acquisition and networking"),
-            AccountDefinition::new("6520", "Professional Liability Insurance", AccountType::Expense)
-                .with_class(6, 5)
-                .with_parent("6500")
-                .with_activity(12.0)
-                .with_description("E&O insurance premiums"),
+            AccountDefinition::new(
+                "6520",
+                "Professional Liability Insurance",
+                AccountType::Expense,
+            )
+            .with_class(6, 5)
+            .with_parent("6500")
+            .with_activity(12.0)
+            .with_description("E&O insurance premiums"),
         ]);
 
         // Professional services flows
@@ -785,22 +793,30 @@ impl ChartOfAccountsTemplate {
                 .with_parent("1600")
                 .with_activity(200.0)
                 .with_description("Assets held in custody for clients"),
-            AccountDefinition::new("2610", "Customer Custody Liabilities", AccountType::Liability)
-                .with_class(2, 6)
-                .with_parent("2600")
-                .with_activity(200.0)
-                .with_description("Obligation to return custody assets"),
+            AccountDefinition::new(
+                "2610",
+                "Customer Custody Liabilities",
+                AccountType::Liability,
+            )
+            .with_class(2, 6)
+            .with_parent("2600")
+            .with_activity(200.0)
+            .with_description("Obligation to return custody assets"),
             // Deposits
             AccountDefinition::new("2110", "Customer Deposits - Demand", AccountType::Liability)
                 .with_class(2, 1)
                 .with_parent("2100")
                 .with_activity(300.0)
                 .with_description("Checking/demand deposit accounts"),
-            AccountDefinition::new("2120", "Customer Deposits - Savings", AccountType::Liability)
-                .with_class(2, 1)
-                .with_parent("2100")
-                .with_activity(100.0)
-                .with_description("Savings deposit accounts"),
+            AccountDefinition::new(
+                "2120",
+                "Customer Deposits - Savings",
+                AccountType::Liability,
+            )
+            .with_class(2, 1)
+            .with_parent("2100")
+            .with_activity(100.0)
+            .with_description("Savings deposit accounts"),
             AccountDefinition::new("2130", "Customer Deposits - Time", AccountType::Liability)
                 .with_class(2, 1)
                 .with_parent("2100")
@@ -851,11 +867,15 @@ impl ChartOfAccountsTemplate {
                 .with_parent("5000")
                 .with_activity(100.0)
                 .with_description("Interest paid on customer deposits"),
-            AccountDefinition::new("5200", "Interest Expense - Borrowings", AccountType::Expense)
-                .with_class(5, 2)
-                .with_parent("5000")
-                .with_activity(50.0)
-                .with_description("Interest on wholesale borrowings"),
+            AccountDefinition::new(
+                "5200",
+                "Interest Expense - Borrowings",
+                AccountType::Expense,
+            )
+            .with_class(5, 2)
+            .with_parent("5000")
+            .with_activity(50.0)
+            .with_description("Interest on wholesale borrowings"),
             AccountDefinition::new("5300", "Provision for Loan Losses", AccountType::Expense)
                 .with_class(5, 3)
                 .with_parent("5000")
