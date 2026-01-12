@@ -42,6 +42,22 @@ pub enum Edge {
     East = 3,
 }
 
+/// Boundary condition type for domain edges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum BoundaryCondition {
+    /// Absorbing boundary - pressure goes to zero (default).
+    /// Simulates infinite domain where waves exit and don't return.
+    #[default]
+    Absorbing = 0,
+    /// Reflecting boundary - mirrors interior values to halo.
+    /// Simulates a hard wall where waves bounce back.
+    Reflecting = 1,
+    /// Periodic boundary - wraps around to opposite edge.
+    /// Simulates an infinite repeating pattern.
+    Periodic = 2,
+}
+
 impl Edge {
     /// Get the opposite edge (for K2K routing).
     pub fn opposite(self) -> Self {
@@ -133,6 +149,22 @@ pub trait TileGpuBackend: Send + Sync {
     /// Only called when GUI needs to render (once per frame).
     /// Returns 16x16 interior values (not the full 18x18 buffer).
     fn read_interior_pressure(&self, buffers: &TileGpuBuffers<Self::Buffer>) -> Result<Vec<f32>>;
+
+    /// Apply boundary condition for a domain edge tile.
+    ///
+    /// For tiles at the domain boundary (without a neighbor on one or more edges),
+    /// this method applies the specified boundary condition to the halo region:
+    /// - Absorbing: Sets halo to zero (waves exit and don't return)
+    /// - Reflecting: Mirrors interior values to halo (hard wall)
+    /// - Periodic: Would need opposite edge data (handled separately)
+    ///
+    /// This is a GPU operation - more efficient than CPU-side manipulation.
+    fn apply_boundary(
+        &self,
+        buffers: &TileGpuBuffers<Self::Buffer>,
+        edge: Edge,
+        condition: BoundaryCondition,
+    ) -> Result<()>;
 
     /// Synchronize GPU operations.
     fn synchronize(&self) -> Result<()>;

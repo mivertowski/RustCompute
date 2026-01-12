@@ -13,7 +13,7 @@
 use ringkernel_core::error::{Result, RingKernelError};
 use std::sync::Arc;
 
-use super::gpu_backend::{Edge, FdtdParams, TileGpuBackend, TileGpuBuffers};
+use super::gpu_backend::{BoundaryCondition, Edge, FdtdParams, TileGpuBackend, TileGpuBuffers};
 
 /// WGSL shader source for tile FDTD.
 const WGSL_FDTD_SHADER: &str = r#"
@@ -968,6 +968,35 @@ impl TileGpuBackend for WgpuTileBackend {
         staging.unmap();
 
         Ok(result)
+    }
+
+    fn apply_boundary(
+        &self,
+        buffers: &TileGpuBuffers<Self::Buffer>,
+        edge: Edge,
+        condition: BoundaryCondition,
+    ) -> Result<()> {
+        match condition {
+            BoundaryCondition::Absorbing => {
+                // For absorbing boundaries, write zeros to the halo region
+                // This is the simplest case - waves exit and don't return
+                let zeros = vec![0.0f32; self.tile_size as usize];
+                self.inject_halo(buffers, edge, &zeros)
+            }
+            BoundaryCondition::Reflecting => {
+                // For reflecting boundaries, extract interior edge and inject back as halo
+                // This mirrors the interior values, simulating a hard wall
+                let interior = self.extract_halo(buffers, edge)?;
+                self.inject_halo(buffers, edge, &interior)
+            }
+            BoundaryCondition::Periodic => {
+                // Periodic boundaries would need opposite edge data
+                // This is typically handled at a higher level (tile grid)
+                // For now, fall back to absorbing
+                let zeros = vec![0.0f32; self.tile_size as usize];
+                self.inject_halo(buffers, edge, &zeros)
+            }
+        }
     }
 
     fn synchronize(&self) -> Result<()> {

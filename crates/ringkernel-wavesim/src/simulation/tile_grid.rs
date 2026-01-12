@@ -52,7 +52,7 @@ use super::gpu_compute::{init_wgpu, TileBuffers, TileGpuComputePool};
 #[cfg(feature = "cuda")]
 use super::cuda_compute::CudaTileBackend;
 #[cfg(any(feature = "wgpu", feature = "cuda"))]
-use super::gpu_backend::{Edge, FdtdParams, TileGpuBackend, TileGpuBuffers};
+use super::gpu_backend::{BoundaryCondition, Edge, FdtdParams, TileGpuBackend, TileGpuBuffers};
 #[cfg(feature = "wgpu")]
 use super::wgpu_compute::{WgpuBuffer, WgpuTileBackend};
 
@@ -964,9 +964,34 @@ impl TileKernelGrid {
             }
         }
 
-        // Phase 3: Apply boundary reflection for edge tiles (on GPU)
-        // For now, we handle this by keeping boundaries at zero (absorbing)
-        // TODO: Add GPU kernel for boundary reflection
+        // Phase 3: Apply boundary conditions for domain edge tiles
+        // Tiles without neighbors on certain edges need boundary conditions applied
+        for (tx, ty) in self.tiles.keys() {
+            let tile = self.tiles.get(&(*tx, *ty)).unwrap();
+            if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
+                // Apply absorbing boundary for edges without neighbors
+                if tile.neighbor_north.is_none() {
+                    state
+                        .backend
+                        .apply_boundary(buffers, Edge::North, BoundaryCondition::Absorbing)?;
+                }
+                if tile.neighbor_south.is_none() {
+                    state
+                        .backend
+                        .apply_boundary(buffers, Edge::South, BoundaryCondition::Absorbing)?;
+                }
+                if tile.neighbor_west.is_none() {
+                    state
+                        .backend
+                        .apply_boundary(buffers, Edge::West, BoundaryCondition::Absorbing)?;
+                }
+                if tile.neighbor_east.is_none() {
+                    state
+                        .backend
+                        .apply_boundary(buffers, Edge::East, BoundaryCondition::Absorbing)?;
+                }
+            }
+        }
 
         // Phase 4: Compute FDTD on GPU for all tiles
         for (tx, ty) in self.tiles.keys() {

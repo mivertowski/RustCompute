@@ -693,7 +693,30 @@ __device__ inline MessageHeader* message_get_header(unsigned char* envelope_ptr)
     return (MessageHeader*)envelope_ptr;
 }
 
+// CRC32 computation for payload checksums
+// Uses CRC32-C (Castagnoli) polynomial 0x1EDC6F41
+__device__ inline unsigned int message_compute_checksum(const unsigned char* data, unsigned long long size) {
+    unsigned int crc = 0xFFFFFFFF;
+    for (unsigned long long i = 0; i < size; i++) {
+        crc ^= data[i];
+        for (int j = 0; j < 8; j++) {
+            crc = (crc >> 1) ^ (0x82F63B78 * (crc & 1));  // CRC32-C polynomial
+        }
+    }
+    return ~crc;
+}
+
+// Verify payload checksum
+__device__ inline int message_verify_checksum(const MessageHeader* header, const unsigned char* payload) {
+    if (header->payload_size == 0) {
+        return header->checksum == 0;  // Empty payload should have zero checksum
+    }
+    unsigned int computed = message_compute_checksum(payload, header->payload_size);
+    return computed == header->checksum;
+}
+
 // Create a response header based on request
+// Note: payload_ptr is optional, pass NULL if checksum not needed yet
 __device__ inline void message_create_response_header(
     MessageHeader* response,
     const MessageHeader* request,
@@ -701,7 +724,8 @@ __device__ inline void message_create_response_header(
     unsigned long long payload_size,
     unsigned long long hlc_physical,
     unsigned long long hlc_logical,
-    unsigned long long hlc_node_id
+    unsigned long long hlc_node_id,
+    const unsigned char* payload_ptr  // Optional: for checksum computation
 ) {
     response->magic = MESSAGE_MAGIC;
     response->version = MESSAGE_VERSION;
@@ -717,7 +741,12 @@ __device__ inline void message_create_response_header(
     response->message_type = request->message_type + 1;  // Convention: response type = request + 1
     response->priority = request->priority;
     response->payload_size = payload_size;
-    response->checksum = 0;  // TODO: compute checksum
+    // Compute checksum if payload provided
+    if (payload_ptr != NULL && payload_size > 0) {
+        response->checksum = message_compute_checksum(payload_ptr, payload_size);
+    } else {
+        response->checksum = 0;
+    }
     response->timestamp.physical = hlc_physical;
     response->timestamp.logical = hlc_logical;
     response->timestamp.node_id = hlc_node_id;
@@ -812,7 +841,6 @@ __device__ inline int k2k_send_envelope(
             header->message_type = message_type;
             header->priority = PRIORITY_NORMAL;
             header->payload_size = payload_size;
-            header->checksum = 0;
             header->timestamp.physical = hlc_physical;
             header->timestamp.logical = hlc_logical;
             header->timestamp.node_id = hlc_node_id;
@@ -820,9 +848,13 @@ __device__ inline int k2k_send_envelope(
             header->deadline.logical = 0;
             header->deadline.node_id = 0;
 
-            // Copy payload after header
+            // Copy payload after header and compute checksum
             if (payload_size > 0 && payload_ptr != NULL) {
                 memcpy(dest + MESSAGE_HEADER_SIZE, payload_ptr, payload_size);
+                header->checksum = message_compute_checksum(
+                    (const unsigned char*)payload_ptr, payload_size);
+            } else {
+                header->checksum = 0;
             }
 
             __threadfence();  // Ensure write is visible

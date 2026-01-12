@@ -43,7 +43,7 @@ pub use tile_grid::{
 };
 
 // GPU backend trait and types
-pub use gpu_backend::{Edge, FdtdParams, TileGpuBackend, TileGpuBuffers};
+pub use gpu_backend::{BoundaryCondition, Edge, FdtdParams, TileGpuBackend, TileGpuBuffers};
 
 #[cfg(feature = "wgpu")]
 pub use gpu_compute::{init_wgpu, TileBuffers, TileFdtdParams, TileGpuCompute, TileGpuComputePool};

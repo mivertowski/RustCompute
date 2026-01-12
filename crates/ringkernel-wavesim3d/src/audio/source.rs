@@ -30,7 +30,8 @@ pub enum SourceType {
     AudioFile {
         samples: Arc<Vec<f32>>,
         sample_rate: u32,
-        position: usize,
+        /// Fractional position for interpolated resampling
+        position: f64,
         looping: bool,
     },
     /// Real-time input buffer
@@ -191,7 +192,7 @@ impl AudioSource {
             source_type: SourceType::AudioFile {
                 samples: Arc::new(samples),
                 sample_rate,
-                position: 0,
+                position: 0.0,
                 looping,
             },
             active: true,
@@ -282,19 +283,44 @@ impl AudioSource {
                 position,
                 looping,
             } => {
-                if *position >= samples.len() {
+                let len = samples.len();
+                if len == 0 {
+                    return 0.0;
+                }
+
+                // Handle end of file
+                if *position >= len as f64 {
                     if *looping {
-                        *position = 0;
+                        *position = position.rem_euclid(len as f64);
                     } else {
                         return 0.0;
                     }
                 }
 
-                // Simple nearest-neighbor resampling
-                // TODO: Implement proper resampling
-                let sample = samples[*position];
-                let samples_per_step = (*sample_rate as f32 * time_step) as usize;
-                *position += samples_per_step.max(1);
+                // Linear interpolation resampling
+                // This provides much better quality than nearest-neighbor
+                let idx0 = position.floor() as usize;
+                let frac = (*position - position.floor()) as f32;
+
+                let sample = if idx0 + 1 < len {
+                    // Linear interpolation between adjacent samples
+                    let s0 = samples[idx0];
+                    let s1 = samples[idx0 + 1];
+                    s0 + frac * (s1 - s0)
+                } else if *looping && len > 0 {
+                    // Wrap around for looping
+                    let s0 = samples[idx0];
+                    let s1 = samples[0];
+                    s0 + frac * (s1 - s0)
+                } else {
+                    // At the end, no interpolation
+                    samples[idx0]
+                };
+
+                // Advance position based on sample rate conversion
+                // samples_per_step = source_sample_rate * simulation_time_step
+                let samples_per_step = *sample_rate as f64 * time_step as f64;
+                *position += samples_per_step.max(0.001);
 
                 sample
             }
@@ -350,7 +376,7 @@ impl AudioSource {
             SourceType::Impulse { fired, .. } => *fired = false,
             SourceType::Tone { phase, .. } => *phase = 0.0,
             SourceType::Noise { state, .. } => *state = [0.0; 7],
-            SourceType::AudioFile { position, .. } => *position = 0,
+            SourceType::AudioFile { position, .. } => *position = 0.0,
             SourceType::LiveInput { read_pos, .. } => *read_pos = 0,
             SourceType::Chirp { elapsed, .. } => *elapsed = 0.0,
             SourceType::GaussianPulse { elapsed, .. } => *elapsed = 0.0,
@@ -366,7 +392,7 @@ impl AudioSource {
                 position,
                 looping,
                 ..
-            } => !*looping && *position >= samples.len(),
+            } => !*looping && *position >= samples.len() as f64,
             SourceType::Chirp {
                 duration_s,
                 elapsed,
