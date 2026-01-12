@@ -227,6 +227,55 @@ impl CudaKernel {
 
         Ok(())
     }
+
+    /// Try to receive a message, returning it if it matches the correlation ID,
+    /// otherwise buffer it for later or dispatch to pending correlations.
+    fn try_receive_for_correlation(
+        &self,
+        target_correlation: u64,
+    ) -> Result<Option<MessageEnvelope>> {
+        // Read current control block to check queue state
+        let cb = self.control_block.read().read()?;
+
+        // Check if queue is empty
+        if cb.output_head == cb.output_tail {
+            return Err(RingKernelError::QueueEmpty);
+        }
+
+        // Calculate slot index
+        let slot = (cb.output_tail & cb.output_mask as u64) as usize;
+
+        // Read envelope from output queue on GPU
+        let envelope = self.output_queue.read_envelope(slot)?;
+
+        // Update tail pointer
+        {
+            let cb_lock = self.control_block.write();
+            let mut cb = cb_lock.read()?;
+            cb.output_tail = cb.output_tail.wrapping_add(1);
+            cb_lock.write(&cb)?;
+        }
+
+        let msg_correlation = envelope.header.correlation_id.0;
+
+        // Check if this is the message we're looking for
+        if msg_correlation == target_correlation {
+            return Ok(Some(envelope));
+        }
+
+        // Check if another receiver is waiting for this correlation
+        if msg_correlation != 0 {
+            let mut pending = self.pending_correlations.lock();
+            if let Some(sender) = pending.remove(&msg_correlation) {
+                let _ = sender.send(envelope);
+                return Ok(None);
+            }
+        }
+
+        // No one waiting for this message, buffer it
+        self.unclaimed_messages.lock().push_back(envelope);
+        Ok(None)
+    }
 }
 
 #[async_trait]
@@ -473,7 +522,7 @@ impl KernelHandleInner for CudaKernel {
         }
 
         // Create a oneshot channel for the response
-        let (tx, rx) = oneshot::channel();
+        let (tx, mut rx) = oneshot::channel();
 
         // Register the pending correlation
         {
@@ -535,55 +584,6 @@ impl KernelHandleInner for CudaKernel {
         // Clean up on unexpected exit
         self.pending_correlations.lock().remove(&correlation_id);
         Err(RingKernelError::QueueEmpty)
-    }
-
-    /// Try to receive a message, returning it if it matches the correlation ID,
-    /// otherwise buffer it for later or dispatch to pending correlations.
-    fn try_receive_for_correlation(
-        &self,
-        target_correlation: u64,
-    ) -> Result<Option<MessageEnvelope>> {
-        // Read current control block to check queue state
-        let cb = self.control_block.read().read()?;
-
-        // Check if queue is empty
-        if cb.output_head == cb.output_tail {
-            return Err(RingKernelError::QueueEmpty);
-        }
-
-        // Calculate slot index
-        let slot = (cb.output_tail & cb.output_mask as u64) as usize;
-
-        // Read envelope from output queue on GPU
-        let envelope = self.output_queue.read_envelope(slot)?;
-
-        // Update tail pointer
-        {
-            let cb_lock = self.control_block.write();
-            let mut cb = cb_lock.read()?;
-            cb.output_tail = cb.output_tail.wrapping_add(1);
-            cb_lock.write(&cb)?;
-        }
-
-        let msg_correlation = envelope.header.correlation_id.0;
-
-        // Check if this is the message we're looking for
-        if msg_correlation == target_correlation {
-            return Ok(Some(envelope));
-        }
-
-        // Check if another receiver is waiting for this correlation
-        if msg_correlation != 0 {
-            let mut pending = self.pending_correlations.lock();
-            if let Some(sender) = pending.remove(&msg_correlation) {
-                let _ = sender.send(envelope);
-                return Ok(None);
-            }
-        }
-
-        // No one waiting for this message, buffer it
-        self.unclaimed_messages.lock().push_back(envelope);
-        Ok(None)
     }
 
     async fn wait(&self) -> Result<()> {

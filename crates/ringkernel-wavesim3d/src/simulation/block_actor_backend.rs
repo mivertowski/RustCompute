@@ -1331,18 +1331,11 @@ impl BlockActorGpuBackend {
     }
 
     /// Perform simulation steps using cooperative groups (true grid-wide sync).
-    /// Runs all steps using grid.sync() for guaranteed correctness.
+    /// Runs all steps using `grid.sync()` for guaranteed correctness.
     ///
-    /// Currently implemented as:
-    /// - Validates grid size fits within max concurrent blocks
-    /// - Falls back to step_fused which uses __threadfence() for synchronization
-    ///
-    /// When grid size fits within concurrent block limits, step_fused provides
-    /// correct behavior since all blocks run concurrently. The __threadfence()
-    /// ensures global memory visibility between phases.
-    ///
-    /// True cuLaunchCooperativeKernel support will be added when cudarc exposes
-    /// the driver API for cooperative launch.
+    /// Uses cuLaunchCooperativeKernel via cudarc 0.18.2 for true grid-wide
+    /// synchronization. All simulation steps run in a single kernel launch
+    /// with `grid.sync()` between phases.
     ///
     /// Requires:
     /// - cooperative feature enabled
@@ -1353,6 +1346,9 @@ impl BlockActorGpuBackend {
         grid: &mut SimulationGrid3D,
         num_steps: u32,
     ) -> Result<(), BlockActorError> {
+        use ringkernel_cuda::cooperative::CooperativeLaunchConfig;
+        use std::ffi::c_void;
+
         let kernel = self.cooperative_kernel.as_ref().ok_or_else(|| {
             BlockActorError::LaunchError("Cooperative kernel not available".into())
         })?;
@@ -1368,13 +1364,57 @@ impl BlockActorGpuBackend {
             )));
         }
 
-        // Grid fits within concurrent limits - use step_fused
-        // When all blocks run concurrently, __threadfence() in step_fused
-        // provides correct global memory visibility for inter-block communication
-        //
-        // TODO: When cudarc exposes cuLaunchCooperativeKernel, use the pre-compiled
-        // cooperative kernel PTX with true grid.sync() for even better performance
-        self.step_fused(grid, num_steps)
+        // Create persistent params with num_steps for the cooperative kernel
+        let persistent_params = PersistentParams::from((&self.params, num_steps));
+
+        // Upload params to GPU
+        let mut params_gpu = unsafe {
+            self.stream
+                .alloc::<PersistentParams>(1)
+                .map_err(|e| BlockActorError::MemoryError(e.to_string()))?
+        };
+        self.stream
+            .memcpy_htod(&[persistent_params], &mut params_gpu)
+            .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
+
+        // Configure cooperative launch
+        let config = CooperativeLaunchConfig {
+            grid_dim: (self.num_blocks as u32, 1, 1),
+            block_dim: (self.config.cuda_block_size, 1, 1),
+            shared_mem_bytes: 0, // Shared memory declared in kernel
+        };
+
+        // Prepare kernel parameters as raw pointers
+        // Kernel signature: coop_persistent_fdtd(blocks, ghost_a, ghost_b, params)
+        let blocks_ptr = *self.blocks.device_ptr() as *mut c_void;
+        let ghost_a_ptr = *self.ghost_a.device_ptr() as *mut c_void;
+        let ghost_b_ptr = *self.ghost_b.device_ptr() as *mut c_void;
+        let params_ptr = *params_gpu.device_ptr() as *mut c_void;
+
+        let mut kernel_params: [*mut c_void; 4] = [
+            &blocks_ptr as *const _ as *mut c_void,
+            &ghost_a_ptr as *const _ as *mut c_void,
+            &ghost_b_ptr as *const _ as *mut c_void,
+            &params_ptr as *const _ as *mut c_void,
+        ];
+
+        // Launch cooperative kernel (true grid.sync() support)
+        unsafe {
+            kernel
+                .launch(&config, &mut kernel_params)
+                .map_err(|e| BlockActorError::LaunchError(e.to_string()))?;
+        }
+
+        // Synchronize
+        self.ctx
+            .synchronize()
+            .map_err(|e| BlockActorError::LaunchError(e.to_string()))?;
+
+        // Update grid state
+        grid.step += num_steps as u64;
+        grid.time += grid.params.time_step * num_steps as f32;
+
+        Ok(())
     }
 
     /// Maximum number of blocks that can run cooperatively on this device.
