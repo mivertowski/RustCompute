@@ -109,6 +109,8 @@ The project is a Cargo workspace with these crates:
 - **`ringkernel-txmon`** - Showcase application: GPU-accelerated transaction monitoring with real-time fraud detection GUI
 - **`ringkernel-accnet`** - Showcase application: GPU-accelerated accounting network visualization
 - **`ringkernel-procint`** - Showcase application: GPU-accelerated process intelligence with DFG mining, pattern detection, and conformance checking
+- **`ringkernel-montecarlo`** - Monte Carlo primitives: Philox RNG, antithetic variates, control variates, importance sampling
+- **`ringkernel-graph`** - Graph algorithms: CSR matrix, BFS, SCC (Tarjan/Kosaraju), Union-Find, SpMV
 
 ### Core Abstractions (in ringkernel-core)
 
@@ -476,7 +478,7 @@ let handle = CudaPersistentHandle::new(simulation, "fdtd_3d");
 
 ### Test Count Summary
 
-700+ tests across the workspace:
+750+ tests across the workspace:
 - ringkernel-core: 65 tests
 - ringkernel-cpu: 11 tests
 - ringkernel-cuda: 6 GPU execution tests
@@ -488,6 +490,8 @@ let handle = CudaPersistentHandle::new(simulation, "fdtd_3d");
 - ringkernel-wavesim3d: 72 tests (3D FDTD, binaural audio, volumetric rendering, block actor kernels, ring kernel actors)
 - ringkernel-txmon: 40 tests (GPU types, batch kernel, stencil kernel, ring kernel backends)
 - ringkernel-procint: 77 tests (DFG construction, pattern detection, partial order, conformance checking)
+- ringkernel-montecarlo: 16 tests (Philox RNG, antithetic variates, control variates, importance sampling)
+- ringkernel-graph: 51 tests (CSR matrix, BFS, SCC algorithms, Union-Find, SpMV, power iteration)
 - k2k_integration: 11 tests
 - control_block: 29 tests
 - hlc: 16 tests

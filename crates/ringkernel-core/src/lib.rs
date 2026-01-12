@@ -36,6 +36,7 @@ pub mod checkpoint;
 pub mod config;
 pub mod context;
 pub mod control;
+pub mod domain;
 pub mod error;
 pub mod health;
 pub mod hlc;
@@ -49,6 +50,7 @@ pub mod queue;
 pub mod runtime;
 pub mod runtime_context;
 pub mod security;
+pub mod state;
 pub mod telemetry;
 pub mod telemetry_pipeline;
 pub mod types;
@@ -72,6 +74,7 @@ pub mod prelude {
     };
     pub use crate::context::*;
     pub use crate::control::*;
+    pub use crate::domain::{Domain, DomainMessage, DomainParseError};
     pub use crate::error::*;
     pub use crate::health::{
         BackoffStrategy, CircuitBreaker, CircuitBreakerConfig, CircuitBreakerStats, CircuitState,
@@ -81,6 +84,7 @@ pub mod prelude {
     pub use crate::hlc::*;
     pub use crate::k2k::{
         DeliveryStatus, K2KBroker, K2KBuilder, K2KConfig, K2KEndpoint, K2KMessage,
+        K2KMessageRegistration, K2KTypeRegistry,
     };
     pub use crate::memory::*;
     pub use crate::message::{
@@ -117,6 +121,10 @@ pub mod prelude {
         MemoryEncryption, ReportFormat, ResourceLimits, SandboxPolicy, SandboxStats,
         SandboxViolation, ViolationType,
     };
+    pub use crate::state::{
+        ControlBlockStateHelper, EmbeddedState, EmbeddedStateSize, GpuState, StateDescriptor,
+        StateSnapshot, CONTROL_BLOCK_STATE_SIZE, STATE_DESCRIPTOR_MAGIC,
+    };
     pub use crate::telemetry::*;
     pub use crate::telemetry_pipeline::{
         MetricsCollector, MetricsSnapshot, TelemetryAlert, TelemetryConfig, TelemetryEvent,
@@ -128,6 +136,7 @@ pub mod prelude {
 // Re-exports for convenience
 pub use context::RingContext;
 pub use control::ControlBlock;
+pub use domain::{Domain, DomainMessage};
 pub use error::{Result, RingKernelError};
 pub use hlc::HlcTimestamp;
 pub use memory::{DeviceMemory, GpuBuffer, MemoryPool, PinnedMemory};

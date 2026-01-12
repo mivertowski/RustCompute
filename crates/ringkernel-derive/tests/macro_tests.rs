@@ -405,3 +405,131 @@ mod gpu_kernel_tests {
         assert!(kernel.is_none());
     }
 }
+
+// ============================================================================
+// ControlBlockState derive tests (FR-4)
+// ============================================================================
+
+mod control_block_state_tests {
+    use ringkernel_core::control::ControlBlock;
+    use ringkernel_core::state::{ControlBlockStateHelper, EmbeddedState, GpuState};
+    use ringkernel_derive::ControlBlockState;
+
+    /// Test state that fits in 24 bytes (exactly)
+    #[derive(ControlBlockState, Default, Clone, Copy, Debug, PartialEq)]
+    #[repr(C, align(8))]
+    #[state(version = 1)]
+    struct OrderBookState {
+        best_bid: u64,    // 8 bytes
+        best_ask: u64,    // 8 bytes
+        order_count: u32, // 4 bytes
+        _pad: u32,        // 4 bytes
+    } // Total: 24 bytes
+
+    #[test]
+    fn test_control_block_state_size() {
+        assert_eq!(std::mem::size_of::<OrderBookState>(), 24);
+    }
+
+    #[test]
+    fn test_embedded_state_trait() {
+        // Verify EmbeddedState is implemented
+        fn assert_embedded<T: EmbeddedState>() {}
+        assert_embedded::<OrderBookState>();
+
+        // Check version
+        assert_eq!(OrderBookState::VERSION, 1);
+        assert!(OrderBookState::is_embedded());
+    }
+
+    #[test]
+    fn test_gpu_state_trait() {
+        // EmbeddedState implies GpuState
+        fn assert_gpu_state<T: GpuState>() {}
+        assert_gpu_state::<OrderBookState>();
+
+        let state = OrderBookState {
+            best_bid: 100,
+            best_ask: 101,
+            order_count: 42,
+            _pad: 0,
+        };
+
+        // Test serialization
+        let bytes = state.to_control_block_bytes();
+        assert_eq!(bytes.len(), 24);
+
+        // Test deserialization
+        let restored = OrderBookState::from_control_block_bytes(&bytes).unwrap();
+        assert_eq!(state, restored);
+    }
+
+    #[test]
+    fn test_write_read_embedded_state() {
+        let mut block = ControlBlock::new();
+        let state = OrderBookState {
+            best_bid: 0x1234567890ABCDEF,
+            best_ask: 0xFEDCBA0987654321,
+            order_count: 999,
+            _pad: 0,
+        };
+
+        ControlBlockStateHelper::write_embedded(&mut block, &state).unwrap();
+        let restored: OrderBookState = ControlBlockStateHelper::read_embedded(&block).unwrap();
+
+        assert_eq!(state, restored);
+    }
+
+    /// Smaller state (8 bytes)
+    #[derive(ControlBlockState, Default, Clone, Copy, Debug, PartialEq)]
+    #[repr(C)]
+    struct SmallState {
+        counter: u64,
+    }
+
+    #[test]
+    fn test_small_state() {
+        assert!(std::mem::size_of::<SmallState>() <= 24);
+
+        let mut block = ControlBlock::new();
+        let state = SmallState { counter: 42 };
+
+        ControlBlockStateHelper::write_embedded(&mut block, &state).unwrap();
+        let restored: SmallState = ControlBlockStateHelper::read_embedded(&block).unwrap();
+
+        assert_eq!(state, restored);
+    }
+
+    /// State with custom version
+    #[derive(ControlBlockState, Default, Clone, Copy, Debug)]
+    #[repr(C)]
+    #[state(version = 2)]
+    struct VersionedState {
+        value: u64,
+    }
+
+    #[test]
+    fn test_versioned_state() {
+        assert_eq!(VersionedState::VERSION, 2);
+        assert_eq!(VersionedState::state_version(), 2);
+    }
+
+    #[test]
+    fn test_pod_zeroable_impl() {
+        use bytemuck::{Pod, Zeroable};
+
+        fn assert_pod<T: Pod>() {}
+        fn assert_zeroable<T: Zeroable>() {}
+
+        assert_pod::<OrderBookState>();
+        assert_zeroable::<OrderBookState>();
+        assert_pod::<SmallState>();
+        assert_zeroable::<SmallState>();
+
+        // Test zeroable
+        let zeroed: OrderBookState = bytemuck::Zeroable::zeroed();
+        assert_eq!(zeroed.best_bid, 0);
+        assert_eq!(zeroed.best_ask, 0);
+        assert_eq!(zeroed.order_count, 0);
+    }
+}

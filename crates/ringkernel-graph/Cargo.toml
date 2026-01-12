@@ -1,0 +1,20 @@
+[package]
+name = "ringkernel-graph"
+version = "0.2.0"
+edition = "2021"
+description = "GPU-accelerated graph algorithm primitives"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ringkernel/ringkernel"
+keywords = ["gpu", "graph", "bfs", "cuda", "parallel"]
+categories = ["science", "algorithms", "mathematics"]
+
+[dependencies]
+ringkernel-core = { path = "../ringkernel-core", version = "0.2.0" }
+bytemuck = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[features]
+default = []

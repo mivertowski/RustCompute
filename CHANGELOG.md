@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### New Crates
+
+- **`ringkernel-montecarlo`** - GPU-accelerated Monte Carlo primitives for variance reduction
+  - **Philox RNG** - Counter-based PRNG with `GpuRng` trait (stateless, GPU-friendly)
+  - **Antithetic Variates** - Variance reduction using negatively correlated samples
+  - **Control Variates** - Variance reduction using correlated variables with known expectations
+  - **Importance Sampling** - Self-normalized estimator with exponential tilting for rare events
+  - 16 tests covering all algorithms
+
+- **`ringkernel-graph`** - GPU-accelerated graph algorithm primitives
+  - **CSR Matrix** - Compressed Sparse Row format with builder pattern
+  - **BFS** - Sequential and parallel breadth-first search with multi-source support
+  - **SCC** - Strongly connected components via Tarjan and Kosaraju algorithms
+  - **Union-Find** - Parallel disjoint set with path compression and union by rank
+  - **SpMV** - Sparse matrix-vector multiplication with power iteration
+  - Node types: `NodeId`, `Distance`, `ComponentId` with Pod traits
+  - 51 tests covering all algorithms
+
+#### Domain System (FR-1)
+
+- **`Domain` enum** - 20 business domain classifications with type ID ranges
+  - GraphAnalytics (100-199), StatisticalML (200-299), Compliance (300-399)
+  - RiskManagement (400-499), OrderMatching (500-599), MarketData (600-699)
+  - Settlement (700-799), Accounting (800-899), NetworkAnalysis (900-999)
+  - FraudDetection (1000-1099), TimeSeries (1100-1199), Simulation (1200-1299)
+  - Banking (1300-1399), BehavioralAnalytics (1400-1499), ProcessIntelligence (1500-1599)
+  - Clearing (1600-1699), TreasuryManagement (1700-1799), PaymentProcessing (1800-1899)
+  - FinancialAudit (1900-1999), Custom (10000+)
+- **`DomainMessage` trait** - Domain-aware messages with automatic type ID calculation
+- **`#[derive(RingMessage)]`** extended with `domain` attribute
+
+#### RingContext Extensions (FR-2)
+
+- **Metrics Types** - `MetricType`, `MetricsEntry`, `ContextMetricsBuffer`
+- **Alert Types** - `AlertSeverity`, `KernelAlertType`, `AlertRouting`, `KernelAlert`
+- **RingContext methods**:
+  - `domain()`, `set_domain()` - Domain association
+  - `record_latency()`, `record_throughput()`, `record_counter()`, `record_gauge()` - Metrics collection
+  - `flush_metrics()` - Retrieve and clear metrics buffer
+  - `emit_alert()`, `alert_if_slow()` - Alert emission
+
+#### K2K Message Registry (FR-3)
+
+- **`K2KMessageRegistration`** - Compile-time message type registration
+- **`K2KTypeRegistry`** - Runtime registry with `discover()`, `is_routable()`, `get_category()`
+- **`#[derive(RingMessage)]`** extended with `k2k_routable` and `category` attributes
+- Integration with `inventory` crate for automatic registration
+
+#### ControlBlock State Helpers (FR-4)
+
+- **`EmbeddedState` trait** - For 24-byte states that fit in ControlBlock._reserved
+- **`StateDescriptor`** - 24-byte header for external state references
+- **`ControlBlockStateHelper`** - Read/write embedded state from ControlBlock
+- **`GpuState` trait** - For larger states with serialization support
+- **`#[derive(ControlBlockState)]`** - Derive macro for embedded state types
+
 ## [0.2.0] - 2025-01-08
 
 ### Added

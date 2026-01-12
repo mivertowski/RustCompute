@@ -326,11 +326,13 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 | `ringkernel-txmon` | Transaction monitoring showcase with GPU-accelerated fraud detection |
 | `ringkernel-accnet` | Accounting network analytics with fraud detection and GAAP compliance |
 | `ringkernel-procint` | Process intelligence with DFG mining, pattern detection, conformance checking |
+| `ringkernel-montecarlo` | Monte Carlo primitives: Philox RNG, antithetic/control variates, importance sampling |
+| `ringkernel-graph` | Graph algorithms: CSR matrix, BFS, SCC (Tarjan/Kosaraju), Union-Find, SpMV |
 
 ## Testing
 
 ```bash
-# Run all tests (700+ tests)
+# Run all tests (750+ tests)
 cargo test --workspace
 
 # CUDA backend tests (requires NVIDIA GPU)

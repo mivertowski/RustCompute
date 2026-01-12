@@ -20,6 +20,8 @@ members = [
     "crates/ringkernel-accnet",
     "crates/ringkernel-procint",
     "crates/ringkernel-wavesim3d",
+    "crates/ringkernel-montecarlo",
+    "crates/ringkernel-graph",
     "tutorials",
 ]
 

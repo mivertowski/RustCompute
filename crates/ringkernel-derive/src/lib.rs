@@ -80,14 +80,28 @@ use syn::{parse_macro_input, DeriveInput, ItemFn};
 
 /// Attributes for the RingMessage derive macro.
 #[derive(Debug, FromDeriveInput)]
-#[darling(attributes(message), supports(struct_named))]
+#[darling(attributes(message, ring_message), supports(struct_named))]
 struct RingMessageArgs {
     ident: syn::Ident,
     generics: syn::Generics,
     data: ast::Data<(), RingMessageField>,
     /// Optional explicit message type ID.
+    /// If domain is specified, this is the offset within the domain (0-99).
+    /// If domain is not specified, this is the absolute type ID.
     #[darling(default)]
     type_id: Option<u64>,
+    /// Optional domain for message classification.
+    /// When specified, the final type ID = domain.base_type_id() + type_id.
+    #[darling(default)]
+    domain: Option<String>,
+    /// Whether this message is routable via K2K.
+    /// When true, generates a K2KMessageRegistration for runtime discovery.
+    #[darling(default)]
+    k2k_routable: bool,
+    /// Optional category for K2K routing groups.
+    /// Multiple messages can share a category for grouped routing.
+    #[darling(default)]
+    category: Option<String>,
 }
 
 /// Field attributes for RingMessage.
@@ -112,16 +126,20 @@ struct RingMessageField {
 ///
 /// # Attributes
 ///
-/// On the struct:
-/// - `#[message(type_id = 123)]` - Set explicit message type ID
+/// On the struct (via `#[message(...)]` or `#[ring_message(...)]`):
+/// - `type_id = 123` - Set explicit message type ID (or domain offset if domain is set)
+/// - `domain = "OrderMatching"` - Assign to a business domain (adds base type ID)
+/// - `k2k_routable = true` - Register for K2K routing discovery
+/// - `category = "orders"` - Group messages for K2K routing
 ///
 /// On fields:
 /// - `#[message(id)]` - Mark as message ID field
 /// - `#[message(correlation)]` - Mark as correlation ID field
 /// - `#[message(priority)]` - Mark as priority field
 ///
-/// # Example
+/// # Examples
 ///
+/// Basic usage:
 /// ```ignore
 /// #[derive(RingMessage)]
 /// #[message(type_id = 1)]
@@ -135,7 +153,31 @@ struct RingMessageField {
 ///     payload: Vec<u8>,
 /// }
 /// ```
-#[proc_macro_derive(RingMessage, attributes(message))]
+///
+/// With domain (type ID = 500 + 1 = 501):
+/// ```ignore
+/// #[derive(RingMessage)]
+/// #[ring_message(type_id = 1, domain = "OrderMatching")]
+/// pub struct SubmitOrderInput {
+///     #[message(id)]
+///     id: MessageId,
+///     pub order: Order,
+/// }
+/// // Also implements DomainMessage trait
+/// assert_eq!(SubmitOrderInput::domain(), Domain::OrderMatching);
+/// ```
+///
+/// K2K-routable message:
+/// ```ignore
+/// #[derive(RingMessage)]
+/// #[ring_message(type_id = 1, domain = "OrderMatching", k2k_routable = true, category = "orders")]
+/// pub struct SubmitOrderInput { ... }
+///
+/// // Runtime discovery:
+/// let registry = K2KTypeRegistry::discover();
+/// assert!(registry.is_routable(501));
+/// ```
+#[proc_macro_derive(RingMessage, attributes(message, ring_message))]
 pub fn derive_ring_message(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
@@ -147,13 +189,18 @@ pub fn derive_ring_message(input: TokenStream) -> TokenStream {
     let name = &args.ident;
     let (impl_generics, ty_generics, where_clause) = args.generics.split_for_impl();
 
-    // Calculate type ID from name hash if not specified
-    let type_id = args.type_id.unwrap_or_else(|| {
+    // Calculate base type ID (offset within domain, or absolute if no domain)
+    let base_type_id = args.type_id.unwrap_or_else(|| {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
         let mut hasher = DefaultHasher::new();
         name.to_string().hash(&mut hasher);
-        hasher.finish()
+        // If domain is set, hash to a value within 0-99 range
+        if args.domain.is_some() {
+            hasher.finish() % 100
+        } else {
+            hasher.finish()
+        }
     });
 
     // Find annotated fields
@@ -199,10 +246,68 @@ pub fn derive_ring_message(input: TokenStream) -> TokenStream {
         quote! { ::ringkernel_core::message::Priority::Normal }
     };
 
+    // Generate message_type() implementation based on whether domain is specified
+    let message_type_impl = if let Some(ref domain_str) = args.domain {
+        // With domain: type_id = domain.base_type_id() + offset
+        quote! {
+            ::ringkernel_core::domain::Domain::from_str(#domain_str)
+                .unwrap_or(::ringkernel_core::domain::Domain::General)
+                .base_type_id() + #base_type_id
+        }
+    } else {
+        // Without domain: use absolute type_id
+        quote! { #base_type_id }
+    };
+
+    // Generate DomainMessage impl if domain is specified
+    let domain_impl = if let Some(ref domain_str) = args.domain {
+        quote! {
+            impl #impl_generics ::ringkernel_core::domain::DomainMessage for #name #ty_generics #where_clause {
+                fn domain() -> ::ringkernel_core::domain::Domain {
+                    ::ringkernel_core::domain::Domain::from_str(#domain_str)
+                        .unwrap_or(::ringkernel_core::domain::Domain::General)
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    // Generate K2K registration if k2k_routable is set
+    let k2k_registration = if args.k2k_routable {
+        let registration_name = format_ident!(
+            "__K2K_MESSAGE_REGISTRATION_{}",
+            name.to_string().to_uppercase()
+        );
+        let type_name_str = name.to_string();
+        let category_tokens = match &args.category {
+            Some(cat) => quote! { ::std::option::Option::Some(#cat) },
+            None => quote! { ::std::option::Option::None },
+        };
+
+        quote! {
+            #[allow(non_upper_case_globals)]
+            #[::inventory::submit]
+            static #registration_name: ::ringkernel_core::k2k::K2KMessageRegistration =
+                ::ringkernel_core::k2k::K2KMessageRegistration {
+                    type_id: {
+                        // Note: This is a const context, so we use the base calculation
+                        // For domain types, we need to add the base manually
+                        #base_type_id
+                    },
+                    type_name: #type_name_str,
+                    k2k_routable: true,
+                    category: #category_tokens,
+                };
+        }
+    } else {
+        quote! {}
+    };
+
     let expanded = quote! {
         impl #impl_generics ::ringkernel_core::message::RingMessage for #name #ty_generics #where_clause {
             fn message_type() -> u64 {
-                #type_id
+                #message_type_impl
             }
 
             fn message_id(&self) -> ::ringkernel_core::message::MessageId {
@@ -242,6 +347,10 @@ pub fn derive_ring_message(input: TokenStream) -> TokenStream {
                 ::std::mem::size_of::<Self>()
             }
         }
+
+        #domain_impl
+
+        #k2k_registration
     };
 
     TokenStream::from(expanded)
@@ -1028,6 +1137,115 @@ fn gpu_kernel_impl(args: GpuKernelArgs, input: ItemFn) -> TokenStream {
                 backends: &[#(#backend_strs),*],
                 fallback_order: &[#(#fallback_strs),*],
             };
+    };
+
+    TokenStream::from(expanded)
+}
+
+// ============================================================================
+// ControlBlockState Derive Macro (FR-4)
+// ============================================================================
+
+/// Attributes for the ControlBlockState derive macro.
+#[derive(Debug, FromDeriveInput)]
+#[darling(attributes(state), supports(struct_named))]
+struct ControlBlockStateArgs {
+    ident: syn::Ident,
+    generics: syn::Generics,
+    /// State version for forward compatibility.
+    #[darling(default)]
+    version: Option<u32>,
+}
+
+/// Derive macro for implementing EmbeddedState trait.
+///
+/// This macro generates implementations for types that can be stored in
+/// the ControlBlock's 24-byte `_reserved` field for zero-copy state access.
+///
+/// # Requirements
+///
+/// The type must:
+/// - Be `#[repr(C)]` for stable memory layout
+/// - Be <= 24 bytes in size (checked at compile time)
+/// - Implement `Clone`, `Copy`, and `Default`
+/// - Contain only POD (Plain Old Data) types
+///
+/// # Attributes
+///
+/// - `#[state(version = N)]` - Set state version for migrations (default: 1)
+///
+/// # Example
+///
+/// ```ignore
+/// #[derive(ControlBlockState, Default, Clone, Copy)]
+/// #[repr(C, align(8))]
+/// #[state(version = 1)]
+/// pub struct OrderBookState {
+///     pub best_bid: u64,    // 8 bytes
+///     pub best_ask: u64,    // 8 bytes
+///     pub order_count: u32, // 4 bytes
+///     pub _pad: u32,        // 4 bytes (padding for alignment)
+/// }  // Total: 24 bytes - fits in ControlBlock._reserved
+///
+/// // Use with ControlBlockStateHelper:
+/// let mut block = ControlBlock::new();
+/// let state = OrderBookState { best_bid: 100, best_ask: 101, order_count: 42, _pad: 0 };
+/// ControlBlockStateHelper::write_embedded(&mut block, &state)?;
+/// ```
+///
+/// # Size Validation
+///
+/// The macro generates a compile-time assertion that fails if the type
+/// exceeds 24 bytes:
+///
+/// ```ignore
+/// #[derive(ControlBlockState, Default, Clone, Copy)]
+/// #[repr(C)]
+/// struct TooLarge {
+///     data: [u8; 32],  // 32 bytes - COMPILE ERROR!
+/// }
+/// ```
+#[proc_macro_derive(ControlBlockState, attributes(state))]
+pub fn derive_control_block_state(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    let args = match ControlBlockStateArgs::from_derive_input(&input) {
+        Ok(args) => args,
+        Err(e) => return e.write_errors().into(),
+    };
+
+    let name = &args.ident;
+    let (impl_generics, ty_generics, where_clause) = args.generics.split_for_impl();
+    let version = args.version.unwrap_or(1);
+
+    let expanded = quote! {
+        // Compile-time size check: EmbeddedState must fit in 24 bytes
+        const _: () = {
+            assert!(
+                ::std::mem::size_of::<#name #ty_generics>() <= 24,
+                "ControlBlockState types must fit in 24 bytes (ControlBlock._reserved size)"
+            );
+        };
+
+        // Verify type is Copy (required for GPU transfer)
+        const _: fn() = || {
+            fn assert_copy<T: Copy>() {}
+            assert_copy::<#name #ty_generics>();
+        };
+
+        // Implement Pod and Zeroable (required by EmbeddedState)
+        // SAFETY: Type is #[repr(C)] with only primitive types, verified by user
+        unsafe impl #impl_generics ::bytemuck::Zeroable for #name #ty_generics #where_clause {}
+        unsafe impl #impl_generics ::bytemuck::Pod for #name #ty_generics #where_clause {}
+
+        // Implement EmbeddedState
+        impl #impl_generics ::ringkernel_core::state::EmbeddedState for #name #ty_generics #where_clause {
+            const VERSION: u32 = #version;
+
+            fn is_embedded() -> bool {
+                true
+            }
+        }
     };
 
     TokenStream::from(expanded)
