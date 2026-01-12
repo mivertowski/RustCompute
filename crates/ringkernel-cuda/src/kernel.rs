@@ -1,13 +1,14 @@
 //! CUDA kernel management.
 
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use cudarc::driver::{CudaFunction, CudaModule, LaunchConfig, PushKernelArg};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
-use tokio::sync::Notify;
+use tokio::sync::{oneshot, Notify};
 
 use ringkernel_core::error::{Result, RingKernelError};
 use ringkernel_core::hlc::{HlcClock, HlcTimestamp};
@@ -62,6 +63,10 @@ pub struct CudaKernel {
     gpu_launched: AtomicBool,
     /// K2K messaging buffers (if enabled).
     k2k_buffers: Option<CudaK2KBuffers>,
+    /// Pending correlation requests (correlation_id -> response sender).
+    pending_correlations: Mutex<HashMap<u64, oneshot::Sender<MessageEnvelope>>>,
+    /// Buffer for unclaimed messages that arrived but weren't matched.
+    unclaimed_messages: Mutex<VecDeque<MessageEnvelope>>,
 }
 
 impl CudaKernel {
@@ -100,6 +105,8 @@ impl CudaKernel {
             kernel_fn: None,
             gpu_launched: AtomicBool::new(false),
             k2k_buffers,
+            pending_correlations: Mutex::new(HashMap::new()),
+            unclaimed_messages: Mutex::new(VecDeque::new()),
         })
     }
 
@@ -364,6 +371,14 @@ impl KernelHandleInner for CudaKernel {
     }
 
     fn try_receive(&self) -> Result<MessageEnvelope> {
+        // First check unclaimed messages buffer for any previously received messages
+        {
+            let mut unclaimed = self.unclaimed_messages.lock();
+            if let Some(envelope) = unclaimed.pop_front() {
+                return Ok(envelope);
+            }
+        }
+
         // Read current control block to check queue state
         let cb = self.control_block.read().read()?;
 
@@ -386,16 +401,151 @@ impl KernelHandleInner for CudaKernel {
             cb_lock.write(&cb)?;
         }
 
+        // Check if this message matches any pending correlation
+        let correlation_id = envelope.header.correlation_id.0;
+        if correlation_id != 0 {
+            let mut pending = self.pending_correlations.lock();
+            if let Some(sender) = pending.remove(&correlation_id) {
+                // Deliver to waiting receiver - if send fails, the receiver was dropped
+                let _ = sender.send(envelope);
+                // Return queue empty since we dispatched the message
+                return Err(RingKernelError::QueueEmpty);
+            }
+        }
+
         Ok(envelope)
     }
 
     async fn receive_correlated(
         &self,
-        _correlation: CorrelationId,
+        correlation: CorrelationId,
         timeout: Duration,
     ) -> Result<MessageEnvelope> {
-        // TODO: Implement correlation tracking
-        self.receive_timeout(timeout).await
+        let correlation_id = correlation.0;
+
+        // First check unclaimed messages buffer for a matching message
+        {
+            let mut unclaimed = self.unclaimed_messages.lock();
+            if let Some(pos) = unclaimed
+                .iter()
+                .position(|e| e.header.correlation_id.0 == correlation_id)
+            {
+                return Ok(unclaimed.remove(pos).unwrap());
+            }
+        }
+
+        // Create a oneshot channel for the response
+        let (tx, rx) = oneshot::channel();
+
+        // Register the pending correlation
+        {
+            let mut pending = self.pending_correlations.lock();
+            pending.insert(correlation_id, tx);
+        }
+
+        // Poll for incoming messages while waiting for our correlation
+        let deadline = Instant::now() + timeout;
+
+        loop {
+            // Check if we received the correlated message
+            match tokio::time::timeout(Duration::from_millis(1), async { rx.try_recv() }).await {
+                Ok(Ok(envelope)) => return Ok(envelope),
+                Ok(Err(oneshot::error::TryRecvError::Closed)) => {
+                    // Sender was dropped, shouldn't happen
+                    break;
+                }
+                Ok(Err(oneshot::error::TryRecvError::Empty)) => {
+                    // Not yet received, continue polling
+                }
+                Err(_) => {
+                    // Timeout on try_recv, continue
+                }
+            }
+
+            // Try to receive and process messages from GPU
+            match self.try_receive_for_correlation(correlation_id) {
+                Ok(Some(envelope)) => {
+                    // Found our message directly
+                    // Remove from pending since we're returning it directly
+                    self.pending_correlations.lock().remove(&correlation_id);
+                    return Ok(envelope);
+                }
+                Ok(None) => {
+                    // Received a message but it wasn't ours (already dispatched or buffered)
+                }
+                Err(RingKernelError::QueueEmpty) => {
+                    // No messages available
+                }
+                Err(e) => {
+                    // Clean up and return error
+                    self.pending_correlations.lock().remove(&correlation_id);
+                    return Err(e);
+                }
+            }
+
+            // Check timeout
+            if Instant::now() >= deadline {
+                // Clean up pending correlation
+                self.pending_correlations.lock().remove(&correlation_id);
+                return Err(RingKernelError::Timeout(timeout));
+            }
+
+            // Small sleep to avoid busy loop
+            tokio::time::sleep(Duration::from_micros(100)).await;
+        }
+
+        // Clean up on unexpected exit
+        self.pending_correlations.lock().remove(&correlation_id);
+        Err(RingKernelError::QueueEmpty)
+    }
+
+    /// Try to receive a message, returning it if it matches the correlation ID,
+    /// otherwise buffer it for later or dispatch to pending correlations.
+    fn try_receive_for_correlation(
+        &self,
+        target_correlation: u64,
+    ) -> Result<Option<MessageEnvelope>> {
+        // Read current control block to check queue state
+        let cb = self.control_block.read().read()?;
+
+        // Check if queue is empty
+        if cb.output_head == cb.output_tail {
+            return Err(RingKernelError::QueueEmpty);
+        }
+
+        // Calculate slot index
+        let slot = (cb.output_tail & cb.output_mask as u64) as usize;
+
+        // Read envelope from output queue on GPU
+        let envelope = self.output_queue.read_envelope(slot)?;
+
+        // Update tail pointer
+        {
+            let cb_lock = self.control_block.write();
+            let mut cb = cb_lock.read()?;
+            cb.output_tail = cb.output_tail.wrapping_add(1);
+            cb_lock.write(&cb)?;
+        }
+
+        let msg_correlation = envelope.header.correlation_id.0;
+
+        // Check if this is the message we're looking for
+        if msg_correlation == target_correlation {
+            return Ok(Some(envelope));
+        }
+
+        // Check if another receiver is waiting for this correlation
+        if msg_correlation != 0 {
+            let mut pending = self.pending_correlations.lock();
+            if let Some(sender) = pending.remove(&msg_correlation) {
+                let _ = sender.send(envelope);
+                return Ok(None);
+            }
+        }
+
+        // No one waiting for this message, buffer it
+        self.unclaimed_messages.lock().push_back(envelope);
+        Ok(None)
     }
 
     async fn wait(&self) -> Result<()> {
