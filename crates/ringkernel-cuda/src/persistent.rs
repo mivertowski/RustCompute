@@ -946,6 +946,16 @@ impl PersistentSimulationConfig {
         let c = self.speed_of_sound;
         (c * dt / self.cell_size).powi(2)
     }
+
+    /// Enable or disable cooperative launch.
+    ///
+    /// When disabled, the kernel will use software synchronization (atomic barriers)
+    /// instead of cooperative groups. This allows larger grids but requires the
+    /// kernel code to implement software barriers.
+    pub fn with_cooperative(mut self, use_cooperative: bool) -> Self {
+        self.use_cooperative = use_cooperative;
+        self
+    }
 }
 
 /// Statistics from a running persistent simulation.
@@ -1174,13 +1184,20 @@ impl PersistentSimulation {
 
         // Check if grid fits cooperative limits
         let max_blocks = kernel.max_concurrent_blocks();
-        if total_blocks as u32 > max_blocks && self.config.use_cooperative {
-            return Err(RingKernelError::LaunchFailed(format!(
-                "Grid size {} exceeds cooperative limit {}. Use software sync or smaller grid.",
-                total_blocks, max_blocks
-            )));
-            // TODO: Fall back to software sync when not using cooperative mode
-        }
+        let use_cooperative = if total_blocks as u32 > max_blocks {
+            if self.config.use_cooperative {
+                // Fallback: automatically disable cooperative mode for large grids
+                tracing::warn!(
+                    total_blocks = total_blocks,
+                    max_cooperative_blocks = max_blocks,
+                    "Grid exceeds cooperative limit. Falling back to software synchronization. \
+                     Grid.sync() calls will use atomic barriers instead of cooperative groups."
+                );
+            }
+            false
+        } else {
+            self.config.use_cooperative
+        };
 
         // Configure launch
         let config = CooperativeLaunchConfig {
@@ -1202,9 +1219,14 @@ impl PersistentSimulation {
             halo_ptr: self.halo_buffers.device_ptr(),
         };
 
-        // Launch kernel cooperatively
+        // Launch kernel (cooperative or fallback)
         unsafe {
-            kernel.launch_cooperative_params(&config, &mut params)?;
+            if use_cooperative {
+                kernel.launch_cooperative_params(&config, &mut params)?;
+            } else {
+                // Non-cooperative fallback: kernel must use software barriers
+                kernel.launch_non_cooperative_params(&config, &mut params)?;
+            }
         }
 
         self.kernel = Some(kernel);

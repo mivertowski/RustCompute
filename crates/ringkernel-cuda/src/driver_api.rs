@@ -333,6 +333,70 @@ impl DirectCooperativeKernel {
         }
         Ok(())
     }
+
+    /// Launch the kernel non-cooperatively with raw parameters.
+    ///
+    /// This calls `cuLaunchKernel` (not `cuLaunchCooperativeKernel`), which means
+    /// grid.sync() will NOT work. Use this as a fallback when the grid exceeds
+    /// cooperative limits, but only if the kernel uses software synchronization
+    /// (atomic barriers in global memory) instead of cooperative groups.
+    ///
+    /// # Safety
+    ///
+    /// - `kernel_params` must contain valid pointers matching the kernel signature
+    /// - Each element must point to the corresponding kernel argument
+    /// - Grid.sync() calls in the kernel WILL NOT WORK with this launch method
+    pub unsafe fn launch_non_cooperative(
+        &self,
+        config: &CooperativeLaunchConfig,
+        kernel_params: &mut [*mut c_void],
+    ) -> Result<()> {
+        // Use default stream (null)
+        let stream: cuda_sys::CUstream = ptr::null_mut();
+
+        // Call standard (non-cooperative) launch
+        let result = cuda_sys::cuLaunchKernel(
+            self.func,
+            config.grid_dim.0,
+            config.grid_dim.1,
+            config.grid_dim.2,
+            config.block_dim.0,
+            config.block_dim.1,
+            config.block_dim.2,
+            config.shared_mem_bytes,
+            stream,
+            kernel_params.as_mut_ptr(),
+            ptr::null_mut(), // extra options
+        );
+
+        if result != cuda_sys::CUresult::CUDA_SUCCESS {
+            return Err(RingKernelError::LaunchFailed(format!(
+                "Non-cooperative launch failed: {:?}",
+                result
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Launch non-cooperatively with typed parameters.
+    ///
+    /// Helper method that builds the parameter array from individual arguments.
+    /// Use as fallback when grid exceeds cooperative limits.
+    ///
+    /// # Safety
+    ///
+    /// - All parameter types must match the kernel signature exactly
+    /// - Pointer parameters must be valid device pointers
+    /// - Grid.sync() calls in the kernel will NOT work
+    pub unsafe fn launch_non_cooperative_params<T: KernelParams>(
+        &self,
+        config: &CooperativeLaunchConfig,
+        params: &mut T,
+    ) -> Result<()> {
+        let mut param_ptrs = params.as_param_ptrs();
+        self.launch_non_cooperative(config, &mut param_ptrs)
+    }
 }
 
 /// Trait for kernel parameters that can be converted to a pointer array.
