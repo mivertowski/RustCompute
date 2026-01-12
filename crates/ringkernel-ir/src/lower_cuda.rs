@@ -165,6 +165,30 @@ impl CudaLowering {
             self.indent -= 1;
             self.emit_line("};");
             self.emit_line("");
+
+            // K2H/H2K queue intrinsic declarations
+            self.emit_line("// Queue Intrinsics (provided by runtime)");
+            self.emit_line("__device__ bool __ringkernel_k2h_enqueue(const void* msg);");
+            self.emit_line("__device__ void* __ringkernel_h2k_dequeue();");
+            self.emit_line("__device__ bool __ringkernel_h2k_is_empty();");
+            self.emit_line("");
+
+            // K2K messaging intrinsic declarations
+            self.emit_line("// K2K Messaging Intrinsics (provided by runtime)");
+            self.emit_line("__device__ bool __ringkernel_k2k_send(uint64_t target_id, const void* msg);");
+            self.emit_line("__device__ void* __ringkernel_k2k_recv();");
+            self.emit_line("struct K2KOptionalMsg { bool valid; void* data; };");
+            self.emit_line("__device__ K2KOptionalMsg __ringkernel_k2k_try_recv();");
+            self.emit_line("");
+        }
+
+        // HLC intrinsic declarations
+        if self.config.enable_hlc {
+            self.emit_line("// HLC Intrinsics (provided by runtime)");
+            self.emit_line("__device__ uint64_t __ringkernel_hlc_now();");
+            self.emit_line("__device__ uint64_t __ringkernel_hlc_tick();");
+            self.emit_line("__device__ uint64_t __ringkernel_hlc_update(uint64_t incoming);");
+            self.emit_line("");
         }
     }
 
@@ -486,17 +510,97 @@ impl CudaLowering {
             // Skip nodes that don't produce CUDA output
             IrNode::Parameter(_) | IrNode::Undef | IrNode::Phi(_) => {}
 
-            // Messaging (emit as comments or stubs)
-            IrNode::K2HEnqueue(_)
-            | IrNode::H2KDequeue
-            | IrNode::H2KIsEmpty
-            | IrNode::K2KSend(_, _)
-            | IrNode::K2KRecv
-            | IrNode::K2KTryRecv
-            | IrNode::HlcNow
-            | IrNode::HlcTick
-            | IrNode::HlcUpdate(_) => {
-                self.emit_line(&format!("// TODO: {:?}", node));
+            // ========================================================================
+            // Messaging Operations
+            // ========================================================================
+
+            // K2H (Kernel-to-Host) enqueue
+            IrNode::K2HEnqueue(value) => {
+                let val_name = self.get_value_name(*value);
+                // Enqueue returns success status (bool)
+                self.emit_line(&format!(
+                    "{} {} = __ringkernel_k2h_enqueue({});",
+                    ty, result_name, val_name
+                ));
+            }
+
+            // H2K (Host-to-Kernel) dequeue
+            IrNode::H2KDequeue => {
+                // Dequeue returns the message struct
+                self.emit_line(&format!(
+                    "{} {} = __ringkernel_h2k_dequeue();",
+                    ty, result_name
+                ));
+            }
+
+            // H2K queue empty check
+            IrNode::H2KIsEmpty => {
+                // Returns true if queue is empty
+                self.emit_line(&format!(
+                    "{} {} = __ringkernel_h2k_is_empty();",
+                    ty, result_name
+                ));
+            }
+
+            // K2K (Kernel-to-Kernel) send
+            IrNode::K2KSend(target_id, message) => {
+                let target_name = self.get_value_name(*target_id);
+                let msg_name = self.get_value_name(*message);
+                // Send returns success status (bool)
+                self.emit_line(&format!(
+                    "{} {} = __ringkernel_k2k_send({}, {});",
+                    ty, result_name, target_name, msg_name
+                ));
+            }
+
+            // K2K blocking receive
+            IrNode::K2KRecv => {
+                // Blocking receive returns the message struct
+                self.emit_line(&format!(
+                    "{} {} = __ringkernel_k2k_recv();",
+                    ty, result_name
+                ));
+            }
+
+            // K2K non-blocking try receive
+            IrNode::K2KTryRecv => {
+                // Try receive returns optional message (use .valid field to check)
+                self.emit_line(&format!(
+                    "{} {} = __ringkernel_k2k_try_recv();",
+                    ty, result_name
+                ));
+            }
+
+            // ========================================================================
+            // HLC (Hybrid Logical Clock) Operations
+            // ========================================================================
+
+            // Get current HLC time
+            IrNode::HlcNow => {
+                // Returns current HLC timestamp (u64)
+                self.emit_line(&format!(
+                    "{} {} = __ringkernel_hlc_now();",
+                    ty, result_name
+                ));
+            }
+
+            // Tick HLC and return new time
+            IrNode::HlcTick => {
+                // Increments logical counter and returns new timestamp
+                self.emit_line(&format!(
+                    "{} {} = __ringkernel_hlc_tick();",
+                    ty, result_name
+                ));
+            }
+
+            // Update HLC from incoming timestamp
+            IrNode::HlcUpdate(incoming) => {
+                let incoming_name = self.get_value_name(*incoming);
+                // Updates HLC using max(local, incoming) + 1 rule
+                self.emit_line(&format!(
+                    "{} {} = __ringkernel_hlc_update({});",
+                    ty, result_name, incoming_name
+                ));
             }
 
             _ => {
