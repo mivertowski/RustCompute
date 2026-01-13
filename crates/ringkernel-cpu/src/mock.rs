@@ -651,11 +651,11 @@ mod tests {
     fn test_mock_shared_memory() {
         let shmem = MockSharedMemory::new(1024);
 
-        shmem.write::<f32>(0, 3.14);
-        shmem.write::<f32>(4, 2.71);
+        shmem.write::<f32>(0, 3.125);
+        shmem.write::<f32>(4, 2.75);
 
-        assert!((shmem.read::<f32>(0) - 3.14).abs() < 0.001);
-        assert!((shmem.read::<f32>(4) - 2.71).abs() < 0.001);
+        assert!((shmem.read::<f32>(0) - 3.125).abs() < 0.001);
+        assert!((shmem.read::<f32>(4) - 2.75).abs() < 0.001);
 
         shmem.write_slice::<u32>(100, &[1, 2, 3, 4]);
         let slice = shmem.as_slice::<u32>(100, 4);

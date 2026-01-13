@@ -258,8 +258,8 @@ mod tests {
         let distances = bfs_sequential(&adj, &[NodeId(0)]).unwrap();
 
         assert_eq!(distances[0], Distance::new(0));
-        for i in 1..5 {
-            assert_eq!(distances[i], Distance::new(1));
+        for d in distances.iter().take(5).skip(1) {
+            assert_eq!(*d, Distance::new(1));
         }
     }
 

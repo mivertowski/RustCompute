@@ -571,7 +571,7 @@ mod tests {
         let x = builder.parameter("x", IrType::ptr(IrType::F32));
         let y = builder.parameter("y", IrType::ptr(IrType::F32));
 
-        let idx = builder.thread_id(Dimension::X);
+        let _idx = builder.thread_id(Dimension::X);
         let x_val = builder.load(x);
         let y_val = builder.load(y);
         let result = builder.add(x_val, y_val);
@@ -588,7 +588,7 @@ mod tests {
         let mut builder = IrBuilder::new("test");
 
         let a = builder.const_i32(42);
-        let b = builder.const_f32(3.14);
+        let b = builder.const_f32(3.125);
         let c = builder.const_bool(true);
 
         let module = builder.build();

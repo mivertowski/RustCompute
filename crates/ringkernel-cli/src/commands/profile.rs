@@ -196,8 +196,7 @@ pub async fn execute(
 
     // Check if kernel file exists (for file-based profiling)
     let kernel_path = Path::new(kernel);
-    let is_file_based =
-        kernel_path.exists() && kernel_path.extension().is_some_and(|e| e == "rs");
+    let is_file_based = kernel_path.exists() && kernel_path.extension().is_some_and(|e| e == "rs");
 
     let result = if is_file_based {
         profile_kernel_file(&config).await?

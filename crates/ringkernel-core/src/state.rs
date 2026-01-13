@@ -545,10 +545,12 @@ mod tests {
     fn test_embedded_state_size_check() {
         // This should compile - TestState is exactly 24 bytes
         assert_eq!(std::mem::size_of::<TestState>(), 24);
-        let _ = <TestState as EmbeddedStateSize>::SIZE_CHECK;
+        // Force compile-time size check evaluation
+        assert_eq!(<TestState as EmbeddedStateSize>::SIZE_CHECK, ());
 
         // SmallState is smaller - also OK
         assert!(std::mem::size_of::<SmallState>() <= CONTROL_BLOCK_STATE_SIZE);
-        let _ = <SmallState as EmbeddedStateSize>::SIZE_CHECK;
+        // Force compile-time size check evaluation
+        assert_eq!(<SmallState as EmbeddedStateSize>::SIZE_CHECK, ());
     }
 }

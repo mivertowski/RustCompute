@@ -2939,7 +2939,7 @@ mod tests {
         let migrator = KernelMigrator::with_storage(coord.clone(), storage);
 
         // Verify we can access the coordinator
-        assert!(Arc::ptr_eq(&migrator.coordinator(), &coord));
+        assert!(Arc::ptr_eq(migrator.coordinator(), &coord));
     }
 
     #[test]

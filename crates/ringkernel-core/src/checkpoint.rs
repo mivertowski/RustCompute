@@ -1174,10 +1174,10 @@ mod tests {
     #[test]
     fn test_checkpoint_validation() {
         // Test invalid magic
-        let mut bytes = vec![0u8; 64];
+        let mut bytes = [0u8; 64];
         bytes[0..8].copy_from_slice(&0u64.to_le_bytes()); // Wrong magic
 
-        let header = CheckpointHeader::from_bytes(bytes[0..64].try_into().unwrap());
+        let header = CheckpointHeader::from_bytes(&bytes);
         assert!(header.validate().is_err());
     }
 

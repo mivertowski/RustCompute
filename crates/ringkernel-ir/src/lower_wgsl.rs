@@ -846,7 +846,7 @@ mod tests {
     fn test_lower_with_subgroups() {
         let mut builder = IrBuilder::new("subgroup");
 
-        let val = builder.const_bool(true);
+        let _val = builder.const_bool(true);
         // WarpVote requires subgroups capability
 
         builder.ret();

@@ -1443,7 +1443,7 @@ mod tests {
             metrics.is_empty()
                 || metrics.contains('#')
                 || metrics.contains('\n')
-                || metrics.len() > 0
+                || !metrics.is_empty()
         );
     }
 

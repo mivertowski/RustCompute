@@ -538,7 +538,7 @@ mod tests {
     #[test]
     fn test_constant_ir_type() {
         assert_eq!(ConstantValue::I32(42).ir_type(), IrType::I32);
-        assert_eq!(ConstantValue::F32(3.14).ir_type(), IrType::F32);
+        assert_eq!(ConstantValue::F32(3.125).ir_type(), IrType::F32);
         assert_eq!(ConstantValue::Bool(true).ir_type(), IrType::BOOL);
     }
 
