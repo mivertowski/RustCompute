@@ -167,6 +167,52 @@ pub fn cuda_device_count() -> usize {
     }
 }
 
+/// Compile CUDA C source code to PTX using NVRTC.
+///
+/// This wraps `cudarc::nvrtc::compile_ptx` to provide PTX compilation
+/// without requiring downstream crates to depend on cudarc directly.
+///
+/// # Arguments
+///
+/// * `cuda_source` - CUDA C source code string
+///
+/// # Returns
+///
+/// PTX assembly as a string, or an error if compilation fails.
+///
+/// # Example
+///
+/// ```ignore
+/// use ringkernel_cuda::compile_ptx;
+///
+/// let cuda_source = r#"
+///     extern "C" __global__ void add(float* a, float* b, float* c, int n) {
+///         int i = blockIdx.x * blockDim.x + threadIdx.x;
+///         if (i < n) c[i] = a[i] + b[i];
+///     }
+/// "#;
+///
+/// let ptx = compile_ptx(cuda_source)?;
+/// ```
+#[cfg(feature = "cuda")]
+pub fn compile_ptx(cuda_source: &str) -> ringkernel_core::error::Result<String> {
+    use ringkernel_core::error::RingKernelError;
+
+    let ptx = cudarc::nvrtc::compile_ptx(cuda_source).map_err(|e| {
+        RingKernelError::CompilationError(format!("NVRTC compilation failed: {}", e))
+    })?;
+
+    Ok(ptx.to_src().to_string())
+}
+
+/// Stub compile_ptx when CUDA is not available.
+#[cfg(not(feature = "cuda"))]
+pub fn compile_ptx(_cuda_source: &str) -> ringkernel_core::error::Result<String> {
+    Err(ringkernel_core::error::RingKernelError::BackendUnavailable(
+        "CUDA feature not enabled".to_string(),
+    ))
+}
+
 /// PTX kernel source template for persistent ring kernel.
 ///
 /// This is a minimal kernel that immediately marks itself as terminated.
