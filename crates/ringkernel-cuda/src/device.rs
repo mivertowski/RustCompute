@@ -8,6 +8,8 @@ type StreamHandle = Arc<CudaStream>;
 
 use ringkernel_core::error::{Result, RingKernelError};
 
+use crate::persistent::CudaMappedBuffer;
+
 /// Wrapper around cudarc CudaContext with RingKernel utilities.
 pub struct CudaDevice {
     /// The underlying cudarc context.
@@ -133,6 +135,49 @@ impl CudaDevice {
             .memcpy_dtoh(src, &mut dst)
             .map_err(|e| RingKernelError::TransferFailed(format!("DtoH copy failed: {}", e)))?;
         Ok(dst)
+    }
+
+    /// Allocate mapped memory visible to both CPU and GPU.
+    ///
+    /// Mapped memory (also called pinned or page-locked memory) can be accessed
+    /// by both the CPU and GPU without explicit memory transfers. This is ideal
+    /// for:
+    /// - Control blocks and status flags
+    /// - Lock-free message queues
+    /// - Reduction accumulators that need to be read by the host
+    ///
+    /// # Arguments
+    ///
+    /// * `len` - Number of elements to allocate
+    ///
+    /// # Returns
+    ///
+    /// A `CudaMappedBuffer<T>` that provides both host and device pointers.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use ringkernel_cuda::CudaDevice;
+    ///
+    /// let device = CudaDevice::new(0)?;
+    /// let buffer = device.alloc_mapped::<f64>(1024)?;
+    ///
+    /// // Write from CPU
+    /// buffer.write(0, 42.0);
+    ///
+    /// // Pass device_ptr() to GPU kernel
+    /// let gpu_ptr = buffer.device_ptr();
+    /// ```
+    pub fn alloc_mapped<T: Copy + Send + Sync>(&self, len: usize) -> Result<CudaMappedBuffer<T>> {
+        CudaMappedBuffer::new(self, len)
+    }
+
+    /// Check if device supports cooperative groups (requires CC 6.0+).
+    ///
+    /// Cooperative groups enable grid-wide synchronization via `grid.sync()`,
+    /// which is required for efficient reduce-and-broadcast operations.
+    pub fn supports_cooperative_groups(&self) -> bool {
+        self.compute_capability.0 >= 6
     }
 
     /// Synchronize device.

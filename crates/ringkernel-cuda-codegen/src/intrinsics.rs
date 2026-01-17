@@ -297,6 +297,31 @@ pub enum GpuIntrinsic {
     Clock64,
     /// Nanosleep.
     Nanosleep,
+
+    // === Block-Level Reductions ===
+    /// Block-level sum reduction using shared memory.
+    BlockReduceSum,
+    /// Block-level minimum reduction using shared memory.
+    BlockReduceMin,
+    /// Block-level maximum reduction using shared memory.
+    BlockReduceMax,
+    /// Block-level AND reduction using shared memory.
+    BlockReduceAnd,
+    /// Block-level OR reduction using shared memory.
+    BlockReduceOr,
+
+    // === Grid-Level Reductions ===
+    /// Grid-level sum reduction with atomic accumulation.
+    GridReduceSum,
+    /// Grid-level minimum reduction with atomic accumulation.
+    GridReduceMin,
+    /// Grid-level maximum reduction with atomic accumulation.
+    GridReduceMax,
+
+    // === Reduce and Broadcast ===
+    /// Reduce-and-broadcast: all threads get the global reduction result.
+    /// This combines block reduction, atomic accumulation, grid sync, and broadcast.
+    ReduceAndBroadcast,
 }
 
 impl GpuIntrinsic {
@@ -460,6 +485,21 @@ impl GpuIntrinsic {
             GpuIntrinsic::Clock => "clock()",
             GpuIntrinsic::Clock64 => "clock64()",
             GpuIntrinsic::Nanosleep => "__nanosleep",
+
+            // Block-level reductions (require code generation, not simple function calls)
+            GpuIntrinsic::BlockReduceSum => "__block_reduce_sum",
+            GpuIntrinsic::BlockReduceMin => "__block_reduce_min",
+            GpuIntrinsic::BlockReduceMax => "__block_reduce_max",
+            GpuIntrinsic::BlockReduceAnd => "__block_reduce_and",
+            GpuIntrinsic::BlockReduceOr => "__block_reduce_or",
+
+            // Grid-level reductions (require code generation with atomics)
+            GpuIntrinsic::GridReduceSum => "__grid_reduce_sum",
+            GpuIntrinsic::GridReduceMin => "__grid_reduce_min",
+            GpuIntrinsic::GridReduceMax => "__grid_reduce_max",
+
+            // Reduce-and-broadcast (requires grid sync)
+            GpuIntrinsic::ReduceAndBroadcast => "__reduce_and_broadcast",
         }
     }
 
@@ -662,6 +702,17 @@ impl GpuIntrinsic {
             | GpuIntrinsic::WarpSize => "index",
 
             GpuIntrinsic::Clock | GpuIntrinsic::Clock64 | GpuIntrinsic::Nanosleep => "timing",
+
+            // Reduction intrinsics
+            GpuIntrinsic::BlockReduceSum
+            | GpuIntrinsic::BlockReduceMin
+            | GpuIntrinsic::BlockReduceMax
+            | GpuIntrinsic::BlockReduceAnd
+            | GpuIntrinsic::BlockReduceOr
+            | GpuIntrinsic::GridReduceSum
+            | GpuIntrinsic::GridReduceMin
+            | GpuIntrinsic::GridReduceMax
+            | GpuIntrinsic::ReduceAndBroadcast => "reduction",
         }
     }
 }
@@ -886,6 +937,29 @@ impl IntrinsicRegistry {
         mappings.insert("clock".to_string(), GpuIntrinsic::Clock);
         mappings.insert("clock64".to_string(), GpuIntrinsic::Clock64);
         mappings.insert("nanosleep".to_string(), GpuIntrinsic::Nanosleep);
+
+        // === Block-level reductions ===
+        mappings.insert("block_reduce_sum".to_string(), GpuIntrinsic::BlockReduceSum);
+        mappings.insert("block_reduce_min".to_string(), GpuIntrinsic::BlockReduceMin);
+        mappings.insert("block_reduce_max".to_string(), GpuIntrinsic::BlockReduceMax);
+        mappings.insert("block_reduce_and".to_string(), GpuIntrinsic::BlockReduceAnd);
+        mappings.insert("block_reduce_or".to_string(), GpuIntrinsic::BlockReduceOr);
+
+        // === Grid-level reductions ===
+        mappings.insert("grid_reduce_sum".to_string(), GpuIntrinsic::GridReduceSum);
+        mappings.insert("grid_reduce_min".to_string(), GpuIntrinsic::GridReduceMin);
+        mappings.insert("grid_reduce_max".to_string(), GpuIntrinsic::GridReduceMax);
+
+        // === Reduce and broadcast ===
+        mappings.insert(
+            "reduce_and_broadcast".to_string(),
+            GpuIntrinsic::ReduceAndBroadcast,
+        );
+        // Alternative naming convention
+        mappings.insert(
+            "reduce_broadcast".to_string(),
+            GpuIntrinsic::ReduceAndBroadcast,
+        );
 
         Self { mappings }
     }
@@ -1810,5 +1884,111 @@ mod tests {
         assert_eq!(GpuIntrinsic::Trunc.to_cuda_string(), "truncf");
         assert_eq!(GpuIntrinsic::Cbrt.to_cuda_string(), "cbrtf");
         assert_eq!(GpuIntrinsic::Hypot.to_cuda_string(), "hypotf");
+    }
+
+    #[test]
+    fn test_block_reduction_intrinsics() {
+        let registry = IntrinsicRegistry::new();
+
+        // Test block-level reductions
+        assert_eq!(
+            registry.lookup("block_reduce_sum"),
+            Some(&GpuIntrinsic::BlockReduceSum)
+        );
+        assert_eq!(
+            registry.lookup("block_reduce_min"),
+            Some(&GpuIntrinsic::BlockReduceMin)
+        );
+        assert_eq!(
+            registry.lookup("block_reduce_max"),
+            Some(&GpuIntrinsic::BlockReduceMax)
+        );
+        assert_eq!(
+            registry.lookup("block_reduce_and"),
+            Some(&GpuIntrinsic::BlockReduceAnd)
+        );
+        assert_eq!(
+            registry.lookup("block_reduce_or"),
+            Some(&GpuIntrinsic::BlockReduceOr)
+        );
+
+        // Test CUDA output
+        assert_eq!(
+            GpuIntrinsic::BlockReduceSum.to_cuda_string(),
+            "__block_reduce_sum"
+        );
+        assert_eq!(
+            GpuIntrinsic::BlockReduceMin.to_cuda_string(),
+            "__block_reduce_min"
+        );
+        assert_eq!(
+            GpuIntrinsic::BlockReduceMax.to_cuda_string(),
+            "__block_reduce_max"
+        );
+
+        // Test category
+        assert_eq!(GpuIntrinsic::BlockReduceSum.category(), "reduction");
+        assert_eq!(GpuIntrinsic::BlockReduceMin.category(), "reduction");
+    }
+
+    #[test]
+    fn test_grid_reduction_intrinsics() {
+        let registry = IntrinsicRegistry::new();
+
+        // Test grid-level reductions
+        assert_eq!(
+            registry.lookup("grid_reduce_sum"),
+            Some(&GpuIntrinsic::GridReduceSum)
+        );
+        assert_eq!(
+            registry.lookup("grid_reduce_min"),
+            Some(&GpuIntrinsic::GridReduceMin)
+        );
+        assert_eq!(
+            registry.lookup("grid_reduce_max"),
+            Some(&GpuIntrinsic::GridReduceMax)
+        );
+
+        // Test CUDA output
+        assert_eq!(
+            GpuIntrinsic::GridReduceSum.to_cuda_string(),
+            "__grid_reduce_sum"
+        );
+        assert_eq!(
+            GpuIntrinsic::GridReduceMin.to_cuda_string(),
+            "__grid_reduce_min"
+        );
+        assert_eq!(
+            GpuIntrinsic::GridReduceMax.to_cuda_string(),
+            "__grid_reduce_max"
+        );
+
+        // Test category
+        assert_eq!(GpuIntrinsic::GridReduceSum.category(), "reduction");
+    }
+
+    #[test]
+    fn test_reduce_and_broadcast_intrinsic() {
+        let registry = IntrinsicRegistry::new();
+
+        // Test reduce-and-broadcast
+        assert_eq!(
+            registry.lookup("reduce_and_broadcast"),
+            Some(&GpuIntrinsic::ReduceAndBroadcast)
+        );
+        // Alternative name
+        assert_eq!(
+            registry.lookup("reduce_broadcast"),
+            Some(&GpuIntrinsic::ReduceAndBroadcast)
+        );
+
+        // Test CUDA output
+        assert_eq!(
+            GpuIntrinsic::ReduceAndBroadcast.to_cuda_string(),
+            "__reduce_and_broadcast"
+        );
+
+        // Test category
+        assert_eq!(GpuIntrinsic::ReduceAndBroadcast.category(), "reduction");
     }
 }

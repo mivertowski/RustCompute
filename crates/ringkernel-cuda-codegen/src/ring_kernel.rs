@@ -44,6 +44,97 @@
 
 use std::fmt::Write;
 
+use crate::reduction_intrinsics::ReductionOp;
+
+/// Configuration for global reductions in a ring kernel.
+///
+/// This enables algorithms like PageRank to perform global reductions
+/// (e.g., computing dangling node sum) within the kernel using a two-phase
+/// reduce-and-broadcast pattern.
+#[derive(Debug, Clone, Default)]
+pub struct KernelReductionConfig {
+    /// Whether global reduction is enabled.
+    pub enabled: bool,
+    /// The reduction operation to perform.
+    pub op: ReductionOp,
+    /// Type of the accumulator (e.g., "double", "float", "int").
+    pub accumulator_type: String,
+    /// Use cooperative groups for grid-wide sync (requires CC 6.0+).
+    /// If false, falls back to software barrier.
+    pub use_cooperative: bool,
+    /// Name of the shared memory array for block reduction.
+    pub shared_array_name: String,
+    /// Name of the global accumulator variable.
+    pub accumulator_name: String,
+}
+
+impl KernelReductionConfig {
+    /// Create a new reduction configuration.
+    pub fn new() -> Self {
+        Self {
+            enabled: false,
+            op: ReductionOp::Sum,
+            accumulator_type: "double".to_string(),
+            use_cooperative: true,
+            shared_array_name: "__reduction_shared".to_string(),
+            accumulator_name: "__reduction_accumulator".to_string(),
+        }
+    }
+
+    /// Enable reduction with the specified operation.
+    pub fn with_op(mut self, op: ReductionOp) -> Self {
+        self.enabled = true;
+        self.op = op;
+        self
+    }
+
+    /// Set the accumulator type.
+    pub fn with_type(mut self, ty: &str) -> Self {
+        self.accumulator_type = ty.to_string();
+        self
+    }
+
+    /// Enable or disable cooperative groups.
+    pub fn with_cooperative(mut self, use_cooperative: bool) -> Self {
+        self.use_cooperative = use_cooperative;
+        self
+    }
+
+    /// Set the shared memory array name.
+    pub fn with_shared_name(mut self, name: &str) -> Self {
+        self.shared_array_name = name.to_string();
+        self
+    }
+
+    /// Set the accumulator variable name.
+    pub fn with_accumulator_name(mut self, name: &str) -> Self {
+        self.accumulator_name = name.to_string();
+        self
+    }
+
+    /// Generate the shared memory declaration for block reduction.
+    pub fn generate_shared_declaration(&self, block_size: u32) -> String {
+        if !self.enabled {
+            return String::new();
+        }
+        format!(
+            "    __shared__ {} {}[{}];",
+            self.accumulator_type, self.shared_array_name, block_size
+        )
+    }
+
+    /// Generate the accumulator parameter declaration.
+    pub fn generate_accumulator_param(&self) -> String {
+        if !self.enabled {
+            return String::new();
+        }
+        format!(
+            "    {}* __restrict__ {},",
+            self.accumulator_type, self.accumulator_name
+        )
+    }
+}
+
 /// Configuration for a ring kernel.
 #[derive(Debug, Clone)]
 pub struct RingKernelConfig {
@@ -72,6 +163,8 @@ pub struct RingKernelConfig {
     pub kernel_id_num: u64,
     /// HLC node ID for this kernel.
     pub hlc_node_id: u64,
+    /// Configuration for global reductions (e.g., for PageRank dangling sum).
+    pub reduction: KernelReductionConfig,
 }
 
 impl Default for RingKernelConfig {
@@ -89,6 +182,7 @@ impl Default for RingKernelConfig {
             use_envelope_format: true, // Default to envelope format for proper serialization
             kernel_id_num: 0,
             hlc_node_id: 0,
+            reduction: KernelReductionConfig::new(),
         }
     }
 }
@@ -159,6 +253,41 @@ impl RingKernelConfig {
     /// Set the HLC node ID for this kernel.
     pub fn with_hlc_node_id(mut self, node_id: u64) -> Self {
         self.hlc_node_id = node_id;
+        self
+    }
+
+    /// Configure global reduction for this kernel.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use ringkernel_cuda_codegen::{RingKernelConfig, KernelReductionConfig};
+    /// use ringkernel_cuda_codegen::reduction_intrinsics::ReductionOp;
+    ///
+    /// let config = RingKernelConfig::new("pagerank")
+    ///     .with_reduction(
+    ///         KernelReductionConfig::new()
+    ///             .with_op(ReductionOp::Sum)
+    ///             .with_type("double")
+    ///     );
+    /// ```
+    pub fn with_reduction(mut self, reduction: KernelReductionConfig) -> Self {
+        self.reduction = reduction;
+        // If reduction is enabled and uses cooperative groups, enable them for the kernel
+        if self.reduction.enabled && self.reduction.use_cooperative {
+            self.cooperative_groups = true;
+        }
+        self
+    }
+
+    /// Enable global sum reduction with default settings.
+    ///
+    /// This is a convenience method for enabling a sum reduction with double precision.
+    pub fn with_sum_reduction(mut self) -> Self {
+        self.reduction = KernelReductionConfig::new()
+            .with_op(ReductionOp::Sum)
+            .with_type("double");
+        self.cooperative_groups = true;
         self
     }
 
@@ -1394,5 +1523,114 @@ mod tests {
 
         assert!(!RingKernelIntrinsic::HlcTick.requires_k2k());
         assert!(!RingKernelIntrinsic::IsActive.requires_k2k());
+    }
+
+    // ============== REDUCTION CONFIGURATION TESTS ==============
+
+    #[test]
+    fn test_kernel_reduction_config_default() {
+        let config = KernelReductionConfig::new();
+        assert!(!config.enabled);
+        assert_eq!(config.op, ReductionOp::Sum);
+        assert_eq!(config.accumulator_type, "double");
+        assert!(config.use_cooperative);
+    }
+
+    #[test]
+    fn test_kernel_reduction_config_builder() {
+        let config = KernelReductionConfig::new()
+            .with_op(ReductionOp::Max)
+            .with_type("float")
+            .with_cooperative(false)
+            .with_shared_name("my_shared")
+            .with_accumulator_name("my_accumulator");
+
+        assert!(config.enabled);
+        assert_eq!(config.op, ReductionOp::Max);
+        assert_eq!(config.accumulator_type, "float");
+        assert!(!config.use_cooperative);
+        assert_eq!(config.shared_array_name, "my_shared");
+        assert_eq!(config.accumulator_name, "my_accumulator");
+    }
+
+    #[test]
+    fn test_kernel_reduction_shared_declaration() {
+        let config = KernelReductionConfig::new()
+            .with_op(ReductionOp::Sum)
+            .with_type("double")
+            .with_shared_name("reduction_shared");
+
+        let decl = config.generate_shared_declaration(256);
+        assert!(decl.contains("__shared__"));
+        assert!(decl.contains("double"));
+        assert!(decl.contains("reduction_shared"));
+        assert!(decl.contains("[256]"));
+    }
+
+    #[test]
+    fn test_kernel_reduction_accumulator_param() {
+        let config = KernelReductionConfig::new()
+            .with_op(ReductionOp::Sum)
+            .with_type("double")
+            .with_accumulator_name("dangling_sum");
+
+        let param = config.generate_accumulator_param();
+        assert!(param.contains("double*"));
+        assert!(param.contains("__restrict__"));
+        assert!(param.contains("dangling_sum"));
+    }
+
+    #[test]
+    fn test_kernel_reduction_disabled_generates_empty() {
+        let config = KernelReductionConfig::new(); // Not enabled
+        assert!(config.generate_shared_declaration(256).is_empty());
+        assert!(config.generate_accumulator_param().is_empty());
+    }
+
+    #[test]
+    fn test_ring_kernel_config_with_reduction() {
+        let reduction = KernelReductionConfig::new()
+            .with_op(ReductionOp::Sum)
+            .with_type("double");
+
+        let config = RingKernelConfig::new("pagerank")
+            .with_block_size(256)
+            .with_reduction(reduction);
+
+        assert!(config.reduction.enabled);
+        assert_eq!(config.reduction.op, ReductionOp::Sum);
+        // Should automatically enable cooperative groups
+        assert!(config.cooperative_groups);
+    }
+
+    #[test]
+    fn test_ring_kernel_config_with_sum_reduction() {
+        let config = RingKernelConfig::new("pagerank")
+            .with_block_size(256)
+            .with_sum_reduction();
+
+        assert!(config.reduction.enabled);
+        assert_eq!(config.reduction.op, ReductionOp::Sum);
+        assert_eq!(config.reduction.accumulator_type, "double");
+        assert!(config.cooperative_groups);
+    }
+
+    #[test]
+    fn test_ring_kernel_config_reduction_without_cooperative() {
+        let reduction = KernelReductionConfig::new()
+            .with_op(ReductionOp::Sum)
+            .with_cooperative(false);
+
+        let config = RingKernelConfig::new("pagerank").with_reduction(reduction);
+
+        assert!(config.reduction.enabled);
+        // Should NOT automatically enable cooperative groups when use_cooperative is false
+        assert!(!config.cooperative_groups);
+    }
+
+    #[test]
+    fn test_reduction_op_default() {
+        let op = ReductionOp::default();
+        assert_eq!(op, ReductionOp::Sum);
     }
 }

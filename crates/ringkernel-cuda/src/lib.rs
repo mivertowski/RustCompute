@@ -47,6 +47,10 @@ mod memory;
 #[cfg(feature = "cuda")]
 pub mod persistent;
 #[cfg(feature = "cuda")]
+pub mod phases;
+#[cfg(feature = "cuda")]
+pub mod reduction;
+#[cfg(feature = "cuda")]
 mod runtime;
 #[cfg(feature = "cuda")]
 mod stencil;
@@ -57,6 +61,18 @@ pub use device::CudaDevice;
 pub use kernel::CudaKernel;
 #[cfg(feature = "cuda")]
 pub use memory::{CudaBuffer, CudaControlBlock, CudaMemoryPool, CudaMessageQueue};
+#[cfg(feature = "cuda")]
+pub use persistent::CudaMappedBuffer;
+#[cfg(feature = "cuda")]
+pub use phases::{
+    InterPhaseReduction, KernelPhase, MultiPhaseConfig, MultiPhaseExecutor, PhaseExecutionStats,
+    SyncMode,
+};
+#[cfg(feature = "cuda")]
+pub use reduction::{
+    generate_block_reduce_code, generate_grid_reduce_code, generate_reduce_and_broadcast_code,
+    ReductionBuffer, ReductionBufferBuilder,
+};
 #[cfg(feature = "cuda")]
 pub use runtime::CudaRuntime;
 #[cfg(feature = "cuda")]

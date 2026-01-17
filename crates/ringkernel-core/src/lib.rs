@@ -52,6 +52,7 @@ pub mod multi_gpu;
 pub mod observability;
 pub mod pubsub;
 pub mod queue;
+pub mod reduction;
 pub mod runtime;
 pub mod runtime_context;
 pub mod security;
@@ -113,6 +114,9 @@ pub mod prelude {
     };
     pub use crate::pubsub::{PubSubBroker, PubSubBuilder, Publication, QoS, Subscription, Topic};
     pub use crate::queue::*;
+    pub use crate::reduction::{
+        GlobalReduction, ReductionConfig, ReductionHandle, ReductionOp, ReductionScalar,
+    };
     pub use crate::runtime::*;
     pub use crate::runtime_context::{
         AppInfo, BackgroundTaskStatus, CircuitGuard, ContextMetrics, DegradationGuard,

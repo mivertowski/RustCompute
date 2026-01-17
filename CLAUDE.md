@@ -123,6 +123,41 @@ The project is a Cargo workspace with these crates:
 - **`RingContext`** - GPU intrinsics facade passed to kernel handlers
 - **`K2KBroker`/`K2KEndpoint`** - Kernel-to-kernel direct messaging
 - **`PubSubBroker`** - Topic-based publish/subscribe with wildcards
+- **`ReductionOp`** - Reduction operations (Sum, Min, Max, And, Or, Xor, Product)
+- **`ReductionScalar`** trait - Type-safe reduction with identity values
+- **`GlobalReduction`** trait - Backend-agnostic reduction interface
+
+### Global Reduction Primitives (in ringkernel-cuda)
+
+GPU-accelerated global reductions for algorithms like PageRank with dangling nodes:
+
+- **`ReductionBuffer<T>`** - Mapped memory buffer for zero-copy reduction results
+- **`ReductionBufferBuilder`** - Builder pattern for creating reduction buffers
+- **Multi-phase kernel execution** via `phases.rs`:
+  - **`SyncMode`** - Cooperative (grid.sync()), SoftwareBarrier (atomics), MultiLaunch
+  - **`KernelPhase`** - Phase metadata (name, function, dimensions)
+  - **`InterPhaseReduction<T>`** - Reduction between kernel phases
+  - **`MultiPhaseConfig`** - Phase sequencing configuration
+  - **`MultiPhaseExecutor`** - Orchestrates multi-phase execution
+
+```rust
+use ringkernel_cuda::reduction::{ReductionBuffer, ReductionBufferBuilder};
+use ringkernel_cuda::phases::{MultiPhaseConfig, SyncMode};
+
+// Create reduction buffer for dangling node sum
+let buffer = ReductionBufferBuilder::new()
+    .with_op(ReductionOp::Sum)
+    .with_slots(4)
+    .build(&device)?;
+
+// Multi-phase PageRank kernel
+let config = MultiPhaseConfig::new()
+    .with_sync_mode(SyncMode::Cooperative)  // grid.sync() on CC 6.0+
+    .with_phase("accumulate", accumulate_fn)
+    .with_phase("apply", apply_fn);
+```
+
+Run the PageRank example: `cargo run -p ringkernel --example pagerank_reduction --features cuda`
 
 ### Enterprise Features (in ringkernel-core)
 

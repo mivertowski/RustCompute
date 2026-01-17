@@ -7453,7 +7453,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -7492,7 +7492,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-accnet"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "criterion",
@@ -7528,7 +7528,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-audio-fft"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "atomic",
@@ -7552,7 +7552,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -7586,7 +7586,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-codegen"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "handlebars 5.1.2",
  "proc-macro2",
@@ -7600,7 +7600,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "atomic",
@@ -7628,7 +7628,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-cpu"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "crossbeam",
@@ -7646,7 +7646,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-cuda"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "cudarc",
@@ -7660,7 +7660,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-cuda-codegen"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7670,7 +7670,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-derive"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "darling 0.20.11",
@@ -7686,7 +7686,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-ecosystem"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "actix",
  "actix-rt",
@@ -7720,7 +7720,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-graph"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -7732,7 +7732,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-ir"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "petgraph",
  "pretty_assertions",
@@ -7743,7 +7743,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-metal"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -7757,7 +7757,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-montecarlo"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -7771,7 +7771,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-procint"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "criterion",
@@ -7807,7 +7807,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-tutorials"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ringkernel-core",
  "ringkernel-cpu",
@@ -7817,7 +7817,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-txmon"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -7837,7 +7837,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-wavesim"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -7860,7 +7860,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-wavesim3d"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "cpal",
@@ -7892,7 +7892,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-wgpu"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -7906,7 +7906,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-wgpu-codegen"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "naga 24.0.0",
  "proc-macro2",

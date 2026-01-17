@@ -7,7 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-01-17
+
 ### Added
+
+#### Global Reduction Primitives
+
+- **`ringkernel-core/src/reduction.rs`** - Core reduction traits
+  - `ReductionOp` enum: Sum, Min, Max, And, Or, Xor, Product
+  - `ReductionScalar` trait for type-safe reduction with identity values
+  - `ReductionConfig` for configuring reduction behavior
+  - `ReductionHandle` trait for streaming operations
+  - `GlobalReduction` trait for backend-agnostic reduction interface
+
+- **`ringkernel-cuda/src/reduction.rs`** - CUDA reduction implementation
+  - `ReductionBuffer<T>` using mapped memory (CPU+GPU visible)
+  - Zero-copy host read of reduction results
+  - Multi-slot support for reduced contention
+  - Block-then-atomic pattern for efficient grid reductions
+  - Helper code generation: `generate_block_reduce_code()`, `generate_grid_reduce_code()`, `generate_reduce_and_broadcast_code()`
+
+- **`ringkernel-cuda/src/phases.rs`** - Multi-phase kernel execution
+  - `SyncMode` enum: Cooperative, SoftwareBarrier, MultiLaunch
+  - `KernelPhase` struct for phase metadata
+  - `InterPhaseReduction<T>` for reduction between phases
+  - `MultiPhaseConfig` for phase sequencing
+  - `MultiPhaseExecutor` for orchestrating phase execution
+  - `PhaseExecutionStats` for performance tracking
+
+- **`ringkernel-cuda-codegen/src/reduction_intrinsics.rs`** - Codegen for reductions
+  - `generate_reduction_helpers()` for cooperative groups support
+  - `generate_inline_reduce_and_broadcast()` for inline reduction code
+  - `ReductionCodegenConfig` for configuring code generation
+
+- **New codegen intrinsics** in `GpuIntrinsic` enum:
+  - Block-level: `BlockReduceSum`, `BlockReduceMin`, `BlockReduceMax`, `BlockReduceAnd`, `BlockReduceOr`
+  - Grid-level: `GridReduceSum`, `GridReduceMin`, `GridReduceMax`
+  - Combined: `ReduceAndBroadcast`
+
+- **Ring kernel reduction support** via `KernelReductionConfig`:
+  - `with_reduction()` builder method on `RingKernelConfig`
+  - `with_sum_reduction()` convenience method
+  - Automatic reduction boilerplate generation
+
+- **`pagerank_reduction` example** demonstrating PageRank with dangling node handling
+  - Triangle graph (no dangling), star graph (75% dangling), chain with sink examples
+  - Generated CUDA kernel code visualization
+
+#### CudaDevice Enhancements
+
+- `alloc_mapped<T>()` method for mapped memory allocation
+- `supports_cooperative_groups()` method for capability detection
 
 #### Metal Backend Scaffold
 - **`ringkernel-metal`** - Apple Metal backend implementation (scaffold)
@@ -488,7 +538,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLAUDE.md with build commands and architecture overview
 - Code examples for all major features
 
-[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/mivertowski/RustCompute/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mivertowski/RustCompute/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/mivertowski/RustCompute/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/mivertowski/RustCompute/compare/v0.1.1...v0.1.2

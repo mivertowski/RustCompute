@@ -15,10 +15,10 @@
 #   ./scripts/publish.sh --status            # Check which crates are published
 #
 # The publishing order respects the dependency graph:
-#   Tier 1 (no deps):    core, cuda-codegen, wgpu-codegen
-#   Tier 2 (core deps):  derive, cpu, cuda, wgpu, metal, codegen, ecosystem, audio-fft
+#   Tier 1 (no deps):    core, cuda-codegen, wgpu-codegen, ir
+#   Tier 2 (core deps):  derive, cpu, cuda, wgpu, metal, codegen, ecosystem, audio-fft, graph, montecarlo, cli
 #   Tier 3 (main crate): ringkernel
-#   Tier 4 (apps):       wavesim, txmon, accnet, procint
+#   Tier 4 (apps):       wavesim, txmon, accnet, procint, wavesim3d
 #
 
 set -e
@@ -96,6 +96,7 @@ CRATES=(
     "ringkernel-core"
     "ringkernel-cuda-codegen"
     "ringkernel-wgpu-codegen"
+    "ringkernel-ir"
 
     # Tier 2: Depends only on Tier 1
     "ringkernel-derive"      # depends on: core, cuda-codegen (optional)
@@ -106,6 +107,9 @@ CRATES=(
     "ringkernel-codegen"     # depends on: core
     "ringkernel-ecosystem"   # depends on: core
     "ringkernel-audio-fft"   # depends on: core
+    "ringkernel-graph"       # depends on: core
+    "ringkernel-montecarlo"  # depends on: core
+    "ringkernel-cli"         # depends on: ir, cuda-codegen (optional), wgpu-codegen (optional)
 
     # Tier 3: Main crate (depends on most others)
     "ringkernel"             # depends on: core, derive, cpu, cuda, wgpu, metal, codegen
@@ -123,6 +127,7 @@ TIER1_CRATES=(
     "ringkernel-core"
     "ringkernel-cuda-codegen"
     "ringkernel-wgpu-codegen"
+    "ringkernel-ir"
 )
 
 print_header() {

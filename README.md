@@ -29,7 +29,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ringkernel = "0.2"
+ringkernel = "0.3"
 tokio = { version = "1.48", features = ["full"] }
 ```
 
@@ -37,10 +37,10 @@ For GPU backends:
 
 ```toml
 # NVIDIA CUDA
-ringkernel = { version = "0.2", features = ["cuda"] }
+ringkernel = { version = "0.3", features = ["cuda"] }
 
 # WebGPU (cross-platform)
-ringkernel = { version = "0.2", features = ["wgpu"] }
+ringkernel = { version = "0.3", features = ["wgpu"] }
 ```
 
 ## Quick Start
@@ -190,6 +190,37 @@ let options = LaunchOptions::default()
     .with_priority(priority::HIGH)
     .with_cooperative(true)         // Enable grid-wide sync (CUDA cooperative groups)
     .without_auto_activate();
+```
+
+### Global Reduction Primitives
+
+GPU-accelerated global reductions for algorithms like PageRank with dangling nodes:
+
+```rust
+use ringkernel_cuda::reduction::{ReductionBuffer, ReductionBufferBuilder};
+use ringkernel_core::reduction::{ReductionOp, ReductionConfig};
+
+// Create a reduction buffer for summing dangling node contributions
+let buffer = ReductionBufferBuilder::new()
+    .with_op(ReductionOp::Sum)
+    .with_slots(4)  // Multiple slots reduce contention
+    .build(&device)?;
+
+// In kernel: block-level reduction + atomic accumulation
+// grid_reduce_sum(local_value, shared_mem, buffer.device_ptr())
+```
+
+Multi-phase kernel support with inter-phase synchronization:
+
+```rust
+use ringkernel_cuda::phases::{MultiPhaseConfig, SyncMode};
+
+let config = MultiPhaseConfig::new()
+    .with_sync_mode(SyncMode::Cooperative)  // Uses grid.sync()
+    .with_phase("accumulate", accumulate_fn)
+    .with_phase("apply", apply_fn);
+
+// Cooperative groups for CC 6.0+, software barrier fallback for older GPUs
 ```
 
 ### Kernel-to-Kernel Messaging

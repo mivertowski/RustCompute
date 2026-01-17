@@ -41,6 +41,7 @@ pub mod handler;
 mod intrinsics;
 pub mod loops;
 pub mod persistent_fdtd;
+pub mod reduction_intrinsics;
 pub mod ring_kernel;
 pub mod shared;
 mod stencil;
@@ -56,8 +57,14 @@ pub use handler::{
 pub use intrinsics::{GpuIntrinsic, IntrinsicRegistry, RingKernelIntrinsic, StencilIntrinsic};
 pub use loops::{LoopPattern, RangeInfo};
 pub use persistent_fdtd::{generate_persistent_fdtd_kernel, PersistentFdtdConfig};
+pub use reduction_intrinsics::{
+    generate_inline_block_reduce, generate_inline_grid_reduce,
+    generate_inline_reduce_and_broadcast, generate_reduction_helpers, transpile_reduction_call,
+    ReductionCodegenConfig, ReductionIntrinsic, ReductionOp as CodegenReductionOp,
+};
 pub use ring_kernel::{
-    generate_control_block_struct, generate_hlc_struct, generate_k2k_structs, RingKernelConfig,
+    generate_control_block_struct, generate_hlc_struct, generate_k2k_structs,
+    KernelReductionConfig, RingKernelConfig,
 };
 pub use shared::{SharedArray, SharedMemoryConfig, SharedMemoryDecl, SharedTile};
 pub use stencil::{Grid, GridPos, StencilConfig, StencilLaunchConfig};
