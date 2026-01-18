@@ -86,15 +86,15 @@ pub mod prelude {
     };
     pub use crate::context::*;
     pub use crate::control::*;
+    pub use crate::dispatcher::{
+        DispatcherBuilder, DispatcherConfig, DispatcherMetrics, KernelDispatcher,
+    };
     pub use crate::domain::{Domain, DomainMessage, DomainParseError};
     pub use crate::error::*;
     pub use crate::health::{
         BackoffStrategy, CircuitBreaker, CircuitBreakerConfig, CircuitBreakerStats, CircuitState,
         DegradationLevel, DegradationManager, DegradationStats, HealthCheck, HealthCheckResult,
         HealthChecker, HealthStatus, KernelHealth, KernelWatchdog, LoadSheddingPolicy, RetryPolicy,
-    };
-    pub use crate::dispatcher::{
-        DispatcherBuilder, DispatcherConfig, DispatcherMetrics, KernelDispatcher,
     };
     pub use crate::hlc::*;
     pub use crate::k2k::{

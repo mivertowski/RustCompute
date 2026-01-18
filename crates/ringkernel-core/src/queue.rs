@@ -381,11 +381,12 @@ impl MessageQueue for BoundedQueue {
 ///
 /// Instead of dynamic resizing (which is complex for GPU memory),
 /// we provide predefined tiers that can be selected based on expected load.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum QueueTier {
     /// Small queues (256 messages) - low traffic, minimal memory.
     Small,
     /// Medium queues (1024 messages) - moderate traffic.
+    #[default]
     Medium,
     /// Large queues (4096 messages) - high traffic.
     Large,
@@ -449,12 +450,6 @@ impl QueueTier {
     }
 }
 
-impl Default for QueueTier {
-    fn default() -> Self {
-        Self::Medium
-    }
-}
-
 /// Factory for creating appropriately-sized message queues.
 ///
 /// # Example
@@ -492,7 +487,10 @@ impl QueueFactory {
     ///
     /// * `messages_per_second` - Expected message throughput
     /// * `headroom_ms` - Desired buffer time in milliseconds
-    pub fn create_for_throughput(messages_per_second: u64, headroom_ms: u64) -> Box<dyn MessageQueue> {
+    pub fn create_for_throughput(
+        messages_per_second: u64,
+        headroom_ms: u64,
+    ) -> Box<dyn MessageQueue> {
         let tier = QueueTier::for_throughput(messages_per_second, headroom_ms);
         Box::new(Self::create_mpsc(tier))
     }
@@ -586,7 +584,11 @@ impl QueueMonitor {
     /// Suggest whether to upgrade the queue tier based on observed utilization.
     ///
     /// Returns `Some(QueueTier)` if upgrade is recommended, `None` otherwise.
-    pub fn suggest_upgrade(&self, queue: &dyn MessageQueue, current_tier: QueueTier) -> Option<QueueTier> {
+    pub fn suggest_upgrade(
+        &self,
+        queue: &dyn MessageQueue,
+        current_tier: QueueTier,
+    ) -> Option<QueueTier> {
         let stats = queue.stats();
         let utilization = self.utilization(queue);
 
@@ -642,7 +644,11 @@ pub struct QueueMetrics {
 
 impl QueueMetrics {
     /// Capture metrics from a queue.
-    pub fn capture(queue: &dyn MessageQueue, monitor: &QueueMonitor, current_tier: Option<QueueTier>) -> Self {
+    pub fn capture(
+        queue: &dyn MessageQueue,
+        monitor: &QueueMonitor,
+        current_tier: Option<QueueTier>,
+    ) -> Self {
         let health = monitor.check(queue);
         let utilization = monitor.utilization(queue);
         let stats = queue.stats();
@@ -785,7 +791,10 @@ mod tests {
         assert_eq!(QueueTier::for_throughput(20000, 100), QueueTier::Large);
 
         // Very high traffic - 100000 msg/s with 100ms buffer = 10000 msgs needed
-        assert_eq!(QueueTier::for_throughput(100000, 100), QueueTier::ExtraLarge);
+        assert_eq!(
+            QueueTier::for_throughput(100000, 100),
+            QueueTier::ExtraLarge
+        );
     }
 
     #[test]
@@ -899,7 +908,9 @@ mod tests {
         for _ in 0..(QueueTier::ExtraLarge.capacity() * 3 / 4) {
             large_queue.try_enqueue(make_envelope()).unwrap();
         }
-        assert!(monitor.suggest_upgrade(&large_queue, QueueTier::ExtraLarge).is_none());
+        assert!(monitor
+            .suggest_upgrade(&large_queue, QueueTier::ExtraLarge)
+            .is_none());
     }
 
     #[test]

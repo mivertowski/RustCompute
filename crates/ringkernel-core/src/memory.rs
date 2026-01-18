@@ -324,13 +324,14 @@ pub fn create_pool(
 ///
 /// Provides predefined size classes for efficient multi-size pooling.
 /// Allocations are rounded up to the smallest bucket that fits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SizeBucket {
     /// Tiny buffers (256 bytes) - metadata, small messages.
     Tiny,
     /// Small buffers (1 KB) - typical message payloads.
     Small,
     /// Medium buffers (4 KB) - page-sized allocations.
+    #[default]
     Medium,
     /// Large buffers (16 KB) - batch operations.
     Large,
@@ -399,12 +400,6 @@ impl SizeBucket {
     }
 }
 
-impl Default for SizeBucket {
-    fn default() -> Self {
-        Self::Medium
-    }
-}
-
 impl std::fmt::Display for SizeBucket {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -442,7 +437,11 @@ impl StratifiedPoolStats {
 
     /// Get hit rate for a specific bucket.
     pub fn bucket_hit_rate(&self, bucket: SizeBucket) -> f64 {
-        let allocs = self.allocations_per_bucket.get(&bucket).copied().unwrap_or(0);
+        let allocs = self
+            .allocations_per_bucket
+            .get(&bucket)
+            .copied()
+            .unwrap_or(0);
         let hits = self.hits_per_bucket.get(&bucket).copied().unwrap_or(0);
         if allocs == 0 {
             0.0
@@ -495,7 +494,10 @@ impl StratifiedMemoryPool {
 
         for bucket in SizeBucket::ALL {
             let pool_name = format!("{}_{}", name, bucket);
-            buckets.insert(bucket, MemoryPool::new(pool_name, bucket.size(), max_buffers_per_bucket));
+            buckets.insert(
+                bucket,
+                MemoryPool::new(pool_name, bucket.size(), max_buffers_per_bucket),
+            );
         }
 
         Self {
@@ -552,7 +554,10 @@ impl StratifiedMemoryPool {
 
     /// Get current size of a specific bucket pool.
     pub fn bucket_size(&self, bucket: SizeBucket) -> usize {
-        self.buckets.get(&bucket).map(|p| p.current_size()).unwrap_or(0)
+        self.buckets
+            .get(&bucket)
+            .map(|p| p.current_size())
+            .unwrap_or(0)
     }
 
     /// Get total buffers currently pooled across all buckets.
@@ -662,7 +667,10 @@ pub fn create_stratified_pool_with_capacity(
     name: impl Into<String>,
     max_buffers_per_bucket: usize,
 ) -> SharedStratifiedPool {
-    Arc::new(StratifiedMemoryPool::with_capacity(name, max_buffers_per_bucket))
+    Arc::new(StratifiedMemoryPool::with_capacity(
+        name,
+        max_buffers_per_bucket,
+    ))
 }
 
 // ============================================================================
@@ -698,7 +706,11 @@ impl std::fmt::Debug for PressureReaction {
         match self {
             Self::None => write!(f, "PressureReaction::None"),
             Self::Shrink { target_utilization } => {
-                write!(f, "PressureReaction::Shrink {{ target_utilization: {} }}", target_utilization)
+                write!(
+                    f,
+                    "PressureReaction::Shrink {{ target_utilization: {} }}",
+                    target_utilization
+                )
             }
             Self::Callback(_) => write!(f, "PressureReaction::Callback(<fn>)"),
         }
@@ -1006,9 +1018,9 @@ mod tests {
         let pool = StratifiedMemoryPool::new("test");
 
         // Allocate different sizes
-        let buf1 = pool.allocate(100);   // Tiny
-        let buf2 = pool.allocate(500);   // Small
-        let buf3 = pool.allocate(2000);  // Medium
+        let buf1 = pool.allocate(100); // Tiny
+        let buf2 = pool.allocate(500); // Small
+        let buf3 = pool.allocate(2000); // Medium
 
         assert_eq!(buf1.bucket(), SizeBucket::Tiny);
         assert_eq!(buf2.bucket(), SizeBucket::Small);
@@ -1046,14 +1058,20 @@ mod tests {
         let pool = StratifiedMemoryPool::new("test");
 
         // Allocate from different buckets
-        let _buf1 = pool.allocate(100);  // Tiny
-        let _buf2 = pool.allocate(500);  // Small
-        let _buf3 = pool.allocate(100);  // Tiny again
+        let _buf1 = pool.allocate(100); // Tiny
+        let _buf2 = pool.allocate(500); // Small
+        let _buf3 = pool.allocate(100); // Tiny again
 
         let stats = pool.stats();
         assert_eq!(stats.total_allocations, 3);
-        assert_eq!(stats.allocations_per_bucket.get(&SizeBucket::Tiny), Some(&2));
-        assert_eq!(stats.allocations_per_bucket.get(&SizeBucket::Small), Some(&1));
+        assert_eq!(
+            stats.allocations_per_bucket.get(&SizeBucket::Tiny),
+            Some(&2)
+        );
+        assert_eq!(
+            stats.allocations_per_bucket.get(&SizeBucket::Small),
+            Some(&1)
+        );
     }
 
     #[test]
@@ -1173,7 +1191,9 @@ mod tests {
         let none = PressureReaction::None;
         assert!(format!("{:?}", none).contains("None"));
 
-        let shrink = PressureReaction::Shrink { target_utilization: 0.5 };
+        let shrink = PressureReaction::Shrink {
+            target_utilization: 0.5,
+        };
         assert!(format!("{:?}", shrink).contains("0.5"));
 
         let callback = PressureReaction::Callback(Box::new(|_| {}));

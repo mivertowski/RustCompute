@@ -546,8 +546,15 @@ mod persistent_message_tests {
 
     /// Small message that fits in inline payload (16 bytes)
     #[derive(
-        RingMessage, PersistentMessage, Clone, Copy, Debug, PartialEq,
-        rkyv::Archive, rkyv::Serialize, rkyv::Deserialize
+        RingMessage,
+        PersistentMessage,
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        rkyv::Archive,
+        rkyv::Serialize,
+        rkyv::Deserialize,
     )]
     #[archive(check_bytes)]
     #[repr(C)]
@@ -608,8 +615,14 @@ mod persistent_message_tests {
 
     /// Message without response
     #[derive(
-        RingMessage, PersistentMessage, Clone, Copy, Debug,
-        rkyv::Archive, rkyv::Serialize, rkyv::Deserialize
+        RingMessage,
+        PersistentMessage,
+        Clone,
+        Copy,
+        Debug,
+        rkyv::Archive,
+        rkyv::Serialize,
+        rkyv::Deserialize,
     )]
     #[archive(check_bytes)]
     #[repr(C)]
@@ -628,8 +641,15 @@ mod persistent_message_tests {
 
     /// Exactly 32 bytes (maximum inline size)
     #[derive(
-        RingMessage, PersistentMessage, Clone, Copy, Debug, PartialEq,
-        rkyv::Archive, rkyv::Serialize, rkyv::Deserialize
+        RingMessage,
+        PersistentMessage,
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        rkyv::Archive,
+        rkyv::Serialize,
+        rkyv::Deserialize,
     )]
     #[archive(check_bytes)]
     #[repr(C)]
@@ -644,9 +664,7 @@ mod persistent_message_tests {
         assert_eq!(std::mem::size_of::<MaxSizeMessage>(), 32);
         assert!(MaxSizeMessage::can_inline());
 
-        let original = MaxSizeMessage {
-            data: [1, 2, 3, 4],
-        };
+        let original = MaxSizeMessage { data: [1, 2, 3, 4] };
 
         let payload = original
             .to_inline_payload()
@@ -659,8 +677,14 @@ mod persistent_message_tests {
 
     /// Too large for inline (40 bytes)
     #[derive(
-        RingMessage, PersistentMessage, Clone, Copy, Debug,
-        rkyv::Archive, rkyv::Serialize, rkyv::Deserialize
+        RingMessage,
+        PersistentMessage,
+        Clone,
+        Copy,
+        Debug,
+        rkyv::Archive,
+        rkyv::Serialize,
+        rkyv::Deserialize,
     )]
     #[archive(check_bytes)]
     #[repr(C)]
@@ -675,7 +699,9 @@ mod persistent_message_tests {
         assert_eq!(std::mem::size_of::<LargeMessage>(), 40);
         assert!(!LargeMessage::can_inline());
 
-        let msg = LargeMessage { data: [1, 2, 3, 4, 5] };
+        let msg = LargeMessage {
+            data: [1, 2, 3, 4, 5],
+        };
 
         // to_inline_payload should return None for oversized messages
         let payload = msg.to_inline_payload();
@@ -708,8 +734,14 @@ mod persistent_message_tests {
 
     /// Test handler ID range (0-255)
     #[derive(
-        RingMessage, PersistentMessage, Clone, Copy, Debug,
-        rkyv::Archive, rkyv::Serialize, rkyv::Deserialize
+        RingMessage,
+        PersistentMessage,
+        Clone,
+        Copy,
+        Debug,
+        rkyv::Archive,
+        rkyv::Serialize,
+        rkyv::Deserialize,
     )]
     #[archive(check_bytes)]
     #[repr(C)]
@@ -725,8 +757,14 @@ mod persistent_message_tests {
     }
 
     #[derive(
-        RingMessage, PersistentMessage, Clone, Copy, Debug,
-        rkyv::Archive, rkyv::Serialize, rkyv::Deserialize
+        RingMessage,
+        PersistentMessage,
+        Clone,
+        Copy,
+        Debug,
+        rkyv::Archive,
+        rkyv::Serialize,
+        rkyv::Deserialize,
     )]
     #[archive(check_bytes)]
     #[repr(C)]

@@ -850,7 +850,6 @@ pub fn compile_persistent_fdtd_to_ptx(config: &PersistentFdtdConfig) -> Result<S
     let cuda_code = generate_persistent_fdtd_kernel(config);
 
     // Use nvcc to compile to PTX
-    use std::io::Write;
     use std::process::Command;
 
     // Write to temp file

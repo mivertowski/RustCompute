@@ -11,6 +11,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Multi-Kernel Dispatch and Persistent Message Routing
+
+- **`#[derive(PersistentMessage)]` macro** (`ringkernel-derive`)
+  - Automatic `handler_id` generation for GPU kernel dispatch
+  - Inline payload serialization with response tracking
+  - Compile-time handler registration
+
+- **`KernelDispatcher`** (`ringkernel-core/src/dispatcher.rs`) - **NEW FILE**
+  - Type-based message routing via K2K broker
+  - `DispatcherBuilder` with fluent configuration API
+  - `DispatcherConfig` for routing behavior customization
+  - `DispatcherMetrics` for observability (messages dispatched, errors, latency)
+
+- **CUDA Handler Dispatch Code Generator** (`ringkernel-cuda-codegen/src/ring_kernel.rs`)
+  - `CudaDispatchTable` for handler registration
+  - Switch-based dispatch code generation
+  - `ExtendedH2KMessage` struct generation for typed payloads
+
+- **Queue Tiering System** (`ringkernel-core/src/queue.rs`)
+  - `QueueTier` enum: Small (256), Medium (1024), Large (4096), ExtraLarge (16384)
+  - `QueueFactory` for creating appropriately-sized message queues
+  - `QueueMonitor` for queue health checking with configurable thresholds
+  - `QueueMetrics` for observability (enqueue/dequeue counts, peak depth)
+  - `for_throughput()` method for automatic tier selection based on message rate
+
+- **Persistent Message Infrastructure** (`ringkernel-core/src/persistent_message.rs`) - **NEW FILE**
+  - `PersistentMessage` trait for GPU-dispatchable messages
+  - `DispatchTable` for runtime handler registration
+  - `HandlerId` type for type-safe handler identification
+
+#### CUDA NVRTC Compilation
+
+- **`compile_ptx()` function** (`ringkernel-cuda/src/lib.rs`)
+  - Wraps `cudarc::nvrtc::compile_ptx` for downstream crates
+  - Compile CUDA source to PTX without direct cudarc dependency
+  - Returns PTX string or compilation error
+
 #### Memory Pool Management
 
 - **Size-Stratified Memory Pool** (`ringkernel-core/src/memory.rs`)

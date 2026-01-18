@@ -178,13 +178,20 @@ impl AnalyticsContext {
     /// # Type Parameters
     ///
     /// * `T` - Element type (must be Copy and have a meaningful zero value)
-    pub fn allocate_typed<T: Copy + Default + 'static>(&mut self, count: usize) -> AllocationHandle {
+    pub fn allocate_typed<T: Copy + Default + 'static>(
+        &mut self,
+        count: usize,
+    ) -> AllocationHandle {
         let size = count * std::mem::size_of::<T>();
         let handle = self.allocate(size);
 
         // Track typed allocation
         self.stats.typed_allocations += 1;
-        *self.stats.allocations_by_type.entry(TypeId::of::<T>()).or_insert(0) += 1;
+        *self
+            .stats
+            .allocations_by_type
+            .entry(TypeId::of::<T>())
+            .or_insert(0) += 1;
 
         handle
     }
@@ -337,7 +344,9 @@ impl AnalyticsContextBuilder {
     /// Build the context.
     pub fn build(self) -> AnalyticsContext {
         let mut ctx = match self.expected_allocations {
-            Some(cap) => AnalyticsContext::with_capacity(self.name, cap.max(self.preallocations.len())),
+            Some(cap) => {
+                AnalyticsContext::with_capacity(self.name, cap.max(self.preallocations.len()))
+            }
             None => AnalyticsContext::new(self.name),
         };
 

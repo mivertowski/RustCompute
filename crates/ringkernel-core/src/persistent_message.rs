@@ -256,9 +256,7 @@ mod tests {
 
         table.register(HandlerRegistration::new(1, "fraud_check", 1001));
         table.register(HandlerRegistration::new(2, "aggregate", 1002));
-        table.register(
-            HandlerRegistration::new(3, "pattern_detect", 1003).with_response(2003),
-        );
+        table.register(HandlerRegistration::new(3, "pattern_detect", 1003).with_response(2003));
 
         assert_eq!(table.len(), 3);
         assert_eq!(table.max_handler_id(), 3);

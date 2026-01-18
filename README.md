@@ -270,6 +270,54 @@ let buffer = cache.acquire::<f32>(4, ReductionOp::Sum)?;
 // Buffer automatically returned to cache on drop
 ```
 
+### Multi-Kernel Dispatch
+
+Route messages to GPU kernels based on message type:
+
+```rust
+use ringkernel_core::prelude::*;
+
+// Define a persistent message with automatic handler ID
+#[derive(PersistentMessage)]
+struct ComputeTask {
+    data: Vec<f32>,
+}
+
+// Create dispatcher with K2K broker
+let dispatcher = DispatcherBuilder::new(k2k_broker)
+    .with_default_priority(Priority::Normal)
+    .build();
+
+// Dispatch routes to appropriate kernel based on message type
+dispatcher.dispatch(kernel_id, envelope).await?;
+
+// Check metrics
+let metrics = dispatcher.metrics();
+println!("Dispatched: {}, Errors: {}", metrics.messages_dispatched, metrics.errors);
+```
+
+### Queue Tiering
+
+Select queue capacity based on expected throughput:
+
+```rust
+use ringkernel_core::queue::{QueueTier, QueueFactory, QueueMonitor};
+
+// Automatic tier selection based on message rate
+let tier = QueueTier::for_throughput(10_000, 100); // 10k msg/s, 100ms buffer
+// Returns QueueTier::Medium (1024 capacity)
+
+// Manual tier selection
+let queue = QueueFactory::create_spsc(QueueTier::Large); // 4096 capacity
+
+// Monitor queue health
+let monitor = QueueMonitor::new(queue, QueueMonitorConfig::default());
+let health = monitor.check_health();
+println!("Depth: {}, Healthy: {}", health.current_depth, health.is_healthy);
+```
+
+Available tiers: `Small` (256), `Medium` (1024), `Large` (4096), `ExtraLarge` (16384).
+
 ### Kernel-to-Kernel Messaging
 
 Direct communication between kernels:
@@ -334,6 +382,38 @@ struct Matrix4x4 {
     data: [f32; 16],
 }
 ```
+
+### Domain System
+
+Organize messages by business domain with automatic type ID allocation:
+
+```rust
+use ringkernel::prelude::*;
+
+// 20 predefined domains with reserved type ID ranges
+#[derive(RingMessage)]
+#[message(domain = "FraudDetection")]  // Type IDs 1000-1099
+struct SuspiciousTransaction {
+    #[message(id)]
+    id: MessageId,
+    amount: f64,
+    risk_score: f32,
+}
+
+#[derive(RingMessage)]
+#[message(domain = "ProcessIntelligence")]  // Type IDs 1500-1599
+struct ActivityEvent {
+    #[message(id)]
+    id: MessageId,
+    case_id: u64,
+    activity: String,
+}
+
+// Check domain at runtime
+let domain = Domain::from_type_id(1050);  // Returns Some(Domain::FraudDetection)
+```
+
+Available domains: `GraphAnalytics`, `StatisticalML`, `Compliance`, `RiskManagement`, `OrderMatching`, `MarketData`, `Settlement`, `Accounting`, `NetworkAnalysis`, `FraudDetection`, `TimeSeries`, `Simulation`, `Banking`, `BehavioralAnalytics`, `ProcessIntelligence`, `Clearing`, `TreasuryManagement`, `PaymentProcessing`, `FinancialAudit`, `Custom`.
 
 ## Examples
 
@@ -410,7 +490,7 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 ## Testing
 
 ```bash
-# Run all tests (775+ tests)
+# Run all tests (825+ tests)
 cargo test --workspace
 
 # CUDA backend tests (requires NVIDIA GPU)
@@ -577,7 +657,25 @@ Detailed documentation is also available in the `docs/` directory:
 
 ## GPU Code Generation
 
-Write GPU kernels in Rust and transpile them to CUDA C or WGSL. Both transpilers support three kernel types with unified API:
+Write GPU kernels in Rust and transpile them to CUDA C or WGSL. Both transpilers support three kernel types with unified API.
+
+### CUDA PTX Compilation
+
+Compile CUDA source to PTX without directly depending on cudarc:
+
+```rust
+use ringkernel_cuda::compile_ptx;
+
+let cuda_source = r#"
+    extern "C" __global__ void add(float* a, float* b, float* c, int n) {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx < n) c[idx] = a[idx] + b[idx];
+    }
+"#;
+
+let ptx = compile_ptx(cuda_source)?;
+// Load PTX into CUDA module and execute
+```
 
 ### Backend Selection
 

@@ -41,8 +41,8 @@ use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
-use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::atomic::{fence, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::Mutex;
 
 use cudarc::driver::sys as cuda_sys;
@@ -556,7 +556,11 @@ impl ReductionBufferCache {
     /// Return a buffer to the cache.
     ///
     /// This is called automatically by `CachedReductionBuffer::drop()`.
-    fn return_buffer<T: ReductionScalar + 'static>(&self, key: CacheKey, buffer: ReductionBuffer<T>) {
+    fn return_buffer<T: ReductionScalar + 'static>(
+        &self,
+        key: CacheKey,
+        buffer: ReductionBuffer<T>,
+    ) {
         let mut cache = self.cache.lock().unwrap();
         let entry = cache.entry(key).or_default();
 
@@ -961,7 +965,11 @@ mod tests {
 
         for i in 0..keys.len() {
             for j in (i + 1)..keys.len() {
-                assert_ne!(keys[i], keys[j], "Keys for {:?} and {:?} should differ", ops[i], ops[j]);
+                assert_ne!(
+                    keys[i], keys[j],
+                    "Keys for {:?} and {:?} should differ",
+                    ops[i], ops[j]
+                );
             }
         }
     }

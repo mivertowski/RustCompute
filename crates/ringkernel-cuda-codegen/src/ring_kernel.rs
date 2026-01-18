@@ -1435,7 +1435,12 @@ pub fn generate_handler_dispatch_code(table: &CudaDispatchTable, indent: &str) -
     let mut code = String::new();
 
     if table.is_empty() {
-        writeln!(code, "{}// No handlers registered - dispatch table empty", indent).unwrap();
+        writeln!(
+            code,
+            "{}// No handlers registered - dispatch table empty",
+            indent
+        )
+        .unwrap();
         return code;
     }
 
@@ -1534,7 +1539,10 @@ struct __align__(64) ExtendedH2KMessage {
 /// # Returns
 ///
 /// Complete CUDA kernel code with handler dispatch.
-pub fn generate_multi_handler_kernel(config: &RingKernelConfig, table: &CudaDispatchTable) -> String {
+pub fn generate_multi_handler_kernel(
+    config: &RingKernelConfig,
+    table: &CudaDispatchTable,
+) -> String {
     let mut code = String::new();
 
     // Struct definitions
@@ -1994,9 +2002,9 @@ mod tests {
 
     #[test]
     fn test_generate_handler_dispatch_code_single_handler() {
-        let table = CudaDispatchTable::new()
-            .with_handler(CudaHandlerInfo::new(1, "handle_fraud")
-                .with_message_type("FraudCheck", 1001));
+        let table = CudaDispatchTable::new().with_handler(
+            CudaHandlerInfo::new(1, "handle_fraud").with_message_type("FraudCheck", 1001),
+        );
 
         let code = generate_handler_dispatch_code(&table, "    ");
 
@@ -2010,13 +2018,17 @@ mod tests {
     #[test]
     fn test_generate_handler_dispatch_code_multiple_handlers() {
         let table = CudaDispatchTable::new()
-            .with_handler(CudaHandlerInfo::new(1, "handle_fraud")
-                .with_message_type("FraudCheck", 1001))
-            .with_handler(CudaHandlerInfo::new(2, "handle_aggregate")
-                .with_message_type("Aggregate", 1002)
-                .with_response())
-            .with_handler(CudaHandlerInfo::new(5, "handle_pattern")
-                .with_message_type("Pattern", 1005));
+            .with_handler(
+                CudaHandlerInfo::new(1, "handle_fraud").with_message_type("FraudCheck", 1001),
+            )
+            .with_handler(
+                CudaHandlerInfo::new(2, "handle_aggregate")
+                    .with_message_type("Aggregate", 1002)
+                    .with_response(),
+            )
+            .with_handler(
+                CudaHandlerInfo::new(5, "handle_pattern").with_message_type("Pattern", 1005),
+            );
 
         let code = generate_handler_dispatch_code(&table, "    ");
 
@@ -2030,9 +2042,10 @@ mod tests {
 
     #[test]
     fn test_generate_handler_dispatch_code_with_inline_body() {
-        let table = CudaDispatchTable::new()
-            .with_handler(CudaHandlerInfo::new(1, "inline_handler")
-                .with_cuda_body("int result = msg->payload[0] * 2;\nresponse->result = result;"));
+        let table = CudaDispatchTable::new().with_handler(
+            CudaHandlerInfo::new(1, "inline_handler")
+                .with_cuda_body("int result = msg->payload[0] * 2;\nresponse->result = result;"),
+        );
 
         let code = generate_handler_dispatch_code(&table, "    ");
 

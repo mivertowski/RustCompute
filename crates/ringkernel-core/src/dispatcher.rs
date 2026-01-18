@@ -247,12 +247,7 @@ impl KernelDispatcher {
         // Dispatch via K2K broker
         let receipt = self
             .broker
-            .send_priority(
-                source,
-                kernel_id,
-                envelope,
-                self.config.default_priority,
-            )
+            .send_priority(source, kernel_id, envelope, self.config.default_priority)
             .await?;
 
         // Update metrics
