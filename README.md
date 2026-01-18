@@ -223,6 +223,53 @@ let config = MultiPhaseConfig::new()
 // Cooperative groups for CC 6.0+, software barrier fallback for older GPUs
 ```
 
+### Memory Pool Management
+
+Efficient buffer reuse for analytics workloads:
+
+```rust
+use ringkernel_core::prelude::*;
+
+// Size-stratified pool with automatic bucket selection
+let pool = StratifiedMemoryPool::new("analytics");
+
+// Allocate various sizes - each goes to appropriate bucket
+let tiny_buf = pool.allocate(100);    // Uses Tiny bucket (256B)
+let medium_buf = pool.allocate(2000); // Uses Medium bucket (4KB)
+
+// Check statistics
+let stats = pool.stats();
+println!("Hit rate: {:.1}%", stats.hit_rate() * 100.0);
+```
+
+Analytics context for grouped buffer lifecycle:
+
+```rust
+use ringkernel_core::analytics_context::AnalyticsContext;
+
+// Create context for a BFS operation
+let mut ctx = AnalyticsContext::new("bfs_traversal");
+
+// Allocate buffers - all released when context drops
+let frontier = ctx.allocate(1024);
+let visited = ctx.allocate_typed::<u32>(256);
+
+// Check stats
+println!("Peak memory: {} bytes", ctx.stats().peak_bytes);
+```
+
+CUDA reduction buffer cache for PageRank-style algorithms:
+
+```rust
+use ringkernel_cuda::{ReductionBufferCache, ReductionOp};
+
+let cache = ReductionBufferCache::new(&device, 4);
+
+// First acquire allocates, subsequent acquires reuse
+let buffer = cache.acquire::<f32>(4, ReductionOp::Sum)?;
+// Buffer automatically returned to cache on drop
+```
+
 ### Kernel-to-Kernel Messaging
 
 Direct communication between kernels:

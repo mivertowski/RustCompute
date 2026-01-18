@@ -31,6 +31,7 @@
 #![warn(clippy::all)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod analytics_context;
 pub mod audit;
 pub mod checkpoint;
 
@@ -70,6 +71,9 @@ pub mod __private;
 
 /// Prelude module for convenient imports
 pub mod prelude {
+    pub use crate::analytics_context::{
+        AllocationHandle, AnalyticsContext, AnalyticsContextBuilder, ContextStats,
+    };
     pub use crate::audit::{
         AuditConfig, AuditEvent, AuditEventType, AuditLevel, AuditLogger, AuditLoggerBuilder,
         AuditSink, FileSink, MemorySink,

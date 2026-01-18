@@ -71,7 +71,8 @@ pub use phases::{
 #[cfg(feature = "cuda")]
 pub use reduction::{
     generate_block_reduce_code, generate_grid_reduce_code, generate_reduce_and_broadcast_code,
-    ReductionBuffer, ReductionBufferBuilder,
+    CacheKey, CacheStats, CachedReductionBuffer, ReductionBuffer, ReductionBufferBuilder,
+    ReductionBufferCache,
 };
 #[cfg(feature = "cuda")]
 pub use runtime::CudaRuntime;

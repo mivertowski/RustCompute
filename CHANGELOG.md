@@ -11,6 +11,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Memory Pool Management
+
+- **Size-Stratified Memory Pool** (`ringkernel-core/src/memory.rs`)
+  - `SizeBucket` enum: Tiny (256B), Small (1KB), Medium (4KB), Large (16KB), Huge (64KB)
+  - `StratifiedMemoryPool` - Multi-bucket pool with automatic size selection
+  - `StratifiedBuffer` - RAII wrapper that returns buffers to correct bucket on drop
+  - `StratifiedPoolStats` - Per-bucket allocation statistics with hit rate tracking
+  - `create_stratified_pool()` and `create_stratified_pool_with_capacity()` helpers
+
+- **WebGPU Staging Buffer Pool** (`ringkernel-wgpu/src/memory.rs`)
+  - `StagingBufferPool` - Reusable staging buffer cache for GPU-to-host transfers
+  - `StagingBufferGuard` - RAII wrapper for automatic buffer return
+  - `StagingPoolStats` - Cache hit/miss tracking for staging buffers
+  - `WgpuBuffer` extended with optional staging pool integration
+
+- **CUDA Reduction Buffer Cache** (`ringkernel-cuda/src/reduction.rs`)
+  - `ReductionBufferCache` - Cache keyed by (num_slots, ReductionOp) for buffer reuse
+  - `CachedReductionBuffer<T>` - RAII wrapper with `Deref`/`DerefMut` for transparent access
+  - `CacheStats` - Hit/miss counters with hit rate calculation
+  - `CacheKey` - Hashable key type for cache lookup
+
+- **Analytics Context Manager** (`ringkernel-core/src/analytics_context.rs`) - **NEW FILE**
+  - `AnalyticsContext` - Grouped buffer lifecycle for analytics operations (DFG, BFS, pattern detection)
+  - `AllocationHandle` - Type-safe opaque handle to allocations
+  - `ContextStats` - Peak/current bytes, allocation counts, typed allocation tracking
+  - `AnalyticsContextBuilder` - Fluent builder with preallocation support
+  - `allocate_typed<T>()` for type-safe buffer allocation with automatic sizing
+
+- **Memory Pressure Reactions** (`ringkernel-core/src/memory.rs`)
+  - `PressureReaction` enum: None, Shrink (with target utilization), Callback
+  - `PressureHandler` - Monitors pressure levels and triggers configured reactions
+  - `PressureAwarePool` trait - Extension for pressure-aware memory pools
+  - Severity-based shrink calculation (Normal → Elevated → Warning → Critical → OutOfMemory)
+
 #### Global Reduction Primitives
 
 - **`ringkernel-core/src/reduction.rs`** - Core reduction traits

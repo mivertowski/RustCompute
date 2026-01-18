@@ -35,10 +35,15 @@
 //! let sum = buffer.sync_and_read()?;
 //! ```
 
+use std::any::Any;
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 use std::ptr;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::atomic::{fence, Ordering};
+use std::sync::Mutex;
 
 use cudarc::driver::sys as cuda_sys;
 
@@ -383,6 +388,280 @@ impl<T: ReductionScalar> ReductionBufferBuilder<T> {
     }
 }
 
+/// Statistics for the reduction buffer cache.
+#[derive(Debug, Default)]
+pub struct CacheStats {
+    /// Number of cache hits (buffer reused).
+    pub hits: AtomicU64,
+    /// Number of cache misses (new buffer allocated).
+    pub misses: AtomicU64,
+    /// Number of buffers returned to cache.
+    pub returns: AtomicU64,
+}
+
+impl CacheStats {
+    /// Create new statistics.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Get hit count.
+    pub fn hits(&self) -> u64 {
+        self.hits.load(AtomicOrdering::Relaxed)
+    }
+
+    /// Get miss count.
+    pub fn misses(&self) -> u64 {
+        self.misses.load(AtomicOrdering::Relaxed)
+    }
+
+    /// Get return count.
+    pub fn returns(&self) -> u64 {
+        self.returns.load(AtomicOrdering::Relaxed)
+    }
+
+    /// Calculate hit rate (0.0 to 1.0).
+    pub fn hit_rate(&self) -> f64 {
+        let hits = self.hits() as f64;
+        let misses = self.misses() as f64;
+        let total = hits + misses;
+        if total > 0.0 {
+            hits / total
+        } else {
+            0.0
+        }
+    }
+}
+
+/// Cache key for reduction buffers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CacheKey {
+    /// Number of slots.
+    pub num_slots: usize,
+    /// Reduction operation type.
+    pub op: ReductionOp,
+}
+
+impl CacheKey {
+    /// Create a new cache key.
+    pub fn new(num_slots: usize, op: ReductionOp) -> Self {
+        Self { num_slots, op }
+    }
+}
+
+/// Cache for reduction buffers to enable efficient reuse.
+///
+/// PageRank and other iterative algorithms frequently create and destroy
+/// reduction buffers. This cache pools buffers by (num_slots, op) key
+/// to avoid repeated allocation of pinned mapped memory.
+///
+/// # Example
+///
+/// ```ignore
+/// use ringkernel_cuda::reduction::{ReductionBufferCache, ReductionOp};
+///
+/// let cache = ReductionBufferCache::new(&device, 4);
+///
+/// // First acquire allocates a new buffer
+/// let buffer = cache.acquire::<f32>(4, ReductionOp::Sum)?;
+/// // buffer is automatically returned to cache on drop
+///
+/// // Second acquire reuses the cached buffer
+/// let buffer2 = cache.acquire::<f32>(4, ReductionOp::Sum)?;
+/// ```
+pub struct ReductionBufferCache {
+    /// Parent device.
+    device: CudaDevice,
+    /// Cached buffers keyed by (num_slots, op).
+    /// Uses Box<dyn Any + Send> for type erasure.
+    cache: Mutex<HashMap<CacheKey, Vec<Box<dyn Any + Send>>>>,
+    /// Maximum buffers to cache per key.
+    max_per_key: usize,
+    /// Cache statistics.
+    stats: CacheStats,
+}
+
+impl ReductionBufferCache {
+    /// Create a new reduction buffer cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - CUDA device for buffer allocation
+    /// * `max_per_key` - Maximum buffers to cache per (num_slots, op) key
+    pub fn new(device: &CudaDevice, max_per_key: usize) -> Self {
+        Self {
+            device: device.clone(),
+            cache: Mutex::new(HashMap::new()),
+            max_per_key: max_per_key.max(1),
+            stats: CacheStats::new(),
+        }
+    }
+
+    /// Acquire a reduction buffer, reusing from cache if available.
+    ///
+    /// The returned `CachedReductionBuffer` will automatically return
+    /// the buffer to the cache when dropped.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_slots` - Number of accumulation slots
+    /// * `op` - Reduction operation type
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - Scalar type (f32, f64, i32, etc.)
+    pub fn acquire<T: ReductionScalar + 'static>(
+        &self,
+        num_slots: usize,
+        op: ReductionOp,
+    ) -> Result<CachedReductionBuffer<'_, T>> {
+        let key = CacheKey::new(num_slots, op);
+
+        // Try to get from cache
+        let buffer = {
+            let mut cache = self.cache.lock().unwrap();
+            cache.get_mut(&key).and_then(|v| v.pop())
+        };
+
+        let buffer = if let Some(boxed) = buffer {
+            // Cache hit - downcast the buffer
+            self.stats.hits.fetch_add(1, AtomicOrdering::Relaxed);
+            match boxed.downcast::<ReductionBuffer<T>>() {
+                Ok(buf) => {
+                    let buf = *buf;
+                    // Reset to identity before returning
+                    buf.reset()?;
+                    buf
+                }
+                Err(_) => {
+                    // Type mismatch (shouldn't happen with correct usage)
+                    // Fall back to allocation
+                    self.stats.misses.fetch_add(1, AtomicOrdering::Relaxed);
+                    ReductionBuffer::with_slots(&self.device, num_slots, op)?
+                }
+            }
+        } else {
+            // Cache miss - allocate new buffer
+            self.stats.misses.fetch_add(1, AtomicOrdering::Relaxed);
+            ReductionBuffer::with_slots(&self.device, num_slots, op)?
+        };
+
+        Ok(CachedReductionBuffer {
+            buffer: Some(buffer),
+            cache: self,
+            key,
+        })
+    }
+
+    /// Return a buffer to the cache.
+    ///
+    /// This is called automatically by `CachedReductionBuffer::drop()`.
+    fn return_buffer<T: ReductionScalar + 'static>(&self, key: CacheKey, buffer: ReductionBuffer<T>) {
+        let mut cache = self.cache.lock().unwrap();
+        let entry = cache.entry(key).or_default();
+
+        if entry.len() < self.max_per_key {
+            entry.push(Box::new(buffer));
+            self.stats.returns.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+        // If cache is full, buffer is dropped (memory freed)
+    }
+
+    /// Get cache statistics.
+    pub fn stats(&self) -> &CacheStats {
+        &self.stats
+    }
+
+    /// Get the number of cached buffers for a given key.
+    pub fn cached_count(&self, num_slots: usize, op: ReductionOp) -> usize {
+        let key = CacheKey::new(num_slots, op);
+        let cache = self.cache.lock().unwrap();
+        cache.get(&key).map(|v| v.len()).unwrap_or(0)
+    }
+
+    /// Get the total number of cached buffers across all keys.
+    pub fn total_cached(&self) -> usize {
+        let cache = self.cache.lock().unwrap();
+        cache.values().map(|v| v.len()).sum()
+    }
+
+    /// Clear all cached buffers.
+    pub fn clear(&self) {
+        let mut cache = self.cache.lock().unwrap();
+        cache.clear();
+    }
+
+    /// Trim cache to at most `max` buffers per key.
+    pub fn trim_to(&self, max: usize) {
+        let mut cache = self.cache.lock().unwrap();
+        for entry in cache.values_mut() {
+            while entry.len() > max {
+                entry.pop();
+            }
+        }
+    }
+}
+
+/// RAII wrapper that returns a reduction buffer to the cache on drop.
+///
+/// This struct implements `Deref` and `DerefMut` to provide transparent
+/// access to the underlying `ReductionBuffer<T>`.
+pub struct CachedReductionBuffer<'a, T: ReductionScalar + 'static> {
+    /// The wrapped buffer (Option for take-on-drop pattern).
+    buffer: Option<ReductionBuffer<T>>,
+    /// Reference to parent cache.
+    cache: &'a ReductionBufferCache,
+    /// Cache key for returning.
+    key: CacheKey,
+}
+
+impl<T: ReductionScalar + 'static> Deref for CachedReductionBuffer<'_, T> {
+    type Target = ReductionBuffer<T>;
+
+    fn deref(&self) -> &Self::Target {
+        self.buffer.as_ref().unwrap()
+    }
+}
+
+impl<T: ReductionScalar + 'static> DerefMut for CachedReductionBuffer<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.buffer.as_mut().unwrap()
+    }
+}
+
+impl<T: ReductionScalar + 'static> Drop for CachedReductionBuffer<'_, T> {
+    fn drop(&mut self) {
+        if let Some(buffer) = self.buffer.take() {
+            self.cache.return_buffer(self.key, buffer);
+        }
+    }
+}
+
+impl<T: ReductionScalar + 'static> CachedReductionBuffer<'_, T> {
+    /// Get the device pointer for kernel parameter passing.
+    pub fn device_ptr(&self) -> u64 {
+        self.buffer.as_ref().unwrap().device_ptr()
+    }
+
+    /// Get number of slots.
+    pub fn num_slots(&self) -> usize {
+        self.buffer.as_ref().unwrap().num_slots()
+    }
+
+    /// Get the reduction operation.
+    pub fn op(&self) -> ReductionOp {
+        self.buffer.as_ref().unwrap().op()
+    }
+
+    /// Take ownership of the buffer, removing it from cache management.
+    ///
+    /// After calling this, the buffer will NOT be returned to the cache
+    /// when this wrapper is dropped.
+    pub fn take(mut self) -> ReductionBuffer<T> {
+        self.buffer.take().unwrap()
+    }
+}
+
 /// Generate CUDA kernel code for block-level sum reduction.
 ///
 /// This produces a device function that can be called from your kernel.
@@ -600,5 +879,90 @@ mod tests {
         assert!(code.contains("barrier_counter"));
         assert!(code.contains("barrier_gen"));
         assert!(code.contains("atomicAdd(barrier_counter, 1)"));
+    }
+
+    // --- CacheStats tests ---
+
+    #[test]
+    fn test_cache_stats_new() {
+        let stats = CacheStats::new();
+        assert_eq!(stats.hits(), 0);
+        assert_eq!(stats.misses(), 0);
+        assert_eq!(stats.returns(), 0);
+    }
+
+    #[test]
+    fn test_cache_stats_hit_rate_empty() {
+        let stats = CacheStats::new();
+        assert_eq!(stats.hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_cache_stats_hit_rate() {
+        let stats = CacheStats::new();
+        stats.hits.fetch_add(3, AtomicOrdering::Relaxed);
+        stats.misses.fetch_add(1, AtomicOrdering::Relaxed);
+        assert!((stats.hit_rate() - 0.75).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_cache_stats_counters() {
+        let stats = CacheStats::new();
+        stats.hits.fetch_add(10, AtomicOrdering::Relaxed);
+        stats.misses.fetch_add(5, AtomicOrdering::Relaxed);
+        stats.returns.fetch_add(8, AtomicOrdering::Relaxed);
+
+        assert_eq!(stats.hits(), 10);
+        assert_eq!(stats.misses(), 5);
+        assert_eq!(stats.returns(), 8);
+    }
+
+    // --- CacheKey tests ---
+
+    #[test]
+    fn test_cache_key_equality() {
+        let key1 = CacheKey::new(4, ReductionOp::Sum);
+        let key2 = CacheKey::new(4, ReductionOp::Sum);
+        let key3 = CacheKey::new(4, ReductionOp::Max);
+        let key4 = CacheKey::new(8, ReductionOp::Sum);
+
+        assert_eq!(key1, key2);
+        assert_ne!(key1, key3);
+        assert_ne!(key1, key4);
+    }
+
+    #[test]
+    fn test_cache_key_hash() {
+        use std::collections::HashSet;
+
+        let mut set = HashSet::new();
+        set.insert(CacheKey::new(4, ReductionOp::Sum));
+        set.insert(CacheKey::new(4, ReductionOp::Max));
+        set.insert(CacheKey::new(8, ReductionOp::Sum));
+        set.insert(CacheKey::new(4, ReductionOp::Sum)); // Duplicate
+
+        assert_eq!(set.len(), 3);
+    }
+
+    #[test]
+    fn test_cache_key_different_ops() {
+        // Verify all reduction ops create distinct keys
+        let ops = [
+            ReductionOp::Sum,
+            ReductionOp::Min,
+            ReductionOp::Max,
+            ReductionOp::And,
+            ReductionOp::Or,
+            ReductionOp::Xor,
+            ReductionOp::Product,
+        ];
+
+        let keys: Vec<_> = ops.iter().map(|&op| CacheKey::new(1, op)).collect();
+
+        for i in 0..keys.len() {
+            for j in (i + 1)..keys.len() {
+                assert_ne!(keys[i], keys[j], "Keys for {:?} and {:?} should differ", ops[i], ops[j]);
+            }
+        }
     }
 }

@@ -1,13 +1,238 @@
 //! WebGPU memory management.
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
+use parking_lot::Mutex;
 use ringkernel_core::control::ControlBlock;
 use ringkernel_core::error::{Result, RingKernelError};
 use ringkernel_core::memory::GpuBuffer;
 use ringkernel_core::message::MessageHeader;
 
 use crate::adapter::WgpuAdapter;
+
+// ============================================================================
+// Staging Buffer Pool
+// ============================================================================
+
+/// Statistics for staging buffer pool.
+#[derive(Debug, Clone, Default)]
+pub struct StagingPoolStats {
+    /// Total acquire calls.
+    pub total_acquires: u64,
+    /// Cache hits (buffer reused).
+    pub cache_hits: u64,
+    /// New allocations.
+    pub allocations: u64,
+    /// Buffers returned to pool.
+    pub returns: u64,
+    /// Buffers trimmed (evicted).
+    pub trimmed: u64,
+}
+
+impl StagingPoolStats {
+    /// Get hit rate.
+    pub fn hit_rate(&self) -> f64 {
+        if self.total_acquires == 0 {
+            0.0
+        } else {
+            self.cache_hits as f64 / self.total_acquires as f64
+        }
+    }
+}
+
+/// Entry in the staging buffer pool.
+struct StagingEntry {
+    /// The staging buffer.
+    buffer: wgpu::Buffer,
+    /// Size in bytes.
+    size: usize,
+    /// Last time this buffer was used.
+    last_used: Instant,
+}
+
+/// Pool of staging buffers for efficient GPU-to-host transfers.
+///
+/// Instead of creating a new staging buffer for every `copy_to_host` call,
+/// this pool maintains reusable buffers that are returned after use.
+///
+/// # Example
+///
+/// ```ignore
+/// let pool = StagingBufferPool::new(device.clone(), 8);
+///
+/// // Acquire a staging buffer
+/// let guard = pool.acquire(1024)?;
+///
+/// // Use guard.buffer() for the copy operation
+/// encoder.copy_buffer_to_buffer(src, 0, guard.buffer(), 0, size);
+///
+/// // Buffer automatically returned to pool when guard drops
+/// ```
+pub struct StagingBufferPool {
+    device: Arc<wgpu::Device>,
+    buffers: Mutex<Vec<StagingEntry>>,
+    max_cached: usize,
+    stats: Mutex<StagingPoolStats>,
+}
+
+impl StagingBufferPool {
+    /// Create a new staging buffer pool.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - The wgpu device
+    /// * `max_cached` - Maximum number of buffers to cache
+    pub fn new(device: Arc<wgpu::Device>, max_cached: usize) -> Self {
+        Self {
+            device,
+            buffers: Mutex::new(Vec::with_capacity(max_cached)),
+            max_cached,
+            stats: Mutex::new(StagingPoolStats::default()),
+        }
+    }
+
+    /// Acquire a staging buffer of at least the requested size.
+    ///
+    /// Returns a guard that automatically returns the buffer to the pool on drop.
+    pub fn acquire(&self, min_size: usize) -> StagingBufferGuard<'_> {
+        let mut stats = self.stats.lock();
+        stats.total_acquires += 1;
+
+        // Try to find a suitable buffer in the pool
+        let mut buffers = self.buffers.lock();
+
+        // Find smallest buffer >= min_size, preferring exact matches
+        let mut best_idx = None;
+        let mut best_size = usize::MAX;
+
+        for (idx, entry) in buffers.iter().enumerate() {
+            if entry.size >= min_size && entry.size < best_size {
+                best_size = entry.size;
+                best_idx = Some(idx);
+                // Prefer exact match
+                if entry.size == min_size {
+                    break;
+                }
+            }
+        }
+
+        if let Some(idx) = best_idx {
+            stats.cache_hits += 1;
+            let entry = buffers.remove(idx);
+            drop(buffers);
+            drop(stats);
+
+            return StagingBufferGuard {
+                buffer: Some(entry.buffer),
+                size: entry.size,
+                pool: self,
+            };
+        }
+
+        // No suitable buffer found, allocate new one
+        stats.allocations += 1;
+        drop(buffers);
+        drop(stats);
+
+        // Round up to power of 2 for better reuse
+        let actual_size = min_size.next_power_of_two().max(4096);
+
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Staging Buffer (Pooled)"),
+            size: actual_size as u64,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        StagingBufferGuard {
+            buffer: Some(buffer),
+            size: actual_size,
+            pool: self,
+        }
+    }
+
+    /// Return a buffer to the pool.
+    fn return_buffer(&self, buffer: wgpu::Buffer, size: usize) {
+        let mut stats = self.stats.lock();
+        let mut buffers = self.buffers.lock();
+
+        if buffers.len() < self.max_cached {
+            stats.returns += 1;
+            buffers.push(StagingEntry {
+                buffer,
+                size,
+                last_used: Instant::now(),
+            });
+        }
+        // If pool is full, buffer is dropped
+    }
+
+    /// Trim buffers older than the specified duration.
+    pub fn trim(&self, max_age: Duration) {
+        let mut stats = self.stats.lock();
+        let mut buffers = self.buffers.lock();
+        let now = Instant::now();
+
+        let before_len = buffers.len();
+        buffers.retain(|entry| now.duration_since(entry.last_used) < max_age);
+        let trimmed = before_len - buffers.len();
+        stats.trimmed += trimmed as u64;
+    }
+
+    /// Clear all cached buffers.
+    pub fn clear(&self) {
+        let mut buffers = self.buffers.lock();
+        buffers.clear();
+    }
+
+    /// Get the number of currently cached buffers.
+    pub fn cached_count(&self) -> usize {
+        self.buffers.lock().len()
+    }
+
+    /// Get statistics snapshot.
+    pub fn stats(&self) -> StagingPoolStats {
+        self.stats.lock().clone()
+    }
+}
+
+/// RAII guard for a staging buffer from the pool.
+///
+/// The buffer is automatically returned to the pool when dropped.
+pub struct StagingBufferGuard<'a> {
+    buffer: Option<wgpu::Buffer>,
+    size: usize,
+    pool: &'a StagingBufferPool,
+}
+
+impl<'a> StagingBufferGuard<'a> {
+    /// Get the underlying wgpu buffer.
+    pub fn buffer(&self) -> &wgpu::Buffer {
+        self.buffer.as_ref().expect("buffer should exist")
+    }
+
+    /// Get the buffer size.
+    pub fn size(&self) -> usize {
+        self.size
+    }
+}
+
+impl<'a> Drop for StagingBufferGuard<'a> {
+    fn drop(&mut self) {
+        if let Some(buffer) = self.buffer.take() {
+            self.pool.return_buffer(buffer, self.size);
+        }
+    }
+}
+
+/// Shared staging buffer pool.
+pub type SharedStagingPool = Arc<StagingBufferPool>;
+
+/// Create a shared staging buffer pool.
+pub fn create_staging_pool(device: Arc<wgpu::Device>, max_cached: usize) -> SharedStagingPool {
+    Arc::new(StagingBufferPool::new(device, max_cached))
+}
 
 /// WebGPU buffer implementing GpuBuffer trait.
 pub struct WgpuBuffer {
@@ -19,6 +244,8 @@ pub struct WgpuBuffer {
     device: Arc<wgpu::Device>,
     /// Reference to queue.
     queue: Arc<wgpu::Queue>,
+    /// Optional staging buffer pool for efficient reads.
+    staging_pool: Option<SharedStagingPool>,
 }
 
 impl WgpuBuffer {
@@ -38,6 +265,32 @@ impl WgpuBuffer {
             size,
             device: Arc::clone(adapter.device()),
             queue: Arc::clone(adapter.queue()),
+            staging_pool: None,
+        }
+    }
+
+    /// Create a new storage buffer with a staging pool for efficient reads.
+    pub fn new_with_pool(
+        adapter: &WgpuAdapter,
+        size: usize,
+        label: Option<&str>,
+        staging_pool: SharedStagingPool,
+    ) -> Self {
+        let buffer = adapter.device().create_buffer(&wgpu::BufferDescriptor {
+            label,
+            size: size as u64,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+
+        Self {
+            buffer,
+            size,
+            device: Arc::clone(adapter.device()),
+            queue: Arc::clone(adapter.queue()),
+            staging_pool: Some(staging_pool),
         }
     }
 
@@ -64,7 +317,50 @@ impl WgpuBuffer {
             size: data.len(),
             device: Arc::clone(adapter.device()),
             queue: Arc::clone(adapter.queue()),
+            staging_pool: None,
         }
+    }
+
+    /// Create a buffer with initial data and a staging pool.
+    pub fn new_init_with_pool(
+        adapter: &WgpuAdapter,
+        data: &[u8],
+        label: Option<&str>,
+        staging_pool: SharedStagingPool,
+    ) -> Self {
+        let buffer = adapter.device().create_buffer(&wgpu::BufferDescriptor {
+            label,
+            size: data.len() as u64,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: true,
+        });
+
+        // Copy data
+        buffer
+            .slice(..)
+            .get_mapped_range_mut()
+            .copy_from_slice(data);
+        buffer.unmap();
+
+        Self {
+            buffer,
+            size: data.len(),
+            device: Arc::clone(adapter.device()),
+            queue: Arc::clone(adapter.queue()),
+            staging_pool: Some(staging_pool),
+        }
+    }
+
+    /// Set the staging pool for this buffer.
+    pub fn set_staging_pool(&mut self, pool: SharedStagingPool) {
+        self.staging_pool = Some(pool);
+    }
+
+    /// Get the staging pool if set.
+    pub fn staging_pool(&self) -> Option<&SharedStagingPool> {
+        self.staging_pool.as_ref()
     }
 
     /// Get the underlying wgpu buffer.
@@ -110,6 +406,57 @@ impl GpuBuffer for WgpuBuffer {
             });
         }
 
+        // Use pooled staging buffer if available, otherwise create one
+        if let Some(pool) = &self.staging_pool {
+            self.copy_to_host_pooled(data, pool)
+        } else {
+            self.copy_to_host_unpooled(data)
+        }
+    }
+}
+
+impl WgpuBuffer {
+    /// Copy to host using a pooled staging buffer.
+    fn copy_to_host_pooled(&self, data: &mut [u8], pool: &StagingBufferPool) -> Result<()> {
+        // Acquire a staging buffer from the pool
+        let staging_guard = pool.acquire(self.size);
+
+        // Copy from GPU buffer to staging
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Copy Encoder (Pooled)"),
+            });
+
+        encoder.copy_buffer_to_buffer(&self.buffer, 0, staging_guard.buffer(), 0, self.size as u64);
+        self.queue.submit(Some(encoder.finish()));
+
+        // Map and read
+        let slice = staging_guard.buffer().slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+
+        self.device.poll(wgpu::Maintain::Wait);
+
+        rx.recv()
+            .map_err(|e| RingKernelError::TransferFailed(format!("Channel error: {}", e)))?
+            .map_err(|e| RingKernelError::TransferFailed(format!("Map error: {}", e)))?;
+
+        let mapped = slice.get_mapped_range();
+        let copy_len = self.size.min(data.len());
+        data[..copy_len].copy_from_slice(&mapped[..copy_len]);
+        drop(mapped);
+        staging_guard.buffer().unmap();
+
+        // staging_guard drops here and returns buffer to pool
+
+        Ok(())
+    }
+
+    /// Copy to host without pooling (creates a new staging buffer).
+    fn copy_to_host_unpooled(&self, data: &mut [u8]) -> Result<()> {
         // Create a staging buffer for reading
         let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Staging Buffer"),

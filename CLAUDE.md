@@ -126,6 +126,48 @@ The project is a Cargo workspace with these crates:
 - **`ReductionOp`** - Reduction operations (Sum, Min, Max, And, Or, Xor, Product)
 - **`ReductionScalar`** trait - Type-safe reduction with identity values
 - **`GlobalReduction`** trait - Backend-agnostic reduction interface
+- **`StratifiedMemoryPool`** - Size-stratified buffer pooling with automatic bucket selection
+- **`AnalyticsContext`** - Grouped buffer lifecycle for analytics operations
+
+### Memory Pool Management (in ringkernel-core)
+
+Efficient buffer reuse for analytics workloads:
+
+- **`SizeBucket`** - Size classes: Tiny (256B), Small (1KB), Medium (4KB), Large (16KB), Huge (64KB)
+- **`StratifiedMemoryPool`** - Multi-bucket pool with automatic size selection
+- **`StratifiedBuffer`** - RAII wrapper that returns to correct bucket on drop
+- **`StratifiedPoolStats`** - Per-bucket allocation statistics with hit rate
+- **`PressureHandler`** - Memory pressure monitoring with configurable reactions
+- **`PressureReaction`** - None, Shrink (with target utilization), or Callback
+
+```rust
+use ringkernel_core::memory::{StratifiedMemoryPool, SizeBucket};
+
+let pool = StratifiedMemoryPool::new("analytics");
+let buf = pool.allocate(2000);  // Uses Medium bucket (4KB)
+// Buffer returned to pool on drop
+
+let stats = pool.stats();
+println!("Hit rate: {:.1}%", stats.hit_rate() * 100.0);
+```
+
+### Analytics Context (in ringkernel-core)
+
+Grouped buffer lifecycle for analytics operations:
+
+- **`AnalyticsContext`** - Groups buffers for a single analytics operation
+- **`AllocationHandle`** - Type-safe opaque handle to allocations
+- **`ContextStats`** - Peak/current bytes, allocation counts
+- **`AnalyticsContextBuilder`** - Fluent builder with preallocation support
+
+```rust
+use ringkernel_core::analytics_context::AnalyticsContext;
+
+let mut ctx = AnalyticsContext::new("bfs_traversal");
+let frontier = ctx.allocate(1024);
+let visited = ctx.allocate_typed::<u32>(256);
+// All buffers released when ctx drops
+```
 
 ### Global Reduction Primitives (in ringkernel-cuda)
 
@@ -133,6 +175,8 @@ GPU-accelerated global reductions for algorithms like PageRank with dangling nod
 
 - **`ReductionBuffer<T>`** - Mapped memory buffer for zero-copy reduction results
 - **`ReductionBufferBuilder`** - Builder pattern for creating reduction buffers
+- **`ReductionBufferCache`** - Cache for buffer reuse keyed by (num_slots, op)
+- **`CachedReductionBuffer<T>`** - RAII wrapper that returns buffer to cache on drop
 - **Multi-phase kernel execution** via `phases.rs`:
   - **`SyncMode`** - Cooperative (grid.sync()), SoftwareBarrier (atomics), MultiLaunch
   - **`KernelPhase`** - Phase metadata (name, function, dimensions)
@@ -513,10 +557,10 @@ let handle = CudaPersistentHandle::new(simulation, "fdtd_3d");
 
 ### Test Count Summary
 
-775+ tests across the workspace:
-- ringkernel-core: 65 tests
+825+ tests across the workspace:
+- ringkernel-core: 345 tests (including memory pool, analytics context, pressure reactions)
 - ringkernel-cpu: 11 tests
-- ringkernel-cuda: 6 GPU execution tests + correlation tracking tests
+- ringkernel-cuda: 52 tests (reduction cache, phases, K2K, persistent actors)
 - ringkernel-cuda-codegen: 190+ tests (loops, shared memory, ring kernels, K2K, envelope format, energy calculation, checksums, 120+ GPU intrinsics)
 - ringkernel-wgpu-codegen: 55+ tests (types, intrinsics, transpiler, validation, 2D/3D/4D shared memory)
 - ringkernel-ir: 40+ tests (IR nodes, CUDA lowering, MSL lowering, messaging nodes, HLC nodes)
