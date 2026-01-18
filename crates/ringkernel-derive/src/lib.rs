@@ -3,6 +3,7 @@
 //! This crate provides the following macros:
 //!
 //! - `#[derive(RingMessage)]` - Implement the RingMessage trait for message types
+//! - `#[derive(PersistentMessage)]` - Implement PersistentMessage for GPU kernel dispatch
 //! - `#[ring_kernel]` - Define a ring kernel handler
 //! - `#[stencil_kernel]` - Define a GPU stencil kernel (with `cuda-codegen` feature)
 //! - `#[gpu_kernel]` - Define a multi-backend GPU kernel with capability checking
@@ -351,6 +352,179 @@ pub fn derive_ring_message(input: TokenStream) -> TokenStream {
         #domain_impl
 
         #k2k_registration
+    };
+
+    TokenStream::from(expanded)
+}
+
+// ============================================================================
+// PersistentMessage Derive Macro
+// ============================================================================
+
+/// Maximum size for inline payload in persistent messages.
+#[allow(dead_code)]
+const MAX_INLINE_PAYLOAD_SIZE: usize = 32;
+
+/// Attributes for the PersistentMessage derive macro.
+#[derive(Debug, FromDeriveInput)]
+#[darling(attributes(persistent_message), supports(struct_named))]
+struct PersistentMessageArgs {
+    ident: syn::Ident,
+    generics: syn::Generics,
+    /// Field data (reserved for future per-field attributes).
+    #[allow(dead_code)]
+    data: ast::Data<(), PersistentMessageField>,
+    /// Handler ID for CUDA dispatch (0-255).
+    handler_id: u32,
+    /// Whether this message type expects a response.
+    #[darling(default)]
+    requires_response: bool,
+}
+
+/// Field attributes for PersistentMessage (reserved for future use).
+#[derive(Debug, FromField)]
+#[darling(attributes(persistent_message))]
+struct PersistentMessageField {
+    /// Field identifier.
+    #[allow(dead_code)]
+    ident: Option<syn::Ident>,
+    /// Field type.
+    #[allow(dead_code)]
+    ty: syn::Type,
+}
+
+/// Derive macro for implementing the PersistentMessage trait.
+///
+/// This macro enables type-based dispatch within persistent GPU kernels by
+/// generating handler_id, inline payload serialization, and deserialization.
+///
+/// # Requirements
+///
+/// The struct must:
+/// - Already implement `RingMessage` (use `#[derive(RingMessage)]`)
+/// - Be `#[repr(C)]` for safe memory layout
+/// - Be `Copy` + `Clone` for inline payload serialization
+///
+/// # Attributes
+///
+/// On the struct:
+/// - `handler_id = N` (required) - CUDA dispatch handler ID (0-255)
+/// - `requires_response = true/false` (optional) - Whether this message expects a response
+///
+/// # Example
+///
+/// ```ignore
+/// use ringkernel_derive::{RingMessage, PersistentMessage};
+///
+/// #[derive(RingMessage, PersistentMessage, Clone, Copy)]
+/// #[repr(C)]
+/// #[message(type_id = 1001)]
+/// #[persistent_message(handler_id = 1, requires_response = true)]
+/// pub struct FraudCheckRequest {
+///     pub transaction_id: u64,
+///     pub amount: f32,
+///     pub account_id: u32,
+/// }
+///
+/// // Generated implementations:
+/// // - handler_id() returns 1
+/// // - requires_response() returns true
+/// // - to_inline_payload() serializes the struct to [u8; 32] if it fits
+/// // - from_inline_payload() deserializes from bytes
+/// // - payload_size() returns the struct size
+/// ```
+///
+/// # Size Validation
+///
+/// For inline payload serialization, structs must be <= 32 bytes.
+/// Larger structs will return `None` from `to_inline_payload()`.
+///
+/// # CUDA Integration
+///
+/// The handler_id maps to a switch case in generated CUDA code:
+///
+/// ```cuda
+/// switch (msg->handler_id) {
+///     case 1: handle_fraud_check(msg, state, response); break;
+///     case 2: handle_aggregate(msg, state, response); break;
+///     // ...
+/// }
+/// ```
+#[proc_macro_derive(PersistentMessage, attributes(persistent_message))]
+pub fn derive_persistent_message(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    let args = match PersistentMessageArgs::from_derive_input(&input) {
+        Ok(args) => args,
+        Err(e) => return e.write_errors().into(),
+    };
+
+    let name = &args.ident;
+    let (impl_generics, ty_generics, where_clause) = args.generics.split_for_impl();
+
+    let handler_id = args.handler_id;
+    let requires_response = args.requires_response;
+
+    // Generate the PersistentMessage implementation
+    let expanded = quote! {
+        impl #impl_generics ::ringkernel_core::persistent_message::PersistentMessage for #name #ty_generics #where_clause {
+            fn handler_id() -> u32 {
+                #handler_id
+            }
+
+            fn requires_response() -> bool {
+                #requires_response
+            }
+
+            fn payload_size() -> usize {
+                ::std::mem::size_of::<Self>()
+            }
+
+            fn to_inline_payload(&self) -> ::std::option::Option<[u8; ::ringkernel_core::persistent_message::MAX_INLINE_PAYLOAD_SIZE]> {
+                // Only serialize if the struct fits in the inline payload
+                if ::std::mem::size_of::<Self>() > ::ringkernel_core::persistent_message::MAX_INLINE_PAYLOAD_SIZE {
+                    return ::std::option::Option::None;
+                }
+
+                let mut payload = [0u8; ::ringkernel_core::persistent_message::MAX_INLINE_PAYLOAD_SIZE];
+
+                // Safety: We've verified the struct fits in the payload,
+                // and the struct is repr(C) + Copy
+                unsafe {
+                    ::std::ptr::copy_nonoverlapping(
+                        self as *const Self as *const u8,
+                        payload.as_mut_ptr(),
+                        ::std::mem::size_of::<Self>()
+                    );
+                }
+
+                ::std::option::Option::Some(payload)
+            }
+
+            fn from_inline_payload(payload: &[u8]) -> ::ringkernel_core::error::Result<Self> {
+                let size = ::std::mem::size_of::<Self>();
+
+                if payload.len() < size {
+                    return ::std::result::Result::Err(
+                        ::ringkernel_core::error::RingKernelError::DeserializationError(
+                            ::std::format!(
+                                "Payload too small: expected {} bytes, got {}",
+                                size,
+                                payload.len()
+                            )
+                        )
+                    );
+                }
+
+                // Safety: We've verified the payload is large enough,
+                // and the struct is repr(C) + Copy
+                let value = unsafe {
+                    ::std::ptr::read(payload.as_ptr() as *const Self)
+                };
+
+                ::std::result::Result::Ok(value)
+            }
+        }
     };
 
     TokenStream::from(expanded)

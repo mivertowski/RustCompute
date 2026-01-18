@@ -1285,6 +1285,315 @@ impl RingKernelIntrinsic {
     }
 }
 
+// ============================================================================
+// Handler Dispatch Code Generation
+// ============================================================================
+
+/// Handler registration for CUDA code generation.
+///
+/// This mirrors `ringkernel_core::persistent_message::HandlerRegistration`
+/// but is designed for code generation use.
+#[derive(Debug, Clone)]
+pub struct CudaHandlerInfo {
+    /// Handler ID (0-255) used in switch statement.
+    pub handler_id: u32,
+    /// Handler function name in CUDA code.
+    pub func_name: String,
+    /// Message type name (for documentation).
+    pub message_type_name: String,
+    /// Message type ID (for validation).
+    pub message_type_id: u64,
+    /// CUDA code body for this handler (optional).
+    /// If None, generates a call to the named function.
+    pub cuda_body: Option<String>,
+    /// Whether this handler produces a response.
+    pub produces_response: bool,
+}
+
+impl CudaHandlerInfo {
+    /// Create a new handler info.
+    pub fn new(handler_id: u32, func_name: impl Into<String>) -> Self {
+        Self {
+            handler_id,
+            func_name: func_name.into(),
+            message_type_name: String::new(),
+            message_type_id: 0,
+            cuda_body: None,
+            produces_response: false,
+        }
+    }
+
+    /// Set the message type information.
+    pub fn with_message_type(mut self, name: &str, type_id: u64) -> Self {
+        self.message_type_name = name.to_string();
+        self.message_type_id = type_id;
+        self
+    }
+
+    /// Set the CUDA body for inline handler code.
+    pub fn with_cuda_body(mut self, body: impl Into<String>) -> Self {
+        self.cuda_body = Some(body.into());
+        self
+    }
+
+    /// Mark this handler as producing a response.
+    pub fn with_response(mut self) -> Self {
+        self.produces_response = true;
+        self
+    }
+}
+
+/// Dispatch table for multi-handler kernel code generation.
+#[derive(Debug, Clone, Default)]
+pub struct CudaDispatchTable {
+    handlers: Vec<CudaHandlerInfo>,
+    /// Name of the ExtendedH2KMessage struct (default: "ExtendedH2KMessage").
+    pub message_struct_name: String,
+    /// Field name for handler_id in the message (default: "handler_id").
+    pub handler_id_field: String,
+    /// Counter for unknown handlers (default: "unknown_handler_count").
+    pub unknown_counter_field: String,
+}
+
+impl CudaDispatchTable {
+    /// Create a new empty dispatch table.
+    pub fn new() -> Self {
+        Self {
+            handlers: Vec::new(),
+            message_struct_name: "ExtendedH2KMessage".to_string(),
+            handler_id_field: "handler_id".to_string(),
+            unknown_counter_field: "unknown_handler_count".to_string(),
+        }
+    }
+
+    /// Add a handler to the table.
+    pub fn add_handler(&mut self, handler: CudaHandlerInfo) {
+        self.handlers.push(handler);
+    }
+
+    /// Add a handler using builder pattern.
+    pub fn with_handler(mut self, handler: CudaHandlerInfo) -> Self {
+        self.add_handler(handler);
+        self
+    }
+
+    /// Set the message struct name.
+    pub fn with_message_struct(mut self, name: &str) -> Self {
+        self.message_struct_name = name.to_string();
+        self
+    }
+
+    /// Get all handlers.
+    pub fn handlers(&self) -> &[CudaHandlerInfo] {
+        &self.handlers
+    }
+
+    /// Get handler count.
+    pub fn len(&self) -> usize {
+        self.handlers.len()
+    }
+
+    /// Check if empty.
+    pub fn is_empty(&self) -> bool {
+        self.handlers.is_empty()
+    }
+}
+
+/// Generate CUDA switch statement for handler dispatch.
+///
+/// # Arguments
+///
+/// * `table` - Dispatch table with handler information
+/// * `indent` - Indentation string for formatting
+///
+/// # Returns
+///
+/// CUDA code with switch statement for handler dispatch.
+///
+/// # Example Output
+///
+/// ```cuda
+/// // Handler dispatch based on handler_id
+/// uint32_t handler_id = msg->handler_id;
+/// switch (handler_id) {
+///     case 1: {
+///         // Handler: fraud_check (type_id: 1001)
+///         handle_fraud_check(msg, state, response);
+///         break;
+///     }
+///     case 2: {
+///         // Handler: aggregate (type_id: 1002)
+///         handle_aggregate(msg, state, response);
+///         break;
+///     }
+///     default:
+///         atomicAdd(&ctrl->unknown_handler_count, 1);
+///         break;
+/// }
+/// ```
+pub fn generate_handler_dispatch_code(table: &CudaDispatchTable, indent: &str) -> String {
+    let mut code = String::new();
+
+    if table.is_empty() {
+        writeln!(code, "{}// No handlers registered - dispatch table empty", indent).unwrap();
+        return code;
+    }
+
+    writeln!(code, "{}// Handler dispatch based on handler_id", indent).unwrap();
+    writeln!(
+        code,
+        "{}uint32_t handler_id = msg->{};",
+        indent, table.handler_id_field
+    )
+    .unwrap();
+    writeln!(code, "{}switch (handler_id) {{", indent).unwrap();
+
+    for handler in &table.handlers {
+        writeln!(code, "{}    case {}: {{", indent, handler.handler_id).unwrap();
+
+        // Add comment with handler info
+        if !handler.message_type_name.is_empty() {
+            writeln!(
+                code,
+                "{}        // Handler: {} (type_id: {})",
+                indent, handler.message_type_name, handler.message_type_id
+            )
+            .unwrap();
+        } else {
+            writeln!(code, "{}        // Handler: {}", indent, handler.func_name).unwrap();
+        }
+
+        // Generate handler code
+        if let Some(body) = &handler.cuda_body {
+            // Inline the handler body
+            for line in body.lines() {
+                writeln!(code, "{}        {}", indent, line).unwrap();
+            }
+        } else {
+            // Generate function call
+            if handler.produces_response {
+                writeln!(
+                    code,
+                    "{}        {}(msg, state, response);",
+                    indent, handler.func_name
+                )
+                .unwrap();
+            } else {
+                writeln!(code, "{}        {}(msg, state);", indent, handler.func_name).unwrap();
+            }
+        }
+
+        writeln!(code, "{}        break;", indent).unwrap();
+        writeln!(code, "{}    }}", indent).unwrap();
+    }
+
+    // Default case for unknown handlers
+    writeln!(code, "{}    default:", indent).unwrap();
+    writeln!(
+        code,
+        "{}        atomicAdd(&ctrl->{}, 1);",
+        indent, table.unknown_counter_field
+    )
+    .unwrap();
+    writeln!(code, "{}        break;", indent).unwrap();
+    writeln!(code, "{}}}", indent).unwrap();
+
+    code
+}
+
+/// Generate the ExtendedH2KMessage struct for handler dispatch.
+///
+/// This message format includes a handler_id field for type-based dispatch.
+pub fn generate_extended_h2k_message_struct() -> String {
+    r#"// Extended H2K message for handler dispatch (64 bytes, cache-line aligned)
+// This format supports type-based routing within persistent kernels
+struct __align__(64) ExtendedH2KMessage {
+    uint32_t handler_id;      // Handler ID for dispatch (0-255)
+    uint32_t flags;           // Message flags (see message_flags)
+    uint64_t cmd_id;          // Command/correlation ID for request tracking
+    uint64_t timestamp;       // HLC timestamp
+    uint8_t payload[40];      // Inline payload (up to 32 bytes used typically)
+};
+
+// Message flags for ExtendedH2KMessage
+#define EXT_MSG_FLAG_EXTENDED       0x01
+#define EXT_MSG_FLAG_HIGH_PRIORITY  0x02
+#define EXT_MSG_FLAG_EXTERNAL_BUF   0x04
+#define EXT_MSG_FLAG_REQUIRES_RESP  0x08
+"#
+    .to_string()
+}
+
+/// Generate a complete multi-handler kernel with dispatch table.
+///
+/// # Arguments
+///
+/// * `config` - Ring kernel configuration
+/// * `table` - Dispatch table with handler information
+///
+/// # Returns
+///
+/// Complete CUDA kernel code with handler dispatch.
+pub fn generate_multi_handler_kernel(config: &RingKernelConfig, table: &CudaDispatchTable) -> String {
+    let mut code = String::new();
+
+    // Struct definitions
+    code.push_str(&generate_control_block_struct());
+    code.push('\n');
+
+    if config.enable_hlc {
+        code.push_str(&generate_hlc_struct());
+        code.push('\n');
+    }
+
+    // Extended H2K message struct
+    code.push_str(&generate_extended_h2k_message_struct());
+    code.push('\n');
+
+    if config.use_envelope_format {
+        code.push_str(&generate_message_envelope_structs());
+        code.push('\n');
+    }
+
+    if config.enable_k2k {
+        code.push_str(&generate_k2k_structs());
+        code.push('\n');
+    }
+
+    // Kernel signature
+    code.push_str(&config.generate_signature());
+    code.push_str(" {\n");
+
+    // Preamble
+    code.push_str(&config.generate_preamble("    "));
+
+    // Message loop
+    code.push_str(&config.generate_loop_header("    "));
+
+    // Handler dispatch
+    writeln!(code, "        // === MULTI-HANDLER DISPATCH ===").unwrap();
+    writeln!(
+        code,
+        "        ExtendedH2KMessage* msg = (ExtendedH2KMessage*)(input_buffer + (msg_idx * MSG_SIZE));"
+    )
+    .unwrap();
+    code.push_str(&generate_handler_dispatch_code(table, "        "));
+    writeln!(code, "        // === END DISPATCH ===").unwrap();
+
+    // Message completion
+    code.push_str(&config.generate_message_complete("    "));
+
+    // Loop footer
+    code.push_str(&config.generate_loop_footer("    "));
+
+    // Epilogue
+    code.push_str(&config.generate_epilogue("    "));
+
+    code.push_str("}\n");
+
+    code
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1632,5 +1941,145 @@ mod tests {
     fn test_reduction_op_default() {
         let op = ReductionOp::default();
         assert_eq!(op, ReductionOp::Sum);
+    }
+
+    // ========================================================================
+    // Handler Dispatch Code Generation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_cuda_handler_info_creation() {
+        let handler = CudaHandlerInfo::new(1, "handle_fraud_check")
+            .with_message_type("FraudCheckRequest", 1001)
+            .with_response();
+
+        assert_eq!(handler.handler_id, 1);
+        assert_eq!(handler.func_name, "handle_fraud_check");
+        assert_eq!(handler.message_type_name, "FraudCheckRequest");
+        assert_eq!(handler.message_type_id, 1001);
+        assert!(handler.produces_response);
+        assert!(handler.cuda_body.is_none());
+    }
+
+    #[test]
+    fn test_cuda_handler_info_with_body() {
+        let handler = CudaHandlerInfo::new(2, "handle_aggregate")
+            .with_cuda_body("float sum = 0.0f;\nfor (int i = 0; i < 10; i++) sum += data[i];");
+
+        assert_eq!(handler.handler_id, 2);
+        assert!(handler.cuda_body.is_some());
+        assert!(handler.cuda_body.as_ref().unwrap().contains("float sum"));
+    }
+
+    #[test]
+    fn test_cuda_dispatch_table_creation() {
+        let table = CudaDispatchTable::new()
+            .with_handler(CudaHandlerInfo::new(1, "handle_a"))
+            .with_handler(CudaHandlerInfo::new(2, "handle_b"));
+
+        assert_eq!(table.len(), 2);
+        assert!(!table.is_empty());
+        assert_eq!(table.handlers()[0].handler_id, 1);
+        assert_eq!(table.handlers()[1].handler_id, 2);
+    }
+
+    #[test]
+    fn test_generate_handler_dispatch_code_empty() {
+        let table = CudaDispatchTable::new();
+        let code = generate_handler_dispatch_code(&table, "    ");
+
+        assert!(code.contains("No handlers registered"));
+        assert!(!code.contains("switch"));
+    }
+
+    #[test]
+    fn test_generate_handler_dispatch_code_single_handler() {
+        let table = CudaDispatchTable::new()
+            .with_handler(CudaHandlerInfo::new(1, "handle_fraud")
+                .with_message_type("FraudCheck", 1001));
+
+        let code = generate_handler_dispatch_code(&table, "    ");
+
+        assert!(code.contains("switch (handler_id)"));
+        assert!(code.contains("case 1:"));
+        assert!(code.contains("handle_fraud(msg, state)"));
+        assert!(code.contains("default:"));
+        assert!(code.contains("unknown_handler_count"));
+    }
+
+    #[test]
+    fn test_generate_handler_dispatch_code_multiple_handlers() {
+        let table = CudaDispatchTable::new()
+            .with_handler(CudaHandlerInfo::new(1, "handle_fraud")
+                .with_message_type("FraudCheck", 1001))
+            .with_handler(CudaHandlerInfo::new(2, "handle_aggregate")
+                .with_message_type("Aggregate", 1002)
+                .with_response())
+            .with_handler(CudaHandlerInfo::new(5, "handle_pattern")
+                .with_message_type("Pattern", 1005));
+
+        let code = generate_handler_dispatch_code(&table, "    ");
+
+        assert!(code.contains("case 1:"));
+        assert!(code.contains("case 2:"));
+        assert!(code.contains("case 5:"));
+        assert!(code.contains("handle_fraud(msg, state)"));
+        assert!(code.contains("handle_aggregate(msg, state, response)")); // With response
+        assert!(code.contains("handle_pattern(msg, state)"));
+    }
+
+    #[test]
+    fn test_generate_handler_dispatch_code_with_inline_body() {
+        let table = CudaDispatchTable::new()
+            .with_handler(CudaHandlerInfo::new(1, "inline_handler")
+                .with_cuda_body("int result = msg->payload[0] * 2;\nresponse->result = result;"));
+
+        let code = generate_handler_dispatch_code(&table, "    ");
+
+        assert!(code.contains("case 1:"));
+        assert!(code.contains("int result = msg->payload[0] * 2;"));
+        assert!(code.contains("response->result = result;"));
+        // Should NOT contain function call when body is inline
+        assert!(!code.contains("inline_handler(msg,"));
+    }
+
+    #[test]
+    fn test_generate_extended_h2k_message_struct() {
+        let code = generate_extended_h2k_message_struct();
+
+        assert!(code.contains("struct __align__(64) ExtendedH2KMessage"));
+        assert!(code.contains("uint32_t handler_id"));
+        assert!(code.contains("uint32_t flags"));
+        assert!(code.contains("uint64_t cmd_id"));
+        assert!(code.contains("uint64_t timestamp"));
+        assert!(code.contains("uint8_t payload[40]"));
+        assert!(code.contains("EXT_MSG_FLAG_EXTENDED"));
+        assert!(code.contains("EXT_MSG_FLAG_REQUIRES_RESP"));
+    }
+
+    #[test]
+    fn test_generate_multi_handler_kernel() {
+        let config = RingKernelConfig::new("multi_handler")
+            .with_block_size(128)
+            .with_hlc(true);
+
+        let table = CudaDispatchTable::new()
+            .with_handler(CudaHandlerInfo::new(1, "handle_fraud"))
+            .with_handler(CudaHandlerInfo::new(2, "handle_aggregate"));
+
+        let code = generate_multi_handler_kernel(&config, &table);
+
+        // Should contain struct definitions
+        assert!(code.contains("struct __align__(128) ControlBlock"));
+        assert!(code.contains("struct __align__(64) ExtendedH2KMessage"));
+
+        // Should contain kernel signature
+        assert!(code.contains("ring_kernel_multi_handler"));
+
+        // Should contain dispatch code
+        assert!(code.contains("MULTI-HANDLER DISPATCH"));
+        assert!(code.contains("switch (handler_id)"));
+        assert!(code.contains("case 1:"));
+        assert!(code.contains("case 2:"));
     }
 }

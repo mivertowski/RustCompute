@@ -41,6 +41,7 @@ pub mod cloud_storage;
 pub mod config;
 pub mod context;
 pub mod control;
+pub mod dispatcher;
 pub mod domain;
 pub mod error;
 pub mod health;
@@ -50,6 +51,7 @@ pub mod memory;
 pub mod message;
 pub mod multi_gpu;
 pub mod observability;
+pub mod persistent_message;
 pub mod pubsub;
 pub mod queue;
 pub mod reduction;
@@ -87,6 +89,9 @@ pub mod prelude {
         DegradationLevel, DegradationManager, DegradationStats, HealthCheck, HealthCheckResult,
         HealthChecker, HealthStatus, KernelHealth, KernelWatchdog, LoadSheddingPolicy, RetryPolicy,
     };
+    pub use crate::dispatcher::{
+        DispatcherBuilder, DispatcherConfig, DispatcherMetrics, KernelDispatcher,
+    };
     pub use crate::hlc::*;
     pub use crate::k2k::{
         DeliveryStatus, K2KBroker, K2KBuilder, K2KConfig, K2KEndpoint, K2KMessage,
@@ -111,6 +116,10 @@ pub mod prelude {
         GpuMemoryThresholds, GpuMemoryType, GrafanaDashboard, GrafanaPanel, MemoryPressureLevel,
         ObservabilityContext, PanelType, PrometheusCollector, PrometheusExporter,
         RingKernelCollector, Span, SpanBuilder, SpanEvent, SpanId, SpanKind, SpanStatus, TraceId,
+    };
+    pub use crate::persistent_message::{
+        message_flags, DispatchTable, HandlerRegistration, PersistentMessage,
+        MAX_INLINE_PAYLOAD_SIZE,
     };
     pub use crate::pubsub::{PubSubBroker, PubSubBuilder, Publication, QoS, Subscription, Topic};
     pub use crate::queue::*;

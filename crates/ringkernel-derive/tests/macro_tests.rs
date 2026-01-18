@@ -2,6 +2,7 @@
 //!
 //! Tests for:
 //! - `#[derive(RingMessage)]` - Message serialization and field attributes
+//! - `#[derive(PersistentMessage)]` - Persistent GPU kernel dispatch
 //! - `#[ring_kernel]` - Kernel registration and handler generation
 //! - `#[derive(GpuType)]` - GPU-compatible type assertions
 
@@ -531,5 +532,221 @@ mod control_block_state_tests {
         assert_eq!(zeroed.best_bid, 0);
         assert_eq!(zeroed.best_ask, 0);
         assert_eq!(zeroed.order_count, 0);
+    }
+}
+
+// ============================================================================
+// PersistentMessage derive tests
+// ============================================================================
+
+mod persistent_message_tests {
+    use ringkernel_core::message::RingMessage;
+    use ringkernel_core::persistent_message::{PersistentMessage, MAX_INLINE_PAYLOAD_SIZE};
+    use ringkernel_derive::{PersistentMessage, RingMessage};
+
+    /// Small message that fits in inline payload (16 bytes)
+    #[derive(
+        RingMessage, PersistentMessage, Clone, Copy, Debug, PartialEq,
+        rkyv::Archive, rkyv::Serialize, rkyv::Deserialize
+    )]
+    #[archive(check_bytes)]
+    #[repr(C)]
+    #[message(type_id = 1001)]
+    #[persistent_message(handler_id = 1, requires_response = true)]
+    struct FraudCheckRequest {
+        transaction_id: u64,
+        amount: f32,
+        account_id: u32,
+    }
+
+    #[test]
+    fn test_handler_id() {
+        assert_eq!(FraudCheckRequest::handler_id(), 1);
+    }
+
+    #[test]
+    fn test_requires_response() {
+        assert!(FraudCheckRequest::requires_response());
+    }
+
+    #[test]
+    fn test_payload_size() {
+        let expected_size = std::mem::size_of::<FraudCheckRequest>();
+        assert_eq!(FraudCheckRequest::payload_size(), expected_size);
+        assert_eq!(expected_size, 16); // 8 + 4 + 4
+    }
+
+    #[test]
+    fn test_can_inline() {
+        assert!(FraudCheckRequest::can_inline());
+        assert!(FraudCheckRequest::payload_size() <= MAX_INLINE_PAYLOAD_SIZE);
+    }
+
+    #[test]
+    fn test_inline_payload_roundtrip() {
+        let original = FraudCheckRequest {
+            transaction_id: 0x123456789ABCDEF0,
+            amount: 99.99,
+            account_id: 42,
+        };
+
+        // Serialize to inline payload
+        let payload = original
+            .to_inline_payload()
+            .expect("should serialize to inline");
+
+        assert_eq!(payload.len(), MAX_INLINE_PAYLOAD_SIZE);
+
+        // Deserialize from inline payload
+        let restored =
+            FraudCheckRequest::from_inline_payload(&payload).expect("should deserialize");
+
+        assert_eq!(restored.transaction_id, original.transaction_id);
+        assert_eq!(restored.amount, original.amount);
+        assert_eq!(restored.account_id, original.account_id);
+    }
+
+    /// Message without response
+    #[derive(
+        RingMessage, PersistentMessage, Clone, Copy, Debug,
+        rkyv::Archive, rkyv::Serialize, rkyv::Deserialize
+    )]
+    #[archive(check_bytes)]
+    #[repr(C)]
+    #[message(type_id = 1002)]
+    #[persistent_message(handler_id = 2)]
+    struct AuditEvent {
+        event_type: u32,
+        timestamp: u64,
+    }
+
+    #[test]
+    fn test_no_response() {
+        assert_eq!(AuditEvent::handler_id(), 2);
+        assert!(!AuditEvent::requires_response()); // Default is false
+    }
+
+    /// Exactly 32 bytes (maximum inline size)
+    #[derive(
+        RingMessage, PersistentMessage, Clone, Copy, Debug, PartialEq,
+        rkyv::Archive, rkyv::Serialize, rkyv::Deserialize
+    )]
+    #[archive(check_bytes)]
+    #[repr(C)]
+    #[message(type_id = 1003)]
+    #[persistent_message(handler_id = 3)]
+    struct MaxSizeMessage {
+        data: [u64; 4], // 32 bytes exactly
+    }
+
+    #[test]
+    fn test_max_size_inline() {
+        assert_eq!(std::mem::size_of::<MaxSizeMessage>(), 32);
+        assert!(MaxSizeMessage::can_inline());
+
+        let original = MaxSizeMessage {
+            data: [1, 2, 3, 4],
+        };
+
+        let payload = original
+            .to_inline_payload()
+            .expect("should fit in inline payload");
+
+        let restored = MaxSizeMessage::from_inline_payload(&payload).expect("should deserialize");
+
+        assert_eq!(restored, original);
+    }
+
+    /// Too large for inline (40 bytes)
+    #[derive(
+        RingMessage, PersistentMessage, Clone, Copy, Debug,
+        rkyv::Archive, rkyv::Serialize, rkyv::Deserialize
+    )]
+    #[archive(check_bytes)]
+    #[repr(C)]
+    #[message(type_id = 1004)]
+    #[persistent_message(handler_id = 4)]
+    struct LargeMessage {
+        data: [u64; 5], // 40 bytes - too big for inline
+    }
+
+    #[test]
+    fn test_too_large_for_inline() {
+        assert_eq!(std::mem::size_of::<LargeMessage>(), 40);
+        assert!(!LargeMessage::can_inline());
+
+        let msg = LargeMessage { data: [1, 2, 3, 4, 5] };
+
+        // to_inline_payload should return None for oversized messages
+        let payload = msg.to_inline_payload();
+        assert!(payload.is_none(), "should not serialize oversized message");
+    }
+
+    #[test]
+    fn test_from_inline_payload_too_small() {
+        let small_payload = [0u8; 8]; // Only 8 bytes, need 16 for FraudCheckRequest
+
+        let result = FraudCheckRequest::from_inline_payload(&small_payload);
+        assert!(result.is_err());
+    }
+
+    /// Test that RingMessage type_id and PersistentMessage handler_id are independent
+    #[test]
+    fn test_type_id_and_handler_id_independence() {
+        // type_id from RingMessage
+        assert_eq!(FraudCheckRequest::message_type(), 1001);
+
+        // handler_id from PersistentMessage
+        assert_eq!(FraudCheckRequest::handler_id(), 1);
+
+        // They can be different
+        assert_ne!(
+            FraudCheckRequest::message_type() as u32,
+            FraudCheckRequest::handler_id()
+        );
+    }
+
+    /// Test handler ID range (0-255)
+    #[derive(
+        RingMessage, PersistentMessage, Clone, Copy, Debug,
+        rkyv::Archive, rkyv::Serialize, rkyv::Deserialize
+    )]
+    #[archive(check_bytes)]
+    #[repr(C)]
+    #[message(type_id = 1005)]
+    #[persistent_message(handler_id = 255)]
+    struct MaxHandlerIdMessage {
+        value: u32,
+    }
+
+    #[test]
+    fn test_max_handler_id() {
+        assert_eq!(MaxHandlerIdMessage::handler_id(), 255);
+    }
+
+    #[derive(
+        RingMessage, PersistentMessage, Clone, Copy, Debug,
+        rkyv::Archive, rkyv::Serialize, rkyv::Deserialize
+    )]
+    #[archive(check_bytes)]
+    #[repr(C)]
+    #[message(type_id = 1006)]
+    #[persistent_message(handler_id = 0)]
+    struct MinHandlerIdMessage {
+        value: u32,
+    }
+
+    #[test]
+    fn test_min_handler_id() {
+        assert_eq!(MinHandlerIdMessage::handler_id(), 0);
+    }
+
+    /// Test different handler_ids for different message types
+    #[test]
+    fn test_different_handler_ids() {
+        assert_eq!(FraudCheckRequest::handler_id(), 1);
+        assert_eq!(AuditEvent::handler_id(), 2);
+        assert_eq!(MaxSizeMessage::handler_id(), 3);
+        assert_eq!(LargeMessage::handler_id(), 4);
     }
 }
