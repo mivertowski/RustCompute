@@ -72,6 +72,7 @@ pub mod tenancy;
 pub mod alerting;
 pub mod timeout;
 pub mod rate_limiting;
+pub mod logging;
 
 /// TLS support (requires `tls` feature).
 #[cfg(feature = "tls")]
@@ -217,6 +218,15 @@ pub mod prelude {
     pub use crate::tls::{
         CertificateInfo, CertificateStore, ClientAuth, SniResolver, TlsAcceptor, TlsConfig,
         TlsConfigBuilder, TlsConnector, TlsError, TlsResult, TlsSessionInfo, TlsVersion,
+    };
+    pub use crate::logging::{
+        ConsoleSink, FileLogSink, LogEntry, LogOutput, LogValue, LoggerStats, MemoryLogSink,
+        StructuredLogger, TraceContext,
+        LogConfig as StructuredLogConfig,
+        LogConfigBuilder as StructuredLogConfigBuilder,
+        LogLevel as StructuredLogLevel,
+        LogSink as StructuredLogSink,
+        LogSinkError as StructuredLogSinkError,
     };
 }
 
