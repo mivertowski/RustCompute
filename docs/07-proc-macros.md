@@ -96,6 +96,154 @@ pub struct ComputeRequest {
 }
 ```
 
+### Domain Attribute (v0.3.0)
+
+Assign messages to business domains for automatic type ID allocation:
+
+```rust
+use ringkernel::prelude::*;
+
+#[derive(RingMessage)]
+#[message(domain = "FraudDetection")]  // Type ID auto-assigned from 1000-1099 range
+pub struct SuspiciousTransaction {
+    #[message(id)]
+    pub id: Uuid,
+    pub account_id: u64,
+    pub amount: f64,
+    pub risk_score: f32,
+}
+
+#[derive(RingMessage)]
+#[message(domain = "ProcessIntelligence", type_id = 1505)]  // Explicit ID within domain range
+pub struct ActivityEvent {
+    #[message(id)]
+    pub id: Uuid,
+    pub case_id: u64,
+    pub activity: String,
+}
+```
+
+Available domains and their type ID ranges:
+
+| Domain | Range | Description |
+|--------|-------|-------------|
+| `General` | 0-99 | Default, unclassified |
+| `GraphAnalytics` | 100-199 | Graph algorithms |
+| `StatisticalML` | 200-299 | ML/statistics |
+| `Compliance` | 300-399 | Regulatory compliance |
+| `RiskManagement` | 400-499 | Risk analysis |
+| `OrderMatching` | 500-599 | Trading systems |
+| `MarketData` | 600-699 | Market feeds |
+| `Settlement` | 700-799 | Trade settlement |
+| `Accounting` | 800-899 | Financial accounting |
+| `NetworkAnalysis` | 900-999 | Network analysis |
+| `FraudDetection` | 1000-1099 | Fraud detection |
+| `TimeSeries` | 1100-1199 | Time series analysis |
+| `Simulation` | 1200-1299 | Simulations |
+| `Banking` | 1300-1399 | Banking operations |
+| `BehavioralAnalytics` | 1400-1499 | Behavioral analysis |
+| `ProcessIntelligence` | 1500-1599 | Process mining |
+| `Clearing` | 1600-1699 | Clearing operations |
+| `TreasuryManagement` | 1700-1799 | Treasury |
+| `PaymentProcessing` | 1800-1899 | Payments |
+| `FinancialAudit` | 1900-1999 | Auditing |
+| `Custom` | 10000+ | User-defined |
+
+---
+
+## #[derive(PersistentMessage)] (v0.3.0)
+
+For messages that are dispatched to GPU kernel handlers:
+
+```rust
+use ringkernel::prelude::*;
+
+#[derive(PersistentMessage)]
+#[persistent_message(handler_id = 1)]
+pub struct MatrixMultiplyRequest {
+    pub matrix_a: Vec<f32>,
+    pub matrix_b: Vec<f32>,
+    pub rows_a: u32,
+    pub cols_a: u32,
+    pub cols_b: u32,
+}
+
+#[derive(PersistentMessage)]
+#[persistent_message(handler_id = 1, requires_response = true)]
+pub struct MatrixMultiplyResponse {
+    pub result: Vec<f32>,
+    pub compute_time_ns: u64,
+}
+```
+
+### Attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| `handler_id = N` | Handler identifier for dispatch routing (required) |
+| `requires_response = bool` | Whether the message expects a response (default: false) |
+| `domain = "Name"` | Optional domain classification |
+
+### Generated Code
+
+```rust
+impl ::ringkernel_core::persistent_message::PersistentMessage for MatrixMultiplyRequest {
+    const HANDLER_ID: ::ringkernel_core::persistent_message::HandlerId =
+        ::ringkernel_core::persistent_message::HandlerId(1);
+    const REQUIRES_RESPONSE: bool = false;
+
+    fn serialize_payload(&self) -> Vec<u8> {
+        ::rkyv::to_bytes::<Self>(self).unwrap().to_vec()
+    }
+
+    fn deserialize_response(data: &[u8]) -> Option<Self::Response> {
+        ::rkyv::from_bytes::<Self::Response>(data).ok()
+    }
+
+    type Response = ();
+}
+```
+
+---
+
+## #[derive(GpuType)] (v0.3.0)
+
+Generate GPU-compatible type definitions for use in kernels:
+
+```rust
+use ringkernel::prelude::*;
+
+#[derive(GpuType)]
+#[repr(C)]
+pub struct Particle {
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub mass: f32,
+    pub charge: f32,
+}
+
+#[derive(GpuType)]
+#[repr(C, align(16))]
+pub struct Matrix4x4 {
+    pub data: [f32; 16],
+}
+```
+
+### Requirements
+
+- Must have `#[repr(C)]` for C-compatible layout
+- All fields must be `Copy` types
+- Nested structs must also derive `GpuType`
+- Supports alignment attributes (`#[repr(C, align(N))]`)
+
+### Generated Code
+
+The macro generates:
+- CUDA struct definition with matching layout
+- WGSL struct definition with proper alignment
+- Size and alignment compile-time assertions
+- Serialization helpers for GPU transfer
+
 ---
 
 ## #[ring_kernel]

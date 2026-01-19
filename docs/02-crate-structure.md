@@ -25,14 +25,20 @@ RustCompute/
 │   │   └── src/
 │   │       ├── lib.rs
 │   │       ├── message.rs        # RingMessage trait, priority constants
-│   │       ├── queue.rs          # MessageQueue trait
+│   │       ├── queue.rs          # MessageQueue trait, QueueTier, QueueFactory, QueueMonitor (v0.3.0)
 │   │       ├── runtime.rs        # RingKernel, KernelHandle, LaunchOptions
 │   │       ├── context.rs        # RingContext struct
 │   │       ├── control.rs        # ControlBlock struct
 │   │       ├── telemetry.rs      # TelemetryBuffer, MetricsCollector
 │   │       ├── pubsub.rs         # PubSubBroker, Topic wildcards
 │   │       ├── hlc.rs            # HlcTimestamp, HlcClock
-│   │       └── error.rs          # Error types
+│   │       ├── error.rs          # Error types
+│   │       ├── memory.rs         # (v0.3.0) SizeBucket, StratifiedMemoryPool, PressureHandler
+│   │       ├── reduction.rs      # (v0.3.0) ReductionOp, ReductionScalar, GlobalReduction
+│   │       ├── analytics_context.rs  # (v0.3.0) AnalyticsContext, AllocationHandle
+│   │       ├── dispatcher.rs     # (v0.3.0) KernelDispatcher, DispatcherBuilder
+│   │       ├── persistent_message.rs # (v0.3.0) PersistentMessage trait, DispatchTable
+│   │       └── domain.rs         # (v0.3.0) Domain enum (20 business domains)
 │   │
 │   ├── ringkernel-derive/        # Proc macros (in development)
 │   │   └── src/lib.rs
@@ -45,9 +51,12 @@ RustCompute/
 │   ├── ringkernel-cuda/          # CUDA backend (working)
 │   │   ├── Cargo.toml
 │   │   ├── src/
-│   │   │   ├── lib.rs
+│   │   │   ├── lib.rs            # compile_ptx() function (v0.3.0)
 │   │   │   ├── runtime.rs        # CudaRuntime implementation
-│   │   │   └── ptx.rs            # PTX template for persistent kernels
+│   │   │   ├── ptx.rs            # PTX template for persistent kernels
+│   │   │   ├── reduction.rs      # (v0.3.0) ReductionBuffer, ReductionBufferCache
+│   │   │   ├── phases.rs         # (v0.3.0) SyncMode, MultiPhaseConfig, MultiPhaseExecutor
+│   │   │   └── persistent.rs     # (v0.3.0) PersistentSimulation, PersistentControlBlock
 │   │   └── tests/
 │   │       └── gpu_execution_verify.rs  # GPU execution verification
 │   │
@@ -93,7 +102,30 @@ RustCompute/
 │   │       └── handler.rs        # Handler function integration
 │   │
 │   ├── ringkernel-ecosystem/     # Integration utilities
-│   │   └── src/lib.rs
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── actix.rs          # GpuPersistentActor for Actix
+│   │       ├── tower.rs          # PersistentKernelService middleware
+│   │       ├── axum.rs           # PersistentGpuState, REST/SSE endpoints
+│   │       ├── grpc.rs           # gRPC streaming server
+│   │       └── cuda_bridge.rs    # CudaPersistentHandle
+│   │
+│   ├── ringkernel-montecarlo/    # (v0.3.0) Monte Carlo primitives
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── philox.rs         # Philox PRNG
+│   │       ├── antithetic.rs     # Antithetic variates
+│   │       ├── control_variate.rs # Control variates
+│   │       └── importance.rs     # Importance sampling
+│   │
+│   ├── ringkernel-graph/         # (v0.3.0) Graph algorithms
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── csr.rs            # CSR sparse matrix
+│   │       ├── bfs.rs            # Breadth-first search
+│   │       ├── scc.rs            # SCC (Tarjan, Kosaraju)
+│   │       ├── union_find.rs     # Parallel Union-Find (Shiloach-Vishkin)
+│   │       └── spmv.rs           # Sparse matrix-vector multiply
 │   │
 │   ├── ringkernel-audio-fft/     # Example: GPU audio processing
 │   │   └── src/lib.rs
@@ -263,7 +295,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT OR Apache-2.0"
@@ -273,9 +305,10 @@ categories = ["concurrency", "asynchronous", "science"]
 
 [workspace.dependencies]
 # Async runtime
-tokio = { version = "1.35", features = ["rt-multi-thread", "sync", "macros"] }
+tokio = { version = "1.48", features = ["rt-multi-thread", "sync", "macros"] }
 async-trait = "0.1"
 futures = "0.3"
+rayon = "1.11"
 
 # Serialization (zero-copy)
 rkyv = { version = "0.7", features = ["validation", "strict"] }
@@ -283,7 +316,7 @@ zerocopy = { version = "0.7", features = ["derive"] }
 bytemuck = { version = "1.14", features = ["derive"] }
 
 # Error handling
-thiserror = "1.0"
+thiserror = "2.0"
 anyhow = "1.0"
 
 # Logging
@@ -291,10 +324,25 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 
 # GPU backends
-cudarc = { version = "0.10", optional = true }         # CUDA
-metal = { version = "0.27", optional = true }          # Metal
-wgpu = { version = "0.19", optional = true }           # WebGPU
-ash = { version = "0.37", optional = true }            # Vulkan
+cudarc = { version = "0.18.2", optional = true }       # CUDA (updated API)
+metal = { version = "0.31", optional = true }          # Metal
+wgpu = { version = "27.0", optional = true }           # WebGPU (Arc-based)
+
+# Web frameworks
+axum = { version = "0.8", optional = true }
+tower = { version = "0.5", optional = true }
+tonic = { version = "0.14", optional = true }          # gRPC
+prost = { version = "0.14", optional = true }          # Protobuf
+
+# GUI
+iced = { version = "0.13", optional = true }
+egui = { version = "0.31", optional = true }
+winit = { version = "0.30", optional = true }
+
+# Data
+arrow = { version = "54", optional = true }
+polars = { version = "0.46", optional = true }
+glam = "0.29"
 
 # Proc macros
 syn = { version = "2.0", features = ["full", "parsing"] }

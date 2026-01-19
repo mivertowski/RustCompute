@@ -485,6 +485,179 @@ cargo run -p ringkernel --example ring_kernel_codegen
 
 See the `/examples/cuda-codegen/` directory for the full source code.
 
+## CUDA PTX Compilation (v0.3.0)
+
+The `ringkernel-cuda` crate provides a `compile_ptx()` function for runtime CUDA compilation:
+
+```rust
+use ringkernel_cuda::compile_ptx;
+
+let cuda_source = r#"
+    extern "C" __global__ void saxpy(float* y, const float* x, float a, int n) {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx < n) y[idx] = a * x[idx] + y[idx];
+    }
+"#;
+
+// Compile to PTX using NVRTC
+let ptx = compile_ptx(cuda_source)?;
+
+// Load into CUDA module
+let module = device.load_module(ptx)?;
+let func = module.load_function("saxpy")?;
+```
+
+This allows downstream crates to compile CUDA without directly depending on cudarc.
+
+---
+
+## Multi-Phase Kernel Execution (v0.3.0)
+
+For algorithms requiring synchronization between compute phases (e.g., PageRank):
+
+```rust
+use ringkernel_cuda::phases::{MultiPhaseConfig, SyncMode, KernelPhase, MultiPhaseExecutor};
+
+// Configure multi-phase execution
+let config = MultiPhaseConfig::new()
+    .with_sync_mode(SyncMode::Cooperative)  // Uses grid.sync() on CC 6.0+
+    .with_phase(KernelPhase::new("scatter", scatter_fn))
+    .with_phase(KernelPhase::new("gather", gather_fn))
+    .with_inter_phase_reduction(ReductionOp::Sum);  // Sum between phases
+
+// Execute
+let executor = MultiPhaseExecutor::new(&device, config)?;
+let stats = executor.run(iterations)?;
+
+println!("Total time: {:?}", stats.total_time);
+println!("Phase breakdown: {:?}", stats.phase_times);
+println!("Sync overhead: {:?}", stats.sync_overhead);
+```
+
+### Sync Modes
+
+| Mode | Description | Requirements |
+|------|-------------|--------------|
+| `Cooperative` | Uses `grid.sync()` via cooperative groups | CC 6.0+, grid fits in SM |
+| `SoftwareBarrier` | Atomic-based synchronization | Any CC |
+| `MultiLaunch` | Separate kernel launches per phase | Any CC, highest overhead |
+
+The executor automatically falls back to `SoftwareBarrier` when `Cooperative` isn't available.
+
+---
+
+## Dispatch Code Generation (v0.3.0)
+
+Generate switch-based dispatch code for multi-handler kernels:
+
+```rust
+use ringkernel_cuda_codegen::{CudaDispatchTable, generate_dispatch_kernel};
+
+// Register handlers
+let mut dispatch_table = CudaDispatchTable::new();
+dispatch_table.register(1, "handle_compute", "ComputeRequest", "ComputeResponse");
+dispatch_table.register(2, "handle_query", "QueryRequest", "QueryResponse");
+dispatch_table.register(3, "handle_update", "UpdateRequest", "UpdateResponse");
+
+// Generate dispatch kernel
+let cuda_code = generate_dispatch_kernel(&dispatch_table, "multi_handler")?;
+```
+
+**Generated CUDA:**
+```cuda
+extern "C" __global__ void multi_handler_dispatch(
+    ExtendedH2KMessage* input_queue,
+    K2HMessage* output_queue,
+    ControlBlock* control
+) {
+    // ... message dequeue ...
+
+    switch (msg->handler_id) {
+        case 1: {
+            ComputeRequest* req = (ComputeRequest*)msg->payload;
+            ComputeResponse resp = handle_compute(req);
+            enqueue_response(&resp, sizeof(ComputeResponse));
+            break;
+        }
+        case 2: {
+            QueryRequest* req = (QueryRequest*)msg->payload;
+            QueryResponse resp = handle_query(req);
+            enqueue_response(&resp, sizeof(QueryResponse));
+            break;
+        }
+        case 3: {
+            UpdateRequest* req = (UpdateRequest*)msg->payload;
+            UpdateResponse resp = handle_update(req);
+            enqueue_response(&resp, sizeof(UpdateResponse));
+            break;
+        }
+        default:
+            // Unknown handler, skip
+            break;
+    }
+}
+```
+
+---
+
+## Reduction Code Generation (v0.3.0)
+
+Generate reduction helper code for GPU algorithms:
+
+```rust
+use ringkernel_cuda_codegen::reduction_intrinsics::{
+    generate_reduction_helpers,
+    generate_inline_reduce_and_broadcast,
+    ReductionCodegenConfig,
+};
+
+// Generate block and grid reduction functions
+let config = ReductionCodegenConfig {
+    use_cooperative_groups: true,
+    block_size: 256,
+    warp_reduce: true,
+};
+
+let helpers = generate_reduction_helpers(&config);
+```
+
+**Generated Helpers:**
+
+```cuda
+// Block-level reduction
+__device__ float block_reduce_sum(float val, float* shared_mem) {
+    int tid = threadIdx.x;
+    shared_mem[tid] = val;
+    __syncthreads();
+
+    for (int s = blockDim.x / 2; s > 32; s >>= 1) {
+        if (tid < s) shared_mem[tid] += shared_mem[tid + s];
+        __syncthreads();
+    }
+
+    // Warp-level reduction
+    if (tid < 32) {
+        val = shared_mem[tid];
+        val += __shfl_down_sync(0xFFFFFFFF, val, 16);
+        val += __shfl_down_sync(0xFFFFFFFF, val, 8);
+        val += __shfl_down_sync(0xFFFFFFFF, val, 4);
+        val += __shfl_down_sync(0xFFFFFFFF, val, 2);
+        val += __shfl_down_sync(0xFFFFFFFF, val, 1);
+    }
+    return val;
+}
+
+// Grid-level reduction with atomics
+__device__ void grid_reduce_sum(float val, float* shared_mem, float* global_result) {
+    float block_sum = block_reduce_sum(val, shared_mem);
+    if (threadIdx.x == 0) {
+        atomicAdd(global_result, block_sum);
+    }
+}
+```
+
+---
+
 ## Persistent FDTD Features
 
 The `persistent_fdtd.rs` module generates truly persistent GPU kernels that run for the entire simulation lifetime:

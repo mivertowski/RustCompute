@@ -21,9 +21,13 @@ RingKernel is under active development. The core runtime, CPU backend, CUDA back
 - Telemetry and metrics collection
 - Rust-to-CUDA transpiler (ringkernel-cuda-codegen)
 - Rust-to-WGSL transpiler (ringkernel-wgpu-codegen)
+- Size-stratified memory pools with pressure handling (v0.3.0)
+- Global reduction primitives with multi-phase execution (v0.3.0)
+- Multi-kernel dispatch with domain-based routing (v0.3.0)
+- Queue tiering for throughput-based capacity selection (v0.3.0)
 - 20+ working examples
 - 5 showcase applications: WaveSim, WaveSim3D, TxMon, AccNet, ProcInt
-- 520+ tests across the workspace
+- 825+ tests across the workspace
 
 **In progress:**
 - Metal backend (scaffolded)

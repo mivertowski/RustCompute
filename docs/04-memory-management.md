@@ -199,6 +199,238 @@ impl Drop for PooledBuffer<'_> {
 
 ---
 
+## Size-Stratified Memory Pool (v0.3.0)
+
+For analytics workloads with varying buffer sizes, the stratified pool provides efficient multi-size buffer reuse:
+
+```rust
+use ringkernel_core::memory::{StratifiedMemoryPool, SizeBucket, StratifiedPoolStats};
+
+// Create a stratified pool with automatic bucket selection
+let pool = StratifiedMemoryPool::new("analytics");
+
+// Allocate buffers - automatically routed to appropriate bucket
+let tiny_buf = pool.allocate(100);     // → Tiny bucket (256B)
+let small_buf = pool.allocate(800);    // → Small bucket (1KB)
+let medium_buf = pool.allocate(2000);  // → Medium bucket (4KB)
+let large_buf = pool.allocate(10000);  // → Large bucket (16KB)
+let huge_buf = pool.allocate(50000);   // → Huge bucket (64KB)
+
+// Buffers automatically return to correct bucket on drop
+drop(medium_buf);
+
+// Check pool statistics
+let stats = pool.stats();
+println!("Total allocations: {}", stats.total_allocations);
+println!("Cache hit rate: {:.1}%", stats.hit_rate() * 100.0);
+println!("Hits per bucket: {:?}", stats.hits_per_bucket);
+```
+
+### Size Buckets
+
+| Bucket | Size | Use Case |
+|--------|------|----------|
+| `Tiny` | 256 B | Metadata, small messages, control structures |
+| `Small` | 1 KB | Typical message payloads, small vectors |
+| `Medium` | 4 KB | Page-sized allocations, batch metadata |
+| `Large` | 16 KB | Batch operations, intermediate results |
+| `Huge` | 64 KB | Large transfers, big data chunks |
+
+```rust
+use ringkernel_core::memory::SizeBucket;
+
+// Find appropriate bucket for a size
+let bucket = SizeBucket::for_size(2500);  // Returns Medium (4KB)
+
+// Bucket operations
+let upgraded = bucket.upgrade();    // Large (16KB)
+let downgraded = bucket.downgrade(); // Small (1KB)
+
+// Get bucket size
+println!("Medium bucket size: {} bytes", SizeBucket::Medium.size()); // 4096
+```
+
+### StratifiedBuffer RAII Wrapper
+
+```rust
+use ringkernel_core::memory::{StratifiedMemoryPool, StratifiedBuffer};
+
+let pool = StratifiedMemoryPool::new("compute");
+
+// StratifiedBuffer automatically returns to the correct bucket on drop
+{
+    let buffer: StratifiedBuffer = pool.allocate(3000);
+    // Use buffer...
+    println!("Allocated {} bytes in {:?} bucket", buffer.size(), buffer.bucket());
+} // Buffer returned to Medium bucket here
+
+// Next allocation of similar size reuses the buffer
+let reused = pool.allocate(3500);  // Cache hit!
+```
+
+---
+
+## Analytics Context (v0.3.0)
+
+For operations that allocate multiple related buffers (BFS traversal, DFG mining, pattern detection), `AnalyticsContext` provides grouped lifecycle management:
+
+```rust
+use ringkernel_core::analytics_context::{AnalyticsContext, AnalyticsContextBuilder};
+
+// Create context for a graph algorithm
+let mut ctx = AnalyticsContext::new("bfs_traversal");
+
+// Allocate buffers - all tracked together
+let frontier = ctx.allocate(1024);
+let visited = ctx.allocate(num_nodes / 8);  // Bit vector
+let distances = ctx.allocate_typed::<u32>(num_nodes);
+
+// Check memory usage
+let stats = ctx.stats();
+println!("Current: {} bytes", stats.current_bytes);
+println!("Peak: {} bytes", stats.peak_bytes);
+println!("Allocations: {}", stats.allocation_count);
+
+// All buffers released when context drops
+drop(ctx);
+```
+
+### Typed Allocations
+
+```rust
+use ringkernel_core::analytics_context::AnalyticsContext;
+
+let mut ctx = AnalyticsContext::new("matrix_ops");
+
+// Type-safe allocation with automatic sizing
+let matrix = ctx.allocate_typed::<f32>(1024 * 1024);  // 4MB for 1M floats
+let indices = ctx.allocate_typed::<u64>(65536);       // 512KB for 64K indices
+
+// Track typed allocation statistics
+println!("Typed allocations: {}", ctx.stats().typed_allocations);
+```
+
+### Builder Pattern with Preallocation
+
+```rust
+use ringkernel_core::analytics_context::AnalyticsContextBuilder;
+
+// Pre-allocate for known workload
+let ctx = AnalyticsContextBuilder::new("pagerank")
+    .with_expected_allocations(5)
+    .with_preallocation(num_nodes * 4)      // Ranks buffer
+    .with_preallocation(num_nodes * 4)      // Previous ranks
+    .with_preallocation(num_edges * 8)      // Edge weights
+    .build();
+```
+
+---
+
+## Memory Pressure Handling (v0.3.0)
+
+Monitor and react to memory pressure with configurable strategies:
+
+```rust
+use ringkernel_core::memory::{
+    PressureHandler, PressureReaction, PressureLevel, StratifiedMemoryPool
+};
+
+// Create pool with pressure monitoring
+let pool = StratifiedMemoryPool::new("monitored");
+
+// Configure pressure handler
+let handler = PressureHandler::new()
+    .on_elevated(PressureReaction::None)           // Ignore mild pressure
+    .on_warning(PressureReaction::Shrink {
+        target_utilization: 0.7
+    })                                              // Shrink to 70% at warning
+    .on_critical(PressureReaction::Callback(Box::new(|level| {
+        eprintln!("Critical memory pressure: {:?}", level);
+        // Trigger emergency cleanup
+    })));
+
+// Check and handle pressure
+let level = handler.check_pressure(&pool);
+match level {
+    PressureLevel::Normal => { /* Continue normally */ }
+    PressureLevel::Elevated => { /* Maybe defer new allocations */ }
+    PressureLevel::Warning => { /* Release caches */ }
+    PressureLevel::Critical => { /* Emergency measures */ }
+    PressureLevel::OutOfMemory => { /* Fail gracefully */ }
+}
+```
+
+### Pressure Reactions
+
+| Reaction | Description |
+|----------|-------------|
+| `None` | Ignore pressure at this level |
+| `Shrink { target_utilization }` | Release buffers until utilization drops to target |
+| `Callback(fn)` | Execute custom callback for application-specific handling |
+
+---
+
+## CUDA Reduction Buffer Cache (v0.3.0)
+
+For algorithms requiring repeated reductions (PageRank iterations, convergence checks):
+
+```rust
+use ringkernel_cuda::reduction::{ReductionBufferCache, ReductionOp};
+
+// Create cache with max 4 buffers per key
+let cache = ReductionBufferCache::new(&device, 4);
+
+// Acquire reduction buffer (allocates on first call)
+let buffer = cache.acquire::<f32>(4, ReductionOp::Sum)?;
+
+// Use for reduction...
+// buffer.device_ptr() for kernel
+// buffer.read_result(slot) for host read
+
+// Buffer automatically returned to cache on drop
+drop(buffer);
+
+// Next acquire with same key reuses the buffer
+let reused = cache.acquire::<f32>(4, ReductionOp::Sum)?;  // Cache hit!
+
+// Check cache statistics
+let stats = cache.stats();
+println!("Hit rate: {:.1}%", stats.hit_rate() * 100.0);
+```
+
+---
+
+## WebGPU Staging Buffer Pool (v0.3.0)
+
+Efficient staging buffer reuse for GPU-to-host transfers:
+
+```rust
+use ringkernel_wgpu::memory::{StagingBufferPool, StagingPoolStats};
+
+// Create staging pool
+let pool = StagingBufferPool::new(&device, 16);  // Max 16 buffers
+
+// Acquire staging buffer for readback
+let staging = pool.acquire(data_size)?;
+
+// Use for GPU → host copy
+encoder.copy_buffer_to_buffer(&gpu_buffer, 0, staging.buffer(), 0, data_size);
+
+// Map and read
+staging.map_async(wgpu::MapMode::Read);
+device.poll(wgpu::Maintain::Wait);
+let data = staging.get_mapped_range();
+
+// Buffer returned to pool on drop
+drop(staging);
+
+// Check statistics
+let stats = pool.stats();
+println!("Staging buffer reuse rate: {:.1}%", stats.hit_rate() * 100.0);
+```
+
+---
+
 ## Unified Memory (CUDA Managed Memory)
 
 ```rust

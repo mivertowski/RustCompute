@@ -555,4 +555,352 @@ let config = ConfigBuilder::new()
 
 ---
 
+## 8. Domain System (v0.3.0)
+
+Organize messages by business domain with automatic type ID allocation:
+
+```rust
+use ringkernel_core::domain::{Domain, DomainMessage};
+
+/// 20 predefined business domains with reserved type ID ranges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Domain {
+    General,              // 0-99 (default)
+    GraphAnalytics,       // 100-199
+    StatisticalML,        // 200-299
+    Compliance,           // 300-399
+    RiskManagement,       // 400-499
+    OrderMatching,        // 500-599
+    MarketData,           // 600-699
+    Settlement,           // 700-799
+    Accounting,           // 800-899
+    NetworkAnalysis,      // 900-999
+    FraudDetection,       // 1000-1099
+    TimeSeries,           // 1100-1199
+    Simulation,           // 1200-1299
+    Banking,              // 1300-1399
+    BehavioralAnalytics,  // 1400-1499
+    ProcessIntelligence,  // 1500-1599
+    Clearing,             // 1600-1699
+    TreasuryManagement,   // 1700-1799
+    PaymentProcessing,    // 1800-1899
+    FinancialAudit,       // 1900-1999
+    Custom,               // 10000+ (user-defined)
+}
+
+impl Domain {
+    /// Get the type ID range for this domain.
+    pub fn type_id_range(&self) -> (u32, u32) { /* ... */ }
+
+    /// Determine domain from a type ID.
+    pub fn from_type_id(type_id: u32) -> Option<Self> { /* ... */ }
+}
+```
+
+### Usage with RingMessage
+
+```rust
+use ringkernel::prelude::*;
+
+#[derive(RingMessage)]
+#[message(domain = "FraudDetection")]  // Auto-assigns type ID in 1000-1099 range
+struct SuspiciousActivity {
+    #[message(id)]
+    id: MessageId,
+    account_id: u64,
+    risk_score: f32,
+}
+
+#[derive(RingMessage)]
+#[message(domain = "ProcessIntelligence")]  // Type ID in 1500-1599 range
+struct ActivityEvent {
+    #[message(id)]
+    id: MessageId,
+    case_id: u64,
+    activity: String,
+    timestamp: u64,
+}
+```
+
+---
+
+## 9. PersistentMessage Trait (v0.3.0)
+
+For type-based GPU kernel dispatch with automatic handler routing:
+
+```rust
+use ringkernel_core::persistent_message::{PersistentMessage, HandlerId, DispatchTable};
+
+/// Trait for messages that can be dispatched to GPU kernel handlers.
+pub trait PersistentMessage: RingMessage {
+    /// Unique handler identifier for dispatch routing.
+    const HANDLER_ID: HandlerId;
+
+    /// Whether this message type expects a response.
+    const REQUIRES_RESPONSE: bool = false;
+
+    /// Serialize payload for GPU transfer.
+    fn serialize_payload(&self) -> Vec<u8>;
+
+    /// Deserialize response from GPU.
+    fn deserialize_response(data: &[u8]) -> Option<Self::Response>
+    where
+        Self::Response: Sized;
+
+    /// Associated response type (if any).
+    type Response: RingMessage = ();
+}
+
+/// Handler identifier for dispatch routing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HandlerId(pub u32);
+
+/// Runtime dispatch table for message→handler mapping.
+pub struct DispatchTable {
+    handlers: HashMap<HandlerId, Box<dyn Handler>>,
+}
+```
+
+### Derive Macro Usage
+
+```rust
+use ringkernel::prelude::*;
+
+#[derive(PersistentMessage)]
+#[persistent_message(handler_id = 1, requires_response = true)]
+struct ComputeRequest {
+    data: Vec<f32>,
+    operation: OperationType,
+}
+
+#[derive(PersistentMessage)]
+#[persistent_message(handler_id = 1)]  // Same handler as request
+struct ComputeResponse {
+    result: Vec<f32>,
+    elapsed_ns: u64,
+}
+```
+
+---
+
+## 10. KernelDispatcher (v0.3.0)
+
+Multi-kernel message routing component:
+
+```rust
+use ringkernel_core::dispatcher::{
+    KernelDispatcher, DispatcherBuilder, DispatcherConfig, DispatcherMetrics
+};
+
+/// Routes messages to GPU kernels based on message type.
+pub struct KernelDispatcher {
+    broker: Arc<K2KBroker>,
+    config: DispatcherConfig,
+    metrics: DispatcherMetrics,
+}
+
+impl KernelDispatcher {
+    /// Dispatch a message to the appropriate kernel.
+    pub async fn dispatch<T: PersistentMessage>(
+        &self,
+        kernel_id: KernelId,
+        message: T,
+    ) -> Result<DispatchReceipt, DispatchError>;
+
+    /// Dispatch with explicit priority override.
+    pub async fn dispatch_priority<T: PersistentMessage>(
+        &self,
+        kernel_id: KernelId,
+        message: T,
+        priority: Priority,
+    ) -> Result<DispatchReceipt, DispatchError>;
+
+    /// Get dispatch metrics.
+    pub fn metrics(&self) -> &DispatcherMetrics;
+}
+```
+
+### Builder Pattern
+
+```rust
+use ringkernel_core::dispatcher::DispatcherBuilder;
+
+let dispatcher = DispatcherBuilder::new(k2k_broker)
+    .with_default_priority(Priority::Normal)
+    .with_timeout(Duration::from_millis(100))
+    .with_retry_policy(RetryPolicy::exponential(3))
+    .build();
+
+// Dispatch messages
+let receipt = dispatcher.dispatch(kernel_id, compute_request).await?;
+
+// Check metrics
+let metrics = dispatcher.metrics();
+println!("Dispatched: {}", metrics.messages_dispatched);
+println!("Errors: {}", metrics.errors);
+println!("Avg latency: {:?}", metrics.average_latency);
+```
+
+---
+
+## 11. Queue Tiering (v0.3.0)
+
+Predefined queue capacity tiers for different throughput requirements:
+
+```rust
+use ringkernel_core::queue::{QueueTier, QueueFactory, QueueMonitor, QueueMetrics};
+
+/// Queue capacity tiers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum QueueTier {
+    Small,      // 256 messages - low traffic
+    Medium,     // 1024 messages - moderate traffic (default)
+    Large,      // 4096 messages - high traffic
+    ExtraLarge, // 16384 messages - very high traffic
+}
+
+impl QueueTier {
+    /// Get capacity for this tier.
+    pub fn capacity(&self) -> usize;
+
+    /// Suggest tier based on expected throughput.
+    pub fn for_throughput(messages_per_second: u64, target_headroom_ms: u64) -> Self;
+
+    /// Upgrade to next tier.
+    pub fn upgrade(&self) -> Self;
+
+    /// Downgrade to previous tier.
+    pub fn downgrade(&self) -> Self;
+}
+```
+
+### Queue Factory
+
+```rust
+use ringkernel_core::queue::{QueueFactory, QueueTier};
+
+// Create queues with specific tiers
+let small_queue = QueueFactory::create_spsc(QueueTier::Small);
+let large_queue = QueueFactory::create_mpsc(QueueTier::Large);
+
+// Auto-select tier based on throughput requirements
+let tier = QueueTier::for_throughput(10_000, 100);  // 10k msg/s, 100ms buffer
+let queue = QueueFactory::create_spsc(tier);
+```
+
+### Queue Monitor
+
+```rust
+use ringkernel_core::queue::{QueueMonitor, QueueMonitorConfig};
+
+let monitor = QueueMonitor::new(queue, QueueMonitorConfig {
+    warning_threshold: 0.75,   // Warn at 75% capacity
+    critical_threshold: 0.90,  // Critical at 90%
+    sample_interval: Duration::from_millis(100),
+});
+
+// Check queue health
+let health = monitor.check_health();
+println!("Depth: {}/{}", health.current_depth, health.capacity);
+println!("Healthy: {}", health.is_healthy);
+println!("Level: {:?}", health.pressure_level);
+
+// Get detailed metrics
+let metrics = monitor.metrics();
+println!("Enqueued: {}, Dequeued: {}", metrics.total_enqueued, metrics.total_dequeued);
+println!("Peak depth: {}", metrics.peak_depth);
+```
+
+---
+
+## 12. Global Reduction Primitives (v0.3.0)
+
+Backend-agnostic reduction operations for GPU algorithms:
+
+```rust
+use ringkernel_core::reduction::{ReductionOp, ReductionScalar, GlobalReduction};
+
+/// Supported reduction operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ReductionOp {
+    Sum,     // Σ values
+    Min,     // minimum value
+    Max,     // maximum value
+    And,     // bitwise AND
+    Or,      // bitwise OR
+    Xor,     // bitwise XOR
+    Product, // Π values
+}
+
+/// Trait for types that can participate in reductions.
+pub trait ReductionScalar: Copy + Send + Sync + 'static {
+    /// Identity element for the given operation.
+    fn identity(op: ReductionOp) -> Self;
+
+    /// Apply reduction operation.
+    fn reduce(self, other: Self, op: ReductionOp) -> Self;
+}
+
+// Implemented for: i32, i64, u32, u64, f32, f64
+
+/// Backend-agnostic global reduction interface.
+pub trait GlobalReduction {
+    /// Perform a grid-wide reduction.
+    fn reduce<T: ReductionScalar>(
+        &self,
+        input: &[T],
+        op: ReductionOp,
+    ) -> Result<T, ReductionError>;
+
+    /// Perform reduction and broadcast result to all threads.
+    fn reduce_and_broadcast<T: ReductionScalar>(
+        &self,
+        input: &[T],
+        op: ReductionOp,
+    ) -> Result<T, ReductionError>;
+}
+```
+
+### CUDA Reduction Buffer
+
+For PageRank-style algorithms with inter-kernel reductions:
+
+```rust
+use ringkernel_cuda::reduction::{ReductionBuffer, ReductionBufferBuilder};
+
+// Create reduction buffer using mapped memory (zero-copy host read)
+let buffer = ReductionBufferBuilder::new()
+    .with_op(ReductionOp::Sum)
+    .with_slots(4)  // Multiple slots reduce contention
+    .build(&device)?;
+
+// In kernel: accumulate to buffer
+// grid_reduce_sum(local_value, shared_mem, buffer.device_ptr())
+
+// Host: read result without explicit copy
+let sum = buffer.read_result(0)?;
+```
+
+### Multi-Phase Kernel Execution
+
+For algorithms requiring synchronization between compute phases:
+
+```rust
+use ringkernel_cuda::phases::{MultiPhaseConfig, SyncMode, KernelPhase};
+
+let config = MultiPhaseConfig::new()
+    .with_sync_mode(SyncMode::Cooperative)  // Uses grid.sync() on CC 6.0+
+    .with_phase(KernelPhase::new("scatter", scatter_fn))
+    .with_phase(KernelPhase::new("gather", gather_fn))
+    .with_reduction_between_phases(ReductionOp::Sum);
+
+let executor = MultiPhaseExecutor::new(&device, config)?;
+let stats = executor.run(iterations)?;
+
+println!("Total time: {:?}", stats.total_time);
+println!("Sync overhead: {:?}", stats.sync_overhead);
+```
+
+---
+
 ## Next: [Memory Management](./04-memory-management.md)
