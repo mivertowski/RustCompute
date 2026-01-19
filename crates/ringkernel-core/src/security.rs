@@ -69,7 +69,7 @@ use aes_gcm::{
     Aes256Gcm, Nonce as AesNonce,
 };
 #[cfg(feature = "crypto")]
-use chacha20poly1305::{ChaCha20Poly1305, XChaCha20Poly1305, Nonce as ChaNonce, XNonce};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaNonce, XChaCha20Poly1305, XNonce};
 #[cfg(feature = "crypto")]
 use rand::{rngs::OsRng, RngCore};
 #[cfg(feature = "crypto")]
@@ -427,24 +427,27 @@ impl MemoryEncryption {
         // Perform real AEAD encryption
         let ciphertext = match self.config.algorithm {
             EncryptionAlgorithm::Aes256Gcm | EncryptionAlgorithm::Aes128Gcm => {
-                let cipher = Aes256Gcm::new_from_slice(key.material())
-                    .expect("Invalid AES key length");
+                let cipher =
+                    Aes256Gcm::new_from_slice(key.material()).expect("Invalid AES key length");
                 let aes_nonce = AesNonce::from_slice(&nonce);
-                cipher.encrypt(aes_nonce, plaintext)
+                cipher
+                    .encrypt(aes_nonce, plaintext)
                     .expect("AES-GCM encryption failed")
             }
             EncryptionAlgorithm::ChaCha20Poly1305 => {
                 let cipher = ChaCha20Poly1305::new_from_slice(key.material())
                     .expect("Invalid ChaCha20 key length");
                 let cha_nonce = ChaNonce::from_slice(&nonce);
-                cipher.encrypt(cha_nonce, plaintext)
+                cipher
+                    .encrypt(cha_nonce, plaintext)
                     .expect("ChaCha20-Poly1305 encryption failed")
             }
             EncryptionAlgorithm::XChaCha20Poly1305 => {
                 let cipher = XChaCha20Poly1305::new_from_slice(key.material())
                     .expect("Invalid XChaCha20 key length");
                 let x_nonce = XNonce::from_slice(&nonce);
-                cipher.encrypt(x_nonce, plaintext)
+                cipher
+                    .encrypt(x_nonce, plaintext)
                     .expect("XChaCha20-Poly1305 encryption failed")
             }
         };
@@ -507,8 +510,7 @@ impl MemoryEncryption {
         // Add simulated authentication tag
         let tag: Vec<u8> = (0..16)
             .map(|i| {
-                ciphertext.get(i).copied().unwrap_or(0)
-                    ^ key.material()[i % key.material().len()]
+                ciphertext.get(i).copied().unwrap_or(0) ^ key.material()[i % key.material().len()]
             })
             .collect();
         ciphertext.extend(tag);
@@ -559,22 +561,33 @@ impl MemoryEncryption {
                 let cipher = Aes256Gcm::new_from_slice(key.material())
                     .map_err(|e| format!("Invalid AES key: {}", e))?;
                 let aes_nonce = AesNonce::from_slice(&region.nonce);
-                cipher.decrypt(aes_nonce, region.ciphertext.as_ref())
-                    .map_err(|_| "AES-GCM decryption failed: authentication tag mismatch".to_string())?
+                cipher
+                    .decrypt(aes_nonce, region.ciphertext.as_ref())
+                    .map_err(|_| {
+                        "AES-GCM decryption failed: authentication tag mismatch".to_string()
+                    })?
             }
             EncryptionAlgorithm::ChaCha20Poly1305 => {
                 let cipher = ChaCha20Poly1305::new_from_slice(key.material())
                     .map_err(|e| format!("Invalid ChaCha20 key: {}", e))?;
                 let cha_nonce = ChaNonce::from_slice(&region.nonce);
-                cipher.decrypt(cha_nonce, region.ciphertext.as_ref())
-                    .map_err(|_| "ChaCha20-Poly1305 decryption failed: authentication tag mismatch".to_string())?
+                cipher
+                    .decrypt(cha_nonce, region.ciphertext.as_ref())
+                    .map_err(|_| {
+                        "ChaCha20-Poly1305 decryption failed: authentication tag mismatch"
+                            .to_string()
+                    })?
             }
             EncryptionAlgorithm::XChaCha20Poly1305 => {
                 let cipher = XChaCha20Poly1305::new_from_slice(key.material())
                     .map_err(|e| format!("Invalid XChaCha20 key: {}", e))?;
                 let x_nonce = XNonce::from_slice(&region.nonce);
-                cipher.decrypt(x_nonce, region.ciphertext.as_ref())
-                    .map_err(|_| "XChaCha20-Poly1305 decryption failed: authentication tag mismatch".to_string())?
+                cipher
+                    .decrypt(x_nonce, region.ciphertext.as_ref())
+                    .map_err(|_| {
+                        "XChaCha20-Poly1305 decryption failed: authentication tag mismatch"
+                            .to_string()
+                    })?
             }
         };
 

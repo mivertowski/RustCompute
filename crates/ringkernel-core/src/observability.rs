@@ -2284,11 +2284,9 @@ impl OtlpConfig {
     /// Configure for Grafana Cloud.
     pub fn grafana_cloud(instance_id: impl Into<String>, api_key: impl Into<String>) -> Self {
         let instance = instance_id.into();
-        Self::new(format!(
-            "https://otlp-gateway-prod-us-central-0.grafana.net/otlp/v1/traces"
-        ))
-        .with_authorization(format!("Basic {}", api_key.into()))
-        .with_attribute("grafana.instance", instance)
+        Self::new("https://otlp-gateway-prod-us-central-0.grafana.net/otlp/v1/traces")
+            .with_authorization(format!("Basic {}", api_key.into()))
+            .with_attribute("grafana.instance", instance)
     }
 }
 
@@ -2435,7 +2433,11 @@ impl OtlpExporter {
         }
 
         OtlpExportResult {
-            spans_exported: if result.success { result.spans_exported } else { 0 },
+            spans_exported: if result.success {
+                result.spans_exported
+            } else {
+                0
+            },
             duration,
             ..result
         }
@@ -2512,7 +2514,11 @@ impl OtlpExporter {
                             retry_count,
                         };
                     } else {
-                        last_error = Some(format!("HTTP {}: {}", response.status(), response.status().as_str()));
+                        last_error = Some(format!(
+                            "HTTP {}: {}",
+                            response.status(),
+                            response.status().as_str()
+                        ));
                     }
                 }
                 Err(e) => {
@@ -2625,14 +2631,16 @@ impl OtlpExporter {
 
         // Convert timestamps to nanoseconds since epoch
         let start_nanos = span.start_time.elapsed().as_nanos();
-        let end_nanos = span.end_time.map(|t| t.elapsed().as_nanos()).unwrap_or(start_nanos);
+        let end_nanos = span
+            .end_time
+            .map(|t| t.elapsed().as_nanos())
+            .unwrap_or(start_nanos);
 
         // Note: These are approximate since we use Instant, not SystemTime
         let _ = write!(
             json,
             r#","startTimeUnixNano":"{}","endTimeUnixNano":"{}""#,
-            start_nanos,
-            end_nanos
+            start_nanos, end_nanos
         );
 
         // Status

@@ -306,8 +306,9 @@ impl SecretStore for EnvVarSecretStore {
 
         // Get from environment
         let env_var = self.key_to_env_var(key);
-        let value = std::env::var(&env_var)
-            .map_err(|_| SecretError::NotFound(format!("Environment variable {} not set", env_var)))?;
+        let value = std::env::var(&env_var).map_err(|_| {
+            SecretError::NotFound(format!("Environment variable {} not set", env_var))
+        })?;
 
         let secret = SecretValue::from_string(value)
             .with_metadata("source", "environment")
@@ -329,7 +330,11 @@ impl SecretStore for EnvVarSecretStore {
 
     async fn list_secrets(&self, prefix: Option<&str>) -> SecretResult<Vec<SecretKey>> {
         let full_prefix = match prefix {
-            Some(p) => format!("{}{}", self.prefix, p.to_uppercase().replace(['/', '.'], "_")),
+            Some(p) => format!(
+                "{}{}",
+                self.prefix,
+                p.to_uppercase().replace(['/', '.'], "_")
+            ),
             None => self.prefix.clone(),
         };
 
@@ -732,8 +737,7 @@ mod tests {
         assert_eq!(secret.as_str(), Some("hunter2"));
         assert!(!secret.is_expired());
 
-        let expired = SecretValue::from_string("old")
-            .with_expiry(Duration::from_nanos(1));
+        let expired = SecretValue::from_string("old").with_expiry(Duration::from_nanos(1));
         std::thread::sleep(Duration::from_millis(1));
         assert!(expired.is_expired());
     }

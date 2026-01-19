@@ -218,7 +218,8 @@ impl CertificateInfo {
     /// Get remaining validity duration.
     pub fn remaining_validity(&self) -> Option<Duration> {
         let now = SystemTime::now();
-        self.not_after.and_then(|not_after| not_after.duration_since(now).ok())
+        self.not_after
+            .and_then(|not_after| not_after.duration_since(now).ok())
     }
 
     /// Check if certificate expires within the given duration.
@@ -661,12 +662,12 @@ impl CertificateStore {
         // Clone paths before releasing lock to avoid borrow issues
         let paths = {
             let current = self.current.read();
-            current.as_ref().and_then(|entry| {
-                match (&entry.cert_path, &entry.key_path) {
+            current
+                .as_ref()
+                .and_then(|entry| match (&entry.cert_path, &entry.key_path) {
                     (Some(cert), Some(key)) => Some((cert.clone(), key.clone())),
                     _ => None,
-                }
-            })
+                })
         };
 
         if let Some((cert_path, key_path)) = paths {
@@ -802,16 +803,13 @@ impl TlsAcceptor {
             ));
         }
 
-        let cert_store = Arc::new(
-            CertificateStore::new().with_check_interval(config.rotation_check_interval),
-        );
+        let cert_store =
+            Arc::new(CertificateStore::new().with_check_interval(config.rotation_check_interval));
 
         // Load certificate if paths are specified
         if let (Some(cert_path), Some(key_path)) = (&config.cert_path, &config.key_path) {
             cert_store.load_files(cert_path, key_path)?;
-        } else if let (Some(cert_pem), Some(key_pem)) =
-            (&config.cert_chain, &config.private_key)
-        {
+        } else if let (Some(cert_pem), Some(key_pem)) = (&config.cert_chain, &config.private_key) {
             cert_store.load_pem(cert_pem, key_pem)?;
         }
 

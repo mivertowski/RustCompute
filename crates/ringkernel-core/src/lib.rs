@@ -65,14 +65,14 @@ pub mod telemetry_pipeline;
 pub mod types;
 
 // Enterprise modules
-pub mod secrets;
-pub mod auth;
-pub mod rbac;
-pub mod tenancy;
 pub mod alerting;
-pub mod timeout;
-pub mod rate_limiting;
+pub mod auth;
 pub mod logging;
+pub mod rate_limiting;
+pub mod rbac;
+pub mod secrets;
+pub mod tenancy;
+pub mod timeout;
 
 /// TLS support (requires `tls` feature).
 #[cfg(feature = "tls")]
@@ -142,7 +142,7 @@ pub mod prelude {
     pub use crate::observability::{
         GpuDeviceMemoryStats, GpuMemoryAllocation, GpuMemoryDashboard, GpuMemoryPoolStats,
         GpuMemoryThresholds, GpuMemoryType, GrafanaDashboard, GrafanaPanel, MemoryPressureLevel,
-        ObservabilityContext, OtlpConfig, OtlpExporter, OtlpExporterStats, OtlpExportResult,
+        ObservabilityContext, OtlpConfig, OtlpExportResult, OtlpExporter, OtlpExporterStats,
         OtlpTransport, PanelType, PrometheusCollector, PrometheusExporter, RingKernelCollector,
         Span, SpanBuilder, SpanEvent, SpanId, SpanKind, SpanStatus, TraceId,
     };
@@ -184,51 +184,48 @@ pub mod prelude {
     pub use crate::cloud_storage::{AsyncCheckpointStorage, CloudProvider, S3Config, S3Storage};
 
     // Enterprise modules
-    pub use crate::secrets::{
-        CachedSecretStore, ChainedSecretStore, EnvVarSecretStore, InMemorySecretStore,
-        KeyRotationManager, SecretError, SecretKey, SecretResult, SecretStore, SecretValue,
-    };
-    pub use crate::auth::{
-        ApiKeyAuth, AuthContext, AuthError, AuthProvider, AuthResult, ChainedAuthProvider,
-        Credentials, Identity,
-    };
-    #[cfg(feature = "auth")]
-    pub use crate::auth::{JwtAuth, JwtClaims, JwtConfig};
-    pub use crate::rbac::{
-        Permission, PolicyEvaluator, RbacError, RbacPolicy, RbacResult, ResourceRule, Role, Subject,
-    };
-    pub use crate::tenancy::{
-        QuotaUtilization, ResourceQuota, ResourceUsage, TenantContext, TenantError, TenantRegistry,
-        TenantResult,
-    };
     pub use crate::alerting::{
         Alert, AlertRouter, AlertRouterStats, AlertSeverity, AlertSink, AlertSinkError,
         AlertSinkResult, DeduplicationConfig, InMemorySink, LogSink,
     };
     #[cfg(feature = "alerting")]
     pub use crate::alerting::{WebhookFormat, WebhookSink};
-    pub use crate::timeout::{
-        timeout, timeout_named, with_timeout, with_timeout_named, CancellationToken, Deadline,
-        OperationContext, Timeout, TimeoutError, TimeoutStats, TimeoutStatsSnapshot,
+    pub use crate::auth::{
+        ApiKeyAuth, AuthContext, AuthError, AuthProvider, AuthResult, ChainedAuthProvider,
+        Credentials, Identity,
+    };
+    #[cfg(feature = "auth")]
+    pub use crate::auth::{JwtAuth, JwtClaims, JwtConfig};
+    pub use crate::logging::{
+        ConsoleSink, FileLogSink, LogConfig as StructuredLogConfig,
+        LogConfigBuilder as StructuredLogConfigBuilder, LogEntry, LogLevel as StructuredLogLevel,
+        LogOutput, LogSink as StructuredLogSink, LogSinkError as StructuredLogSinkError, LogValue,
+        LoggerStats, MemoryLogSink, StructuredLogger, TraceContext,
     };
     pub use crate::rate_limiting::{
         shared_rate_limiter, RateLimitAlgorithm, RateLimitConfig, RateLimitError, RateLimitGuard,
         RateLimitResult, RateLimiter, RateLimiterBuilder, RateLimiterExt, RateLimiterStatsSnapshot,
         SharedRateLimiter,
     };
+    pub use crate::rbac::{
+        Permission, PolicyEvaluator, RbacError, RbacPolicy, RbacResult, ResourceRule, Role, Subject,
+    };
+    pub use crate::secrets::{
+        CachedSecretStore, ChainedSecretStore, EnvVarSecretStore, InMemorySecretStore,
+        KeyRotationManager, SecretError, SecretKey, SecretResult, SecretStore, SecretValue,
+    };
+    pub use crate::tenancy::{
+        QuotaUtilization, ResourceQuota, ResourceUsage, TenantContext, TenantError, TenantRegistry,
+        TenantResult,
+    };
+    pub use crate::timeout::{
+        timeout, timeout_named, with_timeout, with_timeout_named, CancellationToken, Deadline,
+        OperationContext, Timeout, TimeoutError, TimeoutStats, TimeoutStatsSnapshot,
+    };
     #[cfg(feature = "tls")]
     pub use crate::tls::{
         CertificateInfo, CertificateStore, ClientAuth, SniResolver, TlsAcceptor, TlsConfig,
         TlsConfigBuilder, TlsConnector, TlsError, TlsResult, TlsSessionInfo, TlsVersion,
-    };
-    pub use crate::logging::{
-        ConsoleSink, FileLogSink, LogEntry, LogOutput, LogValue, LoggerStats, MemoryLogSink,
-        StructuredLogger, TraceContext,
-        LogConfig as StructuredLogConfig,
-        LogConfigBuilder as StructuredLogConfigBuilder,
-        LogLevel as StructuredLogLevel,
-        LogSink as StructuredLogSink,
-        LogSinkError as StructuredLogSinkError,
     };
 }
 

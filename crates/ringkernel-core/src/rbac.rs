@@ -140,8 +140,8 @@ impl Permission {
         }
     }
 
-    /// Parse from string.
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// Parse permission from string representation.
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "kernel:launch" => Some(Self::KernelLaunch),
             "kernel:terminate" => Some(Self::KernelTerminate),
@@ -262,81 +262,76 @@ impl Role {
 
     /// Create the Admin role (full access).
     pub fn admin() -> Self {
-        Self::new("admin", "Full administrative access to all operations")
-            .with_superuser(true)
+        Self::new("admin", "Full administrative access to all operations").with_superuser(true)
     }
 
     /// Create the Operator role (run/manage kernels, no config changes).
     pub fn operator() -> Self {
-        Self::new("operator", "Can launch, manage, and monitor kernels")
-            .with_permissions([
-                Permission::KernelLaunch,
-                Permission::KernelTerminate,
-                Permission::KernelActivate,
-                Permission::KernelView,
-                Permission::KernelMigrate,
-                Permission::KernelCheckpoint,
-                Permission::KernelRestore,
-                Permission::MessageSend,
-                Permission::MessageReceive,
-                Permission::K2KSend,
-                Permission::K2KRegister,
-                Permission::PubSubPublish,
-                Permission::PubSubSubscribe,
-                Permission::MemoryAllocate,
-                Permission::MemoryView,
-                Permission::MetricsView,
-                Permission::TracesView,
-            ])
+        Self::new("operator", "Can launch, manage, and monitor kernels").with_permissions([
+            Permission::KernelLaunch,
+            Permission::KernelTerminate,
+            Permission::KernelActivate,
+            Permission::KernelView,
+            Permission::KernelMigrate,
+            Permission::KernelCheckpoint,
+            Permission::KernelRestore,
+            Permission::MessageSend,
+            Permission::MessageReceive,
+            Permission::K2KSend,
+            Permission::K2KRegister,
+            Permission::PubSubPublish,
+            Permission::PubSubSubscribe,
+            Permission::MemoryAllocate,
+            Permission::MemoryView,
+            Permission::MetricsView,
+            Permission::TracesView,
+        ])
     }
 
     /// Create the Developer role (launch and debug kernels).
     pub fn developer() -> Self {
-        Self::new("developer", "Can launch kernels and view debug information")
-            .with_permissions([
-                Permission::KernelLaunch,
-                Permission::KernelActivate,
-                Permission::KernelView,
-                Permission::MessageSend,
-                Permission::MessageReceive,
-                Permission::K2KSend,
-                Permission::MemoryView,
-                Permission::MetricsView,
-                Permission::TracesView,
-                Permission::ConfigView,
-            ])
+        Self::new("developer", "Can launch kernels and view debug information").with_permissions([
+            Permission::KernelLaunch,
+            Permission::KernelActivate,
+            Permission::KernelView,
+            Permission::MessageSend,
+            Permission::MessageReceive,
+            Permission::K2KSend,
+            Permission::MemoryView,
+            Permission::MetricsView,
+            Permission::TracesView,
+            Permission::ConfigView,
+        ])
     }
 
     /// Create the ReadOnly role (view only).
     pub fn readonly() -> Self {
-        Self::new("readonly", "Can only view status and metrics")
-            .with_permissions([
-                Permission::KernelView,
-                Permission::MemoryView,
-                Permission::MetricsView,
-                Permission::ConfigView,
-            ])
+        Self::new("readonly", "Can only view status and metrics").with_permissions([
+            Permission::KernelView,
+            Permission::MemoryView,
+            Permission::MetricsView,
+            Permission::ConfigView,
+        ])
     }
 
     /// Create the Service role (for automated systems).
     pub fn service() -> Self {
-        Self::new("service", "For automated services and integrations")
-            .with_permissions([
-                Permission::KernelLaunch,
-                Permission::KernelTerminate,
-                Permission::KernelActivate,
-                Permission::KernelView,
-                Permission::MessageSend,
-                Permission::MessageReceive,
-                Permission::K2KSend,
-                Permission::K2KRegister,
-                Permission::PubSubPublish,
-                Permission::PubSubSubscribe,
-                Permission::MemoryAllocate,
-                Permission::MemoryView,
-                Permission::MetricsView,
-                Permission::MetricsExport,
-            ])
+        Self::new("service", "For automated services and integrations").with_permissions([
+            Permission::KernelLaunch,
+            Permission::KernelTerminate,
+            Permission::KernelActivate,
+            Permission::KernelView,
+            Permission::MessageSend,
+            Permission::MessageReceive,
+            Permission::K2KSend,
+            Permission::K2KRegister,
+            Permission::PubSubPublish,
+            Permission::PubSubSubscribe,
+            Permission::MemoryAllocate,
+            Permission::MemoryView,
+            Permission::MetricsView,
+            Permission::MetricsExport,
+        ])
     }
 }
 
@@ -548,7 +543,13 @@ impl Subject {
     pub fn from_auth_context(ctx: &crate::auth::AuthContext) -> Self {
         let mut subject = Self::new(&ctx.identity.id)
             .with_roles(ctx.roles.iter().cloned())
-            .with_permission(ctx.permissions.iter().cloned().collect::<Vec<_>>().join(","));
+            .with_permission(
+                ctx.permissions
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
 
         if let Some(tenant) = &ctx.identity.tenant_id {
             subject = subject.with_tenant(tenant);
@@ -609,14 +610,17 @@ impl PolicyEvaluator {
     }
 
     /// Check if subject can access a resource.
-    pub fn can_access(&self, subject: &Subject, resource: &str, permission: Permission) -> RbacResult<()> {
+    pub fn can_access(
+        &self,
+        subject: &Subject,
+        resource: &str,
+        permission: Permission,
+    ) -> RbacResult<()> {
         // Check basic permission first
         if !self.is_allowed(subject, permission) {
             return Err(RbacError::PermissionDenied(format!(
                 "Subject {} lacks permission {} for resource {}",
-                subject.id,
-                permission,
-                resource
+                subject.id, permission, resource
             )));
         }
 
@@ -657,7 +661,12 @@ impl PolicyEvaluator {
     }
 
     /// Check kernel access.
-    pub fn can_access_kernel(&self, subject: &Subject, kernel_id: &KernelId, permission: Permission) -> RbacResult<()> {
+    pub fn can_access_kernel(
+        &self,
+        subject: &Subject,
+        kernel_id: &KernelId,
+        permission: Permission,
+    ) -> RbacResult<()> {
         let resource = format!("kernel:{}", kernel_id.as_str());
         self.can_access(subject, &resource, permission)
     }
@@ -710,7 +719,7 @@ impl PolicyEvaluator {
 
         // Add direct permissions
         for perm_str in &subject.permissions {
-            if let Some(perm) = Permission::from_str(perm_str) {
+            if let Some(perm) = Permission::parse(perm_str) {
                 permissions.insert(perm);
             }
         }
@@ -730,8 +739,11 @@ mod tests {
     #[test]
     fn test_permission_string() {
         assert_eq!(Permission::KernelLaunch.as_str(), "kernel:launch");
-        assert_eq!(Permission::from_str("kernel:launch"), Some(Permission::KernelLaunch));
-        assert_eq!(Permission::from_str("invalid"), None);
+        assert_eq!(
+            Permission::parse("kernel:launch"),
+            Some(Permission::KernelLaunch)
+        );
+        assert_eq!(Permission::parse("invalid"), None);
     }
 
     #[test]
@@ -799,10 +811,7 @@ mod tests {
     #[test]
     fn test_resource_access() {
         let policy = RbacPolicy::standard()
-            .with_resource_rule(
-                ResourceRule::new("kernel:production*")
-                    .require_role("operator")
-            );
+            .with_resource_rule(ResourceRule::new("kernel:production*").require_role("operator"));
 
         let evaluator = PolicyEvaluator::new(policy);
 

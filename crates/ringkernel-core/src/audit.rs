@@ -946,7 +946,12 @@ impl ElasticsearchSink {
 
         let hlc_json = event
             .hlc
-            .map(|h| format!(r#","hlc":{{"physical":{},"logical":{}}}"#, h.physical, h.logical))
+            .map(|h| {
+                format!(
+                    r#","hlc":{{"physical":{},"logical":{}}}"#,
+                    h.physical, h.logical
+                )
+            })
             .unwrap_or_default();
 
         let target_json = event
@@ -996,17 +1001,21 @@ impl ElasticsearchSink {
         }
 
         let url = format!("{}/_bulk", self.config.url);
-        let mut request = self.client.post(&url).body(bulk_body).header(
-            reqwest::header::CONTENT_TYPE,
-            "application/x-ndjson",
-        );
+        let mut request = self
+            .client
+            .post(&url)
+            .body(bulk_body)
+            .header(reqwest::header::CONTENT_TYPE, "application/x-ndjson");
 
         if let Some((user, pass)) = &self.config.auth {
             request = request.basic_auth(user, Some(pass));
         }
 
         request.send().map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("ES request failed: {}", e))
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("ES request failed: {}", e),
+            )
         })?;
 
         Ok(())
@@ -1075,7 +1084,7 @@ impl Default for CloudWatchConfig {
 pub struct CloudWatchSink {
     config: CloudWatchConfig,
     buffer: Mutex<Vec<(u64, String)>>, // (timestamp_ms, message)
-    sequence_token: Mutex<Option<String>>,
+    _sequence_token: Mutex<Option<String>>,
 }
 
 impl CloudWatchSink {
@@ -1084,7 +1093,7 @@ impl CloudWatchSink {
         Self {
             config,
             buffer: Mutex::new(Vec::new()),
-            sequence_token: Mutex::new(None),
+            _sequence_token: Mutex::new(None),
         }
     }
 

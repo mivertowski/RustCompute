@@ -351,7 +351,7 @@ pub type TenantResult<T> = Result<T, TenantError>;
 /// Internal tenant entry.
 struct TenantEntry {
     /// Tenant context.
-    context: TenantContext,
+    _context: TenantContext,
     /// Resource quota.
     quota: ResourceQuota,
     /// Resource usage (with interior mutability).
@@ -359,7 +359,7 @@ struct TenantEntry {
     /// Whether tenant is active.
     active: bool,
     /// When tenant was registered.
-    registered_at: Instant,
+    _registered_at: Instant,
 }
 
 /// Registry for managing tenants.
@@ -398,11 +398,11 @@ impl TenantRegistry {
     pub fn with_tenant(self, tenant_id: impl Into<String>, quota: ResourceQuota) -> Self {
         let tenant_id = tenant_id.into();
         let entry = TenantEntry {
-            context: TenantContext::new(&tenant_id),
+            _context: TenantContext::new(&tenant_id),
             quota,
             usage: RwLock::new(ResourceUsage::new()),
             active: true,
-            registered_at: Instant::now(),
+            _registered_at: Instant::now(),
         };
 
         self.tenants.write().insert(tenant_id, Arc::new(entry));
@@ -410,7 +410,11 @@ impl TenantRegistry {
     }
 
     /// Register a new tenant.
-    pub fn register_tenant(&self, tenant_id: impl Into<String>, quota: ResourceQuota) -> TenantResult<()> {
+    pub fn register_tenant(
+        &self,
+        tenant_id: impl Into<String>,
+        quota: ResourceQuota,
+    ) -> TenantResult<()> {
         let tenant_id = tenant_id.into();
         let mut tenants = self.tenants.write();
 
@@ -419,11 +423,11 @@ impl TenantRegistry {
         }
 
         let entry = TenantEntry {
-            context: TenantContext::new(&tenant_id),
+            _context: TenantContext::new(&tenant_id),
             quota,
             usage: RwLock::new(ResourceUsage::new()),
             active: true,
-            registered_at: Instant::now(),
+            _registered_at: Instant::now(),
         };
 
         tenants.insert(tenant_id, Arc::new(entry));
@@ -566,9 +570,10 @@ impl TenantRegistry {
 
     /// Get utilization for a tenant.
     pub fn get_utilization(&self, tenant_id: &str) -> Option<QuotaUtilization> {
-        self.tenants.read().get(tenant_id).map(|entry| {
-            entry.usage.read().utilization(&entry.quota)
-        })
+        self.tenants
+            .read()
+            .get(tenant_id)
+            .map(|entry| entry.usage.read().utilization(&entry.quota))
     }
 
     /// Get all tenant IDs.
@@ -651,8 +656,8 @@ mod tests {
 
     #[test]
     fn test_kernel_allocation() {
-        let registry = TenantRegistry::new()
-            .with_tenant("tenant_a", ResourceQuota::new().with_max_kernels(2));
+        let registry =
+            TenantRegistry::new().with_tenant("tenant_a", ResourceQuota::new().with_max_kernels(2));
 
         // First two allocations succeed
         assert!(registry.try_allocate_kernel("tenant_a").is_ok());
@@ -670,8 +675,10 @@ mod tests {
 
     #[test]
     fn test_gpu_memory_allocation() {
-        let registry = TenantRegistry::new()
-            .with_tenant("tenant_a", ResourceQuota::new().with_max_gpu_memory_mb(1024));
+        let registry = TenantRegistry::new().with_tenant(
+            "tenant_a",
+            ResourceQuota::new().with_max_gpu_memory_mb(1024),
+        );
 
         assert!(registry.try_allocate_gpu_memory("tenant_a", 512).is_ok());
         assert!(registry.try_allocate_gpu_memory("tenant_a", 256).is_ok());

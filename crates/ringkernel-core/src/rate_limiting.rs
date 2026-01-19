@@ -311,6 +311,7 @@ impl TokenBucket {
         }
     }
 
+    #[allow(dead_code)]
     fn available_tokens(&self) -> u64 {
         self.refill();
         self.tokens.load(Ordering::Acquire)
@@ -366,6 +367,7 @@ impl SlidingWindow {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn current_count(&self) -> u64 {
         let now = Instant::now();
         let window_start = now - self.window_size;
@@ -442,6 +444,7 @@ impl FixedWindow {
         }
     }
 
+    #[allow(dead_code)]
     fn current_count(&self) -> u64 {
         self.count.load(Ordering::Acquire)
     }
@@ -518,6 +521,7 @@ impl LeakyBucket {
         }
     }
 
+    #[allow(dead_code)]
     fn current_level(&self) -> u64 {
         self.leak();
         self.level.load(Ordering::Acquire)
@@ -1000,7 +1004,10 @@ mod tests {
 
         // Should reject
         let result = limiter.check();
-        assert!(matches!(result, Err(RateLimitError::RateLimitExceeded { .. })));
+        assert!(matches!(
+            result,
+            Err(RateLimitError::RateLimitExceeded { .. })
+        ));
     }
 
     #[test]
@@ -1029,7 +1036,10 @@ mod tests {
 
         // Tenant limit should be hit
         let result = limiter.check_tenant("tenant_1");
-        assert!(matches!(result, Err(RateLimitError::RateLimitExceeded { .. })));
+        assert!(matches!(
+            result,
+            Err(RateLimitError::RateLimitExceeded { .. })
+        ));
 
         // Different tenant should still work
         assert!(limiter.check_tenant("tenant_2").is_ok());
@@ -1098,7 +1108,10 @@ mod tests {
         }
 
         let result = limiter.check();
-        assert!(matches!(result, Err(RateLimitError::RateLimitExceeded { .. })));
+        assert!(matches!(
+            result,
+            Err(RateLimitError::RateLimitExceeded { .. })
+        ));
     }
 
     #[test]
@@ -1115,7 +1128,10 @@ mod tests {
         }
 
         let result = limiter.check();
-        assert!(matches!(result, Err(RateLimitError::RateLimitExceeded { .. })));
+        assert!(matches!(
+            result,
+            Err(RateLimitError::RateLimitExceeded { .. })
+        ));
     }
 
     #[test]
@@ -1132,7 +1148,10 @@ mod tests {
         }
 
         let result = limiter.check();
-        assert!(matches!(result, Err(RateLimitError::RateLimitExceeded { .. })));
+        assert!(matches!(
+            result,
+            Err(RateLimitError::RateLimitExceeded { .. })
+        ));
     }
 
     #[test]
@@ -1150,9 +1169,7 @@ mod tests {
 
     #[test]
     fn test_update_tenant_quota() {
-        let limiter = RateLimiterBuilder::new()
-            .with_tenant("tenant_1", 5)
-            .build();
+        let limiter = RateLimiterBuilder::new().with_tenant("tenant_1", 5).build();
 
         // Use up initial quota
         for _ in 0..5 {

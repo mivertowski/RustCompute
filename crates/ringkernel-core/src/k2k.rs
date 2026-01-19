@@ -852,11 +852,7 @@ impl K2KEncryptor {
     }
 
     /// Create with existing key material.
-    pub fn with_key(
-        kernel_id: KernelId,
-        key: [u8; 32],
-        config: K2KEncryptionConfig,
-    ) -> Self {
+    pub fn with_key(kernel_id: KernelId, key: [u8; 32], config: K2KEncryptionConfig) -> Self {
         Self {
             config,
             key_material: K2KKeyMaterial::from_key(kernel_id, key),
@@ -891,7 +887,10 @@ impl K2KEncryptor {
 
     /// Check and perform key rotation if needed.
     pub fn maybe_rotate(&self) {
-        if self.key_material.should_rotate(self.config.key_rotation_interval_secs) {
+        if self
+            .key_material
+            .should_rotate(self.config.key_rotation_interval_secs)
+        {
             self.key_material.rotate_session_key();
             self.stats
                 .key_rotations
@@ -955,9 +954,9 @@ impl K2KEncryptor {
                     .map_err(|e| RingKernelError::K2KError(format!("AES init failed: {}", e)))?;
 
                 let nonce_obj = Nonce::from_slice(&nonce);
-                let ciphertext = cipher.encrypt(nonce_obj, envelope_bytes.as_slice()).map_err(
-                    |e| RingKernelError::K2KError(format!("Encryption failed: {}", e)),
-                )?;
+                let ciphertext = cipher
+                    .encrypt(nonce_obj, envelope_bytes.as_slice())
+                    .map_err(|e| RingKernelError::K2KError(format!("Encryption failed: {}", e)))?;
 
                 // AES-GCM appends tag to ciphertext
                 let tag_start = ciphertext.len() - 16;
@@ -974,9 +973,9 @@ impl K2KEncryptor {
                     .map_err(|e| RingKernelError::K2KError(format!("ChaCha init failed: {}", e)))?;
 
                 let nonce_obj = Nonce::from_slice(&nonce);
-                let ciphertext = cipher.encrypt(nonce_obj, envelope_bytes.as_slice()).map_err(
-                    |e| RingKernelError::K2KError(format!("Encryption failed: {}", e)),
-                )?;
+                let ciphertext = cipher
+                    .encrypt(nonce_obj, envelope_bytes.as_slice())
+                    .map_err(|e| RingKernelError::K2KError(format!("Encryption failed: {}", e)))?;
 
                 let tag_start = ciphertext.len() - 16;
                 let mut tag = [0u8; 16];
@@ -988,9 +987,10 @@ impl K2KEncryptor {
         self.stats
             .messages_encrypted
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.stats
-            .bytes_encrypted
-            .fetch_add(envelope_bytes.len() as u64, std::sync::atomic::Ordering::Relaxed);
+        self.stats.bytes_encrypted.fetch_add(
+            envelope_bytes.len() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
 
         Ok(EncryptedK2KMessage {
             id: message.id,
@@ -1057,12 +1057,14 @@ impl K2KEncryptor {
                     .map_err(|e| RingKernelError::K2KError(format!("AES init failed: {}", e)))?;
 
                 let nonce = Nonce::from_slice(&encrypted.nonce);
-                cipher.decrypt(nonce, full_ciphertext.as_slice()).map_err(|e| {
-                    self.stats
-                        .decryption_failures
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    RingKernelError::K2KError(format!("Decryption failed: {}", e))
-                })?
+                cipher
+                    .decrypt(nonce, full_ciphertext.as_slice())
+                    .map_err(|e| {
+                        self.stats
+                            .decryption_failures
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        RingKernelError::K2KError(format!("Decryption failed: {}", e))
+                    })?
             }
             K2KEncryptionAlgorithm::ChaCha20Poly1305 => {
                 use chacha20poly1305::{
@@ -1073,12 +1075,14 @@ impl K2KEncryptor {
                     .map_err(|e| RingKernelError::K2KError(format!("ChaCha init failed: {}", e)))?;
 
                 let nonce = Nonce::from_slice(&encrypted.nonce);
-                cipher.decrypt(nonce, full_ciphertext.as_slice()).map_err(|e| {
-                    self.stats
-                        .decryption_failures
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    RingKernelError::K2KError(format!("Decryption failed: {}", e))
-                })?
+                cipher
+                    .decrypt(nonce, full_ciphertext.as_slice())
+                    .map_err(|e| {
+                        self.stats
+                            .decryption_failures
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        RingKernelError::K2KError(format!("Decryption failed: {}", e))
+                    })?
             }
         };
 
@@ -1108,12 +1112,30 @@ impl K2KEncryptor {
     /// Get encryption statistics.
     pub fn stats(&self) -> K2KEncryptionStatsSnapshot {
         K2KEncryptionStatsSnapshot {
-            messages_encrypted: self.stats.messages_encrypted.load(std::sync::atomic::Ordering::Relaxed),
-            messages_decrypted: self.stats.messages_decrypted.load(std::sync::atomic::Ordering::Relaxed),
-            bytes_encrypted: self.stats.bytes_encrypted.load(std::sync::atomic::Ordering::Relaxed),
-            bytes_decrypted: self.stats.bytes_decrypted.load(std::sync::atomic::Ordering::Relaxed),
-            key_rotations: self.stats.key_rotations.load(std::sync::atomic::Ordering::Relaxed),
-            decryption_failures: self.stats.decryption_failures.load(std::sync::atomic::Ordering::Relaxed),
+            messages_encrypted: self
+                .stats
+                .messages_encrypted
+                .load(std::sync::atomic::Ordering::Relaxed),
+            messages_decrypted: self
+                .stats
+                .messages_decrypted
+                .load(std::sync::atomic::Ordering::Relaxed),
+            bytes_encrypted: self
+                .stats
+                .bytes_encrypted
+                .load(std::sync::atomic::Ordering::Relaxed),
+            bytes_decrypted: self
+                .stats
+                .bytes_decrypted
+                .load(std::sync::atomic::Ordering::Relaxed),
+            key_rotations: self
+                .stats
+                .key_rotations
+                .load(std::sync::atomic::Ordering::Relaxed),
+            decryption_failures: self
+                .stats
+                .decryption_failures
+                .load(std::sync::atomic::Ordering::Relaxed),
             peer_count: self.peer_keys.read().len(),
             session_generation: self.key_material.session_generation(),
         }

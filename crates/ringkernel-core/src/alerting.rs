@@ -65,9 +65,9 @@ impl AlertSeverity {
     /// Get a color for display (hex format).
     pub fn color(&self) -> &'static str {
         match self {
-            Self::Info => "#2196F3",    // Blue
-            Self::Warning => "#FF9800", // Orange
-            Self::Error => "#F44336",   // Red
+            Self::Info => "#2196F3",     // Blue
+            Self::Warning => "#FF9800",  // Orange
+            Self::Error => "#F44336",    // Red
             Self::Critical => "#9C27B0", // Purple
         }
     }
@@ -199,7 +199,11 @@ impl Alert {
         let tags_str = if self.tags.is_empty() {
             String::new()
         } else {
-            let tags: Vec<String> = self.tags.iter().map(|t| format!(r#""{}""#, escape_json(t))).collect();
+            let tags: Vec<String> = self
+                .tags
+                .iter()
+                .map(|t| format!(r#""{}""#, escape_json(t)))
+                .collect();
             format!(r#","tags":[{}]"#, tags.join(","))
         };
 
@@ -723,11 +727,7 @@ impl AlertRouter {
         for sink in &self.sinks {
             if sink.accepts_severity(alert.severity) {
                 if let Err(e) = sink.send(&alert).await {
-                    tracing::error!(
-                        "Alert sink {} failed: {}",
-                        sink.sink_name(),
-                        e
-                    );
+                    tracing::error!("Alert sink {} failed: {}", sink.sink_name(), e);
                 }
             }
         }
@@ -740,12 +740,7 @@ impl AlertRouter {
         self.alert_count.fetch_add(1, Ordering::Relaxed);
 
         let source = alert.source.as_deref().unwrap_or("unknown");
-        let msg = format!(
-            "[ALERT] {} | {} | {}",
-            alert.severity,
-            source,
-            alert.title
-        );
+        let msg = format!("[ALERT] {} | {} | {}", alert.severity, source, alert.title);
 
         match alert.severity {
             AlertSeverity::Info => tracing::info!("{}", msg),
@@ -814,8 +809,7 @@ mod tests {
 
     #[test]
     fn test_alert_json() {
-        let alert = Alert::new(AlertSeverity::Error, "Test")
-            .with_source("kernel_1");
+        let alert = Alert::new(AlertSeverity::Error, "Test").with_source("kernel_1");
 
         let json = alert.to_json();
         assert!(json.contains("ERROR"));
@@ -837,8 +831,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_in_memory_sink_severity_filter() {
-        let sink = InMemorySink::new(10)
-            .with_severity_filter(AlertSeverity::Error);
+        let sink = InMemorySink::new(10).with_severity_filter(AlertSeverity::Error);
 
         // Info alert should be filtered
         let info = Alert::new(AlertSeverity::Info, "Info");
@@ -854,11 +847,14 @@ mod tests {
     #[tokio::test]
     async fn test_alert_router() {
         let sink = Arc::new(InMemorySink::new(100));
-        let router = AlertRouter::new()
-            .with_sink_arc(sink.clone());
+        let router = AlertRouter::new().with_sink_arc(sink.clone());
 
-        router.send(Alert::new(AlertSeverity::Warning, "Alert 1")).await;
-        router.send(Alert::new(AlertSeverity::Error, "Alert 2")).await;
+        router
+            .send(Alert::new(AlertSeverity::Warning, "Alert 1"))
+            .await;
+        router
+            .send(Alert::new(AlertSeverity::Error, "Alert 2"))
+            .await;
 
         assert_eq!(sink.count(), 2);
         assert_eq!(router.stats().total_alerts, 2);
@@ -876,10 +872,11 @@ mod tests {
 
         // Send same alert multiple times with dedup key
         for _ in 0..5 {
-            router.send(
-                Alert::new(AlertSeverity::Warning, "Repeated alert")
-                    .with_dedup_key("same-key")
-            ).await;
+            router
+                .send(
+                    Alert::new(AlertSeverity::Warning, "Repeated alert").with_dedup_key("same-key"),
+                )
+                .await;
         }
 
         // Only first should get through
@@ -889,8 +886,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_log_sink() {
-        let sink = LogSink::new()
-            .with_severity_filter(AlertSeverity::Warning);
+        let sink = LogSink::new().with_severity_filter(AlertSeverity::Warning);
 
         let info = Alert::new(AlertSeverity::Info, "Info");
         assert!(!sink.accepts_severity(info.severity));

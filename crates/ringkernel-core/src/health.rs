@@ -1181,7 +1181,7 @@ impl Default for KernelWatchdog {
 // ============================================================================
 
 /// Recovery policy for handling kernel failures.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum RecoveryPolicy {
     /// Restart the failed kernel.
     Restart,
@@ -1190,6 +1190,7 @@ pub enum RecoveryPolicy {
     /// Create a checkpoint before recovery.
     Checkpoint,
     /// Notify operators but don't take action.
+    #[default]
     Notify,
     /// Escalate to higher severity handling.
     Escalate,
@@ -1213,12 +1214,6 @@ impl RecoveryPolicy {
     /// Check if this policy requires human intervention.
     pub fn requires_intervention(&self) -> bool {
         matches!(self, RecoveryPolicy::Notify | RecoveryPolicy::Escalate)
-    }
-}
-
-impl Default for RecoveryPolicy {
-    fn default() -> Self {
-        RecoveryPolicy::Notify
     }
 }
 
@@ -1266,6 +1261,7 @@ impl RecoveryConfig {
     }
 
     /// Create a conservative config (notify-first).
+    #[allow(clippy::field_reassign_with_default)]
     pub fn conservative() -> Self {
         let mut config = Self::default();
         config.max_restart_attempts = 1;
@@ -1279,6 +1275,7 @@ impl RecoveryConfig {
     }
 
     /// Create an aggressive config (auto-recover).
+    #[allow(clippy::field_reassign_with_default)]
     pub fn aggressive() -> Self {
         let mut config = Self::default();
         config.max_restart_attempts = 5;
@@ -1589,7 +1586,7 @@ impl RecoveryManager {
 
     /// Execute recovery for a kernel.
     pub async fn recover(&self, action: RecoveryAction) -> RecoveryResult {
-        let start = Instant::now();
+        let _start = Instant::now();
         let kernel_id = action.kernel_id.clone();
         let policy = action.policy;
 
@@ -1935,15 +1932,24 @@ mod tests {
         assert_eq!(config.max_restart_attempts, 3);
         assert!(config.checkpoint_before_restart);
         assert!(config.migrate_on_device_error);
-        assert_eq!(config.policy_for(FailureType::Timeout), RecoveryPolicy::Restart);
-        assert_eq!(config.policy_for(FailureType::DeviceError), RecoveryPolicy::Migrate);
+        assert_eq!(
+            config.policy_for(FailureType::Timeout),
+            RecoveryPolicy::Restart
+        );
+        assert_eq!(
+            config.policy_for(FailureType::DeviceError),
+            RecoveryPolicy::Migrate
+        );
     }
 
     #[test]
     fn test_recovery_config_conservative() {
         let config = RecoveryConfig::conservative();
         assert_eq!(config.max_restart_attempts, 1);
-        assert_eq!(config.policy_for(FailureType::Timeout), RecoveryPolicy::Notify);
+        assert_eq!(
+            config.policy_for(FailureType::Timeout),
+            RecoveryPolicy::Notify
+        );
     }
 
     #[test]
@@ -1968,12 +1974,18 @@ mod tests {
         assert_eq!(config.restart_delay, Duration::from_secs(2));
         assert!(!config.checkpoint_before_restart);
         assert_eq!(config.recovery_cooldown, Duration::from_secs(30));
-        assert_eq!(config.policy_for(FailureType::Crash), RecoveryPolicy::Migrate);
+        assert_eq!(
+            config.policy_for(FailureType::Crash),
+            RecoveryPolicy::Migrate
+        );
     }
 
     #[test]
     fn test_failure_type_description() {
-        assert_eq!(FailureType::Timeout.description(), "Kernel heartbeat timeout");
+        assert_eq!(
+            FailureType::Timeout.description(),
+            "Kernel heartbeat timeout"
+        );
         assert_eq!(FailureType::Crash.description(), "Kernel crash");
         assert_eq!(FailureType::DeviceError.description(), "GPU device error");
     }
@@ -1981,15 +1993,22 @@ mod tests {
     #[test]
     fn test_recovery_action() {
         let kernel_id = KernelId::new("test_kernel");
-        let action = RecoveryAction::new(kernel_id.clone(), FailureType::Timeout, RecoveryPolicy::Restart)
-            .with_context("reason", "heartbeat missed")
-            .with_attempt(2);
+        let action = RecoveryAction::new(
+            kernel_id.clone(),
+            FailureType::Timeout,
+            RecoveryPolicy::Restart,
+        )
+        .with_context("reason", "heartbeat missed")
+        .with_attempt(2);
 
         assert_eq!(action.kernel_id, kernel_id);
         assert_eq!(action.failure_type, FailureType::Timeout);
         assert_eq!(action.policy, RecoveryPolicy::Restart);
         assert_eq!(action.attempt, 2);
-        assert_eq!(action.context.get("reason"), Some(&"heartbeat missed".to_string()));
+        assert_eq!(
+            action.context.get("reason"),
+            Some(&"heartbeat missed".to_string())
+        );
     }
 
     #[test]
@@ -2005,7 +2024,11 @@ mod tests {
         assert!(success.error.is_none());
         assert!(success.next_action.is_none());
 
-        let failure = RecoveryResult::failure(action.clone(), "Failed".to_string(), Duration::from_millis(50));
+        let failure = RecoveryResult::failure(
+            action.clone(),
+            "Failed".to_string(),
+            Duration::from_millis(50),
+        );
         assert!(!failure.success);
         assert_eq!(failure.error, Some("Failed".to_string()));
         assert_eq!(failure.next_action, Some(RecoveryPolicy::Escalate));
@@ -2065,7 +2088,11 @@ mod tests {
         let manager = RecoveryManager::new();
         let kernel_id = KernelId::new("test_kernel");
 
-        let action = RecoveryAction::new(kernel_id.clone(), FailureType::Timeout, RecoveryPolicy::Notify);
+        let action = RecoveryAction::new(
+            kernel_id.clone(),
+            FailureType::Timeout,
+            RecoveryPolicy::Notify,
+        );
         let result = manager.recover(action).await;
 
         assert!(result.success);

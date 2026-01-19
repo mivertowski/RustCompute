@@ -243,7 +243,8 @@ impl AuthContext {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        self.permissions.extend(permissions.into_iter().map(Into::into));
+        self.permissions
+            .extend(permissions.into_iter().map(Into::into));
         self
     }
 
@@ -364,7 +365,7 @@ pub trait AuthProvider: Send + Sync {
 #[derive(Debug, Clone)]
 struct ApiKeyEntry {
     /// The API key hash (we store hash, not plaintext).
-    key_hash: u64,
+    _key_hash: u64,
     /// Identity associated with this key.
     identity: Identity,
     /// Permissions granted.
@@ -372,7 +373,7 @@ struct ApiKeyEntry {
     /// Roles assigned.
     roles: HashSet<String>,
     /// When the key was created.
-    created_at: Instant,
+    _created_at: Instant,
     /// Optional expiration.
     expires_at: Option<Instant>,
     /// Whether the key is active.
@@ -422,11 +423,11 @@ impl ApiKeyAuth {
         let key_hash = hash_api_key(api_key);
 
         let entry = ApiKeyEntry {
-            key_hash,
+            _key_hash: key_hash,
             identity: Identity::new(&identity_id),
             permissions: permissions.iter().map(|s| s.to_string()).collect(),
             roles: HashSet::new(),
-            created_at: Instant::now(),
+            _created_at: Instant::now(),
             expires_at: self.default_expiry.map(|d| Instant::now() + d),
             active: true,
         };
@@ -447,11 +448,11 @@ impl ApiKeyAuth {
         let key_hash = hash_api_key(api_key);
 
         let entry = ApiKeyEntry {
-            key_hash,
+            _key_hash: key_hash,
             identity: Identity::new(&identity_id),
             permissions: permissions.iter().map(|s| s.to_string()).collect(),
             roles: roles.iter().map(|s| s.to_string()).collect(),
-            created_at: Instant::now(),
+            _created_at: Instant::now(),
             expires_at: self.default_expiry.map(|d| Instant::now() + d),
             active: true,
         };
@@ -489,7 +490,11 @@ impl AuthProvider for ApiKeyAuth {
     async fn authenticate(&self, credentials: &Credentials) -> AuthResult<AuthContext> {
         let api_key = match credentials {
             Credentials::ApiKey(key) => key,
-            _ => return Err(AuthError::InvalidCredentials("Expected API key".to_string())),
+            _ => {
+                return Err(AuthError::InvalidCredentials(
+                    "Expected API key".to_string(),
+                ))
+            }
         };
 
         let key_hash = hash_api_key(api_key);
@@ -500,7 +505,9 @@ impl AuthProvider for ApiKeyAuth {
             .ok_or_else(|| AuthError::InvalidCredentials("Unknown API key".to_string()))?;
 
         if !entry.active {
-            return Err(AuthError::InvalidCredentials("API key has been revoked".to_string()));
+            return Err(AuthError::InvalidCredentials(
+                "API key has been revoked".to_string(),
+            ));
         }
 
         if let Some(expires) = entry.expires_at {
@@ -633,8 +640,9 @@ impl JwtAuth {
 
     /// Generate a JWT token for the given claims.
     pub fn generate_token(&self, claims: &JwtClaims) -> AuthResult<String> {
-        let secret = self.config.secret.as_ref()
-            .ok_or_else(|| AuthError::Other("No secret configured for token generation".to_string()))?;
+        let secret = self.config.secret.as_ref().ok_or_else(|| {
+            AuthError::Other("No secret configured for token generation".to_string())
+        })?;
 
         let token = encode(
             &Header::new(self.config.algorithm),
@@ -663,9 +671,13 @@ impl JwtAuth {
             DecodingKey::from_secret(secret.as_bytes())
         } else if let Some(ref _public_key) = self.config.public_key {
             // For RSA/EC keys, you'd use from_rsa_pem or from_ec_pem
-            return Err(AuthError::Other("Public key decoding not implemented".to_string()));
+            return Err(AuthError::Other(
+                "Public key decoding not implemented".to_string(),
+            ));
         } else {
-            return Err(AuthError::Other("No secret or public key configured".to_string()));
+            return Err(AuthError::Other(
+                "No secret or public key configured".to_string(),
+            ));
         };
 
         let token_data = decode::<JwtClaims>(token, &decoding_key, &validation)
@@ -691,7 +703,11 @@ impl AuthProvider for JwtAuth {
     async fn authenticate(&self, credentials: &Credentials) -> AuthResult<AuthContext> {
         let token = match credentials {
             Credentials::Bearer(t) => t,
-            _ => return Err(AuthError::InvalidCredentials("Expected Bearer token".to_string())),
+            _ => {
+                return Err(AuthError::InvalidCredentials(
+                    "Expected Bearer token".to_string(),
+                ))
+            }
         };
 
         let claims = self.decode_token(token)?;
@@ -699,7 +715,9 @@ impl AuthProvider for JwtAuth {
         // Check if token is revoked (if jti is present in custom claims)
         if let Some(serde_json::Value::String(jti)) = claims.custom.get("jti") {
             if self.is_revoked(jti) {
-                return Err(AuthError::TokenInvalid("Token has been revoked".to_string()));
+                return Err(AuthError::TokenInvalid(
+                    "Token has been revoked".to_string(),
+                ));
             }
         }
 
@@ -879,8 +897,7 @@ mod tests {
     #[test]
     fn test_auth_context_expiry() {
         let identity = Identity::new("user1");
-        let ctx = AuthContext::new(identity, "test")
-            .with_expiry(Duration::from_nanos(1));
+        let ctx = AuthContext::new(identity, "test").with_expiry(Duration::from_nanos(1));
 
         std::thread::sleep(Duration::from_millis(1));
         assert!(ctx.is_expired());
@@ -918,8 +935,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_api_key_revocation() {
-        let auth = ApiKeyAuth::new()
-            .add_key("user1", "key-to-revoke", &["read"]);
+        let auth = ApiKeyAuth::new().add_key("user1", "key-to-revoke", &["read"]);
 
         // Works initially
         let result = auth
@@ -952,7 +968,8 @@ mod tests {
             exp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_secs() + 3600,
+                .as_secs()
+                + 3600,
             iss: None,
             aud: None,
             roles: vec!["admin".to_string()],
@@ -977,12 +994,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_chained_auth() {
-        let api_auth = Arc::new(
-            ApiKeyAuth::new().add_key("api_user", "api-key-123", &["api"])
-        );
+        let api_auth = Arc::new(ApiKeyAuth::new().add_key("api_user", "api-key-123", &["api"]));
 
-        let chain = ChainedAuthProvider::new()
-            .with_provider(api_auth);
+        let chain = ChainedAuthProvider::new().with_provider(api_auth);
 
         // API key works
         let ctx = chain

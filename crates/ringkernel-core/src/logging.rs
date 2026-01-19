@@ -36,13 +36,14 @@ use crate::observability::{SpanId, TraceId};
 // ============================================================================
 
 /// Log severity levels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum LogLevel {
     /// Trace-level logging (most verbose).
     Trace = 0,
     /// Debug-level logging.
     Debug = 1,
     /// Info-level logging.
+    #[default]
     Info = 2,
     /// Warning-level logging.
     Warn = 3,
@@ -65,8 +66,8 @@ impl LogLevel {
         }
     }
 
-    /// Parse from string.
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// Parse log level from string representation.
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_uppercase().as_str() {
             "TRACE" => Some(LogLevel::Trace),
             "DEBUG" => Some(LogLevel::Debug),
@@ -85,20 +86,15 @@ impl fmt::Display for LogLevel {
     }
 }
 
-impl Default for LogLevel {
-    fn default() -> Self {
-        LogLevel::Info
-    }
-}
-
 // ============================================================================
 // Log Output Format
 // ============================================================================
 
 /// Log output format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LogOutput {
     /// Human-readable text format.
+    #[default]
     Text,
     /// JSON structured format for log aggregation.
     Json,
@@ -106,12 +102,6 @@ pub enum LogOutput {
     Compact,
     /// Pretty-printed format with colors (if terminal supports it).
     Pretty,
-}
-
-impl Default for LogOutput {
-    fn default() -> Self {
-        LogOutput::Text
-    }
 }
 
 // ============================================================================
@@ -264,14 +254,21 @@ impl LogConfig {
             return level;
         }
 
-        // Check for prefix matches (e.g., "ringkernel::k2k" matches "ringkernel")
+        // Find the longest (most specific) prefix match
+        let mut best_match: Option<(&str, LogLevel)> = None;
         for (prefix, &level) in &self.module_levels {
             if module.starts_with(prefix) {
-                return level;
+                match best_match {
+                    None => best_match = Some((prefix, level)),
+                    Some((best_prefix, _)) if prefix.len() > best_prefix.len() => {
+                        best_match = Some((prefix, level));
+                    }
+                    _ => {}
+                }
             }
         }
 
-        self.level
+        best_match.map(|(_, level)| level).unwrap_or(self.level)
     }
 }
 
@@ -601,7 +598,7 @@ impl LogEntry {
                     let millis = d.subsec_millis();
                     format!(
                         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-                        1970 + secs / 31536000, // Approximate year
+                        1970 + secs / 31536000,            // Approximate year
                         ((secs % 31536000) / 2592000) + 1, // Month (approximate)
                         ((secs % 2592000) / 86400) + 1,    // Day
                         (secs % 86400) / 3600,             // Hour
@@ -1103,14 +1100,14 @@ mod tests {
 
     #[test]
     fn test_log_level_from_str() {
-        assert_eq!(LogLevel::from_str("trace"), Some(LogLevel::Trace));
-        assert_eq!(LogLevel::from_str("DEBUG"), Some(LogLevel::Debug));
-        assert_eq!(LogLevel::from_str("Info"), Some(LogLevel::Info));
-        assert_eq!(LogLevel::from_str("WARNING"), Some(LogLevel::Warn));
-        assert_eq!(LogLevel::from_str("error"), Some(LogLevel::Error));
-        assert_eq!(LogLevel::from_str("FATAL"), Some(LogLevel::Fatal));
-        assert_eq!(LogLevel::from_str("CRITICAL"), Some(LogLevel::Fatal));
-        assert_eq!(LogLevel::from_str("invalid"), None);
+        assert_eq!(LogLevel::parse("trace"), Some(LogLevel::Trace));
+        assert_eq!(LogLevel::parse("DEBUG"), Some(LogLevel::Debug));
+        assert_eq!(LogLevel::parse("Info"), Some(LogLevel::Info));
+        assert_eq!(LogLevel::parse("WARNING"), Some(LogLevel::Warn));
+        assert_eq!(LogLevel::parse("error"), Some(LogLevel::Error));
+        assert_eq!(LogLevel::parse("FATAL"), Some(LogLevel::Fatal));
+        assert_eq!(LogLevel::parse("CRITICAL"), Some(LogLevel::Fatal));
+        assert_eq!(LogLevel::parse("invalid"), None);
     }
 
     #[test]
@@ -1177,8 +1174,7 @@ mod tests {
             .with_trace_correlation(false)
             .build();
 
-        let entry = LogEntry::new(LogLevel::Info, "Test message")
-            .with_field("key", "value");
+        let entry = LogEntry::new(LogLevel::Info, "Test message").with_field("key", "value");
 
         let json = entry.to_json(&config);
         assert!(json.contains(r#""level":"INFO""#));
@@ -1193,8 +1189,7 @@ mod tests {
             .with_trace_correlation(false)
             .build();
 
-        let entry = LogEntry::new(LogLevel::Warn, "Warning!")
-            .with_target("test::module");
+        let entry = LogEntry::new(LogLevel::Warn, "Warning!").with_target("test::module");
 
         let text = entry.to_text(&config);
         assert!(text.contains("WARN"));

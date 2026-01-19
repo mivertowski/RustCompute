@@ -57,7 +57,9 @@ impl Deadline {
 
     /// Create a deadline at a specific instant.
     pub fn at(instant: Instant) -> Self {
-        Self { expires_at: instant }
+        Self {
+            expires_at: instant,
+        }
     }
 
     /// Check if the deadline has passed.
@@ -311,7 +313,10 @@ impl<F: Future> Future for Timeout<F> {
         if this.deadline.is_expired() {
             return Poll::Ready(Err(TimeoutError {
                 operation: this.operation_name.clone(),
-                timeout: this.deadline.expires_at().saturating_duration_since(*this.started_at),
+                timeout: this
+                    .deadline
+                    .expires_at()
+                    .saturating_duration_since(*this.started_at),
                 elapsed: this.started_at.elapsed(),
             }));
         }
@@ -354,10 +359,7 @@ pub fn timeout_named<F: Future>(
 }
 
 /// Execute an async operation with timeout using tokio.
-pub async fn with_timeout<F, T>(
-    duration: Duration,
-    future: F,
-) -> Result<T, TimeoutError>
+pub async fn with_timeout<F, T>(duration: Duration, future: F) -> Result<T, TimeoutError>
 where
     F: Future<Output = T>,
 {
@@ -521,8 +523,7 @@ mod tests {
 
     #[test]
     fn test_operation_context_parent() {
-        let parent = OperationContext::new()
-            .with_timeout(Duration::from_secs(30));
+        let parent = OperationContext::new().with_timeout(Duration::from_secs(30));
 
         let child = parent.child();
 
