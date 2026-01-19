@@ -6,7 +6,28 @@ nav_order: 18
 
 # Security Module
 
-RingKernel provides enterprise-grade security features for GPU memory encryption, kernel sandboxing, and compliance reporting.
+RingKernel v0.3.1 provides comprehensive enterprise-grade security features for GPU memory encryption, kernel sandboxing, authentication, authorization, TLS, and compliance reporting.
+
+## Feature Flags
+
+Enable enterprise security with feature flags in `Cargo.toml`:
+
+```toml
+[dependencies]
+ringkernel-core = { version = "0.3.1", features = ["enterprise"] }
+
+# Or select specific features:
+ringkernel-core = { version = "0.3.1", features = ["crypto", "auth", "tls"] }
+```
+
+| Feature | Description |
+|---------|-------------|
+| `crypto` | AES-256-GCM, ChaCha20-Poly1305, Argon2 key derivation |
+| `auth` | JWT authentication, API keys |
+| `tls` | TLS/mTLS with rustls, certificate rotation |
+| `rate-limiting` | Token bucket, sliding window, leaky bucket |
+| `alerting` | Webhook alerts for Slack/Teams/PagerDuty |
+| `enterprise` | All of the above combined |
 
 ## Memory Encryption
 
@@ -269,6 +290,255 @@ let runtime = RuntimeBuilder::new()
         retention_days: 90,
     })
     .build()?;
+```
+
+---
+
+## Authentication
+
+RingKernel provides pluggable authentication with multiple providers.
+
+### API Key Authentication
+
+```rust
+use ringkernel_core::prelude::*;
+
+let auth = ApiKeyAuth::new()
+    .add_key("sk-prod-abc123", Identity::new("service-a"))
+    .add_key("sk-prod-xyz789", Identity::new("service-b"));
+
+let result = auth.authenticate(&Credentials::ApiKey("sk-prod-abc123".into())).await;
+match result {
+    Ok(identity) => println!("Authenticated: {}", identity.name()),
+    Err(AuthError::InvalidCredentials) => println!("Invalid API key"),
+    Err(AuthError::Expired) => println!("API key expired"),
+}
+```
+
+### JWT Authentication (requires `auth` feature)
+
+```rust
+use ringkernel_core::prelude::*;
+
+let jwt_config = JwtConfig {
+    secret: "your-secret-key".into(),
+    issuer: Some("ringkernel".into()),
+    audience: Some("api".into()),
+    expiry_tolerance: Duration::from_secs(60),
+};
+
+let jwt_auth = JwtAuth::new(jwt_config);
+let result = jwt_auth.authenticate(&Credentials::Bearer(token)).await?;
+```
+
+### Chained Authentication
+
+```rust
+// Try API key first, fall back to JWT
+let auth = ChainedAuthProvider::new()
+    .add(api_key_auth)
+    .add(jwt_auth);
+
+let identity = auth.authenticate(&credentials).await?;
+```
+
+---
+
+## Authorization (RBAC)
+
+Role-based access control with deny-by-default policy evaluation.
+
+### Roles and Permissions
+
+```rust
+use ringkernel_core::prelude::*;
+
+let policy = RbacPolicy::new()
+    .grant(Subject::User("alice".into()), Role::Admin)
+    .grant(Subject::User("bob".into()), Role::Developer)
+    .grant(Subject::Service("worker".into()), Role::Operator);
+
+let evaluator = PolicyEvaluator::new(policy);
+
+// Check permissions
+assert!(evaluator.check(&Subject::User("alice".into()), Permission::Admin));
+assert!(evaluator.check(&Subject::User("bob".into()), Permission::Write));
+assert!(!evaluator.check(&Subject::User("bob".into()), Permission::Admin));
+```
+
+### Resource Rules
+
+```rust
+let rule = ResourceRule::new("kernels/*")
+    .allow(Permission::Read)
+    .allow(Permission::Write)
+    .deny_for(Subject::Service("untrusted".into()));
+
+policy.add_rule(rule);
+```
+
+---
+
+## TLS Support (requires `tls` feature)
+
+TLS/mTLS with certificate rotation and SNI support.
+
+### Server Configuration
+
+```rust
+use ringkernel_core::prelude::*;
+
+let config = TlsConfigBuilder::new()
+    .with_cert_file("server.crt")
+    .with_key_file("server.key")
+    .with_client_auth(ClientAuth::Required)  // mTLS
+    .with_min_version(TlsVersion::Tls13)
+    .build()?;
+
+let acceptor = TlsAcceptor::new(config)?;
+```
+
+### Client Configuration
+
+```rust
+let connector = TlsConnector::new()
+    .with_root_cert_file("ca.crt")
+    .with_client_cert("client.crt", "client.key")
+    .build()?;
+```
+
+### Certificate Rotation
+
+```rust
+let store = CertificateStore::new()
+    .with_rotation_check_interval(Duration::from_secs(3600))
+    .on_rotation(|new_cert| {
+        println!("Certificate rotated: {:?}", new_cert.not_after());
+    });
+
+store.load_files("server.crt", "server.key")?;
+```
+
+---
+
+## K2K Message Encryption (requires `crypto` feature)
+
+Encrypt kernel-to-kernel messages with forward secrecy.
+
+```rust
+use ringkernel_core::prelude::*;
+
+let encryptor = K2KEncryptor::new(K2KEncryptionConfig {
+    algorithm: K2KEncryptionAlgorithm::Aes256Gcm,
+    key: K2KKeyMaterial::generate()?,
+});
+
+// Create encrypted endpoint
+let endpoint = EncryptedK2KBuilder::new(broker, kernel_id)
+    .with_encryptor(encryptor)
+    .build();
+
+// Messages are automatically encrypted/decrypted
+endpoint.send(dest_id, message).await?;
+```
+
+---
+
+## Rate Limiting (requires `rate-limiting` feature)
+
+Protect services from overload with configurable rate limiting.
+
+### Token Bucket
+
+```rust
+use ringkernel_core::prelude::*;
+
+let limiter = RateLimiterBuilder::new()
+    .algorithm(RateLimitAlgorithm::TokenBucket)
+    .rate(1000)  // 1000 requests per second
+    .burst(100)  // Allow burst of 100
+    .build();
+
+match limiter.acquire() {
+    Ok(_guard) => { /* proceed */ },
+    Err(RateLimitError::Exceeded { retry_after }) => {
+        println!("Rate limited, retry after {:?}", retry_after);
+    }
+}
+```
+
+### Sliding Window
+
+```rust
+let limiter = RateLimiterBuilder::new()
+    .algorithm(RateLimitAlgorithm::SlidingWindow)
+    .rate(100)
+    .window(Duration::from_secs(60))  // 100 per minute
+    .build();
+```
+
+---
+
+## Secrets Management
+
+Secure storage and rotation of sensitive keys.
+
+### Secret Stores
+
+```rust
+use ringkernel_core::prelude::*;
+
+// In-memory (development)
+let store = InMemorySecretStore::new();
+store.set("api_key", SecretValue::new("sk-secret"))?;
+
+// Environment variables
+let env_store = EnvVarSecretStore::with_prefix("RINGKERNEL_");
+let key = env_store.get(&SecretKey::new("DB_PASSWORD"))?;
+
+// Cached with TTL
+let cached = CachedSecretStore::new(underlying_store)
+    .with_ttl(Duration::from_secs(300));
+
+// Chained (try multiple stores)
+let chained = ChainedSecretStore::new()
+    .add(env_store)
+    .add(cached_vault_store);
+```
+
+### Key Rotation
+
+```rust
+let rotation_manager = KeyRotationManager::new(secret_store)
+    .with_rotation_interval(Duration::from_days(30))
+    .on_rotation(|key_name, _old, _new| {
+        println!("Rotated key: {}", key_name);
+    });
+
+rotation_manager.start();
+```
+
+---
+
+## Multi-tenancy
+
+Isolate tenants with resource quotas and usage tracking.
+
+```rust
+use ringkernel_core::prelude::*;
+
+let registry = TenantRegistry::new();
+registry.register("tenant-a", ResourceQuota {
+    max_memory_bytes: 1024 * 1024 * 1024,  // 1 GB
+    max_kernels: 10,
+    max_message_rate: 10_000,
+})?;
+
+let ctx = TenantContext::new("tenant-a");
+ctx.track_memory(1024 * 1024)?;
+
+let utilization = ctx.quota_utilization();
+println!("Memory: {:.1}%", utilization.memory_percent());
 ```
 
 ---

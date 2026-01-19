@@ -7,6 +7,168 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-01-19
+
+### Added
+
+#### Enterprise Security Features
+
+- **Real Cryptography** (`ringkernel-core/src/security.rs`)
+  - AES-256-GCM and ChaCha20-Poly1305 encryption algorithms
+  - Proper nonce generation with `rand::thread_rng()`
+  - Key derivation using Argon2id and HKDF-SHA256
+  - Secure memory wiping with `zeroize` crate
+  - Feature-gated via `crypto` feature flag
+
+- **Secrets Management** (`ringkernel-core/src/secrets.rs`) - **NEW FILE**
+  - `SecretStore` trait for pluggable secret backends
+  - `InMemorySecretStore` for development/testing
+  - `EnvVarSecretStore` for environment variable secrets
+  - `CachedSecretStore` with TTL-based caching
+  - `ChainedSecretStore` for fallback chains
+  - `KeyRotationManager` for automatic key rotation
+  - `SecretKey` and `SecretValue` types with secure memory handling
+
+- **Authentication Framework** (`ringkernel-core/src/auth.rs`) - **NEW FILE**
+  - `AuthProvider` trait for pluggable authentication
+  - `ApiKeyAuth` for simple API key validation
+  - `JwtAuth` for JWT token validation (RS256/HS256) - requires `auth` feature
+  - `ChainedAuthProvider` for fallback authentication chains
+  - `AuthContext` with identity and credential management
+  - `Credentials` enum: ApiKey, Bearer, Basic, Certificate
+
+- **Role-Based Access Control** (`ringkernel-core/src/rbac.rs`) - **NEW FILE**
+  - `Role` enum: Admin, Operator, Developer, Viewer, Custom
+  - `Permission` enum: Read, Write, Execute, Admin, Custom
+  - `RbacPolicy` with subject-role-permission bindings
+  - `PolicyEvaluator` with deny-by-default evaluation
+  - `ResourceRule` for fine-grained resource access control
+
+- **Multi-Tenancy Support** (`ringkernel-core/src/tenancy.rs`) - **NEW FILE**
+  - `TenantContext` for request scoping with tenant ID
+  - `TenantRegistry` for managing tenant configurations
+  - `ResourceQuota` with limits for memory, kernels, message rate
+  - `ResourceUsage` tracking with quota enforcement
+  - `QuotaUtilization` for monitoring tenant resource usage
+
+#### Enterprise Observability
+
+- **OpenTelemetry OTLP Export** (`ringkernel-core/src/observability.rs`)
+  - `OtlpExporter` for sending spans to OTLP endpoints
+  - `OtlpConfig` with endpoint, headers, and transport configuration
+  - Batch export with configurable interval and queue size
+  - HTTP and gRPC transport options via `OtlpTransport` enum
+  - Automatic retry with exponential backoff
+  - `OtlpExporterStats` for monitoring export success/failure
+
+- **Structured Logging** (`ringkernel-core/src/logging.rs`) - **NEW FILE**
+  - `StructuredLogger` with multi-sink support
+  - `LogLevel`: Trace, Debug, Info, Warn, Error, Fatal
+  - `LogOutput`: Text, Json, Compact, Pretty
+  - `TraceContext` for automatic trace_id/span_id injection
+  - `LogConfig` with builder pattern and presets (development, production)
+  - Built-in sinks: `ConsoleSink`, `MemoryLogSink`, `FileLogSink`
+  - JSON structured output for log aggregation
+  - Global logger functions: `init()`, `info()`, `error()`, etc.
+
+- **Alert Routing System** (`ringkernel-core/src/alerting.rs`) - **NEW FILE**
+  - `AlertSink` trait for pluggable alert destinations
+  - `AlertRouter` for routing alerts based on severity
+  - `WebhookSink` for Slack, Teams, PagerDuty (requires `alerting` feature)
+  - `LogSink` and `InMemorySink` for testing/debugging
+  - `DeduplicationConfig` for alert deduplication with time windows
+  - `AlertSeverity`: Info, Warning, Error, Critical
+  - `AlertRouterStats` for monitoring alert delivery
+
+- **Remote Audit Sinks** (`ringkernel-core/src/audit.rs`)
+  - `SyslogSink` for RFC 5424 syslog with configurable facility/severity
+  - `CloudWatchSink` for AWS CloudWatch Logs integration
+  - `ElasticsearchSink` for direct Elasticsearch indexing (requires `alerting` feature)
+  - Async batch sending with configurable flush intervals
+
+#### Enterprise Rate Limiting
+
+- **Rate Limiting** (`ringkernel-core/src/rate_limiting.rs`) - **NEW FILE**
+  - `RateLimiter` with pluggable algorithms
+  - `RateLimitAlgorithm`: TokenBucket, SlidingWindow, LeakyBucket
+  - `RateLimitConfig` with burst, window size, and rate configuration
+  - `RateLimiterBuilder` with fluent configuration API
+  - `RateLimitGuard` RAII wrapper for rate-limited operations
+  - `SharedRateLimiter` for distributed rate limiting
+  - `RateLimiterExt` trait for easy integration
+  - `RateLimiterStatsSnapshot` for monitoring
+  - Feature-gated via `rate-limiting` feature flag
+
+#### Network Security
+
+- **TLS Support** (`ringkernel-core/src/tls.rs`) - **NEW FILE**
+  - `TlsConfig` with builder pattern for server/client configuration
+  - `TlsAcceptor` for server-side TLS with rustls
+  - `TlsConnector` for client-side TLS connections
+  - `CertificateStore` with automatic rotation and hot reload
+  - `SniResolver` for multi-domain certificate selection
+  - mTLS (mutual TLS) with client certificate validation
+  - `TlsVersion` enum: Tls12, Tls13
+  - `TlsSessionInfo` for connection metadata
+  - Feature-gated via `tls` feature flag
+
+- **K2K Message Encryption** (`ringkernel-core/src/k2k.rs`)
+  - `K2KEncryptor` for kernel-to-kernel message encryption
+  - `K2KEncryptionConfig` with algorithm and key configuration
+  - `K2KEncryptionAlgorithm`: Aes256Gcm, ChaCha20Poly1305
+  - `EncryptedK2KMessage` with nonce and authentication tag
+  - `EncryptedK2KEndpoint` wrapper for transparent encryption
+  - `EncryptedK2KBuilder` for fluent endpoint creation
+  - `K2KKeyMaterial` with secure key handling
+  - Forward secrecy support with ephemeral keys
+  - Feature-gated via `crypto` feature flag
+
+#### Operational Excellence
+
+- **Operation Timeouts** (`ringkernel-core/src/timeout.rs`) - **NEW FILE**
+  - `Timeout` wrapper for async operations with deadlines
+  - `Deadline` for absolute timeout tracking
+  - `CancellationToken` for cooperative cancellation
+  - `OperationContext` with deadline propagation
+  - `timeout()` and `timeout_named()` helper functions
+  - `with_timeout()` and `with_timeout_named()` for futures
+  - `TimeoutStats` and `TimeoutStatsSnapshot` for monitoring
+
+- **Automatic Recovery** (`ringkernel-core/src/health.rs`)
+  - `RecoveryPolicy` enum: Restart, Migrate, Checkpoint, Notify, Escalate, Circuit
+  - `FailureType` enum: Timeout, Crash, DeviceError, ResourceExhausted, QueueOverflow, StateCorruption
+  - `RecoveryConfig` with builder pattern and per-failure-type policies
+  - `RecoveryManager` for coordinating recovery actions
+  - `RecoveryAction` with retry tracking and timestamps
+  - `RecoveryResult` with success/failure details
+  - `RecoveryStatsSnapshot` for monitoring recovery attempts
+  - Automatic escalation after max retries exceeded
+  - Configurable cooldown periods between recovery attempts
+
+### Changed
+
+- **Feature Flags** - New enterprise feature flags in `ringkernel-core/Cargo.toml`:
+  - `crypto` - Real cryptography (AES-GCM, ChaCha20, Argon2)
+  - `auth` - JWT authentication support
+  - `rate-limiting` - Governor-based rate limiting
+  - `alerting` - Webhook alerts via reqwest
+  - `tls` - TLS support via rustls
+  - `enterprise` - Combined feature enabling all enterprise features
+
+- **Test Coverage** - Increased from 825+ to 900+ tests
+  - 14 crypto tests for K2K encryption
+  - 14 logging tests for structured logging
+  - 15 recovery tests for automatic recovery
+  - 13 TLS tests for certificate management
+  - Plus tests for secrets, auth, RBAC, tenancy, rate limiting, alerting
+
+### Fixed
+
+- Fixed SpanStatus pattern matching for OTLP export
+- Fixed AttributeValue JSON serialization in observability
+- Fixed TraceId/SpanId Display formatting with hex output
+- Fixed reqwest blocking feature for webhook alerts
+
 ## [0.3.0] - 2026-01-17
 
 ### Added
@@ -609,7 +771,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLAUDE.md with build commands and architecture overview
 - Code examples for all major features
 
-[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/mivertowski/RustCompute/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/mivertowski/RustCompute/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mivertowski/RustCompute/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/mivertowski/RustCompute/compare/v0.1.2...v0.1.3

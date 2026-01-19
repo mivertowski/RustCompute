@@ -125,10 +125,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 ```
 
 Enterprise features include:
-- **Health & Resilience**: HealthChecker, CircuitBreaker, DegradationManager, KernelWatchdog
-- **Observability**: PrometheusExporter, ObservabilityContext, GPU memory dashboard
+- **Health & Resilience**: HealthChecker, CircuitBreaker, DegradationManager, KernelWatchdog, RecoveryManager
+- **Observability**: PrometheusExporter, OtlpExporter, StructuredLogger with trace correlation, AlertRouter
 - **Multi-GPU**: MultiGpuCoordinator, KernelMigrator, GpuTopology discovery
-- **Security**: MemoryEncryption, KernelSandbox, ComplianceReporter (SOC2, GDPR, HIPAA)
+- **Security**: MemoryEncryption (AES-256-GCM, ChaCha20), KernelSandbox, K2K encryption, TLS/mTLS
+- **Authentication**: ApiKeyAuth, JwtAuth, ChainedAuthProvider, RBAC with PolicyEvaluator
+- **Multi-tenancy**: TenantContext, ResourceQuota, QuotaUtilization monitoring
+- **Rate Limiting**: TokenBucket, SlidingWindow, LeakyBucket algorithms
+- **Secrets Management**: SecretStore trait, KeyRotationManager, CachedSecretStore
 
 ## Architecture
 
@@ -490,7 +494,7 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 ## Testing
 
 ```bash
-# Run all tests (825+ tests)
+# Run all tests (900+ tests)
 cargo test --workspace
 
 # CUDA backend tests (requires NVIDIA GPU)
@@ -638,6 +642,119 @@ cargo run -p ringkernel-txmon --bin txmon-benchmark --release --features cuda-co
 ```
 
 Performance varies significantly by hardware and workload.
+
+## Enterprise Security
+
+RingKernel v0.3.1 includes comprehensive enterprise security features. Enable with the `enterprise` feature:
+
+```toml
+[dependencies]
+ringkernel-core = { version = "0.3.1", features = ["enterprise"] }
+```
+
+### Authentication & Authorization
+
+```rust
+use ringkernel_core::prelude::*;
+
+// API Key authentication
+let auth = ApiKeyAuth::new()
+    .add_key("sk-prod-abc123", Identity::new("service-a"))
+    .add_key("sk-prod-xyz789", Identity::new("service-b"));
+
+let identity = auth.authenticate(&Credentials::ApiKey("sk-prod-abc123".into())).await?;
+
+// RBAC policy evaluation
+let policy = RbacPolicy::new()
+    .grant(Subject::User("alice".into()), Role::Admin)
+    .grant(Subject::User("bob".into()), Role::Developer);
+
+let evaluator = PolicyEvaluator::new(policy);
+assert!(evaluator.check(&Subject::User("alice".into()), Permission::Admin));
+```
+
+### Rate Limiting
+
+```rust
+use ringkernel_core::prelude::*;
+
+// Token bucket rate limiter
+let limiter = RateLimiterBuilder::new()
+    .algorithm(RateLimitAlgorithm::TokenBucket)
+    .rate(1000)  // 1000 requests per second
+    .burst(100)  // Allow burst of 100
+    .build();
+
+// Check rate limit
+match limiter.acquire() {
+    Ok(guard) => { /* proceed with operation */ },
+    Err(RateLimitError::Exceeded { retry_after }) => {
+        println!("Rate limited, retry after {:?}", retry_after);
+    }
+}
+```
+
+### TLS & Encrypted K2K
+
+```rust
+use ringkernel_core::prelude::*;
+
+// Server TLS configuration
+let tls_config = TlsConfigBuilder::new()
+    .with_cert_file("server.crt")
+    .with_key_file("server.key")
+    .with_client_auth(ClientAuth::Required)  // mTLS
+    .build()?;
+
+// Encrypted kernel-to-kernel messaging
+let encryptor = K2KEncryptor::new(K2KEncryptionConfig {
+    algorithm: K2KEncryptionAlgorithm::Aes256Gcm,
+    key: K2KKeyMaterial::generate()?,
+});
+
+let endpoint = EncryptedK2KBuilder::new(broker, kernel_id)
+    .with_encryptor(encryptor)
+    .build();
+```
+
+### Structured Logging with Tracing
+
+```rust
+use ringkernel_core::prelude::*;
+
+// Initialize structured logger
+let config = StructuredLogConfigBuilder::new()
+    .production()  // JSON output, Info level
+    .build();
+
+let logger = StructuredLogger::new(config);
+
+// Log with trace context
+logger.info("Processing request")
+    .field("request_id", request_id)
+    .field("user_id", user_id)
+    .with_trace(TraceContext::current())
+    .emit();
+```
+
+### Multi-tenancy
+
+```rust
+use ringkernel_core::prelude::*;
+
+// Configure tenant with resource quotas
+let registry = TenantRegistry::new();
+registry.register("tenant-a", ResourceQuota {
+    max_memory_bytes: 1024 * 1024 * 1024,  // 1 GB
+    max_kernels: 10,
+    max_message_rate: 10_000,  // per second
+})?;
+
+// Execute with tenant context
+let ctx = TenantContext::new("tenant-a");
+ctx.track_memory(1024 * 1024)?;  // Track 1 MB usage
+let utilization = ctx.quota_utilization();
+```
 
 ## Documentation
 

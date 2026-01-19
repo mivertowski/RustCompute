@@ -216,10 +216,37 @@ The following enterprise-grade features provide production-ready infrastructure:
 - **`CircuitBreaker`** - Fault tolerance with automatic recovery
 - **`DegradationManager`** - Graceful degradation with 5 levels (Normal → Critical)
 - **`KernelWatchdog`** - Stale kernel detection with heartbeat monitoring
+- **`RecoveryManager`** - Automatic recovery with configurable policies per failure type
 
 **Observability:**
 - **`PrometheusExporter`** - Prometheus metrics export
+- **`OtlpExporter`** - OpenTelemetry OTLP export to Jaeger/Honeycomb/Datadog
 - **`ObservabilityContext`** - Distributed tracing with spans
+- **`StructuredLogger`** - Multi-sink logging with trace correlation (JSON/Text output)
+- **`AlertRouter`** - Alert routing with deduplication and severity-based routing
+
+**Security (feature-gated via `crypto`, `auth`, `tls`):**
+- **`MemoryEncryption`** - AES-256-GCM and ChaCha20-Poly1305 encryption
+- **`K2KEncryptor`** - Kernel-to-kernel message encryption with forward secrecy
+- **`SecretStore`** - Pluggable secrets management with key rotation
+- **`TlsConfig`/`TlsAcceptor`/`TlsConnector`** - TLS/mTLS with rustls and cert rotation
+- **`KernelSandbox`** - Kernel isolation and resource control
+
+**Authentication & Authorization (feature-gated via `auth`):**
+- **`ApiKeyAuth`** - Simple API key validation
+- **`JwtAuth`** - JWT token validation (RS256/HS256)
+- **`ChainedAuthProvider`** - Fallback authentication chains
+- **`RbacPolicy`/`PolicyEvaluator`** - Role-based access control with deny-by-default
+
+**Multi-tenancy:**
+- **`TenantContext`** - Request scoping with tenant ID
+- **`TenantRegistry`** - Tenant configuration management
+- **`ResourceQuota`** - Per-tenant limits (memory, kernels, message rate)
+
+**Rate Limiting (feature-gated via `rate-limiting`):**
+- **`RateLimiter`** - TokenBucket, SlidingWindow, LeakyBucket algorithms
+- **`RateLimiterBuilder`** - Fluent configuration API
+- **`SharedRateLimiter`** - Distributed rate limiting
 
 **Multi-GPU:**
 - **`MultiGpuCoordinator`** - Device selection with load balancing strategies
@@ -229,6 +256,7 @@ The following enterprise-grade features provide production-ready infrastructure:
 **Lifecycle:**
 - **`LifecycleState`** - Initializing → Running → Draining → ShuttingDown → Stopped
 - **`ShutdownReport`** - Final statistics on graceful shutdown
+- **`Timeout`/`Deadline`** - Operation timeouts with deadline propagation
 
 ```rust
 // Enterprise runtime usage
@@ -514,6 +542,14 @@ Main crate (`ringkernel`) features:
 CUDA-specific features:
 - `cooperative` - Enable CUDA cooperative groups for grid-wide synchronization (`grid.sync()`). Requires nvcc at build time for PTX compilation.
 
+Core crate (`ringkernel-core`) enterprise features:
+- `crypto` - Real cryptography (AES-256-GCM, ChaCha20-Poly1305, Argon2)
+- `auth` - JWT authentication support (jsonwebtoken crate)
+- `rate-limiting` - Governor-based rate limiting
+- `alerting` - Webhook alerts via reqwest
+- `tls` - TLS support via rustls
+- `enterprise` - Combined feature enabling all enterprise features
+
 Ecosystem crate (`ringkernel-ecosystem`) features:
 - `persistent` - Core persistent GPU kernel traits (backend-agnostic)
 - `persistent-cuda` - CUDA implementation of `PersistentHandle` via `CudaPersistentHandle`
@@ -557,8 +593,8 @@ let handle = CudaPersistentHandle::new(simulation, "fdtd_3d");
 
 ### Test Count Summary
 
-825+ tests across the workspace:
-- ringkernel-core: 345 tests (including memory pool, analytics context, pressure reactions)
+900+ tests across the workspace:
+- ringkernel-core: 457 tests (including memory pool, analytics context, pressure reactions, enterprise security, auth, RBAC, tenancy, rate limiting, TLS, logging, alerting, recovery)
 - ringkernel-cpu: 11 tests
 - ringkernel-cuda: 52 tests (reduction cache, phases, K2K, persistent actors)
 - ringkernel-cuda-codegen: 190+ tests (loops, shared memory, ring kernels, K2K, envelope format, energy calculation, checksums, 120+ GPU intrinsics)
@@ -769,7 +805,7 @@ let _ = device.poll(wgpu::PollType::wait_indefinitely());
 
 ## Dependency Versions
 
-Key workspace dependencies (as of v0.1.3):
+Key workspace dependencies (as of v0.3.1):
 
 | Category | Package | Version | Notes |
 |----------|---------|---------|-------|
