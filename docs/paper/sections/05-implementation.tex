@@ -1,0 +1,375 @@
+% Section 5: Implementation
+
+\section{Implementation}
+\label{sec:implementation}
+
+RingKernel is implemented in Rust with approximately 25,000 lines of code across
+multiple crates. This section details key implementation aspects.
+
+\subsection{Crate Architecture}
+
+RingKernel is organized as a Cargo workspace:
+
+\begin{itemize}
+    \item \texttt{ringkernel-core}: Core traits, types, and enterprise features (457 tests)
+    \item \texttt{ringkernel-derive}: Procedural macros for actor definitions
+    \item \texttt{ringkernel-cpu}: CPU backend for testing and fallback
+    \item \texttt{ringkernel-cuda}: NVIDIA CUDA backend with cudarc bindings
+    \item \texttt{ringkernel-cuda-codegen}: Rust-to-CUDA transpiler (190+ tests)
+    \item \texttt{ringkernel-wgpu}: WebGPU cross-platform backend
+    \item \texttt{ringkernel-wgpu-codegen}: Rust-to-WGSL transpiler
+    \item \texttt{ringkernel}: Facade crate re-exporting all functionality
+\end{itemize}
+
+\subsection{Rust-to-CUDA Transpilation}
+
+The transpiler converts Rust DSL to CUDA C, enabling developers to write GPU
+kernels in familiar syntax while generating optimized device code.
+
+\subsubsection{Input: Rust Actor Definition}
+
+\begin{lstlisting}[language=Rust, caption={Rust actor definition}]
+#[ring_kernel(id = "processor", block_size = 128)]
+fn handle(ctx: &RingContext, msg: &Request) -> Response {
+    let tid = ctx.global_thread_id();
+
+    // Shared memory reduction
+    let partial = shared_reduce(msg.values, ReductionOp::Sum);
+
+    ctx.sync_threads();
+
+    if tid == 0 {
+        Response { sum: partial, count: msg.values.len() }
+    }
+}
+\end{lstlisting}
+
+\subsubsection{Output: CUDA Kernel}
+
+The transpiler generates a persistent kernel with message handling:
+
+\begin{lstlisting}[language=CUDA, caption={Generated CUDA kernel (simplified)}]
+extern "C" __global__ void processor_kernel(
+    ControlBlock* cb,
+    RingBuffer* h2k_queue,
+    RingBuffer* k2h_queue,
+    K2KRouter* k2k_router
+) {
+    __shared__ uint8_t shared_mem[4096];
+
+    // Initialize HLC
+    HlcClock hlc = {0, 0, cb->kernel_id};
+
+    // Persistent message loop
+    while (true) {
+        // Check termination
+        if (cb->state == STATE_TERMINATED) break;
+
+        // Try receive from H2K
+        MessageHeader header;
+        if (try_dequeue(h2k_queue, &header)) {
+            hlc_receive(&hlc, &header);
+
+            switch (header.message_type) {
+            case MSG_REQUEST:
+                Request* req = (Request*)(h2k_queue->data
+                    + header.payload_offset);
+                Response resp = handle_request(req);
+
+                // Send response
+                MessageHeader resp_hdr;
+                resp_hdr.correlation_id = header.correlation_id;
+                hlc_send(&hlc, &resp_hdr);
+                enqueue(k2h_queue, &resp_hdr, &resp);
+                break;
+
+            case MSG_TERMINATE:
+                cb->state = STATE_TERMINATED;
+                break;
+            }
+        }
+
+        // Update heartbeat
+        if (threadIdx.x == 0) {
+            atomicExch(&cb->heartbeat, cb->system_time);
+        }
+    }
+}
+\end{lstlisting}
+
+\subsubsection{Transpilation Pipeline}
+
+The transpiler operates in phases:
+
+\begin{enumerate}
+    \item \textbf{Parse}: Convert Rust source to AST using \texttt{syn}
+    \item \textbf{Analyze}: Extract types, identify GPU intrinsics, validate semantics
+    \item \textbf{Transform}: Convert Rust constructs to CUDA equivalents
+    \item \textbf{Generate}: Emit CUDA C source code
+    \item \textbf{Compile}: Invoke \texttt{nvcc} to produce PTX
+\end{enumerate}
+
+\subsubsection{Intrinsic Mapping}
+
+The transpiler maps 120+ GPU intrinsics across categories:
+
+\begin{table}[h]
+\centering
+\caption{GPU intrinsic mapping examples}
+\label{tab:intrinsics}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Rust DSL} & \textbf{CUDA Output} \\
+\midrule
+\texttt{ctx.thread\_id()} & \texttt{threadIdx.x} \\
+\texttt{ctx.block\_id()} & \texttt{blockIdx.x} \\
+\texttt{ctx.sync\_threads()} & \texttt{\_\_syncthreads()} \\
+\texttt{ctx.atomic\_add(\&x, v)} & \texttt{atomicAdd(\&x, v)} \\
+\texttt{ctx.warp\_shuffle(v, lane)} & \texttt{\_\_shfl\_sync(0xffffffff, v, lane)} \\
+\texttt{pos.north(buf)} & \texttt{buf[(y-1)*width + x]} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Memory Management}
+
+\subsubsection{Mapped Memory for Zero-Copy}
+
+RingKernel uses CUDA mapped memory for H2K/K2H queues:
+
+\begin{lstlisting}[language=Rust, caption={Mapped memory allocation}]
+// Allocate mapped memory visible to both CPU and GPU
+let h2k_buffer = device.alloc_mapped::<u8>(QUEUE_SIZE)?;
+let k2h_buffer = device.alloc_mapped::<u8>(QUEUE_SIZE)?;
+
+// CPU can write directly, GPU sees changes
+h2k_buffer.host_ptr().write(message);
+// Memory fence ensures visibility
+std::sync::atomic::fence(Ordering::SeqCst);
+\end{lstlisting}
+
+\subsubsection{Stratified Memory Pooling}
+
+For analytics workloads, RingKernel provides size-stratified buffer pools:
+
+\begin{lstlisting}[language=Rust, caption={Stratified memory pool}]
+pub enum SizeBucket {
+    Tiny,   // 256 bytes
+    Small,  // 1 KB
+    Medium, // 4 KB
+    Large,  // 16 KB
+    Huge,   // 64 KB
+}
+
+impl StratifiedMemoryPool {
+    pub fn allocate(&self, size: usize) -> StratifiedBuffer {
+        let bucket = SizeBucket::for_size(size);
+        self.buckets[bucket].try_pop()
+            .unwrap_or_else(|| self.alloc_new(bucket))
+    }
+}
+\end{lstlisting}
+
+This reduces allocation overhead for repeated operations.
+
+\subsection{Cooperative Groups Integration}
+
+For grid-wide synchronization, RingKernel uses CUDA cooperative groups:
+
+\begin{lstlisting}[language=CUDA, caption={Cooperative groups for grid sync}]
+#include <cooperative_groups.h>
+namespace cg = cooperative_groups;
+
+__global__ void persistent_stencil(ControlBlock* cb, ...) {
+    cg::grid_group grid = cg::this_grid();
+
+    while (cb->state == STATE_ACTIVE) {
+        // Phase 1: Compute
+        compute_stencil(local_tile);
+
+        // Grid-wide barrier
+        grid.sync();
+
+        // Phase 2: Exchange halos
+        exchange_halos(k2k_router);
+
+        grid.sync();
+
+        // Update step counter
+        if (threadIdx.x == 0 && blockIdx.x == 0) {
+            atomicAdd(&cb->step_counter, 1);
+        }
+    }
+}
+\end{lstlisting}
+
+Cooperative launch requires special invocation:
+
+\begin{lstlisting}[language=Rust, caption={Cooperative kernel launch}]
+// Check device supports cooperative launch
+let props = device.properties();
+assert!(props.cooperative_launch != 0);
+
+// Launch with cooperative API
+unsafe {
+    cudarc::driver::result::launch_cooperative_kernel(
+        func,
+        (grid_x, grid_y, grid_z),
+        (block_x, block_y, block_z),
+        shared_mem_bytes,
+        stream,
+        kernel_params.as_mut_ptr(),
+    )?;
+}
+\end{lstlisting}
+
+\subsection{K2K Message Routing}
+
+Kernel-to-kernel messaging uses a routing table in device memory:
+
+\begin{lstlisting}[language=CUDA, caption={K2K routing}]
+struct K2KRouteEntry {
+    uint32_t dest_kernel_id;
+    uint32_t buffer_offset;
+    uint32_t buffer_size;
+    uint32_t flags;
+};
+
+__device__ bool k2k_send(K2KRouter* router, uint32_t dest,
+                          MessageHeader* msg, void* payload) {
+    // Find route
+    K2KRouteEntry* route = find_route(router, dest);
+    if (!route) return false;
+
+    // Enqueue to destination's buffer
+    RingBuffer* dest_buf = (RingBuffer*)(router->base
+        + route->buffer_offset);
+    return enqueue(dest_buf, msg, payload);
+}
+\end{lstlisting}
+
+For 3D stencil computations, K2K enables halo exchange between neighboring tiles
+without host involvement, critical for persistent FDTD simulations.
+
+\subsection{Enterprise Features}
+
+RingKernel includes production-ready infrastructure:
+
+\subsubsection{Health Monitoring}
+
+\begin{lstlisting}[language=Rust, caption={Kernel watchdog}]
+pub struct KernelWatchdog {
+    timeout: Duration,
+    last_heartbeat: Instant,
+}
+
+impl KernelWatchdog {
+    pub fn check(&mut self, cb: &ControlBlock) -> HealthStatus {
+        let heartbeat = cb.heartbeat.load(Ordering::Acquire);
+        if self.last_heartbeat.elapsed() > self.timeout
+           && heartbeat == self.last_seen_heartbeat {
+            HealthStatus::Stalled
+        } else {
+            self.last_seen_heartbeat = heartbeat;
+            HealthStatus::Healthy
+        }
+    }
+}
+\end{lstlisting}
+
+\subsubsection{Circuit Breaker}
+
+\begin{lstlisting}[language=Rust, caption={Circuit breaker pattern}]
+pub struct CircuitBreaker {
+    state: AtomicU8,  // Closed, Open, HalfOpen
+    failure_count: AtomicU32,
+    threshold: u32,
+    reset_timeout: Duration,
+}
+
+impl CircuitBreaker {
+    pub fn execute<F, R>(&self, f: F) -> Result<R>
+    where F: FnOnce() -> Result<R> {
+        match self.state.load(Ordering::Acquire) {
+            OPEN => Err(Error::CircuitOpen),
+            HALF_OPEN | CLOSED => {
+                match f() {
+                    Ok(r) => { self.record_success(); Ok(r) }
+                    Err(e) => { self.record_failure(); Err(e) }
+                }
+            }
+        }
+    }
+}
+\end{lstlisting}
+
+\subsubsection{Observability}
+
+RingKernel integrates with Prometheus and OpenTelemetry:
+
+\begin{lstlisting}[language=Rust, caption={Metrics export}]
+// Prometheus metrics
+let metrics = PrometheusExporter::new();
+metrics.register_counter("ringkernel_messages_processed");
+metrics.register_histogram("ringkernel_message_latency_us");
+
+// OpenTelemetry tracing
+let tracer = OtlpExporter::new("http://jaeger:4317");
+let span = tracer.start_span("process_message");
+span.set_attribute("kernel_id", kernel_id);
+\end{lstlisting}
+
+\subsection{WebGPU Backend}
+
+For cross-platform support, RingKernel includes a WebGPU backend via wgpu:
+
+\begin{lstlisting}[language=Rust, caption={WebGPU runtime}]
+pub struct WgpuRuntime {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    compute_pipeline: wgpu::ComputePipeline,
+}
+
+impl RingKernelRuntime for WgpuRuntime {
+    async fn launch(&self, kernel: &str, opts: LaunchOptions)
+        -> Result<KernelHandle> {
+        // WebGPU doesn't support true persistent kernels
+        // Emulate with host-driven dispatch loop
+        let handle = EmulatedPersistentHandle::new(
+            self.device.clone(),
+            self.compute_pipeline.clone(),
+        );
+        Ok(KernelHandle::Emulated(handle))
+    }
+}
+\end{lstlisting}
+
+WebGPU limitations (no persistent kernels, no 64-bit atomics) are documented
+and worked around where possible.
+
+\subsection{Testing Infrastructure}
+
+RingKernel has 900+ tests across the workspace:
+
+\begin{itemize}
+    \item \textbf{Unit tests}: Core logic, transpiler passes
+    \item \textbf{Integration tests}: End-to-end kernel execution
+    \item \textbf{Property tests}: Queue invariants via \texttt{proptest}
+    \item \textbf{GPU tests}: Require hardware, use \texttt{\#[ignore]}
+\end{itemize}
+
+\begin{lstlisting}[language=Rust, caption={Property-based queue testing}]
+proptest! {
+    #[test]
+    fn queue_fifo_order(messages: Vec<TestMessage>) {
+        let queue = MessageQueue::new(1024);
+        for msg in &messages {
+            queue.enqueue(msg.clone()).unwrap();
+        }
+        for expected in &messages {
+            let actual = queue.dequeue().unwrap();
+            prop_assert_eq!(actual, *expected);
+        }
+    }
+}
+\end{lstlisting}

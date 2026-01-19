@@ -1,0 +1,268 @@
+% Bibliography for RingKernel paper
+% References in BibTeX format
+
+%% ===== Actor Model Foundations =====
+
+@inproceedings{hewitt1973actors,
+  author    = {Hewitt, Carl and Bishop, Peter and Steiger, Richard},
+  title     = {A Universal Modular ACTOR Formalism for Artificial Intelligence},
+  booktitle = {Proceedings of the 3rd International Joint Conference on Artificial Intelligence},
+  series    = {IJCAI'73},
+  year      = {1973},
+  pages     = {235--245},
+  publisher = {Morgan Kaufmann},
+  address   = {Stanford, USA},
+}
+
+@phdthesis{agha1985actors,
+  author  = {Agha, Gul A.},
+  title   = {Actors: A Model of Concurrent Computation in Distributed Systems},
+  school  = {Massachusetts Institute of Technology},
+  year    = {1985},
+}
+
+@article{agha1990concurrent,
+  author  = {Agha, Gul and Hewitt, Carl},
+  title   = {Concurrent Programming Using Actors},
+  journal = {Object-Oriented Concurrent Programming},
+  pages   = {37--53},
+  year    = {1990},
+  publisher = {MIT Press},
+}
+
+%% ===== Actor Model Implementations =====
+
+@book{armstrong2003erlang,
+  author    = {Armstrong, Joe},
+  title     = {Making Reliable Distributed Systems in the Presence of Software Errors},
+  year      = {2003},
+  publisher = {Royal Institute of Technology, Stockholm},
+  note      = {PhD Thesis},
+}
+
+@misc{akka2023,
+  author       = {{Lightbend, Inc.}},
+  title        = {Akka Documentation},
+  year         = {2023},
+  howpublished = {\url{https://doc.akka.io/}},
+}
+
+@inproceedings{bykov2011orleans,
+  author    = {Bykov, Sergey and Geller, Alan and Kliot, Gabriel and Larus, James R. and Pandya, Ravi and Thelin, Jorgen},
+  title     = {Orleans: Cloud Computing for Everyone},
+  booktitle = {Proceedings of the 2nd ACM Symposium on Cloud Computing},
+  series    = {SOCC '11},
+  year      = {2011},
+  pages     = {16:1--16:14},
+  publisher = {ACM},
+}
+
+@inproceedings{clebsch2015pony,
+  author    = {Clebsch, Sylvan and Drossopoulou, Sophia and Blessing, Sebastian and McNeil, Andy},
+  title     = {Deny Capabilities for Safe, Fast Actors},
+  booktitle = {Proceedings of the 5th International Workshop on Programming Based on Actors, Agents, and Decentralized Control},
+  series    = {AGERE! 2015},
+  year      = {2015},
+  pages     = {1--12},
+  publisher = {ACM},
+}
+
+@misc{caf2023,
+  author       = {{CAF Community}},
+  title        = {CAF: C++ Actor Framework},
+  year         = {2023},
+  howpublished = {\url{https://actor-framework.org/}},
+}
+
+@misc{elixir2023,
+  author       = {Valim, José},
+  title        = {Elixir Programming Language},
+  year         = {2023},
+  howpublished = {\url{https://elixir-lang.org/}},
+}
+
+%% ===== Distributed Systems / Clocks =====
+
+@article{lamport1978clocks,
+  author  = {Lamport, Leslie},
+  title   = {Time, Clocks, and the Ordering of Events in a Distributed System},
+  journal = {Communications of the ACM},
+  volume  = {21},
+  number  = {7},
+  year    = {1978},
+  pages   = {558--565},
+  publisher = {ACM},
+}
+
+@inproceedings{fidge1988timestamps,
+  author    = {Fidge, Colin J.},
+  title     = {Timestamps in Message-Passing Systems That Preserve the Partial Ordering},
+  booktitle = {Proceedings of the 11th Australian Computer Science Conference},
+  year      = {1988},
+  pages     = {56--66},
+}
+
+@article{mattern1989virtual,
+  author  = {Mattern, Friedemann},
+  title   = {Virtual Time and Global States of Distributed Systems},
+  journal = {Parallel and Distributed Algorithms},
+  year    = {1989},
+  pages   = {215--226},
+}
+
+@inproceedings{kulkarni2014hlc,
+  author    = {Kulkarni, Sandeep S. and Demirbas, Murat and Madappa, Deepak and Avva, Bharadwaj and Leone, Marcelo},
+  title     = {Logical Physical Clocks and Consistent Snapshots in Globally Distributed Databases},
+  booktitle = {Proceedings of the 18th International Conference on Principles of Distributed Systems},
+  series    = {OPODIS 2014},
+  year      = {2014},
+  pages     = {17--32},
+  publisher = {Springer},
+}
+
+%% ===== Persistent Kernels / GPU Programming =====
+
+@inproceedings{gupta2012persistent,
+  author    = {Gupta, Kshitij and Stuart, Jeff A. and Owens, John D.},
+  title     = {A Study of Persistent Threads Style GPU Programming for GPGPU Workloads},
+  booktitle = {Innovative Parallel Computing},
+  series    = {InPar},
+  year      = {2012},
+  pages     = {1--14},
+  publisher = {IEEE},
+}
+
+@article{wu2015persistent,
+  author  = {Wu, Bo and Zhao, Zhijia and Zhang, Eddy Zheng and Jiang, Yunlian and Shen, Xipeng},
+  title   = {Complexity Analysis and Algorithm Design for Reorganizing Data to Minimize Non-coalesced Memory Accesses on GPU},
+  journal = {ACM SIGPLAN Notices},
+  volume  = {48},
+  number  = {8},
+  year    = {2013},
+  pages   = {57--68},
+  publisher = {ACM},
+}
+
+@inproceedings{steinberger2014whippletree,
+  author    = {Steinberger, Markus and Kenzel, Michael and Boechat, Pedro and Kerber, Bernhard and Dokter, Mark and Schmalstieg, Dieter},
+  title     = {Whippletree: Task-based Scheduling of Dynamic Workloads on the GPU},
+  booktitle = {ACM Transactions on Graphics (Proceedings of SIGGRAPH Asia)},
+  volume    = {33},
+  number    = {6},
+  year      = {2014},
+  pages     = {228:1--228:11},
+  publisher = {ACM},
+}
+
+@inproceedings{huangfu2022perks,
+  author    = {Huangfu, Yiwei and Patel, Amogh and Punniyamurthy, Kartik and Sridharan, Srinivas and Ranganathan, Parthasarathy},
+  title     = {PERKS: A Locality-Optimized Execution Model for Iterative Memory-Bound GPU Applications},
+  booktitle = {Proceedings of the 27th ACM International Conference on Architectural Support for Programming Languages and Operating Systems},
+  series    = {ASPLOS '22},
+  year      = {2022},
+  pages     = {1027--1040},
+  publisher = {ACM},
+}
+
+@article{agostini2017gpu,
+  author  = {Agostini, Nicolas and Shi, Hai and Shintani, Takashi and El-Ghazawi, Tarek},
+  title   = {GPU-centric Communication for Improved Efficiency},
+  journal = {Proceedings of the International Conference on Supercomputing},
+  year    = {2017},
+  publisher = {ACM},
+}
+
+%% ===== Lock-Free Data Structures =====
+
+@inproceedings{cederman2008queue,
+  author    = {Cederman, Daniel and Tsigas, Philippas},
+  title     = {On Dynamic Load Balancing on Graphics Processors},
+  booktitle = {Proceedings of the 23rd ACM SIGGRAPH/EUROGRAPHICS Symposium on Graphics Hardware},
+  year      = {2008},
+  pages     = {57--64},
+  publisher = {Eurographics Association},
+}
+
+@inproceedings{tzeng2010task,
+  author    = {Tzeng, Stanley and Patney, Anjul and Owens, John D.},
+  title     = {Task Management for Irregular-Parallel Workloads on the GPU},
+  booktitle = {Proceedings of the Conference on High Performance Graphics},
+  year      = {2010},
+  pages     = {29--37},
+  publisher = {Eurographics Association},
+}
+
+@inproceedings{alglave2015gpu,
+  author    = {Alglave, Jade and Batty, Mark and Donaldson, Alastair F. and Gopalakrishnan, Ganesh and Ketema, Jeroen and Pober, Daniel and Sorensen, Tyler and Wickerson, John},
+  title     = {GPU Concurrency: Weak Behaviours and Programming Assumptions},
+  booktitle = {Proceedings of the 20th International Conference on Architectural Support for Programming Languages and Operating Systems},
+  series    = {ASPLOS '15},
+  year      = {2015},
+  pages     = {577--591},
+  publisher = {ACM},
+}
+
+%% ===== GPU Languages and DSLs =====
+
+@inproceedings{henriksen2017futhark,
+  author    = {Henriksen, Troels and Serup, Niels G. W. and Elsman, Martin and Henglein, Fritz and Oancea, Cosmin E.},
+  title     = {Futhark: Purely Functional GPU-Programming with Nested Parallelism and In-Place Array Updates},
+  booktitle = {Proceedings of the 38th ACM SIGPLAN Conference on Programming Language Design and Implementation},
+  series    = {PLDI 2017},
+  year      = {2017},
+  pages     = {556--571},
+  publisher = {ACM},
+}
+
+@article{ragan2013halide,
+  author  = {Ragan-Kelley, Jonathan and Barnes, Connelly and Adams, Andrew and Paris, Sylvain and Durand, Frédo and Amarasinghe, Saman},
+  title   = {Halide: A Language and Compiler for Optimizing Parallelism, Locality, and Recomputation in Image Processing Pipelines},
+  journal = {ACM SIGPLAN Notices},
+  volume  = {48},
+  number  = {6},
+  year    = {2013},
+  pages   = {519--530},
+  publisher = {ACM},
+}
+
+@misc{rustgpu2023,
+  author       = {{Embark Studios}},
+  title        = {rust-gpu: Making Rust a First-Class Language for GPU Shaders},
+  year         = {2023},
+  howpublished = {\url{https://github.com/EmbarkStudios/rust-gpu}},
+}
+
+@misc{cudarc2023,
+  author       = {{cudarc Contributors}},
+  title        = {cudarc: Safe Rust bindings for CUDA},
+  year         = {2023},
+  howpublished = {\url{https://github.com/coreylowman/cudarc}},
+}
+
+%% ===== Machine Learning Systems =====
+
+@inproceedings{moritz2018ray,
+  author    = {Moritz, Philipp and Nishihara, Robert and Wang, Stephanie and Tumanov, Alexey and Liaw, Richard and Liang, Eric and Elibol, Melih and Yang, Zongheng and Paul, William and Jordan, Michael I. and Stoica, Ion},
+  title     = {Ray: A Distributed Framework for Emerging AI Applications},
+  booktitle = {Proceedings of the 13th USENIX Symposium on Operating Systems Design and Implementation},
+  series    = {OSDI '18},
+  year      = {2018},
+  pages     = {561--577},
+  publisher = {USENIX Association},
+}
+
+%% ===== CUDA and GPU Architecture =====
+
+@misc{nvidia2023cuda,
+  author       = {{NVIDIA Corporation}},
+  title        = {CUDA C++ Programming Guide},
+  year         = {2023},
+  howpublished = {\url{https://docs.nvidia.com/cuda/cuda-c-programming-guide/}},
+}
+
+@misc{nvidia2023cooperative,
+  author       = {{NVIDIA Corporation}},
+  title        = {Cooperative Groups Programming Guide},
+  year         = {2023},
+  howpublished = {\url{https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#cooperative-groups}},
+}

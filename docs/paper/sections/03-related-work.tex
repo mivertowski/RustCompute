@@ -1,0 +1,160 @@
+% Section 3: Related Work
+
+\section{Related Work}
+\label{sec:related}
+
+RingKernel builds upon decades of research in actor systems, GPU computing,
+and persistent kernel techniques. We survey related work and position our contributions.
+
+\subsection{Actor Model Implementations}
+
+\subsubsection{Erlang and the BEAM VM}
+
+Erlang~\cite{armstrong2003erlang} pioneered practical actor systems with its lightweight
+processes, fault-tolerant supervision trees, and ``let it crash'' philosophy. The BEAM
+virtual machine supports millions of concurrent processes with preemptive scheduling and
+soft real-time garbage collection. Elixir~\cite{elixir2023} provides modern syntax atop BEAM.
+
+While Erlang excels at CPU-bound concurrent workloads, it has no native GPU support.
+GPU operations require NIFs (Native Implemented Functions) that break Erlang's
+scheduling guarantees.
+
+\subsubsection{Akka and the JVM}
+
+Akka~\cite{akka2023} brings actor semantics to the JVM, supporting both classic and
+typed actors. Akka Cluster enables distributed actors across machines with location
+transparency. Akka Streams provides backpressure-aware message processing.
+
+Like Erlang, Akka targets CPU architectures. While JNI can invoke CUDA, this creates
+the same semantic mismatch as Erlang NIFs.
+
+\subsubsection{Microsoft Orleans}
+
+Orleans~\cite{bykov2011orleans} introduces ``virtual actors'' that are automatically
+instantiated on demand and garbage collected when idle. This simplifies distributed
+programming by hiding actor lifecycle management. Orleans powers backend services at
+Microsoft, including Xbox Live and Azure.
+
+Orleans' virtual actor model is compelling for cloud services but assumes network
+communication costs dominate---the opposite of GPU's memory hierarchy.
+
+\subsubsection{Other Implementations}
+
+Pony~\cite{clebsch2015pony} provides actors with reference capabilities for data-race
+freedom. CAF (C++ Actor Framework)~\cite{caf2023} offers native performance.
+Ray~\cite{moritz2018ray} targets distributed machine learning with actor-like ``tasks.''
+None provide GPU-native actors.
+
+\subsection{Persistent Kernel Techniques}
+
+\subsubsection{Persistent Threads}
+
+Gupta et al.~\cite{gupta2012persistent} formalized persistent threads (PT) as a GPU
+programming technique where threads run indefinitely, polling for work. They demonstrated
+up to 211$\times$ speedup for fine-grained workloads by eliminating kernel launch overhead.
+
+Steinberger et al.~\cite{steinberger2014whippletree} extended PT with dynamic task
+scheduling, enabling irregular workloads on GPUs. Their Whippletree system achieves
+high utilization for variable-length tasks.
+
+\subsubsection{PERKS}
+
+Huangfu et al.~\cite{huangfu2022perks} introduced PERKS (PERsistent KernelS) for
+iterative memory-bound applications. By moving the time loop inside the kernel and
+using device-wide barriers, PERKS achieves 2.29$\times$ speedup for stencil computations
+on NVIDIA A100.
+
+PERKS focuses on performance for structured iterative patterns. RingKernel extends
+this with actor semantics---message passing, lifecycle management, and causal ordering---for
+general concurrent applications.
+
+\subsubsection{GPU-Initiated Communication}
+
+Agostini et al.~\cite{agostini2017gpu} demonstrated GPU-initiated communication using
+GPUDirect RDMA and NVSHMEM. Their work enables GPU threads to directly send network
+messages without host intervention.
+
+RingKernel's K2K messaging applies similar principles at the device level, enabling
+direct kernel-to-kernel communication through mapped memory.
+
+\subsection{Lock-Free Data Structures on GPU}
+
+\subsubsection{GPU Queue Implementations}
+
+Cederman and Tsigas~\cite{cederman2008queue} implemented lock-free queues on GPUs
+using atomic compare-and-swap (CAS). Their work demonstrated that lock-free algorithms
+can achieve high throughput on GPU architectures.
+
+Tzeng et al.~\cite{tzeng2010task} developed task queues for GPU ray tracing, handling
+dynamic work distribution without locks. Their approach influenced GPU work-stealing
+designs.
+
+RingKernel uses single-producer single-consumer (SPSC) ring buffers with atomic
+head/tail pointers, optimized for the H2K/K2H communication pattern.
+
+\subsubsection{Memory Consistency}
+
+Alglave et al.~\cite{alglave2015gpu} formalized GPU memory consistency models,
+identifying subtle differences from CPU models. Their work is essential for
+correct lock-free programming on GPUs.
+
+RingKernel uses memory fences ({\tt \_\_threadfence()}) and atomic operations
+following NVIDIA's relaxed memory model guidelines.
+
+\subsection{Causal Ordering in Distributed Systems}
+
+\subsubsection{Logical Clocks}
+
+Lamport's logical clocks~\cite{lamport1978clocks} provide partial ordering based on
+causality. Vector clocks~\cite{fidge1988timestamps,mattern1989virtual} capture full
+causality but have $O(n)$ space complexity.
+
+\subsubsection{Hybrid Logical Clocks}
+
+Kulkarni et al.~\cite{kulkarni2014hlc} introduced Hybrid Logical Clocks (HLC) that
+combine physical time with logical counters. HLC provides causality guarantees while
+staying close to wall-clock time, with $O(1)$ space per timestamp.
+
+RingKernel implements HLC on GPU, a novel contribution enabling causal ordering
+across thousands of concurrent GPU actors.
+
+\subsection{GPU Programming Languages and DSLs}
+
+\subsubsection{High-Level GPU Languages}
+
+Futhark~\cite{henriksen2017futhark} provides a functional data-parallel language
+that compiles to CUDA/OpenCL. Halide~\cite{ragan2013halide} separates algorithms from
+schedules for image processing. Neither targets persistent actor patterns.
+
+\subsubsection{Rust GPU Ecosystems}
+
+rust-gpu~\cite{rustgpu2023} compiles Rust to SPIR-V for Vulkan/WebGPU compute shaders.
+cudarc~\cite{cudarc2023} provides safe Rust bindings to CUDA driver/runtime APIs.
+RingKernel builds on cudarc for runtime management and provides its own Rust-to-CUDA
+transpiler for actor kernel generation.
+
+\subsection{Comparison Summary}
+
+Table~\ref{tab:related-comparison} summarizes how RingKernel relates to prior work:
+
+\begin{table*}[t]
+\centering
+\caption{Comparison with related systems}
+\label{tab:related-comparison}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+\textbf{System} & \textbf{Actor Semantics} & \textbf{GPU Native} & \textbf{Persistent} & \textbf{Causal Order} & \textbf{K2K Messaging} \\
+\midrule
+Erlang/OTP & \checkmark & -- & -- & -- & \checkmark \\
+Akka & \checkmark & -- & -- & -- & \checkmark \\
+Orleans & \checkmark & -- & -- & -- & \checkmark \\
+PERKS & -- & \checkmark & \checkmark & -- & -- \\
+Whippletree & -- & \checkmark & \checkmark & -- & -- \\
+NVSHMEM & -- & \checkmark & -- & -- & \checkmark \\
+\textbf{RingKernel} & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+RingKernel is unique in combining actor model semantics with GPU-native persistent
+execution, causal ordering, and direct kernel-to-kernel communication.

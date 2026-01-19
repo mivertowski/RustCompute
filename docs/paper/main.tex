@@ -1,0 +1,127 @@
+% RingKernel: A GPU-Native Persistent Actor Model
+% Technical Paper - Main Document
+%
+% Target venues: arXiv (cs.DC, cs.PL), ASPLOS, EuroSys, PLDI, PPoPP
+%
+\documentclass[11pt,a4paper]{article}
+
+% Page geometry
+\usepackage[margin=1in]{geometry}
+
+% Packages
+\usepackage{booktabs}
+\usepackage{subcaption}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{pgfplots}
+% algorithm/algpseudocode removed - use lstlisting for pseudocode
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{url}
+\usepackage{natbib}
+
+\pgfplotsset{compat=1.16}
+\usetikzlibrary{shapes,arrows,positioning,fit,calc}
+
+% Hyperref setup
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    citecolor=blue,
+}
+
+% Code listing style for Rust
+\lstdefinelanguage{Rust}{
+  keywords={fn, let, mut, if, else, match, for, while, loop, return, struct, enum, impl, trait, pub, use, mod, async, await, self, Self, where, type, const, static, unsafe, extern, crate, super},
+  keywordstyle=\color{blue}\bfseries,
+  keywords=[2]{i32, i64, u32, u64, f32, f64, bool, usize, isize, String, Vec, Option, Result, Arc, Box},
+  keywordstyle=[2]\color{teal},
+  comment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  commentstyle=\color{gray}\itshape,
+  stringstyle=\color{red},
+  morestring=[b]",
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=2,
+}
+
+% Code listing style for CUDA
+\lstdefinelanguage{CUDA}{
+  language=C++,
+  morekeywords={__global__, __device__, __shared__, __host__, threadIdx, blockIdx, blockDim, gridDim, atomicAdd, atomicCAS, __syncthreads},
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{gray}\itshape,
+  stringstyle=\color{red},
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  showstringspaces=false,
+}
+
+\lstset{
+  language=Rust,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  xleftmargin=2em,
+  framexleftmargin=1.5em,
+}
+
+% Document metadata
+\title{\textbf{RingKernel: A GPU-Native Persistent Actor Model for\\High-Performance Concurrent Computing}}
+
+\author{
+  Michael Ivertowski\\
+  \textit{Independent Researcher}\\
+  Zurich, Switzerland\\
+  \texttt{mivertowski@outlook.com}
+}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+% Abstract
+\begin{abstract}
+\input{sections/00-abstract}
+\end{abstract}
+
+\vspace{1em}
+\noindent\textbf{Keywords:} Actor Model, GPU Computing, Persistent Kernels, Message Passing, CUDA, Hybrid Logical Clocks, Lock-Free Algorithms
+
+\vspace{1em}
+
+% Main content sections
+\input{sections/01-introduction}
+\input{sections/02-background}
+\input{sections/03-related-work}
+\input{sections/04-system-design}
+\input{sections/05-implementation}
+\input{sections/06-evaluation}
+\input{sections/07-discussion}
+\input{sections/08-conclusion}
+
+% Acknowledgments
+\section*{Acknowledgments}
+We thank the open-source community for their contributions to the CUDA ecosystem,
+particularly the cudarc project for Rust CUDA bindings. We also acknowledge the
+foundational work on the actor model by Carl Hewitt and colleagues.
+
+% Bibliography
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+% Appendix
+\appendix
+\input{sections/09-appendix}
+
+\end{document}

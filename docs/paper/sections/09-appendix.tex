@@ -1,0 +1,130 @@
+% Appendix
+
+\section{GPU Intrinsic Reference}
+\label{app:intrinsics}
+
+Table~\ref{tab:full-intrinsics} lists the complete set of GPU intrinsics supported
+by the RingKernel Rust-to-CUDA transpiler.
+
+\begin{table*}[h]
+\centering
+\caption{Complete GPU intrinsic mapping}
+\label{tab:full-intrinsics}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Category} & \textbf{Rust DSL} & \textbf{CUDA Output} \\
+\midrule
+\multirow{6}{*}{Index} & \texttt{thread\_idx\_x()} & \texttt{threadIdx.x} \\
+& \texttt{block\_idx\_x()} & \texttt{blockIdx.x} \\
+& \texttt{block\_dim\_x()} & \texttt{blockDim.x} \\
+& \texttt{grid\_dim\_x()} & \texttt{gridDim.x} \\
+& \texttt{global\_thread\_id()} & \texttt{blockIdx.x * blockDim.x + threadIdx.x} \\
+& \texttt{warp\_id()} & \texttt{threadIdx.x / 32} \\
+\midrule
+\multirow{4}{*}{Sync} & \texttt{sync\_threads()} & \texttt{\_\_syncthreads()} \\
+& \texttt{sync\_warp()} & \texttt{\_\_syncwarp()} \\
+& \texttt{threadfence()} & \texttt{\_\_threadfence()} \\
+& \texttt{threadfence\_block()} & \texttt{\_\_threadfence\_block()} \\
+\midrule
+\multirow{6}{*}{Atomic} & \texttt{atomic\_add(\&x, v)} & \texttt{atomicAdd(\&x, v)} \\
+& \texttt{atomic\_sub(\&x, v)} & \texttt{atomicSub(\&x, v)} \\
+& \texttt{atomic\_max(\&x, v)} & \texttt{atomicMax(\&x, v)} \\
+& \texttt{atomic\_min(\&x, v)} & \texttt{atomicMin(\&x, v)} \\
+& \texttt{atomic\_cas(\&x, cmp, v)} & \texttt{atomicCAS(\&x, cmp, v)} \\
+& \texttt{atomic\_exch(\&x, v)} & \texttt{atomicExch(\&x, v)} \\
+\midrule
+\multirow{5}{*}{Warp} & \texttt{warp\_shuffle(v, lane)} & \texttt{\_\_shfl\_sync(0xffffffff, v, lane)} \\
+& \texttt{warp\_shuffle\_up(v, d)} & \texttt{\_\_shfl\_up\_sync(0xffffffff, v, d)} \\
+& \texttt{warp\_shuffle\_down(v, d)} & \texttt{\_\_shfl\_down\_sync(0xffffffff, v, d)} \\
+& \texttt{warp\_ballot(pred)} & \texttt{\_\_ballot\_sync(0xffffffff, pred)} \\
+& \texttt{warp\_all(pred)} & \texttt{\_\_all\_sync(0xffffffff, pred)} \\
+\midrule
+\multirow{6}{*}{Math} & \texttt{sqrt(x)} & \texttt{sqrtf(x)} \\
+& \texttt{rsqrt(x)} & \texttt{rsqrtf(x)} \\
+& \texttt{fma(a, b, c)} & \texttt{fmaf(a, b, c)} \\
+& \texttt{fast\_div(a, b)} & \texttt{\_\_fdividef(a, b)} \\
+& \texttt{saturate(x)} & \texttt{\_\_saturatef(x)} \\
+& \texttt{fabs(x)} & \texttt{fabsf(x)} \\
+\midrule
+\multirow{4}{*}{Stencil 2D} & \texttt{pos.north(buf)} & \texttt{buf[(y-1)*width + x]} \\
+& \texttt{pos.south(buf)} & \texttt{buf[(y+1)*width + x]} \\
+& \texttt{pos.east(buf)} & \texttt{buf[y*width + (x+1)]} \\
+& \texttt{pos.west(buf)} & \texttt{buf[y*width + (x-1)]} \\
+\midrule
+\multirow{2}{*}{Stencil 3D} & \texttt{pos.up(buf)} & \texttt{buf[(z-1)*width*height + ...]} \\
+& \texttt{pos.down(buf)} & \texttt{buf[(z+1)*width*height + ...]} \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\section{Message Protocol Specification}
+\label{app:protocol}
+
+\subsection{H2K Message Types}
+
+\begin{lstlisting}[language=C, caption={H2K message type enumeration}]
+enum H2KMessageType {
+    H2K_RUN_STEPS     = 0x01,  // Run N simulation steps
+    H2K_TERMINATE     = 0x02,  // Graceful shutdown
+    H2K_INJECT        = 0x03,  // Inject impulse at position
+    H2K_GET_PROGRESS  = 0x04,  // Query current progress
+    H2K_CONFIGURE     = 0x05,  // Update configuration
+    H2K_CHECKPOINT    = 0x06,  // Create state checkpoint
+    H2K_RESTORE       = 0x07,  // Restore from checkpoint
+};
+\end{lstlisting}
+
+\subsection{K2H Message Types}
+
+\begin{lstlisting}[language=C, caption={K2H message type enumeration}]
+enum K2HMessageType {
+    K2H_ACK           = 0x81,  // Command acknowledged
+    K2H_PROGRESS      = 0x82,  // Progress report
+    K2H_ERROR         = 0x83,  // Error notification
+    K2H_TERMINATED    = 0x84,  // Shutdown complete
+    K2H_ENERGY        = 0x85,  // Energy/metric report
+    K2H_CHECKPOINT_OK = 0x86,  // Checkpoint created
+};
+\end{lstlisting}
+
+\section{Benchmark Reproduction}
+\label{app:benchmark}
+
+To reproduce the benchmarks in this paper:
+
+\begin{lstlisting}[language=bash, caption={Benchmark commands}]
+# Clone repository
+git clone https://github.com/mivertowski/RustCompute
+cd RustCompute
+
+# Build with CUDA support
+cargo build --release --features cuda
+
+# Run throughput benchmark
+cargo run -p ringkernel-wavesim3d \
+  --bin wavesim3d-benchmark \
+  --release --features cuda-codegen
+
+# Run interactive latency benchmark
+cargo run -p ringkernel-wavesim3d \
+  --bin interactive-benchmark \
+  --release --features cuda-codegen
+
+# Run transaction monitoring benchmark
+cargo run -p ringkernel-txmon \
+  --bin txmon-benchmark \
+  --release --features cuda-codegen
+\end{lstlisting}
+
+\section{Artifact Evaluation Checklist}
+\label{app:artifact}
+
+\begin{itemize}
+    \item[$\square$] Hardware: NVIDIA GPU with Compute Capability 6.0+
+    \item[$\square$] Software: CUDA 12.0+, Rust 1.70+, Linux or Windows
+    \item[$\square$] Repository cloned and builds without errors
+    \item[$\square$] All 900+ tests pass (\texttt{cargo test --workspace})
+    \item[$\square$] Benchmarks complete and produce results
+    \item[$\square$] Results are within 20\% of paper figures
+\end{itemize}

@@ -1,0 +1,95 @@
+% Section 8: Conclusion
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented RingKernel, a GPU-native persistent actor model that brings actor
+semantics to GPU computing. By treating GPU thread blocks as actors with lock-free
+message passing and Hybrid Logical Clocks for causal ordering, RingKernel enables
+a new class of interactive GPU applications.
+
+\subsection{Summary of Contributions}
+
+\begin{enumerate}
+    \item \textbf{GPU Actor Model Formalization}: We extended the actor model with
+    H2K, K2H, and K2K communication channels that map naturally to GPU memory
+    hierarchies, providing a formal foundation for GPU-native actors.
+
+    \item \textbf{ControlBlock Architecture}: We introduced a 128-byte GPU-resident
+    structure for actor lifecycle management, enabling supervision patterns
+    analogous to Erlang's ``let it crash'' philosophy.
+
+    \item \textbf{HLC on GPU}: We implemented Hybrid Logical Clocks for causal
+    ordering across thousands of concurrent GPU actors, a novel capability
+    enabling distributed systems semantics on parallel hardware.
+
+    \item \textbf{Rust-to-CUDA Transpilation}: We developed a transpiler that
+    converts high-level Rust actor definitions to efficient CUDA kernels,
+    lowering the barrier to GPU actor programming.
+
+    \item \textbf{Comprehensive Evaluation}: We demonstrated 11,327$\times$ lower
+    command latency and 2.7$\times$ higher mixed-workload throughput compared
+    to traditional GPU programming patterns.
+\end{enumerate}
+
+\subsection{Key Findings}
+
+Our evaluation reveals that the choice between persistent actors and traditional
+kernels depends on workload characteristics:
+
+\begin{itemize}
+    \item \textbf{Interactive workloads}: Persistent actors dominate due to
+    near-zero command latency (0.03$\mu$s vs 317$\mu$s)
+
+    \item \textbf{Batch computation}: Traditional kernels achieve higher throughput
+    for pure computation without host interaction
+
+    \item \textbf{Mixed workloads}: Persistent actors enable real-time applications
+    (60 FPS) that are infeasible with traditional launch-per-operation patterns
+\end{itemize}
+
+\subsection{Significance}
+
+RingKernel bridges two successful but previously separate paradigms:
+
+\begin{itemize}
+    \item The \textbf{actor model}---proven for building reliable concurrent systems
+    (Erlang, Akka, Orleans)
+
+    \item \textbf{GPU computing}---proven for massive parallelism and throughput
+    (CUDA, OpenCL)
+\end{itemize}
+
+By unifying these paradigms, RingKernel enables developers to apply familiar actor
+patterns to GPU hardware, unlocking new applications that require both massive
+parallelism and responsive interaction.
+
+\subsection{Availability}
+
+RingKernel is open-source software available at:
+
+\begin{center}
+\url{https://github.com/mivertowski/RustCompute}
+\end{center}
+
+The repository includes:
+\begin{itemize}
+    \item Full source code (Apache 2.0 / MIT dual license)
+    \item 900+ tests across the workspace
+    \item Example applications (FDTD simulation, transaction monitoring)
+    \item Documentation and tutorials
+\end{itemize}
+
+Published crates are available on crates.io under the \texttt{ringkernel-*} namespace.
+
+\subsection{Closing Remarks}
+
+Fifty years after Hewitt's original actor model paper, actors remain a powerful
+abstraction for concurrent computation. GPUs offer unprecedented parallel
+processing capability, yet have lacked the programming model support that makes
+actors compelling. RingKernel takes a step toward closing this gap, demonstrating
+that actor semantics and GPU execution can be unified productively.
+
+We hope RingKernel inspires further research into high-level programming models
+for heterogeneous computing, making GPU capabilities accessible to a broader
+audience of developers.

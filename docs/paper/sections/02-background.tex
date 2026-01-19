@@ -1,0 +1,147 @@
+% Section 2: Background
+
+\section{Background}
+\label{sec:background}
+
+This section provides background on the actor model and GPU programming,
+establishing the concepts that RingKernel unifies.
+
+\subsection{The Actor Model}
+
+The actor model~\cite{hewitt1973actors} is a mathematical model of concurrent computation.
+An \emph{actor} is an autonomous computational agent with three capabilities:
+
+\begin{enumerate}
+    \item \textbf{Send messages} to actors whose addresses (``acquaintances'') it knows
+    \item \textbf{Create new actors} with specified behavior
+    \item \textbf{Designate behavior} for handling the next message received
+\end{enumerate}
+
+Critically, actors \emph{cannot} share state---they interact only through asynchronous
+message passing. This restriction eliminates data races by construction, making reasoning
+about concurrent systems tractable.
+
+\subsubsection{Actor Semantics}
+
+Actors process messages from a \emph{mailbox} (message queue) one at a time. Message
+delivery is guaranteed but \emph{unordered}---if actor $A$ sends messages $m_1$ and $m_2$
+to actor $B$, they may arrive in any order. However, within a single actor, message
+processing is sequential.
+
+The operational semantics can be expressed as a transition relation:
+\begin{equation}
+    \langle \mathcal{A}, \mathcal{M} \rangle \rightarrow \langle \mathcal{A}', \mathcal{M}' \rangle
+\end{equation}
+where $\mathcal{A}$ is the set of actors, $\mathcal{M}$ is the multiset of in-flight
+messages, and the transition represents processing one message.
+
+\subsubsection{Supervision and Fault Tolerance}
+
+Erlang introduced the concept of \emph{supervision}~\cite{armstrong2003erlang}: actors
+are organized into hierarchies where parent actors monitor children. When a child fails,
+the supervisor can restart it, escalate the failure, or take other recovery actions.
+This ``let it crash'' philosophy enables building fault-tolerant systems.
+
+\subsubsection{Causal Ordering}
+
+In distributed actor systems, establishing message ordering is essential for consistency.
+\emph{Lamport timestamps}~\cite{lamport1978clocks} provide partial ordering based on
+causality: if event $a$ ``happens before'' event $b$ (written $a \rightarrow b$), then
+$C(a) < C(b)$ where $C$ is the clock function.
+
+\emph{Hybrid Logical Clocks} (HLC)~\cite{kulkarni2014hlc} combine physical time with
+logical counters:
+\begin{equation}
+    \text{HLC} = \langle \text{physical\_time}, \text{logical\_counter}, \text{node\_id} \rangle
+\end{equation}
+HLC provides the causal ordering guarantees of Lamport clocks while maintaining
+proximity to wall-clock time.
+
+\subsection{GPU Architecture and Programming}
+
+Modern GPUs contain thousands of cores organized hierarchically. We focus on NVIDIA
+CUDA architecture, though the concepts generalize.
+
+\subsubsection{Execution Model}
+
+CUDA organizes computation into a hierarchy:
+\begin{itemize}
+    \item \textbf{Thread}: Smallest execution unit, has private registers
+    \item \textbf{Warp}: 32 threads executing in SIMT lockstep
+    \item \textbf{Block}: Collection of warps sharing fast ``shared memory''
+    \item \textbf{Grid}: Collection of blocks executing the same kernel
+\end{itemize}
+
+\subsubsection{Memory Hierarchy}
+
+GPU memory is organized by access speed and scope:
+\begin{itemize}
+    \item \textbf{Registers}: Per-thread, fastest (1 cycle latency)
+    \item \textbf{Shared Memory}: Per-block, fast (5-10 cycles)
+    \item \textbf{L1/L2 Cache}: Automatic caching of global memory
+    \item \textbf{Global Memory}: Device-wide, slow (200-400 cycles)
+    \item \textbf{Mapped Memory}: Host-visible, accessible from both CPU and GPU
+\end{itemize}
+
+Mapped memory is crucial for persistent kernels---it enables the host to communicate
+with a running kernel without explicit memory copies.
+
+\subsubsection{Synchronization Primitives}
+
+CUDA provides several synchronization mechanisms:
+\begin{itemize}
+    \item \texttt{\_\_syncthreads()}: Block-level barrier
+    \item \texttt{atomicAdd/CAS}: Atomic operations on global memory
+    \item \textbf{Cooperative Groups} (CC 6.0+): Grid-level synchronization via
+    \texttt{grid.sync()}
+\end{itemize}
+
+Cooperative groups enable persistent kernels to synchronize across all blocks, essential
+for iterative algorithms like stencil computations.
+
+\subsubsection{Traditional Kernel Launch Model}
+
+The conventional CUDA programming pattern treats kernels as \emph{batch operations}:
+
+\begin{lstlisting}[language=CUDA, caption={Traditional kernel launch pattern}]
+// Host code
+float *d_input, *d_output;
+cudaMalloc(&d_input, size);
+cudaMalloc(&d_output, size);
+cudaMemcpy(d_input, h_input, size, H2D);
+
+process_kernel<<<grid, block>>>(d_input, d_output);
+cudaDeviceSynchronize();  // Block until complete
+
+cudaMemcpy(h_output, d_output, size, D2H);
+cudaFree(d_input);
+cudaFree(d_output);
+\end{lstlisting}
+
+Each kernel launch involves driver API calls, command buffer submission, and
+synchronization overhead---typically 10-500$\mu$s depending on GPU and driver.
+
+\subsection{Mapping Actors to GPUs}
+
+Table~\ref{tab:actor-gpu-mapping} shows how actor model concepts map to GPU primitives:
+
+\begin{table}[h]
+\centering
+\caption{Mapping between Actor Model and GPU concepts}
+\label{tab:actor-gpu-mapping}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Actor Concept} & \textbf{GPU Equivalent} \\
+\midrule
+Actor & Persistent thread block \\
+Private state & Shared memory + registers \\
+Mailbox & Lock-free ring buffer in global memory \\
+Message send & Atomic enqueue operation \\
+Message receive & Atomic dequeue operation \\
+Actor creation & Dynamic parallelism (limited) \\
+Supervision & Host thread monitoring ControlBlock \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This mapping forms the foundation of RingKernel's design.

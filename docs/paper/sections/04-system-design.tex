@@ -1,0 +1,310 @@
+% Section 4: System Design
+
+\section{System Design}
+\label{sec:design}
+
+This section presents RingKernel's architecture, formalizing how actor model concepts
+map to GPU execution.
+
+\subsection{Design Goals}
+
+RingKernel targets the following design goals:
+
+\begin{enumerate}
+    \item \textbf{Actor Semantics}: Provide message passing, private state, and
+    lifecycle management matching traditional actor systems.
+
+    \item \textbf{GPU Efficiency}: Minimize host-device communication and maximize
+    GPU occupancy through persistent execution.
+
+    \item \textbf{Causal Ordering}: Enable distributed systems reasoning with
+    Hybrid Logical Clocks across GPU actors.
+
+    \item \textbf{Zero-Copy Communication}: Use memory-mapped buffers to avoid
+    explicit data transfers for control messages.
+
+    \item \textbf{Ergonomic API}: Provide a Rust DSL that compiles to efficient
+    CUDA while hiding low-level details.
+\end{enumerate}
+
+\subsection{System Architecture}
+
+Figure~\ref{fig:architecture} shows RingKernel's high-level architecture.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+    node distance=0.8cm,
+    box/.style={rectangle, draw, minimum width=2.5cm, minimum height=0.8cm, align=center},
+    smallbox/.style={rectangle, draw, minimum width=1.8cm, minimum height=0.6cm, align=center, font=\small},
+    arrow/.style={->, thick}
+]
+    % Host side
+    \node[box, fill=blue!20] (host) {Host Runtime};
+    \node[smallbox, below=0.3cm of host, fill=blue!10] (h2k) {H2K Queue};
+    \node[smallbox, right=0.3cm of h2k, fill=blue!10] (k2h) {K2H Queue};
+
+    % Mapped memory region
+    \node[box, below=1.2cm of host, fill=yellow!20, minimum width=5.5cm] (mapped) {Mapped Memory};
+
+    % Device side
+    \node[box, below=0.5cm of mapped, fill=green!20] (ctrl) {ControlBlock};
+    \node[smallbox, below=0.3cm of ctrl, xshift=-1.2cm, fill=green!10] (actor1) {Actor 0};
+    \node[smallbox, below=0.3cm of ctrl, fill=green!10] (actor2) {Actor 1};
+    \node[smallbox, below=0.3cm of ctrl, xshift=1.2cm, fill=green!10] (actor3) {Actor N};
+
+    % K2K messaging
+    \node[box, below=0.8cm of actor2, fill=orange!20, minimum width=4cm] (k2k) {K2K Message Router};
+
+    % Arrows
+    \draw[arrow] (host) -- (h2k);
+    \draw[arrow] (k2h) -- (host);
+    \draw[arrow, <->] (h2k) -- (mapped);
+    \draw[arrow, <->] (k2h) -- (mapped);
+    \draw[arrow, <->] (mapped) -- (ctrl);
+    \draw[arrow] (ctrl) -- (actor1);
+    \draw[arrow] (ctrl) -- (actor2);
+    \draw[arrow] (ctrl) -- (actor3);
+    \draw[arrow, <->] (actor1) -- (k2k);
+    \draw[arrow, <->] (actor2) -- (k2k);
+    \draw[arrow, <->] (actor3) -- (k2k);
+
+    % Labels
+    \node[left=0.1cm of host, font=\footnotesize] {CPU};
+    \node[left=0.1cm of actor1, font=\footnotesize] {GPU};
+\end{tikzpicture}
+\caption{RingKernel architecture showing Host-to-Kernel (H2K), Kernel-to-Host (K2H),
+and Kernel-to-Kernel (K2K) communication through mapped memory.}
+\label{fig:architecture}
+\end{figure}
+
+\subsection{Actor Model Extension for GPU}
+
+We extend the traditional actor model with three distinct communication channels:
+
+\subsubsection{Host-to-Kernel (H2K) Channel}
+
+The H2K channel carries commands from the host application to GPU actors:
+\begin{itemize}
+    \item \texttt{RunSteps(n)}: Execute $n$ computation steps
+    \item \texttt{InjectImpulse(pos, value)}: Inject data at position
+    \item \texttt{Terminate}: Graceful shutdown request
+    \item \texttt{GetProgress}: Query current state
+\end{itemize}
+
+H2K is implemented as an SPSC (Single-Producer Single-Consumer) ring buffer in
+mapped memory. The host is the sole producer; thread block 0 on the GPU is the consumer.
+
+\subsubsection{Kernel-to-Host (K2H) Channel}
+
+The K2H channel carries responses from GPU actors to the host:
+\begin{itemize}
+    \item \texttt{Ack(cmd\_id)}: Command acknowledgment
+    \item \texttt{Progress(step, energy)}: Progress report
+    \item \texttt{Error(code, msg)}: Error notification
+    \item \texttt{Terminated}: Shutdown confirmation
+\end{itemize}
+
+K2H is also an SPSC ring buffer with the GPU as producer and host as consumer.
+
+\subsubsection{Kernel-to-Kernel (K2K) Channel}
+
+The K2K channel enables direct communication between GPU actors without host intervention.
+This is essential for algorithms requiring inter-block communication, such as:
+\begin{itemize}
+    \item Stencil halo exchange between spatial tiles
+    \item Scatter-gather operations in graph algorithms
+    \item Work stealing in dynamic load balancing
+\end{itemize}
+
+K2K uses device memory (not mapped) for minimal latency. A routing table maps
+actor IDs to buffer addresses.
+
+\subsection{GPU Actor Lifecycle}
+
+GPU actors follow a defined lifecycle managed through the ControlBlock:
+
+\begin{enumerate}
+    \item \textbf{Initializing}: Actor is being set up (shared memory, state)
+    \item \textbf{Active}: Actor is processing messages
+    \item \textbf{Draining}: Actor is completing pending work before shutdown
+    \item \textbf{Terminated}: Actor has stopped; resources can be reclaimed
+\end{enumerate}
+
+State transitions are atomic to prevent races:
+
+\begin{lstlisting}[language=CUDA, caption={Atomic lifecycle transition}]
+__device__ bool transition_to_active(ControlBlock* cb) {
+    uint32_t expected = STATE_INITIALIZING;
+    return atomicCAS(&cb->state, expected, STATE_ACTIVE)
+           == expected;
+}
+\end{lstlisting}
+
+\subsection{Message Envelope Format}
+
+All messages use a standardized 256-byte envelope format:
+
+\begin{lstlisting}[language=Rust, caption={Message envelope structure}]
+#[repr(C, align(64))]
+struct MessageHeader {
+    magic: u64,           // 0x52494E474B45524E ("RINGKERN")
+    version: u32,
+    message_type: u32,
+    payload_size: u32,
+    flags: u32,
+    source_kernel: u32,
+    dest_kernel: u32,
+    correlation_id: u64,
+    hlc_physical: u64,    // HLC timestamp
+    hlc_logical: u32,
+    hlc_node_id: u32,
+    checksum: u32,
+    _reserved: [u8; 180], // Pad to 256 bytes
+}
+\end{lstlisting}
+
+The 64-byte alignment ensures coalesced memory access. The magic number enables
+validation of message integrity.
+
+\subsection{Hybrid Logical Clocks on GPU}
+
+RingKernel implements HLC for causal ordering. Each actor maintains an HLC:
+
+\begin{lstlisting}[language=CUDA, caption={HLC operations on GPU}]
+struct HlcClock {
+    uint64_t physical;  // Wall clock (from host)
+    uint32_t logical;   // Logical counter
+    uint32_t node_id;   // Actor identifier
+};
+
+__device__ void hlc_send(HlcClock* clock, MessageHeader* msg) {
+    uint64_t now = get_system_time();  // From ControlBlock
+    if (now > clock->physical) {
+        clock->physical = now;
+        clock->logical = 0;
+    } else {
+        clock->logical++;
+    }
+    msg->hlc_physical = clock->physical;
+    msg->hlc_logical = clock->logical;
+    msg->hlc_node_id = clock->node_id;
+}
+
+__device__ void hlc_receive(HlcClock* clock, MessageHeader* msg) {
+    uint64_t now = get_system_time();
+    uint64_t msg_pt = msg->hlc_physical;
+    if (now > clock->physical && now > msg_pt) {
+        clock->physical = now;
+        clock->logical = 0;
+    } else if (clock->physical > now && clock->physical > msg_pt) {
+        clock->logical++;
+    } else if (msg_pt > now && msg_pt > clock->physical) {
+        clock->physical = msg_pt;
+        clock->logical = msg->hlc_logical + 1;
+    } else {  // msg_pt == clock->physical
+        clock->logical = max(clock->logical, msg->hlc_logical) + 1;
+    }
+}
+\end{lstlisting}
+
+This enables causal ordering across GPU actors: if actor $A$ sends message $m$ to
+actor $B$, and $B$ sends message $m'$ after receiving $m$, then $m \rightarrow m'$
+in the happens-before relation, reflected in HLC timestamps.
+
+\subsection{Lock-Free Ring Buffer}
+
+The message queues use lock-free SPSC ring buffers:
+
+\begin{lstlisting}[language=CUDA, caption={Lock-free ring buffer}]
+struct RingBuffer {
+    volatile uint32_t head;  // Producer writes here
+    volatile uint32_t tail;  // Consumer reads here
+    uint32_t capacity;       // Power of 2
+    uint32_t mask;           // capacity - 1
+    uint8_t* data;           // Message storage
+};
+
+__device__ bool enqueue(RingBuffer* rb, void* msg, uint32_t size) {
+    uint32_t head = rb->head;
+    uint32_t next = (head + 1) & rb->mask;
+    if (next == rb->tail) return false;  // Full
+
+    memcpy(&rb->data[head * MSG_SIZE], msg, size);
+    __threadfence();  // Ensure data visible before head update
+    rb->head = next;
+    return true;
+}
+
+__device__ bool dequeue(RingBuffer* rb, void* msg, uint32_t size) {
+    uint32_t tail = rb->tail;
+    if (tail == rb->head) return false;  // Empty
+
+    memcpy(msg, &rb->data[tail * MSG_SIZE], size);
+    __threadfence();  // Ensure read complete before tail update
+    rb->tail = (tail + 1) & rb->mask;
+    return true;
+}
+\end{lstlisting}
+
+The power-of-2 capacity enables fast modulo via bitwise AND. Memory fences ensure
+visibility across CPU-GPU boundary for mapped memory.
+
+\subsection{ControlBlock Structure}
+
+The 128-byte ControlBlock provides GPU-resident lifecycle management:
+
+\begin{lstlisting}[language=Rust, caption={ControlBlock structure}]
+#[repr(C, align(128))]
+struct ControlBlock {
+    // Lifecycle (8 bytes)
+    state: AtomicU32,           // Lifecycle state
+    flags: AtomicU32,           // Feature flags
+
+    // Timing (24 bytes)
+    heartbeat: AtomicU64,       // Last activity timestamp
+    system_time: AtomicU64,     // Host-updated wall clock
+    step_counter: AtomicU64,    // Computation steps completed
+
+    // Configuration (16 bytes)
+    kernel_id: u32,
+    block_count: u32,
+    queue_capacity: u32,
+    _pad1: u32,
+
+    // Statistics (32 bytes)
+    messages_processed: AtomicU64,
+    messages_sent: AtomicU64,
+    errors: AtomicU64,
+    _pad2: u64,
+
+    // Reserved (48 bytes)
+    _reserved: [u8; 48],
+}
+\end{lstlisting}
+
+The host periodically updates \texttt{system\_time} and reads \texttt{heartbeat}
+to detect stalled actors (watchdog pattern).
+
+\subsection{Supervision Model}
+
+RingKernel maps Erlang-style supervision to the host-GPU relationship:
+
+\begin{itemize}
+    \item \textbf{Host as Supervisor}: The host runtime monitors ControlBlock health,
+    can terminate and restart GPU actors.
+
+    \item \textbf{Actors as Children}: GPU thread blocks are supervised actors
+    that can fail independently.
+
+    \item \textbf{Recovery Strategies}:
+    \begin{itemize}
+        \item \texttt{Restart}: Relaunch kernel with fresh state
+        \item \texttt{Resume}: Update ControlBlock to resume execution
+        \item \texttt{Escalate}: Report failure to application
+    \end{itemize}
+\end{itemize}
+
+The watchdog detects stalls by comparing \texttt{heartbeat} against
+\texttt{system\_time}---if the difference exceeds a threshold, the actor is
+considered failed.

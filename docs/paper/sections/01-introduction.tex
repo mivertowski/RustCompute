@@ -1,0 +1,92 @@
+% Section 1: Introduction
+
+\section{Introduction}
+\label{sec:introduction}
+
+The actor model, proposed by Hewitt, Bishop, and Steiger in 1973~\cite{hewitt1973actors},
+provides a powerful abstraction for concurrent computation. An actor is a computational
+entity that, in response to a message, can: (1) send messages to other actors, (2) create
+new actors, and (3) modify its own private state. This model has proven remarkably
+successful for building fault-tolerant distributed systems, with implementations like
+Erlang~\cite{armstrong2003erlang}, Akka~\cite{akka2023}, and Microsoft
+Orleans~\cite{bykov2011orleans} powering critical infrastructure at companies like
+WhatsApp, Twitter, and Microsoft.
+
+However, the actor model has remained largely confined to CPU architectures. Modern GPUs
+offer massive parallelism---thousands of cores executing concurrently---yet GPU
+programming models like CUDA and OpenCL treat the GPU as a \emph{batch processor} rather
+than an \emph{interactive system}. The conventional pattern is to launch a kernel,
+wait for completion, and repeat. This ``launch-per-operation'' model incurs significant
+overhead for interactive workloads.
+
+\subsection{The Kernel Launch Problem}
+
+Traditional GPU programming follows a strict pattern:
+\begin{enumerate}
+    \item Allocate device memory
+    \item Copy input data from host to device
+    \item Launch kernel
+    \item Synchronize (wait for completion)
+    \item Copy results from device to host
+    \item Deallocate memory
+\end{enumerate}
+
+Each kernel launch involves driver overhead, PCIe transfers, and synchronization costs.
+For a single operation, this overhead is negligible compared to computation time.
+However, for \emph{interactive workloads}---where the host frequently sends commands
+to an ongoing GPU computation---the overhead dominates. Our measurements show kernel
+launch overhead of approximately 317$\mu$s on modern NVIDIA GPUs, making interactive
+command rates above 3,000 commands/second impractical.
+
+\subsection{Persistent Kernels: A Partial Solution}
+
+The persistent kernel pattern~\cite{gupta2012persistent,steinberger2014whippletree}
+addresses launch overhead by keeping a kernel running indefinitely. Instead of launching
+per operation, a single kernel runs continuously and polls for work. Research has shown
+speedups of up to 211$\times$ for workloads requiring many kernel invocations~\cite{wu2015persistent}.
+
+However, existing persistent kernel work focuses on \emph{performance optimization},
+not \emph{programming model}. The semantics remain imperative: the kernel is a loop
+that checks flags and processes data. There is no abstraction for actors, messages,
+supervision, or fault tolerance.
+
+\subsection{Our Contribution: GPU-Native Actors}
+
+We present \textbf{RingKernel}, a system that applies actor model semantics to GPU
+computing. Our key insight is that GPU threads (or thread blocks) can be viewed as
+actors: they have private state (registers, shared memory), communicate via messages
+(through lock-free queues), and run persistently.
+
+RingKernel makes the following contributions:
+
+\begin{enumerate}
+    \item \textbf{Formalization of GPU Actor Semantics} (\S\ref{sec:design}): We extend
+    the actor model with three communication channels---Host-to-Kernel (H2K),
+    Kernel-to-Host (K2H), and Kernel-to-Kernel (K2K)---that map naturally to GPU
+    memory hierarchies.
+
+    \item \textbf{ControlBlock Architecture} (\S\ref{sec:implementation}): We introduce
+    a 128-byte GPU-resident structure that manages actor lifecycle, including activation,
+    heartbeat, and graceful termination.
+
+    \item \textbf{Hybrid Logical Clocks on GPU} (\S\ref{sec:implementation}): We implement
+    HLC~\cite{kulkarni2014hlc} for causal ordering of messages across GPU actors,
+    enabling distributed systems semantics on massively parallel hardware.
+
+    \item \textbf{Rust-to-CUDA Transpilation} (\S\ref{sec:implementation}): We provide
+    a DSL and transpiler that generates persistent kernel CUDA code from high-level
+    Rust actor definitions, including automatic message envelope handling.
+
+    \item \textbf{Comprehensive Evaluation} (\S\ref{sec:evaluation}): We demonstrate
+    11,327$\times$ lower command latency and 2.7$\times$ higher mixed-workload
+    throughput compared to traditional GPU programming on NVIDIA RTX Ada.
+\end{enumerate}
+
+\subsection{Paper Organization}
+
+The remainder of this paper is organized as follows. Section~\ref{sec:background}
+provides background on the actor model and GPU programming. Section~\ref{sec:related}
+discusses related work. Section~\ref{sec:design} presents the RingKernel system design.
+Section~\ref{sec:implementation} details the implementation. Section~\ref{sec:evaluation}
+evaluates performance. Section~\ref{sec:discussion} discusses limitations and future
+work. Section~\ref{sec:conclusion} concludes.

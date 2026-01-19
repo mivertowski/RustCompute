@@ -1,0 +1,31 @@
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.synctex(busy)
+
+# PDF output (uncomment to track in git)
+# *.pdf
+
+# Latexmk
+*.latexmain
+
+# Editor backups
+*~
+*.bak
+*.swp
+
+# macOS
+.DS_Store
+
+# arxiv submission
+arxiv-submission/
+ringkernel-arxiv.tar.gz

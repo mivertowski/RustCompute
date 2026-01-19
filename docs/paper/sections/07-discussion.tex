@@ -1,0 +1,185 @@
+% Section 7: Discussion
+
+\section{Discussion}
+\label{sec:discussion}
+
+This section discusses limitations, design trade-offs, and future directions.
+
+\subsection{Limitations}
+
+\subsubsection{GPU Occupancy}
+
+Persistent kernels occupy GPU resources indefinitely. Unlike traditional kernels
+that release SMs after completion, RingKernel actors hold their thread blocks.
+This can impact:
+
+\begin{itemize}
+    \item \textbf{Multi-tenancy}: Other CUDA applications may see reduced performance
+    \item \textbf{Power consumption}: GPU remains active even when idle
+    \item \textbf{Resource limits}: Maximum concurrent actors bounded by SM count
+\end{itemize}
+
+Mitigation: RingKernel supports graceful termination and can yield resources during
+extended idle periods.
+
+\subsubsection{No Dynamic Actor Creation}
+
+Traditional actor systems allow creating actors dynamically. GPU architectures
+have limited support for dynamic parallelism, and CUDA dynamic parallelism has
+significant overhead.
+
+Current RingKernel requires pre-allocating actor resources at launch time. Future
+work could explore on-demand actor spawning using persistent thread pools.
+
+\subsubsection{Debugging Complexity}
+
+Persistent kernels are harder to debug than traditional kernels:
+\begin{itemize}
+    \item Cannot easily attach debugger mid-execution
+    \item Printf debugging requires careful synchronization
+    \item Stalls may hang the entire GPU
+\end{itemize}
+
+RingKernel mitigates this with the watchdog (detects stalls) and structured logging
+to K2H queue.
+
+\subsubsection{Portability}
+
+Full RingKernel functionality requires CUDA features:
+\begin{itemize}
+    \item Cooperative groups (Compute Capability 6.0+)
+    \item Mapped memory (all CUDA GPUs)
+    \item 64-bit atomics (CC 3.5+)
+\end{itemize}
+
+The WebGPU backend provides cross-platform support but with reduced functionality
+(no true persistent kernels, emulated via host dispatch loop).
+
+\subsection{Design Trade-offs}
+
+\subsubsection{Message Size vs Throughput}
+
+RingKernel uses 256-byte message envelopes for alignment and metadata. For
+small payloads, this represents significant overhead. Alternative designs:
+
+\begin{itemize}
+    \item \textbf{Variable-size messages}: Better space efficiency, worse coalescing
+    \item \textbf{Smaller headers}: Less metadata, harder debugging
+    \item \textbf{Batched messages}: Amortize header cost, increased latency
+\end{itemize}
+
+We chose fixed 256-byte envelopes for simplicity and predictable performance.
+
+\subsubsection{HLC vs Vector Clocks}
+
+We chose HLC over vector clocks because:
+\begin{itemize}
+    \item $O(1)$ space vs $O(n)$ for $n$ actors
+    \item Proximity to wall-clock time useful for debugging
+    \item Sufficient for causal ordering (not full causality tracking)
+\end{itemize}
+
+Applications requiring full causal history can layer vector clocks atop HLC.
+
+\subsubsection{SPSC vs MPMC Queues}
+
+H2K/K2H use SPSC (Single-Producer Single-Consumer) queues:
+\begin{itemize}
+    \item \textbf{Pros}: Simpler, faster, no contention
+    \item \textbf{Cons}: Single host thread must serialize commands
+\end{itemize}
+
+For most applications, the host is not a bottleneck. Multi-threaded hosts can
+use per-thread K2K channels or a dispatcher pattern.
+
+\subsection{Security Considerations}
+
+GPU actors introduce security considerations:
+
+\begin{itemize}
+    \item \textbf{Memory isolation}: Actors share global memory; malicious actors
+    could read/write other actors' data
+    \item \textbf{Denial of service}: An infinite-looping actor blocks its SM
+    \item \textbf{Side channels}: Shared cache may leak information between actors
+\end{itemize}
+
+RingKernel provides \texttt{KernelSandbox} for resource limits but cannot provide
+full isolation on current GPU hardware. Trusted actors only.
+
+\subsection{Future Work}
+
+\subsubsection{Multi-GPU Actors}
+
+Extending K2K messaging across GPUs using NVLink or GPUDirect RDMA would enable
+distributed GPU actor systems. Challenges include:
+\begin{itemize}
+    \item Higher latency (microseconds vs nanoseconds)
+    \item Failure detection across GPU boundaries
+    \item Consistent HLC synchronization
+\end{itemize}
+
+\subsubsection{Actor Migration}
+
+Live migration of actors between GPUs could enable:
+\begin{itemize}
+    \item Load balancing across heterogeneous GPUs
+    \item Fault recovery by migrating from failing hardware
+    \item Energy optimization by consolidating actors
+\end{itemize}
+
+RingKernel's \texttt{KernelMigrator} provides checkpoint/restore primitives;
+full migration requires serializing shared memory state.
+
+\subsubsection{Formal Verification}
+
+The lock-free queue and HLC implementations are subtle. Formal verification using
+tools like TLA+ or SPIN would increase confidence in correctness.
+
+\subsubsection{Alternative Hardware}
+
+Applying the GPU actor model to other accelerators:
+\begin{itemize}
+    \item \textbf{AMD ROCm}: Similar capabilities to CUDA
+    \item \textbf{Intel GPUs}: via SYCL or Level Zero
+    \item \textbf{TPUs}: Different programming model, may not fit
+    \item \textbf{FPGAs}: Could implement true hardware actors
+\end{itemize}
+
+\subsection{Lessons Learned}
+
+\subsubsection{Mapped Memory is Essential}
+
+Early RingKernel prototypes used explicit memory copies for H2K/K2H. Switching
+to mapped memory reduced command latency by 100$\times$.
+
+\subsubsection{Cooperative Groups Simplify Synchronization}
+
+Before cooperative groups, grid-wide synchronization required multi-kernel launches
+or software barriers. \texttt{grid.sync()} dramatically simplified persistent
+stencil implementation.
+
+\subsubsection{The 80/20 Rule Applies}
+
+80\% of RingKernel's value comes from 20\% of features:
+\begin{itemize}
+    \item Persistent kernel pattern
+    \item Lock-free H2K/K2H queues
+    \item ControlBlock lifecycle management
+\end{itemize}
+
+Advanced features (HLC, K2K, enterprise observability) are valuable but not
+essential for basic use.
+
+\subsection{Broader Impact}
+
+GPU-native actors could impact:
+
+\begin{itemize}
+    \item \textbf{Real-time graphics}: Game engines with physics actors on GPU
+    \item \textbf{Scientific simulation}: Interactive exploration of simulations
+    \item \textbf{Financial systems}: Low-latency risk calculations
+    \item \textbf{Robotics}: Sensor fusion and control on embedded GPUs
+\end{itemize}
+
+By providing actor semantics on GPU, RingKernel opens these domains to developers
+familiar with Erlang/Akka patterns.

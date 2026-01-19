@@ -1,0 +1,23 @@
+% Abstract
+% Target: 150-250 words summarizing the key contributions
+
+The actor model, introduced by Hewitt in 1973, has become foundational for building
+concurrent and distributed systems. However, existing implementations target CPU
+architectures, leaving GPU parallelism largely unexplored for actor-based computation.
+We present \textbf{RingKernel}, a GPU-native persistent actor model that treats GPU
+compute units as long-running actors with lock-free message passing and causal ordering.
+
+Our key contributions are: (1) a formal extension of the actor model for GPU execution
+with Host-to-Kernel (H2K), Kernel-to-Host (K2H), and Kernel-to-Kernel (K2K) messaging
+channels; (2) a 128-byte \texttt{ControlBlock} structure for GPU-resident actor lifecycle
+management; (3) integration of Hybrid Logical Clocks (HLC) for causal ordering across
+thousands of concurrent GPU actors; and (4) a Rust-to-CUDA transpiler that generates
+persistent kernel code from high-level actor definitions.
+
+We evaluate RingKernel on NVIDIA RTX Ada GPUs, demonstrating that persistent GPU actors
+achieve \textbf{11,327$\times$ lower latency} for interactive commands compared to
+traditional kernel launches (0.03$\mu$s vs 317$\mu$s). For mixed workloads combining
+computation with interactive commands, RingKernel achieves \textbf{2.7$\times$ higher
+throughput} than the traditional launch-per-operation model. Our system bridges the
+gap between high-level actor semantics and GPU hardware capabilities, enabling new
+classes of interactive GPU applications.
