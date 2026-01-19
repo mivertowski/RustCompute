@@ -117,6 +117,11 @@ pub mod prelude {
         DeliveryStatus, K2KBroker, K2KBuilder, K2KConfig, K2KEndpoint, K2KMessage,
         K2KMessageRegistration, K2KTypeRegistry,
     };
+    #[cfg(feature = "crypto")]
+    pub use crate::k2k::{
+        EncryptedK2KBuilder, EncryptedK2KEndpoint, EncryptedK2KMessage, K2KEncryptionAlgorithm,
+        K2KEncryptionConfig, K2KEncryptionStatsSnapshot, K2KEncryptor, K2KKeyMaterial,
+    };
     pub use crate::memory::*;
     pub use crate::message::{
         priority, CorrelationId, MessageEnvelope, MessageHeader, MessageId, Priority, RingMessage,
