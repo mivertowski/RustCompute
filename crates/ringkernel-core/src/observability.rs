@@ -2639,10 +2639,10 @@ impl OtlpExporter {
         let _ = write!(
             json,
             r#","status":{{"code":{}}}"#,
-            match span.status {
+            match &span.status {
                 SpanStatus::Unset => 0,
                 SpanStatus::Ok => 1,
-                SpanStatus::Error(_) => 2,
+                SpanStatus::Error { .. } => 2,
             }
         );
 
@@ -2657,9 +2657,9 @@ impl OtlpExporter {
                 first = false;
                 let _ = write!(
                     json,
-                    r#"{{"key":"{}","value":{{"stringValue":"{}"}}}}"#,
+                    r#"{{"key":"{}","value":{}}}"#,
                     escape_json_str(key),
-                    escape_json_str(value)
+                    attribute_value_to_json(value)
                 );
             }
             json.push(']');
@@ -2696,6 +2696,24 @@ fn escape_json_str(s: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r")
         .replace('\t', "\\t")
+}
+
+/// Convert AttributeValue to OTLP JSON format.
+#[cfg(feature = "alerting")]
+fn attribute_value_to_json(value: &AttributeValue) -> String {
+    match value {
+        AttributeValue::String(s) => format!(r#"{{"stringValue":"{}"}}"#, escape_json_str(s)),
+        AttributeValue::Int(i) => format!(r#"{{"intValue":"{}"}}"#, i),
+        AttributeValue::Float(f) => format!(r#"{{"doubleValue":{}}}"#, f),
+        AttributeValue::Bool(b) => format!(r#"{{"boolValue":{}}}"#, b),
+        AttributeValue::StringArray(arr) => {
+            let values: Vec<String> = arr
+                .iter()
+                .map(|s| format!(r#"{{"stringValue":"{}"}}"#, escape_json_str(s)))
+                .collect();
+            format!(r#"{{"arrayValue":{{"values":[{}]}}}}"#, values.join(","))
+        }
+    }
 }
 
 #[cfg(test)]

@@ -70,7 +70,12 @@ base64 = { version = "0.21", optional = true }
 governor = { version = "0.6", optional = true }
 
 # HTTP client for webhooks (optional)
-reqwest = { version = "0.11", features = ["json"], default-features = false, optional = true }
+reqwest = { version = "0.11", features = ["json", "blocking", "rustls-tls"], default-features = false, optional = true }
+
+# TLS support (optional)
+rustls = { version = "0.23", optional = true }
+rustls-pemfile = { version = "2.1", optional = true }
+webpki-roots = { version = "0.26", optional = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
@@ -87,6 +92,7 @@ crypto = ["aes-gcm", "chacha20poly1305", "argon2", "rand", "zeroize", "hkdf", "s
 auth = ["jsonwebtoken", "base64", "serde", "serde_json"]
 rate-limiting = ["governor"]
 alerting = ["reqwest"]
+tls = ["rustls", "rustls-pemfile", "webpki-roots"]
 
 # Combined enterprise feature
-enterprise = ["crypto", "auth", "rate-limiting", "alerting"]
+enterprise = ["crypto", "auth", "rate-limiting", "alerting", "tls"]

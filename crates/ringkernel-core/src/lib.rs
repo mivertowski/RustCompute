@@ -73,6 +73,10 @@ pub mod alerting;
 pub mod timeout;
 pub mod rate_limiting;
 
+/// TLS support (requires `tls` feature).
+#[cfg(feature = "tls")]
+pub mod tls;
+
 /// Private module for proc macro integration.
 /// Not part of the public API - exposed for macro-generated code only.
 #[doc(hidden)]
@@ -203,6 +207,11 @@ pub mod prelude {
         shared_rate_limiter, RateLimitAlgorithm, RateLimitConfig, RateLimitError, RateLimitGuard,
         RateLimitResult, RateLimiter, RateLimiterBuilder, RateLimiterExt, RateLimiterStatsSnapshot,
         SharedRateLimiter,
+    };
+    #[cfg(feature = "tls")]
+    pub use crate::tls::{
+        CertificateInfo, CertificateStore, ClientAuth, SniResolver, TlsAcceptor, TlsConfig,
+        TlsConfigBuilder, TlsConnector, TlsError, TlsResult, TlsSessionInfo, TlsVersion,
     };
 }
 
