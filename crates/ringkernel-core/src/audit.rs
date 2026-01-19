@@ -27,6 +27,7 @@
 use std::collections::VecDeque;
 use std::fmt;
 use std::io::Write;
+use std::net::UdpSocket;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -587,6 +588,568 @@ impl AuditSink for MemorySink {
 }
 
 // ============================================================================
+// SYSLOG SINK (RFC 5424)
+// ============================================================================
+
+/// Syslog facility codes (RFC 5424).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SyslogFacility {
+    /// Kernel messages.
+    Kern = 0,
+    /// User-level messages.
+    User = 1,
+    /// Security/authorization messages.
+    Auth = 4,
+    /// Security/authorization messages (private).
+    AuthPriv = 10,
+    /// Local use 0.
+    Local0 = 16,
+    /// Local use 1.
+    Local1 = 17,
+    /// Local use 2.
+    Local2 = 18,
+    /// Local use 3.
+    Local3 = 19,
+    /// Local use 4.
+    Local4 = 20,
+    /// Local use 5.
+    Local5 = 21,
+    /// Local use 6.
+    Local6 = 22,
+    /// Local use 7.
+    Local7 = 23,
+}
+
+/// Syslog severity codes (RFC 5424).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SyslogSeverity {
+    /// System is unusable.
+    Emergency = 0,
+    /// Action must be taken immediately.
+    Alert = 1,
+    /// Critical conditions.
+    Critical = 2,
+    /// Error conditions.
+    Error = 3,
+    /// Warning conditions.
+    Warning = 4,
+    /// Normal but significant condition.
+    Notice = 5,
+    /// Informational messages.
+    Informational = 6,
+    /// Debug-level messages.
+    Debug = 7,
+}
+
+impl From<AuditLevel> for SyslogSeverity {
+    fn from(level: AuditLevel) -> Self {
+        match level {
+            AuditLevel::Info => SyslogSeverity::Informational,
+            AuditLevel::Warning => SyslogSeverity::Warning,
+            AuditLevel::Security => SyslogSeverity::Notice,
+            AuditLevel::Critical => SyslogSeverity::Error,
+            AuditLevel::Compliance => SyslogSeverity::Notice,
+        }
+    }
+}
+
+/// Configuration for syslog sink.
+#[derive(Debug, Clone)]
+pub struct SyslogConfig {
+    /// Syslog server address (e.g., "127.0.0.1:514").
+    pub server_addr: String,
+    /// Facility code.
+    pub facility: SyslogFacility,
+    /// Application name (APP-NAME in RFC 5424).
+    pub app_name: String,
+    /// Process ID (PROCID in RFC 5424).
+    pub procid: Option<String>,
+    /// Message ID (MSGID in RFC 5424).
+    pub msgid: Option<String>,
+    /// Use RFC 5424 format (true) or BSD format (false).
+    pub rfc5424: bool,
+}
+
+impl Default for SyslogConfig {
+    fn default() -> Self {
+        Self {
+            server_addr: "127.0.0.1:514".to_string(),
+            facility: SyslogFacility::Local0,
+            app_name: "ringkernel".to_string(),
+            procid: None,
+            msgid: None,
+            rfc5424: true,
+        }
+    }
+}
+
+/// RFC 5424 syslog sink for remote audit log forwarding.
+pub struct SyslogSink {
+    config: SyslogConfig,
+    socket: Mutex<Option<UdpSocket>>,
+    hostname: String,
+}
+
+impl SyslogSink {
+    /// Create a new syslog sink with the given configuration.
+    pub fn new(config: SyslogConfig) -> std::io::Result<Self> {
+        let socket = UdpSocket::bind("0.0.0.0:0")?;
+        socket.connect(&config.server_addr)?;
+
+        // Get hostname
+        let hostname = std::env::var("HOSTNAME")
+            .or_else(|_| std::env::var("HOST"))
+            .unwrap_or_else(|_| "localhost".to_string());
+
+        Ok(Self {
+            config,
+            socket: Mutex::new(Some(socket)),
+            hostname,
+        })
+    }
+
+    /// Create a syslog sink with default configuration.
+    pub fn with_server(server_addr: impl Into<String>) -> std::io::Result<Self> {
+        Self::new(SyslogConfig {
+            server_addr: server_addr.into(),
+            ..Default::default()
+        })
+    }
+
+    /// Format an audit event as RFC 5424 syslog message.
+    fn format_rfc5424(&self, event: &AuditEvent) -> String {
+        let severity: SyslogSeverity = event.level.into();
+        let priority = (self.config.facility as u8) * 8 + (severity as u8);
+
+        // RFC 5424 timestamp format
+        let timestamp = event
+            .timestamp
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        let secs = timestamp.as_secs();
+        let millis = timestamp.subsec_millis();
+
+        // Simple ISO 8601 format (we don't have chrono, so approximate)
+        let epoch_days = secs / 86400;
+        let day_secs = secs % 86400;
+        let hours = day_secs / 3600;
+        let minutes = (day_secs % 3600) / 60;
+        let seconds = day_secs % 60;
+
+        // Approximate date calculation (not accounting for leap years perfectly)
+        let year = 1970 + (epoch_days / 365);
+        let day_of_year = epoch_days % 365;
+        let month = (day_of_year / 30).min(11) + 1;
+        let day = (day_of_year % 30) + 1;
+
+        let timestamp_str = format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+            year, month, day, hours, minutes, seconds, millis
+        );
+
+        let procid = self.config.procid.as_deref().unwrap_or("-");
+        let msgid = self.config.msgid.as_deref().unwrap_or("-");
+
+        // Structured data (SD-ELEMENT)
+        let sd = format!(
+            "[ringkernel@12345 level=\"{}\" event_type=\"{}\" actor=\"{}\" checksum=\"{}\"]",
+            event.level.as_str(),
+            event.event_type.as_str(),
+            event.actor,
+            event.checksum
+        );
+
+        format!(
+            "<{}>{} {} {} {} {} {} {} {}",
+            priority,
+            1, // version
+            timestamp_str,
+            self.hostname,
+            self.config.app_name,
+            procid,
+            msgid,
+            sd,
+            event.description
+        )
+    }
+
+    /// Format an audit event as BSD syslog message.
+    fn format_bsd(&self, event: &AuditEvent) -> String {
+        let severity: SyslogSeverity = event.level.into();
+        let priority = (self.config.facility as u8) * 8 + (severity as u8);
+
+        let timestamp = event
+            .timestamp
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        let secs = timestamp.as_secs();
+
+        // BSD syslog timestamp format (Mmm dd hh:mm:ss)
+        let months = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
+        let epoch_days = secs / 86400;
+        let day_secs = secs % 86400;
+        let hours = day_secs / 3600;
+        let minutes = (day_secs % 3600) / 60;
+        let seconds = day_secs % 60;
+
+        let day_of_year = epoch_days % 365;
+        let month_idx = ((day_of_year / 30) as usize).min(11);
+        let day = (day_of_year % 30) + 1;
+
+        let timestamp_str = format!(
+            "{} {:2} {:02}:{:02}:{:02}",
+            months[month_idx], day, hours, minutes, seconds
+        );
+
+        format!(
+            "<{}>{} {} {}: [{}] {}",
+            priority,
+            timestamp_str,
+            self.hostname,
+            self.config.app_name,
+            event.event_type.as_str(),
+            event.description
+        )
+    }
+}
+
+impl AuditSink for SyslogSink {
+    fn write(&self, event: &AuditEvent) -> std::io::Result<()> {
+        let message = if self.config.rfc5424 {
+            self.format_rfc5424(event)
+        } else {
+            self.format_bsd(event)
+        };
+
+        let socket = self.socket.lock();
+        if let Some(ref sock) = *socket {
+            sock.send(message.as_bytes())?;
+        }
+        Ok(())
+    }
+
+    fn flush(&self) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn close(&self) -> std::io::Result<()> {
+        let mut socket = self.socket.lock();
+        *socket = None;
+        Ok(())
+    }
+}
+
+// ============================================================================
+// ELASTICSEARCH SINK (requires alerting feature for reqwest)
+// ============================================================================
+
+/// Configuration for Elasticsearch audit sink.
+#[cfg(feature = "alerting")]
+#[derive(Debug, Clone)]
+pub struct ElasticsearchConfig {
+    /// Elasticsearch URL (e.g., "http://localhost:9200").
+    pub url: String,
+    /// Index name or pattern (e.g., "ringkernel-audit-{date}").
+    pub index_pattern: String,
+    /// Optional authentication (Basic auth).
+    pub auth: Option<(String, String)>,
+    /// Batch size before flushing.
+    pub batch_size: usize,
+    /// Request timeout.
+    pub timeout: Duration,
+}
+
+#[cfg(feature = "alerting")]
+impl Default for ElasticsearchConfig {
+    fn default() -> Self {
+        Self {
+            url: "http://localhost:9200".to_string(),
+            index_pattern: "ringkernel-audit".to_string(),
+            auth: None,
+            batch_size: 100,
+            timeout: Duration::from_secs(30),
+        }
+    }
+}
+
+/// Elasticsearch sink for direct indexing of audit events.
+#[cfg(feature = "alerting")]
+pub struct ElasticsearchSink {
+    config: ElasticsearchConfig,
+    client: reqwest::blocking::Client,
+    buffer: Mutex<Vec<String>>,
+}
+
+#[cfg(feature = "alerting")]
+impl ElasticsearchSink {
+    /// Create a new Elasticsearch sink.
+    pub fn new(config: ElasticsearchConfig) -> Result<Self, reqwest::Error> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(config.timeout)
+            .build()?;
+
+        Ok(Self {
+            config,
+            client,
+            buffer: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// Get the index name for an event.
+    fn get_index(&self, event: &AuditEvent) -> String {
+        let timestamp = event
+            .timestamp
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        let secs = timestamp.as_secs();
+
+        // Calculate date components
+        let epoch_days = secs / 86400;
+        let year = 1970 + (epoch_days / 365);
+        let day_of_year = epoch_days % 365;
+        let month = (day_of_year / 30).min(11) + 1;
+        let day = (day_of_year % 30) + 1;
+
+        let date_str = format!("{:04}.{:02}.{:02}", year, month, day);
+
+        self.config
+            .index_pattern
+            .replace("{date}", &date_str)
+            .replace("{year}", &format!("{:04}", year))
+            .replace("{month}", &format!("{:02}", month))
+            .replace("{day}", &format!("{:02}", day))
+    }
+
+    /// Convert an audit event to Elasticsearch document JSON.
+    fn to_es_document(&self, event: &AuditEvent) -> String {
+        let timestamp_millis = event
+            .timestamp
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+
+        // Build metadata as nested JSON
+        let metadata_json = if event.metadata.is_empty() {
+            "{}".to_string()
+        } else {
+            let pairs: Vec<String> = event
+                .metadata
+                .iter()
+                .map(|(k, v)| format!(r#""{}":"{}""#, escape_json(k), escape_json(v)))
+                .collect();
+            format!("{{{}}}", pairs.join(","))
+        };
+
+        let hlc_json = event
+            .hlc
+            .map(|h| format!(r#","hlc":{{"physical":{},"logical":{}}}"#, h.physical, h.logical))
+            .unwrap_or_default();
+
+        let target_json = event
+            .target
+            .as_ref()
+            .map(|t| format!(r#","target":"{}""#, escape_json(t)))
+            .unwrap_or_default();
+
+        format!(
+            r#"{{"@timestamp":{},"id":{},"level":"{}","event_type":"{}","actor":"{}"{}{}"description":"{}","metadata":{},"checksum":{}}}"#,
+            timestamp_millis,
+            event.id,
+            event.level.as_str(),
+            event.event_type.as_str(),
+            escape_json(&event.actor),
+            target_json,
+            hlc_json,
+            escape_json(&event.description),
+            metadata_json,
+            event.checksum
+        )
+    }
+
+    /// Flush the buffer to Elasticsearch using bulk API.
+    fn flush_buffer(&self) -> std::io::Result<()> {
+        let documents: Vec<String> = {
+            let mut buffer = self.buffer.lock();
+            std::mem::take(&mut *buffer)
+        };
+
+        if documents.is_empty() {
+            return Ok(());
+        }
+
+        // Build bulk request body
+        let mut bulk_body = String::new();
+        for doc in documents {
+            // Action line
+            bulk_body.push_str(&format!(
+                r#"{{"index":{{"_index":"{}"}}}}"#,
+                self.config.index_pattern.replace("{date}", "current")
+            ));
+            bulk_body.push('\n');
+            // Document line
+            bulk_body.push_str(&doc);
+            bulk_body.push('\n');
+        }
+
+        let url = format!("{}/_bulk", self.config.url);
+        let mut request = self.client.post(&url).body(bulk_body).header(
+            reqwest::header::CONTENT_TYPE,
+            "application/x-ndjson",
+        );
+
+        if let Some((user, pass)) = &self.config.auth {
+            request = request.basic_auth(user, Some(pass));
+        }
+
+        request.send().map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("ES request failed: {}", e))
+        })?;
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "alerting")]
+impl AuditSink for ElasticsearchSink {
+    fn write(&self, event: &AuditEvent) -> std::io::Result<()> {
+        let doc = self.to_es_document(event);
+
+        let should_flush = {
+            let mut buffer = self.buffer.lock();
+            buffer.push(doc);
+            buffer.len() >= self.config.batch_size
+        };
+
+        if should_flush {
+            self.flush_buffer()?;
+        }
+
+        Ok(())
+    }
+
+    fn flush(&self) -> std::io::Result<()> {
+        self.flush_buffer()
+    }
+
+    fn close(&self) -> std::io::Result<()> {
+        self.flush_buffer()
+    }
+}
+
+// ============================================================================
+// CLOUDWATCH LOGS SINK (stub - requires aws-sdk-cloudwatchlogs)
+// ============================================================================
+
+/// Configuration for CloudWatch Logs sink.
+#[derive(Debug, Clone)]
+pub struct CloudWatchConfig {
+    /// Log group name.
+    pub log_group: String,
+    /// Log stream name.
+    pub log_stream: String,
+    /// AWS region.
+    pub region: String,
+    /// Batch size before flushing.
+    pub batch_size: usize,
+}
+
+impl Default for CloudWatchConfig {
+    fn default() -> Self {
+        Self {
+            log_group: "/ringkernel/audit".to_string(),
+            log_stream: "default".to_string(),
+            region: "us-east-1".to_string(),
+            batch_size: 100,
+        }
+    }
+}
+
+/// CloudWatch Logs sink for AWS-native audit logging.
+///
+/// Note: This is a stub implementation. For production use, enable the
+/// `cloudwatch` feature and use the AWS SDK for CloudWatch Logs.
+pub struct CloudWatchSink {
+    config: CloudWatchConfig,
+    buffer: Mutex<Vec<(u64, String)>>, // (timestamp_ms, message)
+    sequence_token: Mutex<Option<String>>,
+}
+
+impl CloudWatchSink {
+    /// Create a new CloudWatch Logs sink.
+    pub fn new(config: CloudWatchConfig) -> Self {
+        Self {
+            config,
+            buffer: Mutex::new(Vec::new()),
+            sequence_token: Mutex::new(None),
+        }
+    }
+
+    /// Get the configuration.
+    pub fn config(&self) -> &CloudWatchConfig {
+        &self.config
+    }
+
+    /// Get the current buffer size.
+    pub fn buffer_size(&self) -> usize {
+        self.buffer.lock().len()
+    }
+}
+
+impl AuditSink for CloudWatchSink {
+    fn write(&self, event: &AuditEvent) -> std::io::Result<()> {
+        let timestamp_ms = event
+            .timestamp
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let message = event.to_json();
+
+        let should_flush = {
+            let mut buffer = self.buffer.lock();
+            buffer.push((timestamp_ms, message));
+            buffer.len() >= self.config.batch_size
+        };
+
+        if should_flush {
+            self.flush()?;
+        }
+
+        Ok(())
+    }
+
+    fn flush(&self) -> std::io::Result<()> {
+        let events: Vec<(u64, String)> = {
+            let mut buffer = self.buffer.lock();
+            std::mem::take(&mut *buffer)
+        };
+
+        if events.is_empty() {
+            return Ok(());
+        }
+
+        // Note: In a real implementation, this would use aws-sdk-cloudwatchlogs
+        // to call PutLogEvents. For now, we log to stderr as a fallback.
+        eprintln!(
+            "[CloudWatch stub] Would send {} events to {}/{}",
+            events.len(),
+            self.config.log_group,
+            self.config.log_stream
+        );
+
+        Ok(())
+    }
+
+    fn close(&self) -> std::io::Result<()> {
+        self.flush()
+    }
+}
+
+// ============================================================================
 // AUDIT LOGGER
 // ============================================================================
 
@@ -656,6 +1219,38 @@ impl AuditLoggerBuilder {
     pub fn with_sink(mut self, sink: Arc<dyn AuditSink>) -> Self {
         self.sinks.push(sink);
         self
+    }
+
+    /// Add a syslog sink.
+    pub fn with_syslog_sink(mut self, config: SyslogConfig) -> std::io::Result<Self> {
+        let sink = Arc::new(SyslogSink::new(config)?);
+        self.sinks.push(sink);
+        Ok(self)
+    }
+
+    /// Add a syslog sink with just a server address.
+    pub fn with_syslog(mut self, server_addr: impl Into<String>) -> std::io::Result<Self> {
+        let sink = Arc::new(SyslogSink::with_server(server_addr)?);
+        self.sinks.push(sink);
+        Ok(self)
+    }
+
+    /// Add a CloudWatch Logs sink.
+    pub fn with_cloudwatch_sink(mut self, config: CloudWatchConfig) -> Self {
+        let sink = Arc::new(CloudWatchSink::new(config));
+        self.sinks.push(sink);
+        self
+    }
+
+    /// Add an Elasticsearch sink (requires `alerting` feature).
+    #[cfg(feature = "alerting")]
+    pub fn with_elasticsearch_sink(
+        mut self,
+        config: ElasticsearchConfig,
+    ) -> Result<Self, reqwest::Error> {
+        let sink = Arc::new(ElasticsearchSink::new(config)?);
+        self.sinks.push(sink);
+        Ok(self)
     }
 
     /// Set the retention period.
@@ -934,5 +1529,86 @@ mod tests {
 
         let health = AuditEvent::health_check("kernel_1", "healthy");
         assert_eq!(health.event_type, AuditEventType::HealthCheck);
+    }
+
+    #[test]
+    fn test_syslog_severity_conversion() {
+        assert_eq!(
+            SyslogSeverity::from(AuditLevel::Info),
+            SyslogSeverity::Informational
+        );
+        assert_eq!(
+            SyslogSeverity::from(AuditLevel::Warning),
+            SyslogSeverity::Warning
+        );
+        assert_eq!(
+            SyslogSeverity::from(AuditLevel::Security),
+            SyslogSeverity::Notice
+        );
+        assert_eq!(
+            SyslogSeverity::from(AuditLevel::Critical),
+            SyslogSeverity::Error
+        );
+    }
+
+    #[test]
+    fn test_syslog_config_default() {
+        let config = SyslogConfig::default();
+        assert_eq!(config.server_addr, "127.0.0.1:514");
+        assert_eq!(config.facility, SyslogFacility::Local0);
+        assert_eq!(config.app_name, "ringkernel");
+        assert!(config.rfc5424);
+    }
+
+    #[test]
+    fn test_cloudwatch_config_default() {
+        let config = CloudWatchConfig::default();
+        assert_eq!(config.log_group, "/ringkernel/audit");
+        assert_eq!(config.log_stream, "default");
+        assert_eq!(config.region, "us-east-1");
+        assert_eq!(config.batch_size, 100);
+    }
+
+    #[test]
+    fn test_cloudwatch_sink_buffering() {
+        let config = CloudWatchConfig {
+            batch_size: 5,
+            ..Default::default()
+        };
+        let sink = CloudWatchSink::new(config);
+
+        // Write 3 events (below batch size)
+        for i in 0..3 {
+            let event = AuditEvent::new(
+                AuditLevel::Info,
+                AuditEventType::Custom(format!("event_{}", i)),
+                "test",
+                format!("Event {}", i),
+            );
+            sink.write(&event).unwrap();
+        }
+
+        assert_eq!(sink.buffer_size(), 3);
+    }
+
+    #[test]
+    fn test_syslog_facility_values() {
+        assert_eq!(SyslogFacility::Kern as u8, 0);
+        assert_eq!(SyslogFacility::User as u8, 1);
+        assert_eq!(SyslogFacility::Auth as u8, 4);
+        assert_eq!(SyslogFacility::Local0 as u8, 16);
+        assert_eq!(SyslogFacility::Local7 as u8, 23);
+    }
+
+    #[test]
+    fn test_syslog_severity_values() {
+        assert_eq!(SyslogSeverity::Emergency as u8, 0);
+        assert_eq!(SyslogSeverity::Alert as u8, 1);
+        assert_eq!(SyslogSeverity::Critical as u8, 2);
+        assert_eq!(SyslogSeverity::Error as u8, 3);
+        assert_eq!(SyslogSeverity::Warning as u8, 4);
+        assert_eq!(SyslogSeverity::Notice as u8, 5);
+        assert_eq!(SyslogSeverity::Informational as u8, 6);
+        assert_eq!(SyslogSeverity::Debug as u8, 7);
     }
 }

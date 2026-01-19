@@ -71,6 +71,7 @@ pub mod rbac;
 pub mod tenancy;
 pub mod alerting;
 pub mod timeout;
+pub mod rate_limiting;
 
 /// Private module for proc macro integration.
 /// Not part of the public API - exposed for macro-generated code only.
@@ -84,8 +85,11 @@ pub mod prelude {
     };
     pub use crate::audit::{
         AuditConfig, AuditEvent, AuditEventType, AuditLevel, AuditLogger, AuditLoggerBuilder,
-        AuditSink, FileSink, MemorySink,
+        AuditSink, CloudWatchConfig, CloudWatchSink, FileSink, MemorySink, SyslogConfig,
+        SyslogFacility, SyslogSeverity, SyslogSink,
     };
+    #[cfg(feature = "alerting")]
+    pub use crate::audit::{ElasticsearchConfig, ElasticsearchSink};
     pub use crate::config::{
         CheckpointStorageType, CloudStorageConfig, ConfigBuilder, Environment, GeneralConfig,
         GeneralConfigBuilder, HealthConfig, HealthConfigBuilder, LogLevel, MigrationConfig,
@@ -126,8 +130,9 @@ pub mod prelude {
     pub use crate::observability::{
         GpuDeviceMemoryStats, GpuMemoryAllocation, GpuMemoryDashboard, GpuMemoryPoolStats,
         GpuMemoryThresholds, GpuMemoryType, GrafanaDashboard, GrafanaPanel, MemoryPressureLevel,
-        ObservabilityContext, PanelType, PrometheusCollector, PrometheusExporter,
-        RingKernelCollector, Span, SpanBuilder, SpanEvent, SpanId, SpanKind, SpanStatus, TraceId,
+        ObservabilityContext, OtlpConfig, OtlpExporter, OtlpExporterStats, OtlpExportResult,
+        OtlpTransport, PanelType, PrometheusCollector, PrometheusExporter, RingKernelCollector,
+        Span, SpanBuilder, SpanEvent, SpanId, SpanKind, SpanStatus, TraceId,
     };
     pub use crate::persistent_message::{
         message_flags, DispatchTable, HandlerRegistration, PersistentMessage,
@@ -193,6 +198,11 @@ pub mod prelude {
     pub use crate::timeout::{
         timeout, timeout_named, with_timeout, with_timeout_named, CancellationToken, Deadline,
         OperationContext, Timeout, TimeoutError, TimeoutStats, TimeoutStatsSnapshot,
+    };
+    pub use crate::rate_limiting::{
+        shared_rate_limiter, RateLimitAlgorithm, RateLimitConfig, RateLimitError, RateLimitGuard,
+        RateLimitResult, RateLimiter, RateLimiterBuilder, RateLimiterExt, RateLimiterStatsSnapshot,
+        SharedRateLimiter,
     };
 }
 

@@ -2155,6 +2155,549 @@ impl Default for GpuMemoryDashboard {
     }
 }
 
+// ============================================================================
+// OTLP (OpenTelemetry Protocol) Exporter
+// ============================================================================
+
+/// OTLP transport protocol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OtlpTransport {
+    /// HTTP with JSON encoding (default, no extra dependencies).
+    #[default]
+    HttpJson,
+    /// HTTP with Protobuf encoding (requires protobuf support).
+    HttpProtobuf,
+    /// gRPC transport (requires tonic).
+    Grpc,
+}
+
+/// Configuration for OTLP exporter.
+#[derive(Debug, Clone)]
+pub struct OtlpConfig {
+    /// OTLP endpoint URL (e.g., "http://localhost:4318/v1/traces").
+    pub endpoint: String,
+    /// Transport protocol.
+    pub transport: OtlpTransport,
+    /// Service name for resource attributes.
+    pub service_name: String,
+    /// Service version.
+    pub service_version: String,
+    /// Service instance ID.
+    pub service_instance_id: Option<String>,
+    /// Additional resource attributes.
+    pub resource_attributes: Vec<(String, String)>,
+    /// Export batch size.
+    pub batch_size: usize,
+    /// Export interval.
+    pub export_interval: Duration,
+    /// Request timeout.
+    pub timeout: Duration,
+    /// Maximum retry attempts.
+    pub max_retries: u32,
+    /// Retry delay (base for exponential backoff).
+    pub retry_delay: Duration,
+    /// Optional authorization header.
+    pub authorization: Option<String>,
+}
+
+impl Default for OtlpConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: "http://localhost:4318/v1/traces".to_string(),
+            transport: OtlpTransport::HttpJson,
+            service_name: "ringkernel".to_string(),
+            service_version: env!("CARGO_PKG_VERSION").to_string(),
+            service_instance_id: None,
+            resource_attributes: Vec::new(),
+            batch_size: 512,
+            export_interval: Duration::from_secs(5),
+            timeout: Duration::from_secs(30),
+            max_retries: 3,
+            retry_delay: Duration::from_millis(100),
+            authorization: None,
+        }
+    }
+}
+
+impl OtlpConfig {
+    /// Create a new OTLP configuration.
+    pub fn new(endpoint: impl Into<String>) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Set the service name.
+    pub fn with_service_name(mut self, name: impl Into<String>) -> Self {
+        self.service_name = name.into();
+        self
+    }
+
+    /// Set the service version.
+    pub fn with_service_version(mut self, version: impl Into<String>) -> Self {
+        self.service_version = version.into();
+        self
+    }
+
+    /// Set the service instance ID.
+    pub fn with_instance_id(mut self, id: impl Into<String>) -> Self {
+        self.service_instance_id = Some(id.into());
+        self
+    }
+
+    /// Add a resource attribute.
+    pub fn with_attribute(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.resource_attributes.push((key.into(), value.into()));
+        self
+    }
+
+    /// Set the batch size.
+    pub fn with_batch_size(mut self, size: usize) -> Self {
+        self.batch_size = size;
+        self
+    }
+
+    /// Set the export interval.
+    pub fn with_export_interval(mut self, interval: Duration) -> Self {
+        self.export_interval = interval;
+        self
+    }
+
+    /// Set the authorization header.
+    pub fn with_authorization(mut self, auth: impl Into<String>) -> Self {
+        self.authorization = Some(auth.into());
+        self
+    }
+
+    /// Configure for Jaeger OTLP endpoint.
+    pub fn jaeger(endpoint: impl Into<String>) -> Self {
+        Self::new(endpoint).with_service_name("ringkernel")
+    }
+
+    /// Configure for Honeycomb.
+    pub fn honeycomb(api_key: impl Into<String>) -> Self {
+        Self::new("https://api.honeycomb.io/v1/traces")
+            .with_authorization(format!("x-honeycomb-team {}", api_key.into()))
+    }
+
+    /// Configure for Grafana Cloud.
+    pub fn grafana_cloud(instance_id: impl Into<String>, api_key: impl Into<String>) -> Self {
+        let instance = instance_id.into();
+        Self::new(format!(
+            "https://otlp-gateway-prod-us-central-0.grafana.net/otlp/v1/traces"
+        ))
+        .with_authorization(format!("Basic {}", api_key.into()))
+        .with_attribute("grafana.instance", instance)
+    }
+}
+
+/// OTLP export result.
+#[derive(Debug, Clone)]
+pub struct OtlpExportResult {
+    /// Number of spans exported.
+    pub spans_exported: usize,
+    /// Whether the export succeeded.
+    pub success: bool,
+    /// Error message if export failed.
+    pub error: Option<String>,
+    /// Export duration.
+    pub duration: Duration,
+    /// Number of retry attempts.
+    pub retry_count: u32,
+}
+
+/// Statistics for the OTLP exporter.
+#[derive(Debug, Clone, Default)]
+pub struct OtlpExporterStats {
+    /// Total spans exported.
+    pub total_spans_exported: u64,
+    /// Total export attempts.
+    pub total_exports: u64,
+    /// Successful exports.
+    pub successful_exports: u64,
+    /// Failed exports.
+    pub failed_exports: u64,
+    /// Total retry attempts.
+    pub total_retries: u64,
+    /// Spans currently in buffer.
+    pub buffered_spans: usize,
+    /// Last export time.
+    pub last_export: Option<Instant>,
+    /// Last error message.
+    pub last_error: Option<String>,
+}
+
+/// OTLP span exporter for sending traces to OTLP-compatible backends.
+///
+/// Supports HTTP/JSON transport with automatic batching and retries.
+pub struct OtlpExporter {
+    config: OtlpConfig,
+    buffer: RwLock<Vec<Span>>,
+    stats: RwLock<OtlpExporterStats>,
+}
+
+impl OtlpExporter {
+    /// Create a new OTLP exporter with the given configuration.
+    pub fn new(config: OtlpConfig) -> Self {
+        Self {
+            config,
+            buffer: RwLock::new(Vec::new()),
+            stats: RwLock::new(OtlpExporterStats::default()),
+        }
+    }
+
+    /// Create an exporter for a local Jaeger instance.
+    pub fn jaeger_local() -> Self {
+        Self::new(OtlpConfig::jaeger("http://localhost:4318/v1/traces"))
+    }
+
+    /// Get the exporter configuration.
+    pub fn config(&self) -> &OtlpConfig {
+        &self.config
+    }
+
+    /// Get current statistics.
+    pub fn stats(&self) -> OtlpExporterStats {
+        self.stats.read().clone()
+    }
+
+    /// Add a span to the export buffer.
+    pub fn export_span(&self, span: Span) {
+        let mut buffer = self.buffer.write();
+        buffer.push(span);
+
+        let should_flush = buffer.len() >= self.config.batch_size;
+        drop(buffer);
+
+        if should_flush {
+            let _ = self.flush();
+        }
+    }
+
+    /// Add multiple spans to the export buffer.
+    pub fn export_spans(&self, spans: Vec<Span>) {
+        let mut buffer = self.buffer.write();
+        buffer.extend(spans);
+
+        let should_flush = buffer.len() >= self.config.batch_size;
+        drop(buffer);
+
+        if should_flush {
+            let _ = self.flush();
+        }
+    }
+
+    /// Get the number of buffered spans.
+    pub fn buffered_count(&self) -> usize {
+        self.buffer.read().len()
+    }
+
+    /// Flush all buffered spans to the OTLP endpoint.
+    pub fn flush(&self) -> OtlpExportResult {
+        let spans: Vec<Span> = {
+            let mut buffer = self.buffer.write();
+            std::mem::take(&mut *buffer)
+        };
+
+        if spans.is_empty() {
+            return OtlpExportResult {
+                spans_exported: 0,
+                success: true,
+                error: None,
+                duration: Duration::ZERO,
+                retry_count: 0,
+            };
+        }
+
+        let start = Instant::now();
+        let result = self.send_spans(&spans);
+        let duration = start.elapsed();
+
+        // Update stats
+        {
+            let mut stats = self.stats.write();
+            stats.total_exports += 1;
+            stats.last_export = Some(Instant::now());
+
+            if result.success {
+                stats.successful_exports += 1;
+                stats.total_spans_exported += spans.len() as u64;
+            } else {
+                stats.failed_exports += 1;
+                stats.last_error = result.error.clone();
+                // Put spans back in buffer for retry
+                let mut buffer = self.buffer.write();
+                buffer.extend(spans);
+            }
+            stats.total_retries += result.retry_count as u64;
+            stats.buffered_spans = self.buffer.read().len();
+        }
+
+        OtlpExportResult {
+            spans_exported: if result.success { result.spans_exported } else { 0 },
+            duration,
+            ..result
+        }
+    }
+
+    /// Send spans to the OTLP endpoint.
+    fn send_spans(&self, spans: &[Span]) -> OtlpExportResult {
+        // Without the alerting feature (reqwest), we can only buffer spans
+        #[cfg(not(feature = "alerting"))]
+        {
+            eprintln!(
+                "[OTLP stub] Would export {} spans to {} (enable 'alerting' feature for HTTP export)",
+                spans.len(),
+                self.config.endpoint
+            );
+            OtlpExportResult {
+                spans_exported: spans.len(),
+                success: true,
+                error: None,
+                duration: Duration::ZERO,
+                retry_count: 0,
+            }
+        }
+
+        #[cfg(feature = "alerting")]
+        {
+            self.send_spans_http(spans)
+        }
+    }
+
+    /// Send spans via HTTP (requires alerting feature).
+    #[cfg(feature = "alerting")]
+    fn send_spans_http(&self, spans: &[Span]) -> OtlpExportResult {
+        let payload = self.build_otlp_json(spans);
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(self.config.timeout)
+            .build();
+
+        let client = match client {
+            Ok(c) => c,
+            Err(e) => {
+                return OtlpExportResult {
+                    spans_exported: 0,
+                    success: false,
+                    error: Some(format!("Failed to create HTTP client: {}", e)),
+                    duration: Duration::ZERO,
+                    retry_count: 0,
+                };
+            }
+        };
+
+        let mut retry_count = 0;
+        let mut last_error = None;
+
+        for attempt in 0..=self.config.max_retries {
+            let mut request = client
+                .post(&self.config.endpoint)
+                .header("Content-Type", "application/json")
+                .body(payload.clone());
+
+            if let Some(auth) = &self.config.authorization {
+                request = request.header("Authorization", auth);
+            }
+
+            match request.send() {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        return OtlpExportResult {
+                            spans_exported: spans.len(),
+                            success: true,
+                            error: None,
+                            duration: Duration::ZERO,
+                            retry_count,
+                        };
+                    } else {
+                        last_error = Some(format!("HTTP {}: {}", response.status(), response.status().as_str()));
+                    }
+                }
+                Err(e) => {
+                    last_error = Some(format!("Request failed: {}", e));
+                }
+            }
+
+            if attempt < self.config.max_retries {
+                retry_count += 1;
+                std::thread::sleep(self.config.retry_delay * (1 << attempt));
+            }
+        }
+
+        OtlpExportResult {
+            spans_exported: 0,
+            success: false,
+            error: last_error,
+            duration: Duration::ZERO,
+            retry_count,
+        }
+    }
+
+    /// Build OTLP JSON payload.
+    #[cfg(feature = "alerting")]
+    fn build_otlp_json(&self, spans: &[Span]) -> String {
+        use std::fmt::Write;
+
+        let mut json = String::with_capacity(4096);
+
+        // Resource spans structure
+        json.push_str(r#"{"resourceSpans":[{"resource":{"attributes":["#);
+
+        // Service name
+        let _ = write!(
+            json,
+            r#"{{"key":"service.name","value":{{"stringValue":"{}"}}}}"#,
+            escape_json_str(&self.config.service_name)
+        );
+
+        // Service version
+        let _ = write!(
+            json,
+            r#",{{"key":"service.version","value":{{"stringValue":"{}"}}}}"#,
+            escape_json_str(&self.config.service_version)
+        );
+
+        // Instance ID
+        if let Some(instance_id) = &self.config.service_instance_id {
+            let _ = write!(
+                json,
+                r#",{{"key":"service.instance.id","value":{{"stringValue":"{}"}}}}"#,
+                escape_json_str(instance_id)
+            );
+        }
+
+        // Additional attributes
+        for (key, value) in &self.config.resource_attributes {
+            let _ = write!(
+                json,
+                r#",{{"key":"{}","value":{{"stringValue":"{}"}}}}"#,
+                escape_json_str(key),
+                escape_json_str(value)
+            );
+        }
+
+        json.push_str(r#"]},"scopeSpans":[{"scope":{"name":"ringkernel"},"spans":["#);
+
+        // Add spans
+        let mut first = true;
+        for span in spans {
+            if !first {
+                json.push(',');
+            }
+            first = false;
+            self.span_to_json(&mut json, span);
+        }
+
+        json.push_str("]}]}]}");
+        json
+    }
+
+    /// Convert a span to OTLP JSON format.
+    #[cfg(feature = "alerting")]
+    fn span_to_json(&self, json: &mut String, span: &Span) {
+        use std::fmt::Write;
+
+        let _ = write!(
+            json,
+            r#"{{"traceId":"{}","spanId":"{}""#,
+            span.trace_id.to_hex(),
+            span.span_id.to_hex()
+        );
+
+        if let Some(parent) = span.parent_span_id {
+            let _ = write!(json, r#","parentSpanId":"{}""#, parent.to_hex());
+        }
+
+        let _ = write!(
+            json,
+            r#","name":"{}","kind":{}"#,
+            escape_json_str(&span.name),
+            match span.kind {
+                SpanKind::Internal => 1,
+                SpanKind::Server => 2,
+                SpanKind::Client => 3,
+                SpanKind::Producer => 4,
+                SpanKind::Consumer => 5,
+            }
+        );
+
+        // Convert timestamps to nanoseconds since epoch
+        let start_nanos = span.start_time.elapsed().as_nanos();
+        let end_nanos = span.end_time.map(|t| t.elapsed().as_nanos()).unwrap_or(start_nanos);
+
+        // Note: These are approximate since we use Instant, not SystemTime
+        let _ = write!(
+            json,
+            r#","startTimeUnixNano":"{}","endTimeUnixNano":"{}""#,
+            start_nanos,
+            end_nanos
+        );
+
+        // Status
+        let _ = write!(
+            json,
+            r#","status":{{"code":{}}}"#,
+            match span.status {
+                SpanStatus::Unset => 0,
+                SpanStatus::Ok => 1,
+                SpanStatus::Error(_) => 2,
+            }
+        );
+
+        // Attributes
+        if !span.attributes.is_empty() {
+            json.push_str(r#","attributes":["#);
+            let mut first = true;
+            for (key, value) in &span.attributes {
+                if !first {
+                    json.push(',');
+                }
+                first = false;
+                let _ = write!(
+                    json,
+                    r#"{{"key":"{}","value":{{"stringValue":"{}"}}}}"#,
+                    escape_json_str(key),
+                    escape_json_str(value)
+                );
+            }
+            json.push(']');
+        }
+
+        // Events
+        if !span.events.is_empty() {
+            json.push_str(r#","events":["#);
+            let mut first = true;
+            for event in &span.events {
+                if !first {
+                    json.push(',');
+                }
+                first = false;
+                let _ = write!(
+                    json,
+                    r#"{{"name":"{}","timeUnixNano":"{}"}}"#,
+                    escape_json_str(&event.name),
+                    event.timestamp.elapsed().as_nanos()
+                );
+            }
+            json.push(']');
+        }
+
+        json.push('}');
+    }
+}
+
+/// Helper to escape JSON strings.
+#[cfg(feature = "alerting")]
+fn escape_json_str(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2640,5 +3183,108 @@ mod tests {
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
         assert_eq!(id3, 3);
+    }
+
+    // OTLP Exporter tests
+
+    #[test]
+    fn test_otlp_config_default() {
+        let config = OtlpConfig::default();
+        assert_eq!(config.endpoint, "http://localhost:4318/v1/traces");
+        assert_eq!(config.transport, OtlpTransport::HttpJson);
+        assert_eq!(config.service_name, "ringkernel");
+        assert_eq!(config.batch_size, 512);
+    }
+
+    #[test]
+    fn test_otlp_config_builder() {
+        let config = OtlpConfig::new("http://example.com/v1/traces")
+            .with_service_name("my-service")
+            .with_service_version("1.0.0")
+            .with_instance_id("instance-1")
+            .with_attribute("env", "production")
+            .with_batch_size(100);
+
+        assert_eq!(config.endpoint, "http://example.com/v1/traces");
+        assert_eq!(config.service_name, "my-service");
+        assert_eq!(config.service_version, "1.0.0");
+        assert_eq!(config.service_instance_id, Some("instance-1".to_string()));
+        assert_eq!(config.resource_attributes.len(), 1);
+        assert_eq!(config.batch_size, 100);
+    }
+
+    #[test]
+    fn test_otlp_config_jaeger() {
+        let config = OtlpConfig::jaeger("http://jaeger:4318/v1/traces");
+        assert_eq!(config.endpoint, "http://jaeger:4318/v1/traces");
+        assert_eq!(config.service_name, "ringkernel");
+    }
+
+    #[test]
+    fn test_otlp_config_honeycomb() {
+        let config = OtlpConfig::honeycomb("my-api-key");
+        assert_eq!(config.endpoint, "https://api.honeycomb.io/v1/traces");
+        assert_eq!(
+            config.authorization,
+            Some("x-honeycomb-team my-api-key".to_string())
+        );
+    }
+
+    #[test]
+    fn test_otlp_exporter_creation() {
+        let exporter = OtlpExporter::new(OtlpConfig::default());
+        assert_eq!(exporter.buffered_count(), 0);
+        assert_eq!(exporter.config().service_name, "ringkernel");
+    }
+
+    #[test]
+    fn test_otlp_exporter_jaeger_local() {
+        let exporter = OtlpExporter::jaeger_local();
+        assert_eq!(
+            exporter.config().endpoint,
+            "http://localhost:4318/v1/traces"
+        );
+    }
+
+    #[test]
+    fn test_otlp_exporter_buffering() {
+        let config = OtlpConfig::default().with_batch_size(10);
+        let exporter = OtlpExporter::new(config);
+
+        // Create a test span using the constructor
+        let span = Span::new("test_span", SpanKind::Internal);
+
+        // Add spans
+        for _ in 0..5 {
+            exporter.export_span(span.clone());
+        }
+
+        assert_eq!(exporter.buffered_count(), 5);
+    }
+
+    #[test]
+    fn test_otlp_exporter_flush_empty() {
+        let exporter = OtlpExporter::new(OtlpConfig::default());
+
+        let result = exporter.flush();
+        assert!(result.success);
+        assert_eq!(result.spans_exported, 0);
+    }
+
+    #[test]
+    fn test_otlp_exporter_stats() {
+        let exporter = OtlpExporter::new(OtlpConfig::default());
+
+        // Initial stats
+        let stats = exporter.stats();
+        assert_eq!(stats.total_exports, 0);
+        assert_eq!(stats.total_spans_exported, 0);
+        assert_eq!(stats.buffered_spans, 0);
+    }
+
+    #[test]
+    fn test_otlp_transport_default() {
+        let transport = OtlpTransport::default();
+        assert_eq!(transport, OtlpTransport::HttpJson);
     }
 }
