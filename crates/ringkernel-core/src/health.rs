@@ -1176,6 +1176,577 @@ impl Default for KernelWatchdog {
     }
 }
 
+// ============================================================================
+// Automatic Recovery (Phase 5.2 - Enterprise Operational Excellence)
+// ============================================================================
+
+/// Recovery policy for handling kernel failures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RecoveryPolicy {
+    /// Restart the failed kernel.
+    Restart,
+    /// Migrate the kernel to a healthy GPU.
+    Migrate,
+    /// Create a checkpoint before recovery.
+    Checkpoint,
+    /// Notify operators but don't take action.
+    Notify,
+    /// Escalate to higher severity handling.
+    Escalate,
+    /// Open circuit breaker to prevent cascading failures.
+    Circuit,
+}
+
+impl RecoveryPolicy {
+    /// Get the severity level of this policy.
+    pub fn severity(&self) -> u8 {
+        match self {
+            RecoveryPolicy::Notify => 1,
+            RecoveryPolicy::Checkpoint => 2,
+            RecoveryPolicy::Restart => 3,
+            RecoveryPolicy::Circuit => 4,
+            RecoveryPolicy::Migrate => 5,
+            RecoveryPolicy::Escalate => 6,
+        }
+    }
+
+    /// Check if this policy requires human intervention.
+    pub fn requires_intervention(&self) -> bool {
+        matches!(self, RecoveryPolicy::Notify | RecoveryPolicy::Escalate)
+    }
+}
+
+impl Default for RecoveryPolicy {
+    fn default() -> Self {
+        RecoveryPolicy::Notify
+    }
+}
+
+/// Configuration for automatic recovery.
+#[derive(Debug, Clone)]
+pub struct RecoveryConfig {
+    /// Maximum restart attempts before escalating.
+    pub max_restart_attempts: u32,
+    /// Delay between restart attempts.
+    pub restart_delay: Duration,
+    /// Whether to checkpoint before restart.
+    pub checkpoint_before_restart: bool,
+    /// Whether to migrate on device errors.
+    pub migrate_on_device_error: bool,
+    /// Cooldown period between recovery attempts.
+    pub recovery_cooldown: Duration,
+    /// Policies for different failure types.
+    pub policies: HashMap<FailureType, RecoveryPolicy>,
+}
+
+impl Default for RecoveryConfig {
+    fn default() -> Self {
+        let mut policies = HashMap::new();
+        policies.insert(FailureType::Timeout, RecoveryPolicy::Restart);
+        policies.insert(FailureType::Crash, RecoveryPolicy::Restart);
+        policies.insert(FailureType::DeviceError, RecoveryPolicy::Migrate);
+        policies.insert(FailureType::ResourceExhausted, RecoveryPolicy::Circuit);
+        policies.insert(FailureType::Unknown, RecoveryPolicy::Notify);
+
+        Self {
+            max_restart_attempts: 3,
+            restart_delay: Duration::from_secs(5),
+            checkpoint_before_restart: true,
+            migrate_on_device_error: true,
+            recovery_cooldown: Duration::from_secs(60),
+            policies,
+        }
+    }
+}
+
+impl RecoveryConfig {
+    /// Create a new builder.
+    pub fn builder() -> RecoveryConfigBuilder {
+        RecoveryConfigBuilder::new()
+    }
+
+    /// Create a conservative config (notify-first).
+    pub fn conservative() -> Self {
+        let mut config = Self::default();
+        config.max_restart_attempts = 1;
+        config.checkpoint_before_restart = true;
+        for policy in config.policies.values_mut() {
+            if *policy == RecoveryPolicy::Restart {
+                *policy = RecoveryPolicy::Notify;
+            }
+        }
+        config
+    }
+
+    /// Create an aggressive config (auto-recover).
+    pub fn aggressive() -> Self {
+        let mut config = Self::default();
+        config.max_restart_attempts = 5;
+        config.checkpoint_before_restart = false;
+        config.restart_delay = Duration::from_secs(1);
+        config.recovery_cooldown = Duration::from_secs(10);
+        config
+    }
+
+    /// Get recovery policy for a failure type.
+    pub fn policy_for(&self, failure_type: FailureType) -> RecoveryPolicy {
+        self.policies
+            .get(&failure_type)
+            .copied()
+            .unwrap_or(RecoveryPolicy::Notify)
+    }
+}
+
+/// Builder for recovery configuration.
+#[derive(Debug, Default)]
+pub struct RecoveryConfigBuilder {
+    config: RecoveryConfig,
+}
+
+impl RecoveryConfigBuilder {
+    /// Create a new builder.
+    pub fn new() -> Self {
+        Self {
+            config: RecoveryConfig::default(),
+        }
+    }
+
+    /// Set maximum restart attempts.
+    pub fn max_restart_attempts(mut self, attempts: u32) -> Self {
+        self.config.max_restart_attempts = attempts;
+        self
+    }
+
+    /// Set restart delay.
+    pub fn restart_delay(mut self, delay: Duration) -> Self {
+        self.config.restart_delay = delay;
+        self
+    }
+
+    /// Enable/disable checkpoint before restart.
+    pub fn checkpoint_before_restart(mut self, enabled: bool) -> Self {
+        self.config.checkpoint_before_restart = enabled;
+        self
+    }
+
+    /// Enable/disable migration on device errors.
+    pub fn migrate_on_device_error(mut self, enabled: bool) -> Self {
+        self.config.migrate_on_device_error = enabled;
+        self
+    }
+
+    /// Set recovery cooldown.
+    pub fn recovery_cooldown(mut self, cooldown: Duration) -> Self {
+        self.config.recovery_cooldown = cooldown;
+        self
+    }
+
+    /// Set policy for a failure type.
+    pub fn policy(mut self, failure_type: FailureType, policy: RecoveryPolicy) -> Self {
+        self.config.policies.insert(failure_type, policy);
+        self
+    }
+
+    /// Build the configuration.
+    pub fn build(self) -> RecoveryConfig {
+        self.config
+    }
+}
+
+/// Types of kernel failures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FailureType {
+    /// Kernel timed out (no heartbeat).
+    Timeout,
+    /// Kernel crashed unexpectedly.
+    Crash,
+    /// GPU device error.
+    DeviceError,
+    /// Out of memory or other resources.
+    ResourceExhausted,
+    /// Message queue overflow.
+    QueueOverflow,
+    /// State corruption detected.
+    StateCorruption,
+    /// Unknown failure.
+    Unknown,
+}
+
+impl FailureType {
+    /// Describe this failure type.
+    pub fn description(&self) -> &'static str {
+        match self {
+            FailureType::Timeout => "Kernel heartbeat timeout",
+            FailureType::Crash => "Kernel crash",
+            FailureType::DeviceError => "GPU device error",
+            FailureType::ResourceExhausted => "Resource exhaustion",
+            FailureType::QueueOverflow => "Message queue overflow",
+            FailureType::StateCorruption => "State corruption detected",
+            FailureType::Unknown => "Unknown failure",
+        }
+    }
+}
+
+/// A recovery action to be taken.
+#[derive(Debug, Clone)]
+pub struct RecoveryAction {
+    /// Kernel ID.
+    pub kernel_id: KernelId,
+    /// Failure type that triggered recovery.
+    pub failure_type: FailureType,
+    /// Policy to apply.
+    pub policy: RecoveryPolicy,
+    /// Number of previous recovery attempts.
+    pub attempt: u32,
+    /// When the action was created.
+    pub created_at: Instant,
+    /// Additional context.
+    pub context: HashMap<String, String>,
+}
+
+impl RecoveryAction {
+    /// Create a new recovery action.
+    pub fn new(kernel_id: KernelId, failure_type: FailureType, policy: RecoveryPolicy) -> Self {
+        Self {
+            kernel_id,
+            failure_type,
+            policy,
+            attempt: 1,
+            created_at: Instant::now(),
+            context: HashMap::new(),
+        }
+    }
+
+    /// Add context information.
+    pub fn with_context(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.context.insert(key.into(), value.into());
+        self
+    }
+
+    /// Set attempt number.
+    pub fn with_attempt(mut self, attempt: u32) -> Self {
+        self.attempt = attempt;
+        self
+    }
+}
+
+/// Result of a recovery action.
+#[derive(Debug, Clone)]
+pub struct RecoveryResult {
+    /// The action that was attempted.
+    pub action: RecoveryAction,
+    /// Whether recovery was successful.
+    pub success: bool,
+    /// Error message if failed.
+    pub error: Option<String>,
+    /// Duration of recovery attempt.
+    pub duration: Duration,
+    /// Next action if recovery failed.
+    pub next_action: Option<RecoveryPolicy>,
+}
+
+impl RecoveryResult {
+    /// Create a successful result.
+    pub fn success(action: RecoveryAction, duration: Duration) -> Self {
+        Self {
+            action,
+            success: true,
+            error: None,
+            duration,
+            next_action: None,
+        }
+    }
+
+    /// Create a failed result.
+    pub fn failure(action: RecoveryAction, error: String, duration: Duration) -> Self {
+        Self {
+            action,
+            success: false,
+            error: Some(error),
+            duration,
+            next_action: Some(RecoveryPolicy::Escalate),
+        }
+    }
+
+    /// Create a failed result with a next action.
+    pub fn failure_with_next(
+        action: RecoveryAction,
+        error: String,
+        duration: Duration,
+        next: RecoveryPolicy,
+    ) -> Self {
+        Self {
+            action,
+            success: false,
+            error: Some(error),
+            duration,
+            next_action: Some(next),
+        }
+    }
+}
+
+/// Type alias for recovery handler functions.
+pub type RecoveryHandler = Arc<
+    dyn Fn(&RecoveryAction) -> Pin<Box<dyn Future<Output = RecoveryResult> + Send>> + Send + Sync,
+>;
+
+/// Manager for automatic kernel recovery.
+pub struct RecoveryManager {
+    /// Configuration.
+    config: RwLock<RecoveryConfig>,
+    /// Recovery handlers by policy.
+    handlers: RwLock<HashMap<RecoveryPolicy, RecoveryHandler>>,
+    /// Recovery history per kernel.
+    history: RwLock<HashMap<KernelId, Vec<RecoveryResult>>>,
+    /// Current attempt counts.
+    attempts: RwLock<HashMap<KernelId, u32>>,
+    /// Last recovery time per kernel.
+    last_recovery: RwLock<HashMap<KernelId, Instant>>,
+    /// Statistics.
+    stats: RecoveryStats,
+    /// Enabled flag.
+    enabled: std::sync::atomic::AtomicBool,
+}
+
+impl RecoveryManager {
+    /// Create a new recovery manager with default config.
+    pub fn new() -> Self {
+        Self::with_config(RecoveryConfig::default())
+    }
+
+    /// Create with specific configuration.
+    pub fn with_config(config: RecoveryConfig) -> Self {
+        Self {
+            config: RwLock::new(config),
+            handlers: RwLock::new(HashMap::new()),
+            history: RwLock::new(HashMap::new()),
+            attempts: RwLock::new(HashMap::new()),
+            last_recovery: RwLock::new(HashMap::new()),
+            stats: RecoveryStats::default(),
+            enabled: std::sync::atomic::AtomicBool::new(true),
+        }
+    }
+
+    /// Enable/disable automatic recovery.
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::SeqCst);
+    }
+
+    /// Check if recovery is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::SeqCst)
+    }
+
+    /// Update configuration.
+    pub fn set_config(&self, config: RecoveryConfig) {
+        *self.config.write() = config;
+    }
+
+    /// Get current configuration.
+    pub fn config(&self) -> RecoveryConfig {
+        self.config.read().clone()
+    }
+
+    /// Register a recovery handler.
+    pub fn register_handler(&self, policy: RecoveryPolicy, handler: RecoveryHandler) {
+        self.handlers.write().insert(policy, handler);
+    }
+
+    /// Check if recovery should be attempted (respects cooldown).
+    pub fn should_recover(&self, kernel_id: &KernelId) -> bool {
+        if !self.is_enabled() {
+            return false;
+        }
+
+        let config = self.config.read();
+        let last_recovery = self.last_recovery.read();
+
+        if let Some(last) = last_recovery.get(kernel_id) {
+            last.elapsed() >= config.recovery_cooldown
+        } else {
+            true
+        }
+    }
+
+    /// Determine recovery action for a failure.
+    pub fn determine_action(
+        &self,
+        kernel_id: &KernelId,
+        failure_type: FailureType,
+    ) -> RecoveryAction {
+        let config = self.config.read();
+        let attempts = self.attempts.read();
+
+        let current_attempt = attempts.get(kernel_id).copied().unwrap_or(0) + 1;
+        let policy = if current_attempt > config.max_restart_attempts {
+            RecoveryPolicy::Escalate
+        } else {
+            config.policy_for(failure_type)
+        };
+
+        RecoveryAction::new(kernel_id.clone(), failure_type, policy).with_attempt(current_attempt)
+    }
+
+    /// Execute recovery for a kernel.
+    pub async fn recover(&self, action: RecoveryAction) -> RecoveryResult {
+        let start = Instant::now();
+        let kernel_id = action.kernel_id.clone();
+        let policy = action.policy;
+
+        // Update attempt count
+        {
+            let mut attempts = self.attempts.write();
+            let count = attempts.entry(kernel_id.clone()).or_insert(0);
+            *count += 1;
+        }
+
+        // Update last recovery time
+        self.last_recovery
+            .write()
+            .insert(kernel_id.clone(), Instant::now());
+
+        // Get handler
+        let handler = self.handlers.read().get(&policy).cloned();
+
+        let result = if let Some(handler) = handler {
+            self.stats.attempts.fetch_add(1, Ordering::Relaxed);
+            handler(&action).await
+        } else {
+            // No handler - use default behavior
+            let result = self.default_recovery(&action).await;
+            result
+        };
+
+        // Update statistics
+        if result.success {
+            self.stats.successes.fetch_add(1, Ordering::Relaxed);
+            // Reset attempt count on success
+            self.attempts.write().remove(&kernel_id);
+        } else {
+            self.stats.failures.fetch_add(1, Ordering::Relaxed);
+        }
+
+        // Store in history
+        self.history
+            .write()
+            .entry(kernel_id)
+            .or_default()
+            .push(result.clone());
+
+        result
+    }
+
+    /// Default recovery behavior.
+    async fn default_recovery(&self, action: &RecoveryAction) -> RecoveryResult {
+        let start = Instant::now();
+
+        match action.policy {
+            RecoveryPolicy::Notify => {
+                // Just log - no action taken
+                RecoveryResult::success(action.clone(), start.elapsed())
+            }
+            RecoveryPolicy::Checkpoint => {
+                // In a real implementation, this would trigger a checkpoint
+                RecoveryResult::success(action.clone(), start.elapsed())
+            }
+            RecoveryPolicy::Restart => {
+                // In a real implementation, this would restart the kernel
+                let config = self.config.read();
+                if action.attempt > config.max_restart_attempts {
+                    RecoveryResult::failure_with_next(
+                        action.clone(),
+                        "Max restart attempts exceeded".to_string(),
+                        start.elapsed(),
+                        RecoveryPolicy::Escalate,
+                    )
+                } else {
+                    RecoveryResult::success(action.clone(), start.elapsed())
+                }
+            }
+            RecoveryPolicy::Migrate => {
+                // In a real implementation, this would migrate to another GPU
+                RecoveryResult::success(action.clone(), start.elapsed())
+            }
+            RecoveryPolicy::Circuit => {
+                // Open circuit breaker
+                RecoveryResult::success(action.clone(), start.elapsed())
+            }
+            RecoveryPolicy::Escalate => {
+                // Escalation requires manual intervention
+                RecoveryResult::failure(
+                    action.clone(),
+                    "Manual intervention required".to_string(),
+                    start.elapsed(),
+                )
+            }
+        }
+    }
+
+    /// Get recovery history for a kernel.
+    pub fn get_history(&self, kernel_id: &KernelId) -> Vec<RecoveryResult> {
+        self.history
+            .read()
+            .get(kernel_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Clear recovery history.
+    pub fn clear_history(&self) {
+        self.history.write().clear();
+        self.attempts.write().clear();
+        self.last_recovery.write().clear();
+    }
+
+    /// Get statistics snapshot.
+    pub fn stats(&self) -> RecoveryStatsSnapshot {
+        RecoveryStatsSnapshot {
+            attempts: self.stats.attempts.load(Ordering::Relaxed),
+            successes: self.stats.successes.load(Ordering::Relaxed),
+            failures: self.stats.failures.load(Ordering::Relaxed),
+            kernels_tracked: self.history.read().len(),
+        }
+    }
+}
+
+impl Default for RecoveryManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Recovery statistics (atomic counters).
+#[derive(Default)]
+struct RecoveryStats {
+    attempts: AtomicU64,
+    successes: AtomicU64,
+    failures: AtomicU64,
+}
+
+/// Snapshot of recovery statistics.
+#[derive(Debug, Clone, Default)]
+pub struct RecoveryStatsSnapshot {
+    /// Total recovery attempts.
+    pub attempts: u64,
+    /// Successful recoveries.
+    pub successes: u64,
+    /// Failed recoveries.
+    pub failures: u64,
+    /// Number of kernels with recovery history.
+    pub kernels_tracked: usize,
+}
+
+impl RecoveryStatsSnapshot {
+    /// Calculate success rate.
+    pub fn success_rate(&self) -> f64 {
+        if self.attempts == 0 {
+            1.0
+        } else {
+            self.successes as f64 / self.attempts as f64
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1340,5 +1911,199 @@ mod tests {
         let health = watchdog.get_health(&kernel_id).unwrap();
         assert_eq!(health.messages_per_sec, 1000.0);
         assert_eq!(health.queue_depth, 50);
+    }
+
+    // Recovery tests
+    #[test]
+    fn test_recovery_policy_severity() {
+        assert!(RecoveryPolicy::Notify.severity() < RecoveryPolicy::Restart.severity());
+        assert!(RecoveryPolicy::Restart.severity() < RecoveryPolicy::Migrate.severity());
+        assert!(RecoveryPolicy::Migrate.severity() < RecoveryPolicy::Escalate.severity());
+    }
+
+    #[test]
+    fn test_recovery_policy_requires_intervention() {
+        assert!(RecoveryPolicy::Notify.requires_intervention());
+        assert!(RecoveryPolicy::Escalate.requires_intervention());
+        assert!(!RecoveryPolicy::Restart.requires_intervention());
+        assert!(!RecoveryPolicy::Migrate.requires_intervention());
+    }
+
+    #[test]
+    fn test_recovery_config_default() {
+        let config = RecoveryConfig::default();
+        assert_eq!(config.max_restart_attempts, 3);
+        assert!(config.checkpoint_before_restart);
+        assert!(config.migrate_on_device_error);
+        assert_eq!(config.policy_for(FailureType::Timeout), RecoveryPolicy::Restart);
+        assert_eq!(config.policy_for(FailureType::DeviceError), RecoveryPolicy::Migrate);
+    }
+
+    #[test]
+    fn test_recovery_config_conservative() {
+        let config = RecoveryConfig::conservative();
+        assert_eq!(config.max_restart_attempts, 1);
+        assert_eq!(config.policy_for(FailureType::Timeout), RecoveryPolicy::Notify);
+    }
+
+    #[test]
+    fn test_recovery_config_aggressive() {
+        let config = RecoveryConfig::aggressive();
+        assert_eq!(config.max_restart_attempts, 5);
+        assert!(!config.checkpoint_before_restart);
+        assert_eq!(config.restart_delay, Duration::from_secs(1));
+    }
+
+    #[test]
+    fn test_recovery_config_builder() {
+        let config = RecoveryConfig::builder()
+            .max_restart_attempts(10)
+            .restart_delay(Duration::from_secs(2))
+            .checkpoint_before_restart(false)
+            .recovery_cooldown(Duration::from_secs(30))
+            .policy(FailureType::Crash, RecoveryPolicy::Migrate)
+            .build();
+
+        assert_eq!(config.max_restart_attempts, 10);
+        assert_eq!(config.restart_delay, Duration::from_secs(2));
+        assert!(!config.checkpoint_before_restart);
+        assert_eq!(config.recovery_cooldown, Duration::from_secs(30));
+        assert_eq!(config.policy_for(FailureType::Crash), RecoveryPolicy::Migrate);
+    }
+
+    #[test]
+    fn test_failure_type_description() {
+        assert_eq!(FailureType::Timeout.description(), "Kernel heartbeat timeout");
+        assert_eq!(FailureType::Crash.description(), "Kernel crash");
+        assert_eq!(FailureType::DeviceError.description(), "GPU device error");
+    }
+
+    #[test]
+    fn test_recovery_action() {
+        let kernel_id = KernelId::new("test_kernel");
+        let action = RecoveryAction::new(kernel_id.clone(), FailureType::Timeout, RecoveryPolicy::Restart)
+            .with_context("reason", "heartbeat missed")
+            .with_attempt(2);
+
+        assert_eq!(action.kernel_id, kernel_id);
+        assert_eq!(action.failure_type, FailureType::Timeout);
+        assert_eq!(action.policy, RecoveryPolicy::Restart);
+        assert_eq!(action.attempt, 2);
+        assert_eq!(action.context.get("reason"), Some(&"heartbeat missed".to_string()));
+    }
+
+    #[test]
+    fn test_recovery_result() {
+        let action = RecoveryAction::new(
+            KernelId::new("test"),
+            FailureType::Crash,
+            RecoveryPolicy::Restart,
+        );
+
+        let success = RecoveryResult::success(action.clone(), Duration::from_millis(100));
+        assert!(success.success);
+        assert!(success.error.is_none());
+        assert!(success.next_action.is_none());
+
+        let failure = RecoveryResult::failure(action.clone(), "Failed".to_string(), Duration::from_millis(50));
+        assert!(!failure.success);
+        assert_eq!(failure.error, Some("Failed".to_string()));
+        assert_eq!(failure.next_action, Some(RecoveryPolicy::Escalate));
+    }
+
+    #[test]
+    fn test_recovery_manager_creation() {
+        let manager = RecoveryManager::new();
+        assert!(manager.is_enabled());
+
+        let stats = manager.stats();
+        assert_eq!(stats.attempts, 0);
+        assert_eq!(stats.successes, 0);
+        assert_eq!(stats.failures, 0);
+    }
+
+    #[test]
+    fn test_recovery_manager_enable_disable() {
+        let manager = RecoveryManager::new();
+
+        assert!(manager.is_enabled());
+        manager.set_enabled(false);
+        assert!(!manager.is_enabled());
+        manager.set_enabled(true);
+        assert!(manager.is_enabled());
+    }
+
+    #[test]
+    fn test_recovery_manager_determine_action() {
+        let manager = RecoveryManager::new();
+        let kernel_id = KernelId::new("test_kernel");
+
+        let action = manager.determine_action(&kernel_id, FailureType::Timeout);
+        assert_eq!(action.kernel_id, kernel_id);
+        assert_eq!(action.failure_type, FailureType::Timeout);
+        assert_eq!(action.policy, RecoveryPolicy::Restart);
+        assert_eq!(action.attempt, 1);
+    }
+
+    #[test]
+    fn test_recovery_manager_should_recover() {
+        let config = RecoveryConfig::builder()
+            .recovery_cooldown(Duration::from_millis(10))
+            .build();
+        let manager = RecoveryManager::with_config(config);
+        let kernel_id = KernelId::new("test_kernel");
+
+        assert!(manager.should_recover(&kernel_id));
+
+        // Disable recovery
+        manager.set_enabled(false);
+        assert!(!manager.should_recover(&kernel_id));
+    }
+
+    #[tokio::test]
+    async fn test_recovery_manager_recover() {
+        let manager = RecoveryManager::new();
+        let kernel_id = KernelId::new("test_kernel");
+
+        let action = RecoveryAction::new(kernel_id.clone(), FailureType::Timeout, RecoveryPolicy::Notify);
+        let result = manager.recover(action).await;
+
+        assert!(result.success);
+
+        let stats = manager.stats();
+        assert_eq!(stats.successes, 1);
+        assert_eq!(stats.kernels_tracked, 1);
+
+        let history = manager.get_history(&kernel_id);
+        assert_eq!(history.len(), 1);
+    }
+
+    #[test]
+    fn test_recovery_stats_snapshot_success_rate() {
+        let stats = RecoveryStatsSnapshot {
+            attempts: 10,
+            successes: 8,
+            failures: 2,
+            kernels_tracked: 3,
+        };
+
+        assert!((stats.success_rate() - 0.8).abs() < 0.001);
+
+        let empty = RecoveryStatsSnapshot::default();
+        assert_eq!(empty.success_rate(), 1.0);
+    }
+
+    #[test]
+    fn test_recovery_manager_clear_history() {
+        let manager = RecoveryManager::new();
+        let kernel_id = KernelId::new("test_kernel");
+
+        // Add some history manually via attempts
+        manager.attempts.write().insert(kernel_id.clone(), 5);
+
+        manager.clear_history();
+
+        assert!(manager.get_history(&kernel_id).is_empty());
+        assert!(manager.attempts.read().is_empty());
     }
 }

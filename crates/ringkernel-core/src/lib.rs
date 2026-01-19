@@ -110,8 +110,10 @@ pub mod prelude {
     pub use crate::error::*;
     pub use crate::health::{
         BackoffStrategy, CircuitBreaker, CircuitBreakerConfig, CircuitBreakerStats, CircuitState,
-        DegradationLevel, DegradationManager, DegradationStats, HealthCheck, HealthCheckResult,
-        HealthChecker, HealthStatus, KernelHealth, KernelWatchdog, LoadSheddingPolicy, RetryPolicy,
+        DegradationLevel, DegradationManager, DegradationStats, FailureType, HealthCheck,
+        HealthCheckResult, HealthChecker, HealthStatus, KernelHealth, KernelWatchdog,
+        LoadSheddingPolicy, RecoveryAction, RecoveryConfig, RecoveryConfigBuilder, RecoveryManager,
+        RecoveryPolicy, RecoveryResult, RecoveryStatsSnapshot, RetryPolicy,
     };
     pub use crate::hlc::*;
     pub use crate::k2k::{
