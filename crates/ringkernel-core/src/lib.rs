@@ -64,6 +64,14 @@ pub mod telemetry;
 pub mod telemetry_pipeline;
 pub mod types;
 
+// Enterprise modules
+pub mod secrets;
+pub mod auth;
+pub mod rbac;
+pub mod tenancy;
+pub mod alerting;
+pub mod timeout;
+
 /// Private module for proc macro integration.
 /// Not part of the public API - exposed for macro-generated code only.
 #[doc(hidden)]
@@ -157,6 +165,35 @@ pub mod prelude {
     // Cloud storage types (feature-gated)
     #[cfg(feature = "cloud-storage")]
     pub use crate::cloud_storage::{AsyncCheckpointStorage, CloudProvider, S3Config, S3Storage};
+
+    // Enterprise modules
+    pub use crate::secrets::{
+        CachedSecretStore, ChainedSecretStore, EnvVarSecretStore, InMemorySecretStore,
+        KeyRotationManager, SecretError, SecretKey, SecretResult, SecretStore, SecretValue,
+    };
+    pub use crate::auth::{
+        ApiKeyAuth, AuthContext, AuthError, AuthProvider, AuthResult, ChainedAuthProvider,
+        Credentials, Identity,
+    };
+    #[cfg(feature = "auth")]
+    pub use crate::auth::{JwtAuth, JwtClaims, JwtConfig};
+    pub use crate::rbac::{
+        Permission, PolicyEvaluator, RbacError, RbacPolicy, RbacResult, ResourceRule, Role, Subject,
+    };
+    pub use crate::tenancy::{
+        QuotaUtilization, ResourceQuota, ResourceUsage, TenantContext, TenantError, TenantRegistry,
+        TenantResult,
+    };
+    pub use crate::alerting::{
+        Alert, AlertRouter, AlertRouterStats, AlertSeverity, AlertSink, AlertSinkError,
+        AlertSinkResult, DeduplicationConfig, InMemorySink, LogSink,
+    };
+    #[cfg(feature = "alerting")]
+    pub use crate::alerting::{WebhookFormat, WebhookSink};
+    pub use crate::timeout::{
+        timeout, timeout_named, with_timeout, with_timeout_named, CancellationToken, Deadline,
+        OperationContext, Timeout, TimeoutError, TimeoutStats, TimeoutStatsSnapshot,
+    };
 }
 
 // Re-exports for convenience

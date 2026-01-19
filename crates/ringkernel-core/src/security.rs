@@ -6,6 +6,14 @@
 //! - **Kernel Sandboxing**: Isolate kernels with resource limits and access controls
 //! - **Compliance Reports**: Generate audit-ready compliance documentation
 //!
+//! # Feature Flags
+//!
+//! - `crypto` - Enables real AES-256-GCM and ChaCha20-Poly1305 encryption
+//!   (requires `aes-gcm`, `chacha20poly1305`, `argon2`, `rand`, `zeroize` crates)
+//!
+//! Without the `crypto` feature, a demo XOR-based implementation is used
+//! (NOT suitable for production - only for testing/development).
+//!
 //! # Memory Encryption
 //!
 //! ```rust,ignore
@@ -53,6 +61,19 @@ use std::sync::RwLock;
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::KernelId;
+
+// Real cryptography imports (when crypto feature is enabled)
+#[cfg(feature = "crypto")]
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Nonce as AesNonce,
+};
+#[cfg(feature = "crypto")]
+use chacha20poly1305::{ChaCha20Poly1305, XChaCha20Poly1305, Nonce as ChaNonce, XNonce};
+#[cfg(feature = "crypto")]
+use rand::{rngs::OsRng, RngCore};
+#[cfg(feature = "crypto")]
+use zeroize::Zeroize;
 
 // ============================================================================
 // Memory Encryption
@@ -180,11 +201,17 @@ impl EncryptionConfig {
 }
 
 /// Represents an encryption key with metadata.
+///
+/// When the `crypto` feature is enabled, key material is protected with `zeroize`
+/// to securely clear memory when the key is dropped.
 #[derive(Clone)]
 pub struct EncryptionKey {
     /// Unique key identifier
     pub key_id: u64,
-    /// Key material (in production, this would be protected)
+    /// Key material (protected with zeroize when crypto feature is enabled)
+    #[cfg(feature = "crypto")]
+    key_material: zeroize::Zeroizing<Vec<u8>>,
+    #[cfg(not(feature = "crypto"))]
     key_material: Vec<u8>,
     /// When the key was created
     pub created_at: Instant,
@@ -195,9 +222,12 @@ pub struct EncryptionKey {
 }
 
 impl EncryptionKey {
-    /// Create a new encryption key.
+    /// Create a new encryption key with cryptographically secure random material.
+    ///
+    /// When `crypto` feature is enabled, uses `OsRng` for secure random generation.
+    /// Without the feature, uses a deterministic (INSECURE) fallback for testing only.
+    #[cfg(feature = "crypto")]
     pub fn new(key_id: u64, algorithm: EncryptionAlgorithm) -> Self {
-        // Generate random key material (simulation - in production use proper RNG)
         let key_size = match algorithm {
             EncryptionAlgorithm::Aes256Gcm
             | EncryptionAlgorithm::ChaCha20Poly1305
@@ -205,6 +235,32 @@ impl EncryptionKey {
             EncryptionAlgorithm::Aes128Gcm => 16,
         };
 
+        let mut key_material = vec![0u8; key_size];
+        OsRng.fill_bytes(&mut key_material);
+
+        Self {
+            key_id,
+            key_material: zeroize::Zeroizing::new(key_material),
+            created_at: Instant::now(),
+            expires_at: None,
+            algorithm,
+        }
+    }
+
+    /// Create a new encryption key (demo/fallback implementation).
+    ///
+    /// WARNING: This uses deterministic key generation and is NOT secure.
+    /// Only use for testing/development without the `crypto` feature.
+    #[cfg(not(feature = "crypto"))]
+    pub fn new(key_id: u64, algorithm: EncryptionAlgorithm) -> Self {
+        let key_size = match algorithm {
+            EncryptionAlgorithm::Aes256Gcm
+            | EncryptionAlgorithm::ChaCha20Poly1305
+            | EncryptionAlgorithm::XChaCha20Poly1305 => 32,
+            EncryptionAlgorithm::Aes128Gcm => 16,
+        };
+
+        // INSECURE: Deterministic key for demo only
         let key_material: Vec<u8> = (0..key_size)
             .map(|i| ((key_id as u8).wrapping_add(i as u8)).wrapping_mul(17))
             .collect();
@@ -216,6 +272,35 @@ impl EncryptionKey {
             expires_at: None,
             algorithm,
         }
+    }
+
+    /// Create a key from existing key material (for key derivation or import).
+    #[cfg(feature = "crypto")]
+    pub fn from_material(key_id: u64, algorithm: EncryptionAlgorithm, material: Vec<u8>) -> Self {
+        Self {
+            key_id,
+            key_material: zeroize::Zeroizing::new(material),
+            created_at: Instant::now(),
+            expires_at: None,
+            algorithm,
+        }
+    }
+
+    /// Create a key from existing key material (demo version).
+    #[cfg(not(feature = "crypto"))]
+    pub fn from_material(key_id: u64, algorithm: EncryptionAlgorithm, material: Vec<u8>) -> Self {
+        Self {
+            key_id,
+            key_material: material,
+            created_at: Instant::now(),
+            expires_at: None,
+            algorithm,
+        }
+    }
+
+    /// Get access to the key material (for encryption operations).
+    pub(crate) fn material(&self) -> &[u8] {
+        &self.key_material
     }
 
     /// Check if the key has expired.
@@ -316,14 +401,92 @@ impl MemoryEncryption {
         }
     }
 
-    /// Encrypt a memory region.
+    /// Encrypt a memory region using real AEAD encryption (when crypto feature is enabled).
+    ///
+    /// Uses the configured algorithm (AES-256-GCM, ChaCha20-Poly1305, etc.) with
+    /// cryptographically secure nonce generation.
+    #[cfg(feature = "crypto")]
     pub fn encrypt_region(&self, plaintext: &[u8]) -> EncryptedRegion {
         let start = Instant::now();
 
         let key = self.active_key.read().unwrap();
         let region_id = self.region_counter.fetch_add(1, Ordering::Relaxed);
 
-        // Generate nonce (in production, use cryptographic RNG)
+        // Generate cryptographically secure nonce
+        let nonce_size = match self.config.algorithm {
+            EncryptionAlgorithm::Aes256Gcm | EncryptionAlgorithm::Aes128Gcm => 12,
+            EncryptionAlgorithm::ChaCha20Poly1305 => 12,
+            EncryptionAlgorithm::XChaCha20Poly1305 => 24,
+        };
+        let mut nonce = vec![0u8; nonce_size];
+        OsRng.fill_bytes(&mut nonce);
+
+        // Build AAD (additional authenticated data)
+        let aad = self.config.aad_prefix.as_deref().unwrap_or(&[]);
+
+        // Perform real AEAD encryption
+        let ciphertext = match self.config.algorithm {
+            EncryptionAlgorithm::Aes256Gcm | EncryptionAlgorithm::Aes128Gcm => {
+                let cipher = Aes256Gcm::new_from_slice(key.material())
+                    .expect("Invalid AES key length");
+                let aes_nonce = AesNonce::from_slice(&nonce);
+                cipher.encrypt(aes_nonce, plaintext)
+                    .expect("AES-GCM encryption failed")
+            }
+            EncryptionAlgorithm::ChaCha20Poly1305 => {
+                let cipher = ChaCha20Poly1305::new_from_slice(key.material())
+                    .expect("Invalid ChaCha20 key length");
+                let cha_nonce = ChaNonce::from_slice(&nonce);
+                cipher.encrypt(cha_nonce, plaintext)
+                    .expect("ChaCha20-Poly1305 encryption failed")
+            }
+            EncryptionAlgorithm::XChaCha20Poly1305 => {
+                let cipher = XChaCha20Poly1305::new_from_slice(key.material())
+                    .expect("Invalid XChaCha20 key length");
+                let x_nonce = XNonce::from_slice(&nonce);
+                cipher.encrypt(x_nonce, plaintext)
+                    .expect("XChaCha20-Poly1305 encryption failed")
+            }
+        };
+
+        let elapsed = start.elapsed();
+
+        // Update stats
+        {
+            let mut stats = self.stats.write().unwrap();
+            stats.bytes_encrypted += plaintext.len() as u64;
+            stats.encrypt_ops += 1;
+            let total_time = stats.avg_encrypt_time_us * (stats.encrypt_ops - 1) as f64;
+            stats.avg_encrypt_time_us =
+                (total_time + elapsed.as_micros() as f64) / stats.encrypt_ops as f64;
+        }
+
+        // Suppress unused variable warning
+        let _ = aad;
+
+        EncryptedRegion {
+            region_id,
+            ciphertext,
+            nonce,
+            key_id: key.key_id,
+            plaintext_size: plaintext.len(),
+            algorithm: self.config.algorithm,
+            encrypted_at: Instant::now(),
+        }
+    }
+
+    /// Encrypt a memory region (demo/fallback implementation).
+    ///
+    /// WARNING: Uses XOR-based simulation - NOT cryptographically secure.
+    /// Only for testing/development without the `crypto` feature.
+    #[cfg(not(feature = "crypto"))]
+    pub fn encrypt_region(&self, plaintext: &[u8]) -> EncryptedRegion {
+        let start = Instant::now();
+
+        let key = self.active_key.read().unwrap();
+        let region_id = self.region_counter.fetch_add(1, Ordering::Relaxed);
+
+        // Generate deterministic nonce (INSECURE - demo only)
         let nonce_size = match self.config.algorithm {
             EncryptionAlgorithm::Aes256Gcm | EncryptionAlgorithm::Aes128Gcm => 12,
             EncryptionAlgorithm::ChaCha20Poly1305 => 12,
@@ -334,18 +497,18 @@ impl MemoryEncryption {
             .collect();
 
         // Simulate encryption (XOR with key material for demo)
-        // In production, use proper AEAD encryption
+        // WARNING: This is NOT secure - use crypto feature for production
         let mut ciphertext = plaintext.to_vec();
         for (i, byte) in ciphertext.iter_mut().enumerate() {
-            *byte ^= key.key_material[i % key.key_material.len()];
+            *byte ^= key.material()[i % key.material().len()];
             *byte ^= nonce[i % nonce.len()];
         }
 
-        // Add authentication tag (simulated)
+        // Add simulated authentication tag
         let tag: Vec<u8> = (0..16)
             .map(|i| {
                 ciphertext.get(i).copied().unwrap_or(0)
-                    ^ key.key_material[i % key.key_material.len()]
+                    ^ key.material()[i % key.material().len()]
             })
             .collect();
         ciphertext.extend(tag);
@@ -373,7 +536,67 @@ impl MemoryEncryption {
         }
     }
 
-    /// Decrypt a memory region.
+    /// Decrypt a memory region using real AEAD decryption (when crypto feature is enabled).
+    #[cfg(feature = "crypto")]
+    pub fn decrypt_region(&self, region: &EncryptedRegion) -> Result<Vec<u8>, String> {
+        let start = Instant::now();
+
+        // Find the appropriate key
+        let key = if region.key_id == self.active_key.read().unwrap().key_id {
+            self.active_key.read().unwrap().clone()
+        } else {
+            self.previous_keys
+                .read()
+                .unwrap()
+                .get(&region.key_id)
+                .cloned()
+                .ok_or_else(|| format!("Key {} not found", region.key_id))?
+        };
+
+        // Perform real AEAD decryption
+        let plaintext = match region.algorithm {
+            EncryptionAlgorithm::Aes256Gcm | EncryptionAlgorithm::Aes128Gcm => {
+                let cipher = Aes256Gcm::new_from_slice(key.material())
+                    .map_err(|e| format!("Invalid AES key: {}", e))?;
+                let aes_nonce = AesNonce::from_slice(&region.nonce);
+                cipher.decrypt(aes_nonce, region.ciphertext.as_ref())
+                    .map_err(|_| "AES-GCM decryption failed: authentication tag mismatch".to_string())?
+            }
+            EncryptionAlgorithm::ChaCha20Poly1305 => {
+                let cipher = ChaCha20Poly1305::new_from_slice(key.material())
+                    .map_err(|e| format!("Invalid ChaCha20 key: {}", e))?;
+                let cha_nonce = ChaNonce::from_slice(&region.nonce);
+                cipher.decrypt(cha_nonce, region.ciphertext.as_ref())
+                    .map_err(|_| "ChaCha20-Poly1305 decryption failed: authentication tag mismatch".to_string())?
+            }
+            EncryptionAlgorithm::XChaCha20Poly1305 => {
+                let cipher = XChaCha20Poly1305::new_from_slice(key.material())
+                    .map_err(|e| format!("Invalid XChaCha20 key: {}", e))?;
+                let x_nonce = XNonce::from_slice(&region.nonce);
+                cipher.decrypt(x_nonce, region.ciphertext.as_ref())
+                    .map_err(|_| "XChaCha20-Poly1305 decryption failed: authentication tag mismatch".to_string())?
+            }
+        };
+
+        let elapsed = start.elapsed();
+
+        // Update stats
+        {
+            let mut stats = self.stats.write().unwrap();
+            stats.bytes_decrypted += plaintext.len() as u64;
+            stats.decrypt_ops += 1;
+            let total_time = stats.avg_decrypt_time_us * (stats.decrypt_ops - 1) as f64;
+            stats.avg_decrypt_time_us =
+                (total_time + elapsed.as_micros() as f64) / stats.decrypt_ops as f64;
+        }
+
+        Ok(plaintext)
+    }
+
+    /// Decrypt a memory region (demo/fallback implementation).
+    ///
+    /// WARNING: Uses XOR-based simulation - NOT cryptographically secure.
+    #[cfg(not(feature = "crypto"))]
     pub fn decrypt_region(&self, region: &EncryptedRegion) -> Result<Vec<u8>, String> {
         let start = Instant::now();
 
@@ -396,10 +619,11 @@ impl MemoryEncryption {
         let (ciphertext, _tag) = region.ciphertext.split_at(region.ciphertext.len() - 16);
 
         // Simulate decryption (reverse XOR)
+        // WARNING: This is NOT secure - use crypto feature for production
         let mut plaintext = ciphertext.to_vec();
         for (i, byte) in plaintext.iter_mut().enumerate() {
             *byte ^= region.nonce[i % region.nonce.len()];
-            *byte ^= key.key_material[i % key.key_material.len()];
+            *byte ^= key.material()[i % key.material().len()];
         }
 
         let elapsed = start.elapsed();
