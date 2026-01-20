@@ -1,51 +1,95 @@
-% RingKernel: A GPU-Native Persistent Actor Model
-% Technical Paper - Main Document
+% The GPU-Native Persistent Actor Model
+% Technical Paper - arXiv Preprint Style
 %
-% Target venues: arXiv (cs.DC, cs.PL), ASPLOS, EuroSys, PLDI, PPoPP
+% Describes a paradigm for treating GPU compute units as actors with
+% persistent kernels, lock-free message passing, and causal ordering.
 %
-\documentclass[11pt,a4paper]{article}
+% Implementations: RingKernel (Rust), DotCompute (.NET), Orleans.GpuBridge, RustGraph
+%
+% Target: arXiv (cs.DC, cs.PL, cs.AR)
+%
+\documentclass[11pt,letterpaper]{article}
 
-% Page geometry
-\usepackage[margin=1in]{geometry}
+%% ============================================================================
+%% arXiv-style formatting
+%% ============================================================================
 
-% Packages
-\usepackage{booktabs}
-\usepackage{subcaption}
-\usepackage{listings}
-\usepackage{xcolor}
-\usepackage{tikz}
-\usepackage{pgfplots}
-% algorithm/algpseudocode removed - use lstlisting for pseudocode
-\usepackage{hyperref}
+% Page geometry - generous margins for readability
+\usepackage[
+    letterpaper,
+    top=1in,
+    bottom=1in,
+    left=1.25in,
+    right=1.25in
+]{geometry}
+
+% Typography
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}              % Latin Modern fonts
+\usepackage{microtype}            % Improved typography
+\usepackage{setspace}
+\setstretch{1.15}                 % Slightly increased line spacing
+
+% Math
 \usepackage{amsmath}
 \usepackage{amssymb}
-\usepackage{graphicx}
-\usepackage{multirow}
-\usepackage{url}
-\usepackage{natbib}
+\usepackage{amsthm}
 
+% Tables and figures
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{subcaption}
+\usepackage{graphicx}
+\usepackage{float}
+
+% Code listings
+\usepackage{listings}
+\usepackage{xcolor}
+
+% Graphics
+\usepackage{tikz}
+\usepackage{pgfplots}
 \pgfplotsset{compat=1.16}
 \usetikzlibrary{shapes,arrows,positioning,fit,calc}
 
-% Hyperref setup
+% References and links
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage[numbers,sort&compress]{natbib}
+
+% Author handling
+\usepackage{authblk}
+\usepackage{orcidlink}            % ORCID icons
+
+%% ============================================================================
+%% Hyperref setup
+%% ============================================================================
 \hypersetup{
     colorlinks=true,
-    linkcolor=blue,
+    linkcolor=blue!70!black,
     filecolor=magenta,
-    urlcolor=cyan,
-    citecolor=blue,
+    urlcolor=blue!70!black,
+    citecolor=green!50!black,
+    pdftitle={The GPU-Native Persistent Actor Model},
+    pdfauthor={Michael Ivertowski},
+    pdfsubject={GPU Computing, Actor Model, Distributed Systems},
+    pdfkeywords={Actor Model, GPU, CUDA, Persistent Kernels, HLC}
 }
 
-% Code listing style for Rust
+%% ============================================================================
+%% Code listing styles
+%% ============================================================================
+
+% Rust
 \lstdefinelanguage{Rust}{
   keywords={fn, let, mut, if, else, match, for, while, loop, return, struct, enum, impl, trait, pub, use, mod, async, await, self, Self, where, type, const, static, unsafe, extern, crate, super},
-  keywordstyle=\color{blue}\bfseries,
-  keywords=[2]{i32, i64, u32, u64, f32, f64, bool, usize, isize, String, Vec, Option, Result, Arc, Box},
-  keywordstyle=[2]\color{teal},
+  keywordstyle=\color{blue!80!black}\bfseries,
+  keywords=[2]{i32, i64, u32, u64, f32, f64, bool, usize, isize, String, Vec, Option, Result, Arc, Box, AtomicU32, AtomicU64},
+  keywordstyle=[2]\color{teal!80!black},
   comment=[l]{//},
   morecomment=[s]{/*}{*/},
   commentstyle=\color{gray}\itshape,
-  stringstyle=\color{red},
+  stringstyle=\color{red!70!black},
   morestring=[b]",
   basicstyle=\ttfamily\small,
   breaklines=true,
@@ -53,13 +97,13 @@
   tabsize=2,
 }
 
-% Code listing style for CUDA
+% CUDA
 \lstdefinelanguage{CUDA}{
   language=C++,
-  morekeywords={__global__, __device__, __shared__, __host__, threadIdx, blockIdx, blockDim, gridDim, atomicAdd, atomicCAS, __syncthreads},
-  keywordstyle=\color{blue}\bfseries,
+  morekeywords={__global__, __device__, __shared__, __host__, threadIdx, blockIdx, blockDim, gridDim, atomicAdd, atomicCAS, __syncthreads, __threadfence},
+  keywordstyle=\color{blue!80!black}\bfseries,
   commentstyle=\color{gray}\itshape,
-  stringstyle=\color{red},
+  stringstyle=\color{red!70!black},
   basicstyle=\ttfamily\small,
   breaklines=true,
   showstringspaces=false,
@@ -68,39 +112,65 @@
 \lstset{
   language=Rust,
   frame=single,
+  framerule=0.5pt,
+  rulecolor=\color{gray!50},
   numbers=left,
   numberstyle=\tiny\color{gray},
   xleftmargin=2em,
   framexleftmargin=1.5em,
+  backgroundcolor=\color{gray!5},
+  captionpos=b,
 }
 
-% Document metadata
-\title{\textbf{RingKernel: A GPU-Native Persistent Actor Model for\\High-Performance Concurrent Computing}}
+%% ============================================================================
+%% Custom commands
+%% ============================================================================
+\newcommand{\arxiv}[1]{\href{https://arxiv.org/abs/#1}{arXiv:#1}}
+\newcommand{\github}[1]{\href{https://github.com/#1}{\texttt{github.com/#1}}}
 
-\author{
-  Michael Ivertowski\\
-  \textit{Independent Researcher}\\
-  Zurich, Switzerland\\
-  \texttt{mivertowski@outlook.com}
+%% ============================================================================
+%% Document metadata
+%% ============================================================================
+
+\title{%
+    \LARGE\textbf{The GPU-Native Persistent Actor Model:}\\[0.3em]
+    \Large\textbf{Bringing Actor Semantics to Massively Parallel Hardware}
 }
 
-\date{\today}
+\author[1]{Michael Ivertowski~\orcidlink{0009-0008-7829-2249}}
+\affil[1]{%
+    Ernst \& Young AG\\
+    Zurich, Switzerland\\
+    \texttt{michael.ivertowski@ch.ey.com}
+}
 
+\date{%
+    January 2026\\[1em]
+    \small\textit{Preprint. Under review.}
+}
+
+%% ============================================================================
+%% Document
+%% ============================================================================
 \begin{document}
 
 \maketitle
 
-% Abstract
+%% Abstract
 \begin{abstract}
+\noindent
 \input{sections/00-abstract}
 \end{abstract}
 
 \vspace{1em}
-\noindent\textbf{Keywords:} Actor Model, GPU Computing, Persistent Kernels, Message Passing, CUDA, Hybrid Logical Clocks, Lock-Free Algorithms
+\noindent\textbf{Keywords:} Actor Model, GPU Computing, Persistent Kernels, Message Passing, Hybrid Logical Clocks, Lock-Free Algorithms, CUDA, WebGPU, Distributed Systems, Graph Analytics
 
-\vspace{1em}
+\vspace{0.5em}
+\noindent\textbf{ACM CCS:} Computer systems organization $\rightarrow$ Parallel architectures; Software and its engineering $\rightarrow$ Concurrent programming structures
 
-% Main content sections
+\vspace{1.5em}
+
+%% Main content sections
 \input{sections/01-introduction}
 \input{sections/02-background}
 \input{sections/03-related-work}
@@ -110,17 +180,17 @@
 \input{sections/07-discussion}
 \input{sections/08-conclusion}
 
-% Acknowledgments
+%% Acknowledgments
 \section*{Acknowledgments}
 We thank the open-source community for their contributions to the CUDA ecosystem,
 particularly the cudarc project for Rust CUDA bindings. We also acknowledge the
 foundational work on the actor model by Carl Hewitt and colleagues.
 
-% Bibliography
+%% Bibliography
 \bibliographystyle{plainnat}
 \bibliography{references}
 
-% Appendix
+%% Appendix
 \appendix
 \input{sections/09-appendix}
 

@@ -3,24 +3,26 @@
 \section{Discussion}
 \label{sec:discussion}
 
-This section discusses limitations, design trade-offs, and future directions.
+This section discusses limitations, design trade-offs, and future directions for the
+GPU-native actor paradigm.
 
 \subsection{Limitations}
 
 \subsubsection{GPU Occupancy}
 
 Persistent kernels occupy GPU resources indefinitely. Unlike traditional kernels
-that release SMs after completion, RingKernel actors hold their thread blocks.
+that release SMs after completion, GPU-native actors hold their thread blocks.
 This can impact:
 
 \begin{itemize}
-    \item \textbf{Multi-tenancy}: Other CUDA applications may see reduced performance
+    \item \textbf{Multi-tenancy}: Other GPU applications may see reduced performance
     \item \textbf{Power consumption}: GPU remains active even when idle
     \item \textbf{Resource limits}: Maximum concurrent actors bounded by SM count
 \end{itemize}
 
-Mitigation: RingKernel supports graceful termination and can yield resources during
-extended idle periods.
+All implementations in the ecosystem support graceful termination and can yield
+resources during extended idle periods. Orleans.GpuBridge additionally supports
+actor migration to consolidate workloads.
 
 \subsubsection{No Dynamic Actor Creation}
 
@@ -28,8 +30,10 @@ Traditional actor systems allow creating actors dynamically. GPU architectures
 have limited support for dynamic parallelism, and CUDA dynamic parallelism has
 significant overhead.
 
-Current RingKernel requires pre-allocating actor resources at launch time. Future
-work could explore on-demand actor spawning using persistent thread pools.
+Current implementations require pre-allocating actor resources at launch time.
+Future work could explore on-demand actor spawning using persistent thread pools.
+RustGraph partially addresses this with its actor pool design that supports
+dynamic graph topology changes.
 
 \subsubsection{Debugging Complexity}
 
@@ -40,26 +44,31 @@ Persistent kernels are harder to debug than traditional kernels:
     \item Stalls may hang the entire GPU
 \end{itemize}
 
-RingKernel mitigates this with the watchdog (detects stalls) and structured logging
-to K2H queue.
+The paradigm mitigates this with watchdog patterns (detecting stalls via heartbeat
+monitoring) and structured logging to K2H queues. RingKernel provides enterprise
+observability features; DotCompute integrates with .NET diagnostics.
 
 \subsubsection{Portability}
 
-Full RingKernel functionality requires CUDA features:
+Full paradigm functionality requires specific GPU features:
 \begin{itemize}
-    \item Cooperative groups (Compute Capability 6.0+)
-    \item Mapped memory (all CUDA GPUs)
-    \item 64-bit atomics (CC 3.5+)
+    \item Cooperative groups (CUDA CC 6.0+, limited on other platforms)
+    \item Mapped/unified memory (all modern GPUs)
+    \item 64-bit atomics (CUDA CC 3.5+, most modern GPUs)
 \end{itemize}
 
-The WebGPU backend provides cross-platform support but with reduced functionality
-(no true persistent kernels, emulated via host dispatch loop).
+Cross-platform implementations vary in capability:
+\begin{itemize}
+    \item \textbf{RingKernel WebGPU}: Emulated persistence via host dispatch loop
+    \item \textbf{DotCompute}: OpenCL/Metal backends with reduced functionality
+    \item \textbf{Orleans.GpuBridge}: CUDA-focused with NVLink optimization
+\end{itemize}
 
 \subsection{Design Trade-offs}
 
 \subsubsection{Message Size vs Throughput}
 
-RingKernel uses 256-byte message envelopes for alignment and metadata. For
+The paradigm uses 64-256 byte message envelopes for alignment and metadata. For
 small payloads, this represents significant overhead. Alternative designs:
 
 \begin{itemize}
@@ -68,11 +77,12 @@ small payloads, this represents significant overhead. Alternative designs:
     \item \textbf{Batched messages}: Amortize header cost, increased latency
 \end{itemize}
 
-We chose fixed 256-byte envelopes for simplicity and predictable performance.
+Implementations make different trade-offs: RingKernel uses 256-byte envelopes for
+full metadata; DotCompute uses 64-byte headers for .NET serialization compatibility.
 
 \subsubsection{HLC vs Vector Clocks}
 
-We chose HLC over vector clocks because:
+The base paradigm uses HLC over vector clocks because:
 \begin{itemize}
     \item $O(1)$ space vs $O(n)$ for $n$ actors
     \item Proximity to wall-clock time useful for debugging
@@ -80,6 +90,8 @@ We chose HLC over vector clocks because:
 \end{itemize}
 
 Applications requiring full causal history can layer vector clocks atop HLC.
+Orleans.GpuBridge implements vector clocks for distributed scenarios where
+full causal history tracking is necessary.
 
 \subsubsection{SPSC vs MPMC Queues}
 
@@ -90,7 +102,8 @@ H2K/K2H use SPSC (Single-Producer Single-Consumer) queues:
 \end{itemize}
 
 For most applications, the host is not a bottleneck. Multi-threaded hosts can
-use per-thread K2K channels or a dispatcher pattern.
+use per-thread K2K channels or a dispatcher pattern. Orleans.GpuBridge's
+integration with Orleans silos provides natural multi-threaded command dispatch.
 
 \subsection{Security Considerations}
 
@@ -103,12 +116,19 @@ GPU actors introduce security considerations:
     \item \textbf{Side channels}: Shared cache may leak information between actors
 \end{itemize}
 
-RingKernel provides \texttt{KernelSandbox} for resource limits but cannot provide
-full isolation on current GPU hardware. Trusted actors only.
+Implementations provide varying levels of protection:
+\begin{itemize}
+    \item \textbf{RingKernel}: \texttt{KernelSandbox} for resource limits, AES-256
+    message encryption
+    \item \textbf{DotCompute}: .NET security model integration
+    \item \textbf{Orleans.GpuBridge}: Orleans authentication/authorization
+\end{itemize}
+
+Full isolation on current GPU hardware is not possible. Trusted actors only.
 
 \subsection{Future Work}
 
-\subsubsection{Multi-GPU Actors}
+\subsubsection{Multi-GPU and Distributed Actors}
 
 Extending K2K messaging across GPUs using NVLink or GPUDirect RDMA would enable
 distributed GPU actor systems. Challenges include:
@@ -117,6 +137,9 @@ distributed GPU actor systems. Challenges include:
     \item Failure detection across GPU boundaries
     \item Consistent HLC synchronization
 \end{itemize}
+
+Orleans.GpuBridge already supports P2P NVLink routing within a node; extending
+to multi-node clusters is natural future work.
 
 \subsubsection{Actor Migration}
 
@@ -127,40 +150,47 @@ Live migration of actors between GPUs could enable:
     \item Energy optimization by consolidating actors
 \end{itemize}
 
-RingKernel's \texttt{KernelMigrator} provides checkpoint/restore primitives;
-full migration requires serializing shared memory state.
+RingKernel's \texttt{KernelMigrator} and Orleans.GpuBridge's \texttt{MigrateActor}
+provide checkpoint/restore primitives; full migration requires serializing shared
+memory state.
 
 \subsubsection{Formal Verification}
 
 The lock-free queue and HLC implementations are subtle. Formal verification using
-tools like TLA+ or SPIN would increase confidence in correctness.
+tools like TLA+ or SPIN would increase confidence in correctness. This is
+particularly important as the paradigm sees adoption across multiple implementations.
 
 \subsubsection{Alternative Hardware}
 
 Applying the GPU actor model to other accelerators:
 \begin{itemize}
-    \item \textbf{AMD ROCm}: Similar capabilities to CUDA
+    \item \textbf{AMD ROCm}: Similar capabilities to CUDA, natural target
     \item \textbf{Intel GPUs}: via SYCL or Level Zero
+    \item \textbf{Apple Silicon}: Metal compute with unified memory
     \item \textbf{TPUs}: Different programming model, may not fit
     \item \textbf{FPGAs}: Could implement true hardware actors
 \end{itemize}
+
+DotCompute's multi-backend architecture (CUDA/OpenCL/Metal) demonstrates the
+feasibility of cross-platform GPU actors.
 
 \subsection{Lessons Learned}
 
 \subsubsection{Mapped Memory is Essential}
 
-Early RingKernel prototypes used explicit memory copies for H2K/K2H. Switching
-to mapped memory reduced command latency by 100$\times$.
+Early prototypes used explicit memory copies for H2K/K2H. Switching to mapped
+memory reduced command latency by 100$\times$. This insight drove the paradigm's
+design and is reflected in all implementations.
 
 \subsubsection{Cooperative Groups Simplify Synchronization}
 
 Before cooperative groups, grid-wide synchronization required multi-kernel launches
 or software barriers. \texttt{grid.sync()} dramatically simplified persistent
-stencil implementation.
+stencil implementation. Implementations target CUDA CC 6.0+ for this reason.
 
 \subsubsection{The 80/20 Rule Applies}
 
-80\% of RingKernel's value comes from 20\% of features:
+80\% of the paradigm's value comes from 20\% of features:
 \begin{itemize}
     \item Persistent kernel pattern
     \item Lock-free H2K/K2H queues
@@ -168,7 +198,13 @@ stencil implementation.
 \end{itemize}
 
 Advanced features (HLC, K2K, enterprise observability) are valuable but not
-essential for basic use.
+essential for basic use. This informed DotCompute's layered architecture.
+
+\subsubsection{Cross-Language Implementations Validate Design}
+
+Implementing the same paradigm in Rust and C\# revealed abstraction boundaries.
+Concepts that survived translation (ControlBlock, message envelopes, HLC) represent
+fundamental patterns; language-specific features became implementation details.
 
 \subsection{Broader Impact}
 
@@ -178,8 +214,27 @@ GPU-native actors could impact:
     \item \textbf{Real-time graphics}: Game engines with physics actors on GPU
     \item \textbf{Scientific simulation}: Interactive exploration of simulations
     \item \textbf{Financial systems}: Low-latency risk calculations
+    \item \textbf{Graph analytics}: Always-current results via living analytics (RustGraph)
+    \item \textbf{Distributed systems}: Orleans-style virtual actors on GPU clusters
     \item \textbf{Robotics}: Sensor fusion and control on embedded GPUs
 \end{itemize}
 
-By providing actor semantics on GPU, RingKernel opens these domains to developers
-familiar with Erlang/Akka patterns.
+By providing actor semantics on GPU, the paradigm opens these domains to developers
+familiar with Erlang/Akka/Orleans patterns, while maintaining GPU performance
+characteristics.
+
+\subsection{Ecosystem Sustainability}
+
+The existence of multiple independent implementations raises questions about
+ecosystem sustainability:
+
+\begin{itemize}
+    \item \textbf{Interoperability}: Should implementations share message formats?
+    \item \textbf{Standardization}: Is there a role for a formal specification?
+    \item \textbf{Collaboration}: How to share improvements across implementations?
+\end{itemize}
+
+Currently, all implementations share the same author and core design principles.
+As adoption grows, formalizing these principles into a specification may become
+valuable. The comparison tables in Section~\ref{sec:related} provide a starting
+point for such standardization efforts.

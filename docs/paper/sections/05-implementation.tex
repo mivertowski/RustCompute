@@ -373,3 +373,128 @@ proptest! {
     }
 }
 \end{lstlisting}
+
+\subsection{Cross-Language Ecosystem}
+
+The GPU-native actor paradigm is implemented across multiple languages and frameworks,
+sharing common architectural patterns while adapting to language-specific idioms.
+
+\subsubsection{Shared Architecture Patterns}
+
+All implementations share these core patterns:
+
+\begin{enumerate}
+    \item \textbf{ControlBlock}: A 128-256 byte GPU-resident structure managing actor
+    lifecycle (state, heartbeat, step counter, configuration).
+
+    \item \textbf{Ring Buffer Queues}: Lock-free SPSC queues with atomic head/tail
+    pointers and power-of-2 capacity for efficient modulo operations.
+
+    \item \textbf{Message Envelope}: 64-256 byte headers with magic number, type ID,
+    correlation ID, HLC timestamp, and checksum for validation.
+
+    \item \textbf{HLC Integration}: Hybrid Logical Clocks with physical time, logical
+    counter, and node ID---updated on every send/receive operation.
+
+    \item \textbf{Persistent Dispatch Loop}: The kernel runs indefinitely, polling
+    for messages and updating heartbeat to signal liveness.
+\end{enumerate}
+
+\subsubsection{DotCompute (.NET Implementation)}
+
+DotCompute implements the paradigm for .NET 9+ with C\# idioms:
+
+\begin{itemize}
+    \item \textbf{Source Generators}: Roslyn-based compile-time kernel generation
+    from C\# method signatures with \texttt{[RingKernel]} attributes
+
+    \item \textbf{LINQ-to-GPU}: Expression tree analysis converts LINQ queries
+    to fused GPU kernels, reducing memory bandwidth 50-80\%
+
+    \item \textbf{MessageQueueBridge}: Named queues with background DMA transfer
+    thread, achieving 1.24$\mu$s serialization latency
+
+    \item \textbf{Native AOT}: Full support for ahead-of-time compilation with
+    trimming, enabling sub-10ms cold start
+
+    \item \textbf{Multi-Backend}: Unified API across CUDA, OpenCL, Metal, and
+    CPU fallback via backend abstraction layer
+\end{itemize}
+
+\subsubsection{Orleans.GpuBridge (Distributed Actors)}
+
+Orleans.GpuBridge extends Microsoft Orleans with GPU-native grains:
+
+\begin{itemize}
+    \item \textbf{RingKernelGrainBase}: Base class for Orleans grains backed by
+    persistent GPU kernels, with automatic lifecycle integration
+
+    \item \textbf{Hypergraph Actors}: Multi-way relationships stored in CSR
+    (Compressed Sparse Row) format with GPU-accelerated pattern matching
+
+    \item \textbf{P2P GPU Messaging}: K2KDispatcher routes messages via NVLink,
+    PCIe P2P, or CPU fallback based on topology discovery
+
+    \item \textbf{GPU Telemetry}: Per-grain memory tracking with OpenTelemetry
+    export for production monitoring
+
+    \item \textbf{Polly v8 Resilience}: Circuit breakers, retry policies, and
+    rate limiting adapted for GPU failure modes
+\end{itemize}
+
+\subsubsection{RustGraph (Living Graph Database)}
+
+RustGraph applies GPU-native actors to graph analytics:
+
+\begin{itemize}
+    \item \textbf{GpuNodeState}: 256-byte per-node actor state with inline
+    analytics fields (PageRank, centrality, component ID, fraud scores)
+
+    \item \textbf{Per-Node Inboxes}: Each graph node has a K2K ring buffer
+    (512 slots default) for receiving neighbor messages
+
+    \item \textbf{Living Analytics}: 64+ algorithms maintained via continuous
+    message propagation---queries read current state in O(1)
+
+    \item \textbf{Audit Domain}: Three-way match, segregation of duties, and
+    fraud triangle scoring computed via actor messages
+
+    \item \textbf{Unified Hypergraph}: Accounting, controls, and process mining
+    integrated in single GPU-resident structure
+\end{itemize}
+
+\subsubsection{Code Generation Comparison}
+
+Table~\ref{tab:codegen-comparison} compares the code generation approaches:
+
+\begin{table}[h]
+\centering
+\caption{Code generation approaches across implementations}
+\label{tab:codegen-comparison}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{System} & \textbf{Input} & \textbf{Output} \\
+\midrule
+RingKernel & Rust DSL + proc macros & CUDA C, WGSL \\
+DotCompute & C\# + source generators & CUDA, OpenCL, Metal \\
+Orleans.GpuBridge & C\# + DotCompute & Via DotCompute \\
+RustGraph & Rust DSL & CUDA PTX \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Combined Test Coverage}
+
+The ecosystem maintains comprehensive test coverage:
+
+\begin{itemize}
+    \item \textbf{RingKernel}: 900+ tests (Rust)
+    \item \textbf{DotCompute}: 215/234 tests passing (C\#)
+    \item \textbf{Orleans.GpuBridge}: 1,231 tests (C\#)
+    \item \textbf{RustGraph}: 1,400+ tests (Rust)
+    \item \textbf{Total}: 3,700+ tests across the ecosystem
+\end{itemize}
+
+This cross-language implementation demonstrates that the GPU-native actor paradigm
+is not language-specific but a universal pattern applicable wherever persistent
+GPU kernels and lock-free messaging are available.

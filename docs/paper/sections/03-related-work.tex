@@ -3,7 +3,7 @@
 \section{Related Work}
 \label{sec:related}
 
-RingKernel builds upon decades of research in actor systems, GPU computing,
+The GPU-native actor model builds upon decades of research in actor systems, GPU computing,
 and persistent kernel techniques. We survey related work and position our contributions.
 
 \subsection{Actor Model Implementations}
@@ -64,9 +64,9 @@ iterative memory-bound applications. By moving the time loop inside the kernel a
 using device-wide barriers, PERKS achieves 2.29$\times$ speedup for stencil computations
 on NVIDIA A100.
 
-PERKS focuses on performance for structured iterative patterns. RingKernel extends
-this with actor semantics---message passing, lifecycle management, and causal ordering---for
-general concurrent applications.
+PERKS focuses on performance for structured iterative patterns. The GPU-native actor
+model extends this with actor semantics---message passing, lifecycle management, and
+causal ordering---for general concurrent applications.
 
 \subsubsection{GPU-Initiated Communication}
 
@@ -74,8 +74,8 @@ Agostini et al.~\cite{agostini2017gpu} demonstrated GPU-initiated communication 
 GPUDirect RDMA and NVSHMEM. Their work enables GPU threads to directly send network
 messages without host intervention.
 
-RingKernel's K2K messaging applies similar principles at the device level, enabling
-direct kernel-to-kernel communication through mapped memory.
+K2K messaging applies similar principles at the device level, enabling direct
+kernel-to-kernel communication through mapped memory.
 
 \subsection{Lock-Free Data Structures on GPU}
 
@@ -89,8 +89,8 @@ Tzeng et al.~\cite{tzeng2010task} developed task queues for GPU ray tracing, han
 dynamic work distribution without locks. Their approach influenced GPU work-stealing
 designs.
 
-RingKernel uses single-producer single-consumer (SPSC) ring buffers with atomic
-head/tail pointers, optimized for the H2K/K2H communication pattern.
+The GPU-native actor model uses single-producer single-consumer (SPSC) ring buffers
+with atomic head/tail pointers, optimized for the H2K/K2H communication pattern.
 
 \subsubsection{Memory Consistency}
 
@@ -98,7 +98,7 @@ Alglave et al.~\cite{alglave2015gpu} formalized GPU memory consistency models,
 identifying subtle differences from CPU models. Their work is essential for
 correct lock-free programming on GPUs.
 
-RingKernel uses memory fences ({\tt \_\_threadfence()}) and atomic operations
+Our implementations use memory fences ({\tt \_\_threadfence()}) and atomic operations
 following NVIDIA's relaxed memory model guidelines.
 
 \subsection{Causal Ordering in Distributed Systems}
@@ -115,8 +115,9 @@ Kulkarni et al.~\cite{kulkarni2014hlc} introduced Hybrid Logical Clocks (HLC) th
 combine physical time with logical counters. HLC provides causality guarantees while
 staying close to wall-clock time, with $O(1)$ space per timestamp.
 
-RingKernel implements HLC on GPU, a novel contribution enabling causal ordering
-across thousands of concurrent GPU actors.
+All GPU-native actor implementations use HLC for causal ordering across thousands
+of concurrent GPU actors---a novel contribution enabling distributed systems semantics
+on massively parallel hardware.
 
 \subsection{GPU Programming Languages and DSLs}
 
@@ -133,28 +134,123 @@ cudarc~\cite{cudarc2023} provides safe Rust bindings to CUDA driver/runtime APIs
 RingKernel builds on cudarc for runtime management and provides its own Rust-to-CUDA
 transpiler for actor kernel generation.
 
+\subsection{GPU-Native Actor Ecosystem}
+
+Beyond RingKernel, three companion frameworks implement the GPU-native actor paradigm,
+demonstrating its applicability across languages and domains.
+
+\subsubsection{DotCompute (.NET 9/C\#)}
+
+DotCompute is a universal compute acceleration framework for .NET 9+ that implements
+the Ring Kernel System for persistent GPU actors. Key features include:
+
+\begin{itemize}
+    \item \textbf{Multi-backend support}: CUDA, OpenCL, Metal, with CPU fallback
+    \item \textbf{Message Queue Bridge}: Named host-side queues with background DMA
+    transfer to GPU-resident ring buffers, achieving $\sim$1.24$\mu$s serialization
+    \item \textbf{LINQ-to-GPU}: Automatic kernel generation from LINQ queries with
+    kernel fusion optimization (50-80\% bandwidth reduction)
+    \item \textbf{Native AOT}: Sub-10ms startup with full trimming support
+    \item \textbf{Source generators}: Compile-time kernel generation via Roslyn
+\end{itemize}
+
+DotCompute achieves 21-92$\times$ speedup on CUDA compared to CPU baselines, with
+a production deployment of 215/234 tests passing (91.9\%).
+
+\subsubsection{Orleans.GpuBridge (.NET/Orleans)}
+
+Orleans.GpuBridge integrates GPU-native actors with Microsoft Orleans' virtual actor
+model, enabling distributed GPU computing across Orleans clusters:
+
+\begin{itemize}
+    \item \textbf{RingKernelGrainBase}: Orleans grains backed by persistent GPU kernels,
+    achieving 100-500ns message latency vs 10-100$\mu$s for CPU actors
+    \item \textbf{Hypergraph actors}: Multi-way relationships with GPU-accelerated
+    pattern matching using CSR memory layout
+    \item \textbf{Temporal causality}: HLC and vector clocks maintained on GPU
+    \item \textbf{P2P GPU messaging}: NVLink/PCIe direct communication with automatic
+    fallback to CPU-routed paths
+    \item \textbf{Placement strategies}: Queue-depth-aware grain placement for
+    GPU device affinity
+\end{itemize}
+
+Orleans.GpuBridge enables ``Knowledge Organisms''---emergent intelligence from
+GPU actor interactions---with 2M messages/second per actor throughput.
+
+\subsubsection{RustGraph (Rust)}
+
+RustGraph implements a ``living graph database'' where nodes and edges are persistent
+GPU actors that continuously maintain analytics state:
+
+\begin{itemize}
+    \item \textbf{GpuNodeState}: 256-byte actor state (2 cache lines) with inline
+    analytics fields (PageRank, BFS distance, component ID, fraud scores)
+    \item \textbf{K2K Ring Buffer Inboxes}: Per-node lock-free message queues
+    (512 capacity default) with 100-500ns latency
+    \item \textbf{64+ living analytics}: PageRank, eigenvector centrality,
+    community detection, triangle counting---all maintained via message propagation
+    \item \textbf{O(1) queries}: Analytics always current; queries read node state
+    rather than computing on-demand
+    \item \textbf{Audit analytics}: Three-way match, segregation of duties,
+    fraud triangle scoring computed via actor message passing
+    \item \textbf{Unified hypergraph}: Accounting, internal controls, and
+    process mining domains in single GPU structure
+\end{itemize}
+
+RustGraph demonstrates that the GPU-native actor paradigm fundamentally changes
+graph analytics from ``compute on demand'' to ``continuously maintained state.''
+
 \subsection{Comparison Summary}
 
-Table~\ref{tab:related-comparison} summarizes how RingKernel relates to prior work:
+Table~\ref{tab:related-comparison} summarizes how the GPU-native actor ecosystem
+relates to prior work:
 
 \begin{table*}[t]
 \centering
 \caption{Comparison with related systems}
 \label{tab:related-comparison}
-\begin{tabular}{@{}lccccc@{}}
+\begin{tabular}{@{}lcccccc@{}}
 \toprule
-\textbf{System} & \textbf{Actor Semantics} & \textbf{GPU Native} & \textbf{Persistent} & \textbf{Causal Order} & \textbf{K2K Messaging} \\
+\textbf{System} & \textbf{Actor Semantics} & \textbf{GPU Native} & \textbf{Persistent} & \textbf{HLC} & \textbf{K2K} & \textbf{Language} \\
 \midrule
-Erlang/OTP & \checkmark & -- & -- & -- & \checkmark \\
-Akka & \checkmark & -- & -- & -- & \checkmark \\
-Orleans & \checkmark & -- & -- & -- & \checkmark \\
-PERKS & -- & \checkmark & \checkmark & -- & -- \\
-Whippletree & -- & \checkmark & \checkmark & -- & -- \\
-NVSHMEM & -- & \checkmark & -- & -- & \checkmark \\
-\textbf{RingKernel} & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark \\
+Erlang/OTP & \checkmark & -- & -- & -- & \checkmark & Erlang \\
+Akka & \checkmark & -- & -- & -- & \checkmark & Scala/Java \\
+Orleans & \checkmark & -- & -- & -- & \checkmark & C\# \\
+PERKS & -- & \checkmark & \checkmark & -- & -- & CUDA \\
+Whippletree & -- & \checkmark & \checkmark & -- & -- & CUDA \\
+NVSHMEM & -- & \checkmark & -- & -- & \checkmark & CUDA \\
+\midrule
+\textbf{RingKernel} & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & Rust \\
+\textbf{DotCompute} & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & C\# \\
+\textbf{Orleans.GpuBridge} & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & C\# \\
+\textbf{RustGraph} & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & Rust \\
 \bottomrule
 \end{tabular}
 \end{table*}
 
-RingKernel is unique in combining actor model semantics with GPU-native persistent
-execution, causal ordering, and direct kernel-to-kernel communication.
+The GPU-native actor ecosystem is unique in combining actor model semantics with
+GPU-native persistent execution, causal ordering via HLC, and direct kernel-to-kernel
+communication. The four implementations share a common architecture while targeting
+different domains: general GPU computing (RingKernel), .NET acceleration (DotCompute),
+distributed virtual actors (Orleans.GpuBridge), and graph analytics (RustGraph).
+
+Table~\ref{tab:ecosystem-comparison} compares the ecosystem implementations:
+
+\begin{table*}[t]
+\centering
+\caption{GPU-Native Actor Ecosystem Comparison}
+\label{tab:ecosystem-comparison}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+\textbf{Feature} & \textbf{RingKernel} & \textbf{DotCompute} & \textbf{Orleans.GpuBridge} & \textbf{RustGraph} \\
+\midrule
+Language & Rust & C\# (.NET 9) & C\# (Orleans) & Rust \\
+GPU Backends & CUDA, WebGPU & CUDA, OpenCL, Metal & CUDA, DotCompute & CUDA \\
+Primary Domain & FDTD simulation & General compute & Distributed actors & Graph analytics \\
+Message Latency & 0.03$\mu$s & 1.24$\mu$s & 100-500ns & 100-500ns \\
+Actor Granularity & Thread block & Thread block & Grain (virtual) & Graph node \\
+Unique Feature & Rust-to-CUDA DSL & LINQ-to-GPU & Hypergraph actors & 64+ living analytics \\
+Test Coverage & 900+ tests & 215/234 tests & 1,231 tests & 1,400+ tests \\
+\bottomrule
+\end{tabular}
+\end{table*}

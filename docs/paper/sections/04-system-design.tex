@@ -3,12 +3,13 @@
 \section{System Design}
 \label{sec:design}
 
-This section presents RingKernel's architecture, formalizing how actor model concepts
-map to GPU execution.
+This section presents the GPU-native actor architecture, formalizing how actor model
+concepts map to GPU execution. These design principles are shared across all implementations
+in the ecosystem (RingKernel, DotCompute, Orleans.GpuBridge, RustGraph).
 
 \subsection{Design Goals}
 
-RingKernel targets the following design goals:
+The GPU-native actor paradigm targets the following design goals:
 
 \begin{enumerate}
     \item \textbf{Actor Semantics}: Provide message passing, private state, and
@@ -23,13 +24,14 @@ RingKernel targets the following design goals:
     \item \textbf{Zero-Copy Communication}: Use memory-mapped buffers to avoid
     explicit data transfers for control messages.
 
-    \item \textbf{Ergonomic API}: Provide a Rust DSL that compiles to efficient
-    CUDA while hiding low-level details.
+    \item \textbf{Language Agnosticism}: Define the paradigm independently of
+    implementation language (Rust, C\#, etc.).
 \end{enumerate}
 
 \subsection{System Architecture}
 
-Figure~\ref{fig:architecture} shows RingKernel's high-level architecture.
+Figure~\ref{fig:architecture} shows the high-level architecture shared by all
+GPU-native actor implementations.
 
 \begin{figure}[h]
 \centering
@@ -73,34 +75,35 @@ Figure~\ref{fig:architecture} shows RingKernel's high-level architecture.
     \node[left=0.1cm of host, font=\footnotesize] {CPU};
     \node[left=0.1cm of actor1, font=\footnotesize] {GPU};
 \end{tikzpicture}
-\caption{RingKernel architecture showing Host-to-Kernel (H2K), Kernel-to-Host (K2H),
+\caption{GPU-native actor architecture showing Host-to-Kernel (H2K), Kernel-to-Host (K2H),
 and Kernel-to-Kernel (K2K) communication through mapped memory.}
 \label{fig:architecture}
 \end{figure}
 
-\subsection{Actor Model Extension for GPU}
+\subsection{Communication Channels}
 
-We extend the traditional actor model with three distinct communication channels:
+The paradigm extends the traditional actor model with three distinct communication channels,
+each optimized for different communication patterns.
 
 \subsubsection{Host-to-Kernel (H2K) Channel}
 
 The H2K channel carries commands from the host application to GPU actors:
 \begin{itemize}
     \item \texttt{RunSteps(n)}: Execute $n$ computation steps
-    \item \texttt{InjectImpulse(pos, value)}: Inject data at position
+    \item \texttt{InjectData(pos, value)}: Inject data at position
     \item \texttt{Terminate}: Graceful shutdown request
-    \item \texttt{GetProgress}: Query current state
+    \item \texttt{Query}: Request current state/progress
 \end{itemize}
 
 H2K is implemented as an SPSC (Single-Producer Single-Consumer) ring buffer in
-mapped memory. The host is the sole producer; thread block 0 on the GPU is the consumer.
+mapped memory. The host is the sole producer; a designated GPU thread is the consumer.
 
 \subsubsection{Kernel-to-Host (K2H) Channel}
 
 The K2H channel carries responses from GPU actors to the host:
 \begin{itemize}
     \item \texttt{Ack(cmd\_id)}: Command acknowledgment
-    \item \texttt{Progress(step, energy)}: Progress report
+    \item \texttt{Progress(step, metrics)}: Progress report
     \item \texttt{Error(code, msg)}: Error notification
     \item \texttt{Terminated}: Shutdown confirmation
 \end{itemize}
@@ -110,15 +113,17 @@ K2H is also an SPSC ring buffer with the GPU as producer and host as consumer.
 \subsubsection{Kernel-to-Kernel (K2K) Channel}
 
 The K2K channel enables direct communication between GPU actors without host intervention.
-This is essential for algorithms requiring inter-block communication, such as:
+This is essential for algorithms requiring inter-actor communication:
 \begin{itemize}
-    \item Stencil halo exchange between spatial tiles
-    \item Scatter-gather operations in graph algorithms
+    \item Stencil halo exchange between spatial tiles (FDTD, CFD)
+    \item Message propagation in graph algorithms (PageRank, BFS)
     \item Work stealing in dynamic load balancing
+    \item Neighbor communication in multi-agent systems
 \end{itemize}
 
 K2K uses device memory (not mapped) for minimal latency. A routing table maps
-actor IDs to buffer addresses.
+actor IDs to buffer addresses. In Orleans.GpuBridge and RustGraph, K2K additionally
+supports P2P communication via NVLink when available.
 
 \subsection{GPU Actor Lifecycle}
 
@@ -143,33 +148,39 @@ __device__ bool transition_to_active(ControlBlock* cb) {
 
 \subsection{Message Envelope Format}
 
-All messages use a standardized 256-byte envelope format:
+All implementations use a standardized message envelope format (64-256 bytes depending
+on implementation):
 
-\begin{lstlisting}[language=Rust, caption={Message envelope structure}]
+\begin{lstlisting}[language=Rust, caption={Message envelope structure (canonical)}]
 #[repr(C, align(64))]
 struct MessageHeader {
-    magic: u64,           // 0x52494E474B45524E ("RINGKERN")
+    magic: u64,           // Implementation-specific magic
     version: u32,
     message_type: u32,
     payload_size: u32,
     flags: u32,
-    source_kernel: u32,
-    dest_kernel: u32,
+    source_actor: u32,
+    dest_actor: u32,
     correlation_id: u64,
     hlc_physical: u64,    // HLC timestamp
     hlc_logical: u32,
     hlc_node_id: u32,
     checksum: u32,
-    _reserved: [u8; 180], // Pad to 256 bytes
+    _reserved: [u8; N],   // Pad to alignment
 }
 \end{lstlisting}
 
-The 64-byte alignment ensures coalesced memory access. The magic number enables
-validation of message integrity.
+Key design choices:
+\begin{itemize}
+    \item \textbf{64-byte alignment}: Ensures coalesced memory access on GPUs
+    \item \textbf{Magic number}: Enables validation of message integrity
+    \item \textbf{Correlation ID}: Links requests to responses for async patterns
+    \item \textbf{HLC fields}: Built-in causal ordering support
+\end{itemize}
 
 \subsection{Hybrid Logical Clocks on GPU}
 
-RingKernel implements HLC for causal ordering. Each actor maintains an HLC:
+All implementations use HLC for causal ordering. Each actor maintains an HLC:
 
 \begin{lstlisting}[language=CUDA, caption={HLC operations on GPU}]
 struct HlcClock {
@@ -202,7 +213,7 @@ __device__ void hlc_receive(HlcClock* clock, MessageHeader* msg) {
     } else if (msg_pt > now && msg_pt > clock->physical) {
         clock->physical = msg_pt;
         clock->logical = msg->hlc_logical + 1;
-    } else {  // msg_pt == clock->physical
+    } else {
         clock->logical = max(clock->logical, msg->hlc_logical) + 1;
     }
 }
@@ -212,9 +223,13 @@ This enables causal ordering across GPU actors: if actor $A$ sends message $m$ t
 actor $B$, and $B$ sends message $m'$ after receiving $m$, then $m \rightarrow m'$
 in the happens-before relation, reflected in HLC timestamps.
 
+Orleans.GpuBridge additionally implements vector clocks for full causal history
+tracking in distributed scenarios.
+
 \subsection{Lock-Free Ring Buffer}
 
-The message queues use lock-free SPSC ring buffers:
+The message queues use lock-free SPSC ring buffers, a pattern shared across all
+implementations:
 
 \begin{lstlisting}[language=CUDA, caption={Lock-free ring buffer}]
 struct RingBuffer {
@@ -252,9 +267,9 @@ visibility across CPU-GPU boundary for mapped memory.
 
 \subsection{ControlBlock Structure}
 
-The 128-byte ControlBlock provides GPU-resident lifecycle management:
+The ControlBlock (128-256 bytes) provides GPU-resident lifecycle management:
 
-\begin{lstlisting}[language=Rust, caption={ControlBlock structure}]
+\begin{lstlisting}[language=Rust, caption={ControlBlock structure (canonical)}]
 #[repr(C, align(128))]
 struct ControlBlock {
     // Lifecycle (8 bytes)
@@ -264,11 +279,11 @@ struct ControlBlock {
     // Timing (24 bytes)
     heartbeat: AtomicU64,       // Last activity timestamp
     system_time: AtomicU64,     // Host-updated wall clock
-    step_counter: AtomicU64,    // Computation steps completed
+    step_counter: AtomicU64,    // Steps/iterations completed
 
     // Configuration (16 bytes)
-    kernel_id: u32,
-    block_count: u32,
+    actor_id: u32,
+    actor_count: u32,
     queue_capacity: u32,
     _pad1: u32,
 
@@ -278,7 +293,7 @@ struct ControlBlock {
     errors: AtomicU64,
     _pad2: u64,
 
-    // Reserved (48 bytes)
+    // Reserved for implementation-specific fields
     _reserved: [u8; 48],
 }
 \end{lstlisting}
@@ -288,23 +303,38 @@ to detect stalled actors (watchdog pattern).
 
 \subsection{Supervision Model}
 
-RingKernel maps Erlang-style supervision to the host-GPU relationship:
+The paradigm maps Erlang-style supervision to the host-GPU relationship:
 
 \begin{itemize}
     \item \textbf{Host as Supervisor}: The host runtime monitors ControlBlock health,
     can terminate and restart GPU actors.
 
-    \item \textbf{Actors as Children}: GPU thread blocks are supervised actors
-    that can fail independently.
+    \item \textbf{Actors as Children}: GPU thread blocks/workgroups are supervised
+    actors that can fail independently.
 
     \item \textbf{Recovery Strategies}:
     \begin{itemize}
         \item \texttt{Restart}: Relaunch kernel with fresh state
         \item \texttt{Resume}: Update ControlBlock to resume execution
         \item \texttt{Escalate}: Report failure to application
+        \item \texttt{Migrate}: Move actor to different GPU (Orleans.GpuBridge)
     \end{itemize}
 \end{itemize}
 
 The watchdog detects stalls by comparing \texttt{heartbeat} against
 \texttt{system\_time}---if the difference exceeds a threshold, the actor is
 considered failed.
+
+\subsection{Domain-Specific Extensions}
+
+While the core architecture is shared, each implementation extends it for specific domains:
+
+\begin{itemize}
+    \item \textbf{RingKernel}: Stencil-optimized K2K for FDTD halo exchange
+    \item \textbf{DotCompute}: LINQ expression tree to kernel compilation
+    \item \textbf{Orleans.GpuBridge}: Hypergraph actors with CSR storage, P2P NVLink routing
+    \item \textbf{RustGraph}: Per-node actor state with inline analytics fields
+\end{itemize}
+
+These extensions demonstrate that the core paradigm is flexible enough to support
+diverse application domains while maintaining the fundamental actor semantics.

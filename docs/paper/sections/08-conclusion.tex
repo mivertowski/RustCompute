@@ -3,10 +3,11 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-We presented RingKernel, a GPU-native persistent actor model that brings actor
+We presented the GPU-native persistent actor model, a paradigm that brings actor
 semantics to GPU computing. By treating GPU thread blocks as actors with lock-free
-message passing and Hybrid Logical Clocks for causal ordering, RingKernel enables
-a new class of interactive GPU applications.
+message passing and Hybrid Logical Clocks for causal ordering, this paradigm enables
+a new class of interactive GPU applications. We demonstrated the paradigm's viability
+through four independent implementations spanning two programming languages.
 
 \subsection{Summary of Contributions}
 
@@ -15,7 +16,7 @@ a new class of interactive GPU applications.
     H2K, K2H, and K2K communication channels that map naturally to GPU memory
     hierarchies, providing a formal foundation for GPU-native actors.
 
-    \item \textbf{ControlBlock Architecture}: We introduced a 128-byte GPU-resident
+    \item \textbf{ControlBlock Architecture}: We introduced a 128-256 byte GPU-resident
     structure for actor lifecycle management, enabling supervision patterns
     analogous to Erlang's ``let it crash'' philosophy.
 
@@ -23,12 +24,16 @@ a new class of interactive GPU applications.
     ordering across thousands of concurrent GPU actors, a novel capability
     enabling distributed systems semantics on parallel hardware.
 
-    \item \textbf{Rust-to-CUDA Transpilation}: We developed a transpiler that
-    converts high-level Rust actor definitions to efficient CUDA kernels,
-    lowering the barrier to GPU actor programming.
+    \item \textbf{Cross-Language Implementations}: We demonstrated the paradigm's
+    generality through implementations in Rust (RingKernel, RustGraph) and
+    C\#/.NET (DotCompute, Orleans.GpuBridge), with a combined 6,500+ tests.
 
-    \item \textbf{Comprehensive Evaluation}: We demonstrated 11,327$\times$ lower
-    command latency and 2.7$\times$ higher mixed-workload throughput compared
+    \item \textbf{Domain-Specific Applications}: We applied the paradigm to diverse
+    domains: FDTD simulation, distributed virtual actors, and living graph
+    analytics, demonstrating broad applicability.
+
+    \item \textbf{Comprehensive Evaluation}: We demonstrated 250-11,000$\times$ lower
+    command latency and O(1) query time for living analytics compared
     to traditional GPU programming patterns.
 \end{enumerate}
 
@@ -46,50 +51,71 @@ kernels depends on workload characteristics:
 
     \item \textbf{Mixed workloads}: Persistent actors enable real-time applications
     (60 FPS) that are infeasible with traditional launch-per-operation patterns
+
+    \item \textbf{Living analytics}: Continuous state maintenance fundamentally
+    changes the performance model---queries become O(1) reads instead of
+    full recomputation
 \end{itemize}
 
 \subsection{Significance}
 
-RingKernel bridges two successful but previously separate paradigms:
+The GPU-native actor paradigm bridges two successful but previously separate paradigms:
 
 \begin{itemize}
     \item The \textbf{actor model}---proven for building reliable concurrent systems
     (Erlang, Akka, Orleans)
 
     \item \textbf{GPU computing}---proven for massive parallelism and throughput
-    (CUDA, OpenCL)
+    (CUDA, OpenCL, Metal)
 \end{itemize}
 
-By unifying these paradigms, RingKernel enables developers to apply familiar actor
-patterns to GPU hardware, unlocking new applications that require both massive
-parallelism and responsive interaction.
+By unifying these paradigms, developers can apply familiar actor patterns to GPU
+hardware, unlocking new applications that require both massive parallelism and
+responsive interaction.
 
 \subsection{Availability}
 
-RingKernel is open-source software available at:
+The GPU-native actor ecosystem is available as open-source software:
 
 \begin{center}
-\url{https://github.com/mivertowski/RustCompute}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Implementation} & \textbf{Repository} \\
+\midrule
+RingKernel (Rust) & \url{https://github.com/mivertowski/RustCompute} \\
+DotCompute (.NET) & \url{https://github.com/mivertowski/DotCompute} \\
+Orleans.GpuBridge & \url{https://github.com/mivertowski/Orleans.GpuBridge} \\
+RustGraph & \url{https://github.com/mivertowski/RustGraph} \\
+\bottomrule
+\end{tabular}
 \end{center}
 
-The repository includes:
+All implementations are released under permissive licenses (Apache 2.0 / MIT).
+The combined ecosystem includes:
 \begin{itemize}
-    \item Full source code (Apache 2.0 / MIT dual license)
-    \item 900+ tests across the workspace
-    \item Example applications (FDTD simulation, transaction monitoring)
+    \item 6,500+ tests across all implementations
+    \item Example applications for each domain (FDTD, virtual actors, graph analytics)
     \item Documentation and tutorials
+    \item Cross-platform support (CUDA, OpenCL, Metal, WebGPU)
 \end{itemize}
 
-Published crates are available on crates.io under the \texttt{ringkernel-*} namespace.
+RingKernel crates are published on crates.io under the \texttt{ringkernel-*} namespace.
+DotCompute packages are available on NuGet.
 
 \subsection{Closing Remarks}
 
-Fifty years after Hewitt's original actor model paper, actors remain a powerful
-abstraction for concurrent computation. GPUs offer unprecedented parallel
-processing capability, yet have lacked the programming model support that makes
-actors compelling. RingKernel takes a step toward closing this gap, demonstrating
-that actor semantics and GPU execution can be unified productively.
+Fifty years after Hewitt's original actor model paper~\cite{hewitt1973actors}, actors
+remain a powerful abstraction for concurrent computation. GPUs offer unprecedented
+parallel processing capability, yet have lacked the programming model support that
+makes actors compelling.
 
-We hope RingKernel inspires further research into high-level programming models
+The GPU-native actor paradigm takes a step toward closing this gap, demonstrating
+that actor semantics and GPU execution can be unified productively. The existence
+of multiple implementations---in different languages, targeting different domains,
+yet sharing the same fundamental architecture---suggests that these concepts
+capture something essential about bringing high-level concurrency abstractions
+to massively parallel hardware.
+
+We hope this work inspires further research into high-level programming models
 for heterogeneous computing, making GPU capabilities accessible to a broader
-audience of developers.
+audience of developers familiar with actor-based systems.

@@ -4,7 +4,7 @@
 \label{sec:background}
 
 This section provides background on the actor model and GPU programming,
-establishing the concepts that RingKernel unifies.
+establishing the concepts that the GPU-native actor paradigm unifies.
 
 \subsection{The Actor Model}
 
@@ -55,20 +55,22 @@ logical counters:
     \text{HLC} = \langle \text{physical\_time}, \text{logical\_counter}, \text{node\_id} \rangle
 \end{equation}
 HLC provides the causal ordering guarantees of Lamport clocks while maintaining
-proximity to wall-clock time.
+proximity to wall-clock time. This makes HLC ideal for GPU actors where thousands
+of concurrent entities require efficient causality tracking.
 
 \subsection{GPU Architecture and Programming}
 
-Modern GPUs contain thousands of cores organized hierarchically. We focus on NVIDIA
-CUDA architecture, though the concepts generalize.
+Modern GPUs contain thousands of cores organized hierarchically. While we focus on
+NVIDIA CUDA terminology, the concepts generalize to other GPU platforms (AMD ROCm,
+Apple Metal, WebGPU).
 
 \subsubsection{Execution Model}
 
-CUDA organizes computation into a hierarchy:
+GPU computation is organized into a hierarchy:
 \begin{itemize}
     \item \textbf{Thread}: Smallest execution unit, has private registers
-    \item \textbf{Warp}: 32 threads executing in SIMT lockstep
-    \item \textbf{Block}: Collection of warps sharing fast ``shared memory''
+    \item \textbf{Warp/Wavefront}: 32-64 threads executing in SIMT lockstep
+    \item \textbf{Block/Workgroup}: Collection of warps sharing fast ``shared memory''
     \item \textbf{Grid}: Collection of blocks executing the same kernel
 \end{itemize}
 
@@ -77,31 +79,30 @@ CUDA organizes computation into a hierarchy:
 GPU memory is organized by access speed and scope:
 \begin{itemize}
     \item \textbf{Registers}: Per-thread, fastest (1 cycle latency)
-    \item \textbf{Shared Memory}: Per-block, fast (5-10 cycles)
+    \item \textbf{Shared/Local Memory}: Per-block, fast (5-10 cycles)
     \item \textbf{L1/L2 Cache}: Automatic caching of global memory
-    \item \textbf{Global Memory}: Device-wide, slow (200-400 cycles)
-    \item \textbf{Mapped Memory}: Host-visible, accessible from both CPU and GPU
+    \item \textbf{Global/Device Memory}: Device-wide, slow (200-400 cycles)
+    \item \textbf{Mapped/Unified Memory}: Host-visible, accessible from both CPU and GPU
 \end{itemize}
 
-Mapped memory is crucial for persistent kernels---it enables the host to communicate
-with a running kernel without explicit memory copies.
+Mapped memory is crucial for the GPU-native actor paradigm---it enables the host to
+communicate with running actors without explicit memory copies or kernel relaunches.
 
 \subsubsection{Synchronization Primitives}
 
-CUDA provides several synchronization mechanisms:
+GPUs provide several synchronization mechanisms:
 \begin{itemize}
-    \item \texttt{\_\_syncthreads()}: Block-level barrier
-    \item \texttt{atomicAdd/CAS}: Atomic operations on global memory
-    \item \textbf{Cooperative Groups} (CC 6.0+): Grid-level synchronization via
-    \texttt{grid.sync()}
+    \item \textbf{Block barriers}: \texttt{\_\_syncthreads()} (CUDA), \texttt{barrier()} (OpenCL)
+    \item \textbf{Atomic operations}: \texttt{atomicAdd}, \texttt{atomicCAS}, etc.
+    \item \textbf{Grid-wide sync}: Cooperative groups (CUDA CC 6.0+), device-wide barriers
 \end{itemize}
 
-Cooperative groups enable persistent kernels to synchronize across all blocks, essential
-for iterative algorithms like stencil computations.
+Grid-wide synchronization enables persistent kernels to coordinate across all blocks,
+essential for iterative algorithms and actor-to-actor communication.
 
 \subsubsection{Traditional Kernel Launch Model}
 
-The conventional CUDA programming pattern treats kernels as \emph{batch operations}:
+The conventional GPU programming pattern treats kernels as \emph{batch operations}:
 
 \begin{lstlisting}[language=CUDA, caption={Traditional kernel launch pattern}]
 // Host code
@@ -120,10 +121,13 @@ cudaFree(d_output);
 
 Each kernel launch involves driver API calls, command buffer submission, and
 synchronization overhead---typically 10-500$\mu$s depending on GPU and driver.
+This overhead is acceptable for batch workloads but prohibitive for interactive
+applications requiring frequent host-device communication.
 
 \subsection{Mapping Actors to GPUs}
 
-Table~\ref{tab:actor-gpu-mapping} shows how actor model concepts map to GPU primitives:
+Table~\ref{tab:actor-gpu-mapping} shows how actor model concepts map to GPU primitives,
+forming the conceptual foundation of the GPU-native actor paradigm:
 
 \begin{table}[h]
 \centering
@@ -135,13 +139,43 @@ Table~\ref{tab:actor-gpu-mapping} shows how actor model concepts map to GPU prim
 \midrule
 Actor & Persistent thread block \\
 Private state & Shared memory + registers \\
-Mailbox & Lock-free ring buffer in global memory \\
+Mailbox & Lock-free ring buffer in global/mapped memory \\
 Message send & Atomic enqueue operation \\
 Message receive & Atomic dequeue operation \\
-Actor creation & Dynamic parallelism (limited) \\
+Actor creation & Pre-allocated actor pool (dynamic limited) \\
 Supervision & Host thread monitoring ControlBlock \\
+Causal ordering & GPU-resident HLC timestamps \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-This mapping forms the foundation of RingKernel's design.
+This mapping enables treating GPU thread blocks as first-class actors with full
+actor semantics---message passing, private state, and causal ordering---while
+leveraging GPU parallelism for massive concurrency.
+
+\subsection{The Paradigm Shift}
+
+The GPU-native actor paradigm represents a fundamental shift in how we think about
+GPU programming:
+
+\begin{table}[h]
+\centering
+\caption{Traditional GPU vs GPU-Native Actor paradigm}
+\label{tab:paradigm-shift}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Aspect} & \textbf{Traditional GPU} & \textbf{GPU-Native Actors} \\
+\midrule
+Kernel lifetime & Milliseconds & Indefinite (persistent) \\
+Communication & Memory copies & Message queues \\
+State location & Host memory & GPU-resident \\
+Interaction & Launch-per-operation & Continuous messaging \\
+Latency model & Batch amortization & Sub-microsecond commands \\
+Programming model & Data parallelism & Actor concurrency \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This shift enables new application classes: interactive simulations, real-time
+analytics, living databases, and distributed GPU systems---all benefiting from
+actor semantics while exploiting GPU parallelism.

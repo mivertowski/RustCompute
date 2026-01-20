@@ -52,12 +52,35 @@ supervision, or fault tolerance.
 
 \subsection{Our Contribution: GPU-Native Actors}
 
-We present \textbf{RingKernel}, a system that applies actor model semantics to GPU
-computing. Our key insight is that GPU threads (or thread blocks) can be viewed as
-actors: they have private state (registers, shared memory), communicate via messages
-(through lock-free queues), and run persistently.
+We present the \textbf{GPU-Native Persistent Actor Model}, a paradigm that applies
+actor semantics to GPU computing. Our key insight is that GPU threads (or thread blocks)
+can be viewed as actors: they have private state (registers, shared memory), communicate
+via messages (through lock-free queues), and run persistently.
 
-RingKernel makes the following contributions:
+This paradigm is realized through four complementary implementations:
+
+\begin{itemize}
+    \item \textbf{RingKernel} (Rust): The reference implementation described in this paper,
+    featuring a Rust-to-CUDA transpiler and comprehensive runtime.
+
+    \item \textbf{DotCompute} (.NET 9/C\#): A production-grade framework with multi-backend
+    support (CUDA, OpenCL, Metal), LINQ-to-GPU compilation, and Native AOT compatibility.
+
+    \item \textbf{Orleans.GpuBridge} (.NET/Orleans): Integration with Microsoft Orleans'
+    virtual actor model, enabling distributed GPU actors across Orleans clusters with
+    hypergraph support and temporal causality.
+
+    \item \textbf{RustGraph} (Rust): A living graph database where nodes and edges are
+    persistent GPU actors, maintaining 64+ analytics algorithms via continuous message
+    propagation with O(1) query latency.
+\end{itemize}
+
+Together, these systems demonstrate that GPU-native actors are a universal paradigm
+applicable across languages, frameworks, and domains.
+
+\subsection{Contributions}
+
+This paper makes the following contributions:
 
 \begin{enumerate}
     \item \textbf{Formalization of GPU Actor Semantics} (\S\ref{sec:design}): We extend
@@ -73,9 +96,13 @@ RingKernel makes the following contributions:
     HLC~\cite{kulkarni2014hlc} for causal ordering of messages across GPU actors,
     enabling distributed systems semantics on massively parallel hardware.
 
-    \item \textbf{Rust-to-CUDA Transpilation} (\S\ref{sec:implementation}): We provide
-    a DSL and transpiler that generates persistent kernel CUDA code from high-level
-    Rust actor definitions, including automatic message envelope handling.
+    \item \textbf{Cross-Language Implementations} (\S\ref{sec:implementation}): We provide
+    implementations in Rust and .NET, with transpilers generating CUDA, WGSL, and MSL,
+    demonstrating the paradigm's language-independence.
+
+    \item \textbf{Domain-Specific Applications}: We apply GPU-native actors to FDTD
+    simulation (RingKernel), enterprise accounting (DotCompute), distributed virtual
+    actors (Orleans.GpuBridge), and living graph analytics (RustGraph).
 
     \item \textbf{Comprehensive Evaluation} (\S\ref{sec:evaluation}): We demonstrate
     11,327$\times$ lower command latency and 2.7$\times$ higher mixed-workload
@@ -86,7 +113,8 @@ RingKernel makes the following contributions:
 
 The remainder of this paper is organized as follows. Section~\ref{sec:background}
 provides background on the actor model and GPU programming. Section~\ref{sec:related}
-discusses related work. Section~\ref{sec:design} presents the RingKernel system design.
-Section~\ref{sec:implementation} details the implementation. Section~\ref{sec:evaluation}
+discusses related work including our companion implementations. Section~\ref{sec:design}
+presents the GPU-native actor system design. Section~\ref{sec:implementation} details
+the RingKernel implementation and cross-language ecosystem. Section~\ref{sec:evaluation}
 evaluates performance. Section~\ref{sec:discussion} discusses limitations and future
 work. Section~\ref{sec:conclusion} concludes.
