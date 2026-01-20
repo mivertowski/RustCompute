@@ -643,13 +643,55 @@ cargo run -p ringkernel-txmon --bin txmon-benchmark --release --features cuda-co
 
 Performance varies significantly by hardware and workload.
 
-## Enterprise Security
+## GPU Profiling
 
-RingKernel v0.3.1 includes comprehensive enterprise security features. Enable with the `enterprise` feature:
+RingKernel v0.3.2 includes comprehensive GPU profiling infrastructure. Enable with the `profiling` feature:
 
 ```toml
 [dependencies]
-ringkernel-core = { version = "0.3.1", features = ["enterprise"] }
+ringkernel-cuda = { version = "0.3", features = ["profiling"] }
+```
+
+### GPU Timer and Events
+
+```rust
+use ringkernel_cuda::profiling::{GpuTimer, CudaNvtxProfiler, ProfilingSession};
+
+// GPU-side timing with CUDA events
+let mut timer = GpuTimer::new()?;
+timer.start(stream)?;
+// ... kernel execution ...
+timer.stop(stream)?;
+println!("Kernel time: {:.3} ms", timer.elapsed_ms()?);
+
+// NVTX profiling for Nsight Systems/Compute
+let profiler = CudaNvtxProfiler::new();
+{
+    let _range = profiler.push_range("compute_phase", ProfilerColor::CYAN);
+    // ... kernel execution ...
+} // Range automatically ends
+
+// Export to Chrome trace format
+let session = ProfilingSession::new();
+// ... record kernel/transfer events ...
+let builder = GpuChromeTraceBuilder::from_session(&session);
+std::fs::write("gpu_trace.json", builder.build())?;
+```
+
+Features include:
+- **CUDA Events**: GPU-side timing without CPU overhead
+- **NVTX Integration**: Timeline visualization in Nsight Systems/Compute
+- **Kernel Metrics**: Grid/block dims, occupancy, registers per thread
+- **Memory Tracking**: Allocation profiling with leak detection
+- **Chrome Trace Export**: GPU timeline visualization in chrome://tracing
+
+## Enterprise Security
+
+RingKernel v0.3.2 includes comprehensive enterprise security features. Enable with the `enterprise` feature:
+
+```toml
+[dependencies]
+ringkernel-core = { version = "0.3", features = ["enterprise"] }
 ```
 
 ### Authentication & Authorization

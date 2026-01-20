@@ -17,7 +17,8 @@ build = "build.rs"
 ringkernel-core = { workspace = true }
 
 # CUDA bindings - auto-detect CUDA version from build system
-cudarc = { version = "0.18.2", optional = true, features = ["cuda-version-from-build-system"] }
+# The nvtx feature enables NVTX profiling integration
+cudarc = { version = "0.18.2", optional = true, features = ["cuda-version-from-build-system", "nvtx"] }
 
 # Async runtime
 tokio = { workspace = true }
@@ -33,6 +34,10 @@ tracing = { workspace = true }
 # Synchronization
 parking_lot = { workspace = true }
 
+# Serialization (for profiling chrome trace export)
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
 
@@ -45,3 +50,5 @@ cuda = ["cudarc"]
 # Cooperative groups support - requires nvcc at build time for PTX compilation
 # Enables grid-wide synchronization via cuLaunchCooperativeKernel
 cooperative = ["cuda"]
+# GPU profiling support - NVTX integration, CUDA events, Chrome trace export
+profiling = ["cuda", "serde", "serde_json"]

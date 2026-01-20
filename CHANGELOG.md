@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-01-20
+
+### Added
+
+#### GPU Profiling Infrastructure
+
+- **CUDA Profiling Module** (`ringkernel-cuda/src/profiling/`) - **NEW MODULE**
+  - Feature-gated via `profiling` feature flag
+  - Comprehensive GPU profiling capabilities for performance analysis
+
+- **CUDA Event Wrappers** (`profiling/events.rs`)
+  - `CudaEvent` - RAII wrapper for CUDA events with timing support
+  - `CudaEventFlags` - Event configuration (blocking sync, disable timing, interprocess)
+  - `GpuTimer` - Start/stop timer using CUDA events with microsecond precision
+  - `GpuTimerPool` - Pool of reusable timers with interior mutability for concurrent access
+
+- **NVTX Integration** (`profiling/nvtx.rs`)
+  - `CudaNvtxProfiler` - Real NVTX profiler using cudarc's nvtx module
+  - Timeline visualization in Nsight Systems and Nsight Compute
+  - `NvtxCategory` - Predefined categories (Kernel, Transfer, Memory, Sync, Queue, User)
+  - `NvtxRange` - RAII wrapper for automatic range end on drop
+  - `NvtxPayload` - Typed payloads for markers (I32, I64, U32, U64, F32, F64)
+  - Implements `GpuProfiler` trait for integration with ringkernel-core
+
+- **Kernel Metrics** (`profiling/metrics.rs`)
+  - `KernelMetrics` - Execution metadata (grid/block dims, GPU time, occupancy, registers)
+  - `TransferMetrics` - Memory transfer stats with bandwidth calculation
+  - `TransferDirection` - HostToDevice, DeviceToHost, DeviceToDevice
+  - `ProfilingSession` - Collects kernel and transfer events with timestamps
+  - `KernelAttributes` - Query kernel attributes via cuFuncGetAttribute
+
+- **Memory Tracking** (`profiling/memory_tracker.rs`)
+  - `CudaMemoryTracker` - Track GPU memory allocations with timing
+  - `TrackedAllocation` - Allocation metadata (ptr, size, kind, label, timestamp)
+  - `CudaMemoryKind` - Device, Pinned, Mapped, Managed memory types
+  - Peak usage tracking and allocation statistics
+  - Integration with `GpuMemoryDashboard` from ringkernel-core
+
+- **Chrome Trace Export** (`profiling/chrome_trace.rs`)
+  - `GpuTraceEvent` - Chrome trace format event structure
+  - `GpuEventArgs` - Rich event metadata (grid/block dims, occupancy, bandwidth)
+  - `GpuChromeTraceBuilder` - Build Chrome trace JSON from profiling sessions
+  - Support for kernel events, transfer events, NVTX ranges, memory allocations
+  - Process/thread naming for multi-GPU and multi-stream visualization
+  - Compatible with chrome://tracing, Perfetto UI, and Nsight Systems
+
+### Changed
+
+- **Dependencies** - Added `nvtx` feature to cudarc dependency
+- **ringkernel-cuda/Cargo.toml** - Added optional `serde` and `serde_json` for Chrome trace export
+
+### Fixed
+
+- Added `ProfilerRange::stub()` public constructor in ringkernel-core for external profiler implementations
+
 ## [0.3.1] - 2026-01-19
 
 ### Added
@@ -771,7 +826,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLAUDE.md with build commands and architecture overview
 - Code examples for all major features
 
-[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/mivertowski/RustCompute/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/mivertowski/RustCompute/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/mivertowski/RustCompute/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mivertowski/RustCompute/compare/v0.1.3...v0.2.0

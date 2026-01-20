@@ -48,6 +48,8 @@ mod memory;
 pub mod persistent;
 #[cfg(feature = "cuda")]
 pub mod phases;
+#[cfg(feature = "profiling")]
+pub mod profiling;
 #[cfg(feature = "cuda")]
 pub mod reduction;
 #[cfg(feature = "cuda")]
@@ -78,6 +80,14 @@ pub use reduction::{
 pub use runtime::CudaRuntime;
 #[cfg(feature = "cuda")]
 pub use stencil::{CompiledStencilKernel, LaunchConfig, StencilKernelLoader};
+
+// Profiling re-exports
+#[cfg(feature = "profiling")]
+pub use profiling::{
+    CudaEvent, CudaEventFlags, CudaMemoryKind, CudaMemoryTracker, CudaNvtxProfiler,
+    GpuChromeTraceBuilder, GpuEventArgs, GpuTimer, GpuTimerPool, GpuTraceEvent, KernelMetrics,
+    ProfilingSession, TrackedAllocation, TransferDirection, TransferMetrics,
+};
 
 /// Re-export memory module for advanced usage.
 #[cfg(feature = "cuda")]

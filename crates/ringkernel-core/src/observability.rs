@@ -1162,6 +1162,15 @@ impl ProfilerRange {
         }
     }
 
+    /// Create a stub profiler range for external profiler implementations.
+    ///
+    /// This is used by custom profiler implementations (like CUDA NVTX) that
+    /// manage their own range lifecycle but need to return a ProfilerRange
+    /// for API compatibility.
+    pub fn stub(name: impl Into<String>, backend: GpuProfilerBackend) -> Self {
+        Self::new(name, backend)
+    }
+
     /// Get elapsed duration.
     pub fn elapsed(&self) -> Duration {
         self.start.elapsed()

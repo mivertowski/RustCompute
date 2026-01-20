@@ -94,7 +94,7 @@ The project is a Cargo workspace with these crates:
 - **`ringkernel-core`** - Core traits and types (RingMessage, MessageQueue, HlcTimestamp, ControlBlock, RingContext, RingKernelRuntime, K2K messaging, PubSub)
 - **`ringkernel-derive`** - Proc macros: `#[derive(RingMessage)]`, `#[ring_kernel]`, `#[derive(GpuType)]`
 - **`ringkernel-cpu`** - CPU backend implementation (always available, used for testing/fallback)
-- **`ringkernel-cuda`** - NVIDIA CUDA backend with cooperative groups support (feature-gated)
+- **`ringkernel-cuda`** - NVIDIA CUDA backend with cooperative groups and GPU profiling support (feature-gated)
 - **`ringkernel-wgpu`** - WebGPU cross-platform backend (feature-gated)
 - **`ringkernel-metal`** - Apple Metal backend (feature-gated, macOS only, scaffold implementation with runtime/buffer/pipeline)
 - **`ringkernel-codegen`** - GPU kernel code generation
@@ -539,8 +539,9 @@ Main crate (`ringkernel`) features:
 - `metal` - Apple Metal backend
 - `all-backends` - All GPU backends
 
-CUDA-specific features:
+CUDA-specific features (`ringkernel-cuda`):
 - `cooperative` - Enable CUDA cooperative groups for grid-wide synchronization (`grid.sync()`). Requires nvcc at build time for PTX compilation.
+- `profiling` - GPU profiling infrastructure (CUDA events, NVTX, memory tracking, Chrome trace export). Requires nvToolsExt library.
 
 Core crate (`ringkernel-core`) enterprise features:
 - `crypto` - Real cryptography (AES-256-GCM, ChaCha20-Poly1305, Argon2)
@@ -805,7 +806,7 @@ let _ = device.poll(wgpu::PollType::wait_indefinitely());
 
 ## Dependency Versions
 
-Key workspace dependencies (as of v0.3.1):
+Key workspace dependencies (as of v0.3.2):
 
 | Category | Package | Version | Notes |
 |----------|---------|---------|-------|
