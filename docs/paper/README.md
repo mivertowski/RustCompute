@@ -143,15 +143,14 @@ The RingKernel software is licensed under Apache 2.0 / MIT dual license.
 
 ## Citation
 
-If you use RingKernel in your research, please cite:
+If you use RingKernel in your research, please cite (submissing pending):
 
 ```bibtex
-@inproceedings{ringkernel2024,
+@inproceedings{gpunativepam2026,
   author    = {Ivertowski, Michael},
-  title     = {RingKernel: A GPU-Native Persistent Actor Model for
-               High-Performance Concurrent Computing},
-  booktitle = {Proceedings of [Conference]},
-  year      = {2024},
+  title     = {The GPU-Native Persistent Actor Model: Bringing Actor Semantics to Massively Parallel Hardware},
+  booktitle = {Pre-print},
+  year      = {2026},
   note      = {Preprint: https://arxiv.org/abs/XXXX.XXXXX}
 }
 ```
