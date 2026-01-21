@@ -1,7 +1,7 @@
 [package]
 name = "ringkernel-montecarlo"
-version = "0.3.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "GPU-accelerated Monte Carlo primitives for variance reduction"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ringkernel/ringkernel"
@@ -9,7 +9,7 @@ keywords = ["gpu", "monte-carlo", "variance-reduction", "cuda", "simulation"]
 categories = ["science", "simulation", "mathematics"]
 
 [dependencies]
-ringkernel-core = { path = "../ringkernel-core", version = "0.3.0" }
+ringkernel-core = { version = "0.3.2", path = "../ringkernel-core" }
 bytemuck = { workspace = true }
 rand = "0.8"
 thiserror = { workspace = true }

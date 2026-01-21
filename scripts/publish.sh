@@ -158,7 +158,9 @@ check_crate_published() {
     local crate=$1
     local version=$2
     # Check if crate version exists on crates.io
-    local response=$(curl -s "https://crates.io/api/v1/crates/$crate/$version" 2>/dev/null)
+    # Note: crates.io API requires a User-Agent header
+    local response=$(curl -s -H "User-Agent: ringkernel-publish-script/1.0" \
+        "https://crates.io/api/v1/crates/$crate/$version" 2>/dev/null)
     if echo "$response" | grep -q '"version"'; then
         return 0
     fi

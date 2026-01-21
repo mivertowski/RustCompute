@@ -8032,7 +8032,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-graph"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -8044,7 +8044,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-ir"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "petgraph",
  "pretty_assertions",
@@ -8069,7 +8069,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-montecarlo"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "bytemuck",
  "criterion",
