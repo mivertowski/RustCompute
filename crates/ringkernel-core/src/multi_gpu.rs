@@ -1685,16 +1685,14 @@ impl KernelMigrator {
             successful_migrations: successful,
             failed_migrations: failed,
             bytes_transferred: self.stats.bytes_transferred.load(Ordering::Relaxed),
-            avg_checkpoint_time: if total > 0 {
-                Duration::from_micros(checkpoint_us / total)
-            } else {
-                Duration::ZERO
-            },
-            avg_restore_time: if total > 0 {
-                Duration::from_micros(restore_us / total)
-            } else {
-                Duration::ZERO
-            },
+            avg_checkpoint_time: checkpoint_us
+                .checked_div(total)
+                .map(Duration::from_micros)
+                .unwrap_or(Duration::ZERO),
+            avg_restore_time: restore_us
+                .checked_div(total)
+                .map(Duration::from_micros)
+                .unwrap_or(Duration::ZERO),
         }
     }
 }

@@ -2129,7 +2129,7 @@ impl GpuMemoryDashboard {
         // Top allocations by size
         let allocations = self.allocations.read();
         let mut sorted_allocs: Vec<_> = allocations.values().collect();
-        sorted_allocs.sort_by(|a, b| b.size.cmp(&a.size));
+        sorted_allocs.sort_by_key(|a| std::cmp::Reverse(a.size));
 
         if !sorted_allocs.is_empty() {
             writeln!(report).unwrap();
