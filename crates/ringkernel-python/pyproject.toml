@@ -10,7 +10,10 @@ readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
 requires-python = ">=3.8"
 authors = [
-    { name = "RingKernel Contributors" }
+    { name = "Michael Ivertowski", email = "michael@ivertowski.com" }
+]
+maintainers = [
+    { name = "Michael Ivertowski", email = "michael@ivertowski.com" }
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -49,10 +52,11 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ringkernel/ringkernel"
-Documentation = "https://ringkernel.readthedocs.io"
-Repository = "https://github.com/ringkernel/ringkernel"
-Issues = "https://github.com/ringkernel/ringkernel/issues"
+Homepage = "https://github.com/mivertowski/RustCompute"
+Documentation = "https://mivertowski.github.io/RustCompute/"
+Repository = "https://github.com/mivertowski/RustCompute"
+Issues = "https://github.com/mivertowski/RustCompute/issues"
+Changelog = "https://github.com/mivertowski/RustCompute/blob/main/CHANGELOG.md"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
