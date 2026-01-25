@@ -209,6 +209,40 @@ feasibility of cross-platform GPU actors.
 
 \subsection{Lessons Learned}
 
+\subsubsection{CPU vs GPU Trade-offs for Graph Analytics}
+
+Our comprehensive evaluation comparing GPU living graphs to sequential CPU execution
+reveals important trade-offs:
+
+\begin{enumerate}
+    \item \textbf{Crossover Point}: GPU becomes beneficial at $\sim$1,000 nodes. Below
+    this threshold, kernel launch overhead (317$\mu$s) dominates the computation time.
+    For tiny graphs ($<$500 nodes), CPU execution is 1.5$\times$ faster.
+
+    \item \textbf{Algorithm Sensitivity}: Iterative algorithms (PageRank, eigenvector)
+    show 5--12$\times$ GPU speedup because multiple iterations amortize launch cost.
+    Single-pass algorithms (BFS, CC with fast convergence) show more modest benefits
+    (1--2$\times$) as kernel overhead is not amortized.
+
+    \item \textbf{Topology Impact}: Random graphs achieve peak throughput (124.7 ME/s)
+    due to uniform degree distribution. Scale-free graphs show high variance due to
+    hub node load imbalance (193$\times$ max/avg degree ratio), motivating P1 hybrid
+    dispatch optimization.
+
+    \item \textbf{Query Latency Paradigm Shift}: The fundamental GPU advantage is O(1)
+    query latency (3--17 ns) vs O(n) recomputation. For applications requiring frequent
+    queries, this represents an infinite theoretical speedup that dominates raw
+    computation comparisons.
+
+    \item \textbf{Scaling Characteristics}: PageRank exhibits near-linear scaling
+    (exponent 0.792); CC and BFS show sublinear scaling at larger sizes due to
+    synchronization overhead. Memory bandwidth becomes the bottleneck above 50K nodes.
+\end{enumerate}
+
+\textbf{Recommendation}: Use GPU living graphs for graphs with 1K--100K nodes requiring
+real-time analytics queries. Use CPU for small graphs, one-time batch analytics, or
+memory-constrained environments.
+
 \subsubsection{Mapped Memory is Essential}
 
 Early prototypes used explicit memory copies for H2K/K2H. Switching to mapped

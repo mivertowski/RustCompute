@@ -23,6 +23,10 @@ We evaluate on NVIDIA RTX Ada GPUs, demonstrating that persistent GPU actors ach
 kernel launches (0.03$\mu$s vs 317$\mu$s). For mixed workloads, GPU-native actors achieve
 \textbf{2.7$\times$ higher throughput}. RustGraph's P0-P4 GPU optimizations deliver
 \textbf{3.51$\times$ fused kernel speedup}, \textbf{68\% work-stealing success rate},
-and \textbf{258 million edges/second} PageRank throughput across 64+ algorithms in 15 domains.
-This enables new classes of interactive GPU applications including real-time fraud detection,
-living graph analytics with unified hypergraph domains, and distributed digital twins.
+and \textbf{124.7 million edges/second} peak throughput. Compared to sequential CPU execution,
+the GPU living graph achieves \textbf{2--12$\times$ speedup} for iterative algorithms
+(crossover at $\sim$1,000 nodes) and \textbf{O(1) query latency} (3--17 ns vs O(n) recomputation).
+The unified hypergraph demo showcases \textbf{20 analytics across 6 categories}---GPU living,
+behavioral, temporal, audit (ISA 240/315/570, SOX 404), compliance (AML/KYC), and accounting---spanning
+64+ algorithms in 15 domains. This enables real-time fraud detection, enterprise compliance
+monitoring, and distributed digital twins.

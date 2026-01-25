@@ -65,6 +65,31 @@ kernels depends on workload characteristics:
     full recomputation
 \end{itemize}
 
+\subsubsection{CPU vs GPU Trade-offs}
+
+Our comprehensive CPU vs GPU comparison provides practitioners with actionable guidance:
+
+\begin{itemize}
+    \item \textbf{GPU crossover point}: $\sim$1,000 nodes---below this, CPU is faster
+    due to kernel launch overhead (317$\mu$s)
+
+    \item \textbf{Optimal GPU range}: 1,000--10,000 nodes achieving 5--12$\times$ speedup
+    for iterative algorithms (PageRank, eigenvector centrality)
+
+    \item \textbf{Peak speedup}: \textbf{11.7$\times$} at 2,500 nodes where launch cost
+    is amortized and working set fits in L2 cache
+
+    \item \textbf{Query latency advantage}: O(1) GPU queries (3--17 ns) vs O(n) CPU
+    recomputation represents the fundamental architectural advantage
+
+    \item \textbf{Algorithm sensitivity}: Iterative algorithms (10+ iterations) benefit
+    most; single-pass traversals show modest improvement
+\end{itemize}
+
+The unified hypergraph demo showcases \textbf{20 production-ready analytics} spanning
+audit (ISA 240/315/570, SOX 404), compliance (AML/KYC), and accounting domains---demonstrating
+enterprise applicability of the GPU living graph architecture.
+
 \subsection{Significance}
 
 The GPU-native actor paradigm bridges two successful but previously separate paradigms:

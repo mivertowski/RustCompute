@@ -458,10 +458,6 @@ RustGraph applies GPU-native actors to graph analytics:
     components, traversal, similarity, GNN, accounting, compliance, process mining, behavioral,
     temporal, audit) maintained via continuous message propagation---queries read current state in O(1)
 
-    \item \textbf{Audit/Compliance}: Three-way match validation, segregation of duties analysis,
-    fraud triangle scoring, AML pattern detection, and control coverage assessment computed
-    via GPU actor messages
-
     \item \textbf{Unified Hypergraph}: Three interconnected domains in a single GPU-resident structure:
     \begin{itemize}
         \item \textit{Accounting}: Vendor, Customer, Account, JournalEntry, JournalLine (types 1-204)
@@ -474,6 +470,79 @@ RustGraph applies GPU-native actors to graph analytics:
     \item \textbf{Process Mining}: Object-Centric Process Mining (OCPM) with multi-object patterns
     tracking P2P, O2C, R2R, and custom processes through activity sequences
 \end{itemize}
+
+\subsubsection{Comprehensive Analytics Suite}
+
+RustGraph's unified hypergraph demo demonstrates 20 production-ready analytics across 6 categories:
+
+\paragraph{GPU Living Analytics (3)}
+PageRank, Connected Components, and BFS execute continuously as living graph actors,
+maintaining always-current state queryable in O(1) time (3--17 ns per query).
+
+\paragraph{Behavioral Analytics (5)}
+\begin{itemize}
+    \item \textbf{Behavioral Profiling}: Entity-level activity pattern extraction
+    \item \textbf{Isolation Forest}: GPU-accelerated anomaly detection (100 trees, 256 samples/tree)
+    \item \textbf{Fraud Signatures}: Pattern matching for known fraud schemes
+    \item \textbf{Causal Graph}: Dependency analysis for root cause identification
+    \item \textbf{Forensic Query}: Path-based investigation from flagged nodes
+\end{itemize}
+
+\paragraph{Temporal Analytics (2)}
+\begin{itemize}
+    \item \textbf{Change Point Detection}: Identify significant state transitions via per-node history rings
+    \item \textbf{Event Correlation}: Cross-domain temporal pattern matching
+\end{itemize}
+
+\paragraph{Audit Analytics (6)---ISA 240/315/570, SOX 404}
+\begin{itemize}
+    \item \textbf{Fraud Triangle}: Opportunity + Pressure + Rationalization scoring
+    \item \textbf{Three-Way Match}: PO-GR-Invoice validation with tolerance matching
+    \item \textbf{SoD Analysis}: Segregation of duties conflict detection
+    \item \textbf{Going Concern}: Financial health indicators (ISA 570)
+    \item \textbf{Control Coverage}: Maps controls to accounts/processes, identifies gaps
+    \item \textbf{Deficiency Classification}: MW/SD/CD classification per SOX 404
+\end{itemize}
+
+\paragraph{Compliance Analytics (3)---AML/KYC}
+\begin{itemize}
+    \item \textbf{AML Detection}: Structuring detection, layering patterns, rapid movement
+    \item \textbf{KYC Scoring}: 10-factor risk assessment (PEP, sanctions, geographic risk)
+    \item \textbf{Circular Flow Detection}: SCC-based money laundering ring identification
+\end{itemize}
+
+\paragraph{Accounting Analytics (3)}
+\begin{itemize}
+    \item \textbf{GL Reconciliation}: Multi-method matching with confidence scoring
+    \item \textbf{GAAP Violation Detection}: Balance checking, single-sided entries, round number flagging
+    \item \textbf{Suspense Account Detection}: Turnover ratio analysis, pass-through detection
+\end{itemize}
+
+\subsubsection{Audit/Compliance Implementation Details}
+
+The audit analytics leverage the GPU-resident unified hypergraph for cross-domain queries:
+
+\begin{lstlisting}[language=Rust, caption={Fraud Triangle scoring via GPU actor state}]
+// GpuNodeState includes inline audit fields (256 bytes total)
+#[repr(C, align(256))]
+struct GpuNodeState {
+    // ... identity, topology, analytics fields ...
+
+    // Audit fields (computed via living analytics)
+    fraud_triangle_score: f32,   // 0.0-1.0 composite risk
+    control_coverage: f32,       // % controls active
+    three_way_match: u8,         // 0=pending, 1=matched, 2=exception
+    sod_violations: u8,          // Count of active violations
+
+    // Compliance fields
+    aml_risk_score: f32,         // AML risk level
+    kyc_tier: u8,                // 1=Low, 2=Medium, 3=High, 4=Prohibited
+}
+\end{lstlisting}
+
+The unified hypergraph enables queries such as: ``Find all vendors with high fraud
+triangle scores whose payments flow through accounts lacking control coverage,''
+executed via single CSR traversal with GPU-resident state access.
 
 \subsubsection{P0-P4 GPU Optimizations}
 
