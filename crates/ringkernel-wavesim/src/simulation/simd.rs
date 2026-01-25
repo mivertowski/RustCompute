@@ -28,7 +28,7 @@ mod tests {
         let two = f32x8::splat(2.0);
 
         let mut x = 1;
-        while x + 8 <= width - 1 {
+        while x + 8 < width {
             let idx = row_start + x;
 
             let p_curr = f32x8::from_slice(&pressure[idx..idx + 8]);
