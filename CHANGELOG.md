@@ -15,6 +15,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 This release extracts ~7,000+ lines of proven GPU infrastructure from RustGraph into RingKernel, making these capabilities available to all RingKernel users.
 
+#### Python Bindings (`ringkernel-python`) - **NEW CRATE**
+
+- **PyO3-based Python wrapper** providing Pythonic access to RingKernel
+  - Full async/await support with `pyo3-async-runtimes` and tokio integration
+  - Sync fallbacks for all async operations (`create_sync`, `launch_sync`, etc.)
+  - Type stubs (`.pyi` files) for IDE support and static type checking
+  - Python 3.8+ compatibility via `abi3-py38`
+
+- **Core Runtime API**:
+  - `RingKernel.create()` / `create_sync()` - Create runtime with backend selection
+  - `KernelHandle` - Launch, activate, deactivate, terminate kernels
+  - `LaunchOptions` - Configure queue capacity, block size, priority
+  - `MessageId`, `MessageEnvelope` - Message handling primitives
+  - `HlcTimestamp`, `HlcClock` - Hybrid Logical Clock support
+  - `K2KBroker`, `K2KEndpoint` - Kernel-to-kernel messaging
+  - `QueueStats` - Queue monitoring and statistics
+
+- **CUDA Support** (feature-gated via `cuda`):
+  - `CudaDevice` - Device enumeration and properties
+  - `GpuMemoryPool` - Stratified GPU memory pool management
+  - `StreamManager` - Multi-stream execution management
+  - `ProfilingSession` - GPU profiling and metrics collection
+
+- **Benchmark Framework** (feature-gated via `benchmark`):
+  - `BenchmarkSuite`, `BenchmarkConfig` - Comprehensive benchmarking
+  - `BenchmarkResult` - Results with throughput and timing
+  - Regression detection with baseline comparison
+  - Multiple report formats (Markdown, JSON, LaTeX)
+
+- **Hybrid Dispatcher**:
+  - `HybridDispatcher` - Automatic CPU/GPU workload routing
+  - `HybridConfig`, `ProcessingMode` - Configuration with adaptive thresholds
+  - `HybridStats` - Execution statistics and threshold learning
+
+- **Resource Management**:
+  - `ResourceGuard` - Memory limit enforcement with safety margins
+  - `ReservationGuard` - RAII wrapper for guaranteed allocations
+  - `MemoryEstimate` - Workload memory estimation
+
+```python
+import ringkernel
+import asyncio
+
+async def main():
+    runtime = await ringkernel.RingKernel.create(backend="cpu")
+    kernel = await runtime.launch("processor", ringkernel.LaunchOptions())
+    await kernel.terminate()
+    await runtime.shutdown()
+
+asyncio.run(main())
+```
+
 #### PTX Compilation Cache (`ringkernel-cuda/src/compile/`) - **NEW MODULE**
 
 - **`PtxCache`** - Disk-based PTX compilation cache for faster kernel loading

@@ -95,6 +95,50 @@ ringkernel completions bash > ~/.bash_completion.d/ringkernel
 
 Templates available: `basic`, `persistent-actor`, `wavesim`, `enterprise`
 
+## Python Bindings
+
+RingKernel provides Python bindings via PyO3 with full async/await support:
+
+```bash
+# Install from PyPI (when published)
+pip install ringkernel
+
+# Or build from source
+cd crates/ringkernel-python
+maturin develop --features cuda,benchmark
+```
+
+```python
+import ringkernel
+import asyncio
+
+async def main():
+    # Create runtime with CPU backend
+    runtime = await ringkernel.RingKernel.create(backend="cpu")
+
+    # Launch a kernel with options
+    options = ringkernel.LaunchOptions(queue_capacity=1024)
+    kernel = await runtime.launch("processor", options)
+
+    # Kernel lifecycle
+    await kernel.deactivate()
+    await kernel.activate()
+    await kernel.terminate()
+
+    await runtime.shutdown()
+
+asyncio.run(main())
+```
+
+**Features:**
+- Async/await with sync fallbacks (`create_sync`, `launch_sync`, etc.)
+- HLC timestamps and K2K messaging
+- CUDA device enumeration and GPU memory pool management
+- Benchmark framework with regression detection
+- Hybrid CPU/GPU dispatcher with adaptive thresholds
+- Resource guard for memory limit enforcement
+- Type stubs for IDE support (`.pyi` files)
+
 ## Enterprise Runtime
 
 For production deployments, use the enterprise runtime with built-in health checking, circuit breakers, and observability:
@@ -558,6 +602,7 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 | `ringkernel-cuda-codegen` | Rust-to-CUDA transpiler for writing GPU kernels in Rust DSL |
 | `ringkernel-wgpu-codegen` | Rust-to-WGSL transpiler for writing GPU kernels in Rust DSL (WebGPU) |
 | `ringkernel-ecosystem` | Framework integrations (Actix, Axum, Tower, gRPC) + ML bridges |
+| `ringkernel-python` | Python bindings via PyO3 with async/await support |
 | `ringkernel-wavesim` | 2D wave simulation with tile-based FDTD, ring kernel actors with K2K messaging, and educational modes |
 | `ringkernel-wavesim3d` | 3D acoustic wave simulation with binaural audio, persistent GPU actors (H2K/K2H messaging, K2K halo exchange, cooperative groups), and volumetric rendering |
 | `ringkernel-txmon` | Transaction monitoring showcase with GPU-accelerated fraud detection |
