@@ -393,12 +393,12 @@ impl KernelModeSelector {
         let threads_per_block = bx * by * bz;
 
         // Calculate grid size to cover all elements
-        let blocks_needed = (element_count as u32 + threads_per_block - 1) / threads_per_block;
+        let blocks_needed = (element_count as u32).div_ceil(threads_per_block);
 
         // Limit to reasonable grid dimensions
         let max_grid_dim = 65535;
         let gx = blocks_needed.min(max_grid_dim);
-        let gy = ((blocks_needed + max_grid_dim - 1) / max_grid_dim).min(max_grid_dim);
+        let gy = blocks_needed.div_ceil(max_grid_dim).min(max_grid_dim);
         let gz = 1;
 
         (gx, gy, gz)
@@ -459,7 +459,7 @@ impl LaunchConfig {
     /// Creates a simple 1D launch configuration.
     #[must_use]
     pub fn simple_1d(element_count: usize, threads_per_block: u32) -> Self {
-        let blocks = (element_count as u32 + threads_per_block - 1) / threads_per_block;
+        let blocks = (element_count as u32).div_ceil(threads_per_block);
         Self {
             mode: KernelMode::ElementCentric,
             grid_dim: (blocks, 1, 1),

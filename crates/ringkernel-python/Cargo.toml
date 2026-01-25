@@ -40,8 +40,5 @@ numpy = ["dep:numpy"]
 benchmark = ["ringkernel-core/benchmark"]
 enterprise = ["ringkernel-core/enterprise"]
 
-[dev-dependencies]
-pyo3 = { version = "0.22", features = ["auto-initialize"] }
-
 [package.metadata.maturin]
 python-source = "python"

@@ -8,9 +8,10 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use ringkernel_core::benchmark::{
-    BenchmarkBaseline, BenchmarkConfig as RustBenchmarkConfig, BenchmarkResult as RustBenchmarkResult,
-    BenchmarkSuite as RustBenchmarkSuite, ConfidenceInterval, DetailedStatistics,
-    RegressionEntry, RegressionReport as RustRegressionReport, RegressionStatus,
+    BenchmarkBaseline, BenchmarkConfig as RustBenchmarkConfig,
+    BenchmarkResult as RustBenchmarkResult, BenchmarkSuite as RustBenchmarkSuite,
+    ConfidenceInterval, DetailedStatistics, RegressionEntry,
+    RegressionReport as RustRegressionReport, RegressionStatus,
     ScalingMetrics as RustScalingMetrics, WorkloadConfig as RustWorkloadConfig,
 };
 
@@ -38,7 +39,11 @@ impl PyBenchmarkConfig {
     ///     regression_threshold: Threshold for regression detection (0.10 = 10%).
     #[new]
     #[pyo3(signature = (warmup_iterations=5, measurement_iterations=10, regression_threshold=0.10))]
-    fn new(warmup_iterations: usize, measurement_iterations: usize, regression_threshold: f64) -> Self {
+    fn new(
+        warmup_iterations: usize,
+        measurement_iterations: usize,
+        regression_threshold: f64,
+    ) -> Self {
         Self {
             inner: RustBenchmarkConfig {
                 warmup_iterations,
@@ -104,7 +109,10 @@ impl PyBenchmarkConfig {
     /// Set timeout in seconds.
     fn with_timeout_secs(&self, seconds: f64) -> Self {
         Self {
-            inner: self.inner.clone().with_timeout(Duration::from_secs_f64(seconds)),
+            inner: self
+                .inner
+                .clone()
+                .with_timeout(Duration::from_secs_f64(seconds)),
         }
     }
 
@@ -801,7 +809,12 @@ impl PyBenchmarkSuite {
 
     /// Get all collected results.
     fn results(&self) -> Vec<PyBenchmarkResult> {
-        self.inner.results().iter().cloned().map(Into::into).collect()
+        self.inner
+            .results()
+            .iter()
+            .cloned()
+            .map(Into::into)
+            .collect()
     }
 
     /// Add a result to the suite.
@@ -885,8 +898,7 @@ impl PyBenchmarkBaseline {
         results: Vec<PyBenchmarkResult>,
         version: &str,
     ) -> Self {
-        let rust_results: Vec<RustBenchmarkResult> =
-            results.into_iter().map(Into::into).collect();
+        let rust_results: Vec<RustBenchmarkResult> = results.into_iter().map(Into::into).collect();
         Self {
             inner: BenchmarkBaseline::from_results(&rust_results, version),
         }

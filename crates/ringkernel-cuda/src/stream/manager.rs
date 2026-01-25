@@ -49,7 +49,10 @@ pub enum StreamError {
 
     /// Invalid stream ID.
     #[error("Invalid stream ID: {id:?}")]
-    InvalidStream { id: StreamId },
+    InvalidStream {
+        /// The invalid stream ID.
+        id: StreamId,
+    },
 
     /// CUDA not available.
     #[error("CUDA not available")]

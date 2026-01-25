@@ -6,10 +6,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyType;
 
 use ringkernel_cuda::{
-    is_cuda_available as rust_is_cuda_available, cuda_device_count as rust_cuda_device_count,
-    CudaDevice as RustCudaDevice,
-    GpuPoolConfig as RustGpuPoolConfig, GpuPoolDiagnostics, GpuSizeClass,
-    OverlapMetrics as RustOverlapMetrics, StreamConfig as RustStreamConfig, StreamId,
+    cuda_device_count as rust_cuda_device_count, is_cuda_available as rust_is_cuda_available,
+    CudaDevice as RustCudaDevice, GpuPoolConfig as RustGpuPoolConfig, GpuPoolDiagnostics,
+    GpuSizeClass, OverlapMetrics as RustOverlapMetrics, StreamConfig as RustStreamConfig, StreamId,
     StreamPoolStats as RustStreamPoolStats,
 };
 
@@ -78,7 +77,7 @@ impl PyCudaDeviceInfo {
 
 /// Enumerate all CUDA devices.
 #[pyfunction]
-fn enumerate_devices() -> PyResult<Vec<PyCudaDeviceInfo>>{
+fn enumerate_devices() -> PyResult<Vec<PyCudaDeviceInfo>> {
     let count = rust_cuda_device_count();
     let mut devices = Vec::with_capacity(count);
     for ordinal in 0..count {
@@ -164,7 +163,7 @@ impl PyCudaDevice {
     }
 
     /// Synchronize the device (wait for all operations to complete).
-    fn synchronize(&self) -> PyResult<()>{
+    fn synchronize(&self) -> PyResult<()> {
         self.inner
             .synchronize()
             .map_err(|e| PyRingKernelError::from(e).into_py_err())

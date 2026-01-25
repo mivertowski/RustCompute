@@ -332,6 +332,7 @@ fn compute_percentile(sorted: &[f64], p: f64) -> f64 {
 
 /// Computes public percentile from unsorted values.
 #[must_use]
+#[allow(dead_code)]
 pub fn percentile(values: &[f64], p: f64) -> f64 {
     if values.is_empty() {
         return 0.0;

@@ -229,6 +229,7 @@ impl HybridDispatcher {
 
 /// Result of a hybrid execution.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct HybridExecutionResult<T> {
     /// The result value.
     pub value: T,
@@ -240,6 +241,7 @@ pub struct HybridExecutionResult<T> {
     pub workload_size: usize,
 }
 
+#[allow(dead_code)]
 impl<T> HybridExecutionResult<T> {
     /// Creates a new execution result.
     pub fn new(value: T, execution_time: Duration, used_gpu: bool, workload_size: usize) -> Self {

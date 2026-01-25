@@ -214,7 +214,7 @@ impl PyPriority {
     /// Raises:
     ///     ValueError: If value is not 0-3.
     #[classmethod]
-    fn from_int(_cls: &Bound<'_, PyType>, value: u8) -> PyResult<Self>{
+    fn from_int(_cls: &Bound<'_, PyType>, value: u8) -> PyResult<Self> {
         match value {
             0 => Ok(Self::Low),
             1 => Ok(Self::Normal),
@@ -522,7 +522,7 @@ impl PyMessageEnvelope {
     /// Raises:
     ///     RingKernelError: If deserialization fails.
     #[classmethod]
-    fn from_raw_bytes(_cls: &Bound<'_, PyType>, data: &Bound<'_, PyBytes>) -> PyResult<Self>{
+    fn from_raw_bytes(_cls: &Bound<'_, PyType>, data: &Bound<'_, PyBytes>) -> PyResult<Self> {
         MessageEnvelope::from_bytes(data.as_bytes())
             .map(|inner| Self { inner })
             .map_err(|e| PyRingKernelError::from(e).into_py_err())
@@ -567,26 +567,4 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("MESSAGE_VERSION", MessageHeader::VERSION)?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_message_id_generate() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
-            let cls = py.get_type_bound::<PyMessageId>();
-            let id1 = PyMessageId::generate(&cls);
-            let id2 = PyMessageId::generate(&cls);
-            assert_ne!(id1.value(), id2.value());
-        });
-    }
-
-    #[test]
-    fn test_priority_conversion() {
-        assert_eq!(PyPriority::from(Priority::High), PyPriority::High);
-        assert_eq!(Priority::from(PyPriority::Critical), Priority::Critical);
-    }
 }

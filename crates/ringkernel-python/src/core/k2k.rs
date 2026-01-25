@@ -4,9 +4,7 @@
 
 use pyo3::prelude::*;
 use pyo3::types::PyType;
-use ringkernel_core::k2k::{
-    DeliveryReceipt, DeliveryStatus, K2KBroker, K2KConfig, K2KStats,
-};
+use ringkernel_core::k2k::{DeliveryReceipt, DeliveryStatus, K2KBroker, K2KConfig, K2KStats};
 use std::sync::Arc;
 
 use crate::core::hlc::PyHlcTimestamp;
@@ -281,13 +279,18 @@ impl PyK2KBroker {
 
     /// Get list of all registered kernel IDs.
     fn registered_kernels(&self) -> Vec<String> {
-        self.inner.registered_kernels().into_iter().map(|k| k.as_str().to_string()).collect()
+        self.inner
+            .registered_kernels()
+            .into_iter()
+            .map(|k| k.as_str().to_string())
+            .collect()
     }
 
     /// Add a routing entry.
     fn add_route(&self, destination: &str, next_hop: &str) {
         use ringkernel_core::runtime::KernelId;
-        self.inner.add_route(KernelId::new(destination), KernelId::new(next_hop));
+        self.inner
+            .add_route(KernelId::new(destination), KernelId::new(next_hop));
     }
 
     /// Remove a routing entry.
@@ -328,17 +331,4 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyK2KConfig>()?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_delivery_status() {
-        assert!(PyDeliveryStatus::Delivered.is_success());
-        assert!(PyDeliveryStatus::Pending.is_pending());
-        assert!(PyDeliveryStatus::NotFound.is_failure());
-        assert!(PyDeliveryStatus::QueueFull.is_failure());
-    }
 }

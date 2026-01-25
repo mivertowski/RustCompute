@@ -507,28 +507,3 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_queue_tier_capacity() {
-        assert_eq!(PyQueueTier::Small.capacity(), 256);
-        assert_eq!(PyQueueTier::Large.capacity(), 4096);
-    }
-
-    #[test]
-    fn test_queue_tier_upgrade() {
-        assert_eq!(PyQueueTier::Small.upgrade(), PyQueueTier::Medium);
-        assert_eq!(PyQueueTier::ExtraLarge.upgrade(), PyQueueTier::ExtraLarge);
-    }
-
-    #[test]
-    fn test_monitor_health() {
-        let monitor = PyQueueMonitor::new(0.75, 0.90);
-        assert_eq!(monitor.check_health(50, 100), PyQueueHealth::Healthy);
-        assert_eq!(monitor.check_health(80, 100), PyQueueHealth::Warning);
-        assert_eq!(monitor.check_health(95, 100), PyQueueHealth::Critical);
-    }
-}

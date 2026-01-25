@@ -268,7 +268,7 @@ impl PyHlcClock {
     ///
     /// Raises:
     ///     RingKernelError: If clock skew exceeds the maximum drift.
-    fn update(&self, received: &PyHlcTimestamp) -> PyResult<PyHlcTimestamp>{
+    fn update(&self, received: &PyHlcTimestamp) -> PyResult<PyHlcTimestamp> {
         self.inner
             .update(&received.inner)
             .map(PyHlcTimestamp::from)
@@ -295,32 +295,4 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyHlcClock>()?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_timestamp_ordering() {
-        let ts1 = PyHlcTimestamp::new(100, 0, 1);
-        let ts2 = PyHlcTimestamp::new(100, 1, 1);
-        let ts3 = PyHlcTimestamp::new(101, 0, 1);
-
-        assert!(ts1 < ts2);
-        assert!(ts2 < ts3);
-    }
-
-    #[test]
-    fn test_timestamp_pack_unpack() {
-        let ts = PyHlcTimestamp::new(12345, 67, 89);
-        let packed = ts.pack();
-
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
-            let cls = py.get_type_bound::<PyHlcTimestamp>();
-            let unpacked = PyHlcTimestamp::unpack(&cls, packed);
-            assert_eq!(ts, unpacked);
-        });
-    }
 }

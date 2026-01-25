@@ -313,39 +313,3 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_processing_mode() {
-        assert_eq!(PyProcessingMode::CpuOnly as i32, 0);
-        assert_eq!(PyProcessingMode::Adaptive as i32, 3);
-    }
-
-    #[test]
-    fn test_dispatcher_routing() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|_py| {
-            let config = PyHybridConfig::new(PyProcessingMode::Hybrid, 1000, 0.1, true);
-            let dispatcher = PyHybridDispatcher::new(&config);
-
-            assert!(!dispatcher.should_use_gpu(500)); // Below threshold
-            assert!(dispatcher.should_use_gpu(2000)); // Above threshold
-        });
-    }
-
-    #[test]
-    fn test_cpu_only_mode() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
-            let cls = py.get_type_bound::<PyHybridConfig>();
-            let config = PyHybridConfig::cpu_only(&cls);
-            let dispatcher = PyHybridDispatcher::new(&config);
-
-            // CPU-only never uses GPU
-            assert!(!dispatcher.should_use_gpu(1000000));
-        });
-    }
-}

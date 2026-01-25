@@ -203,6 +203,7 @@ impl GpuPoolConfig {
 
 /// A single pool bucket for a specific size class.
 #[derive(Debug)]
+#[allow(dead_code)]
 struct PoolBucket {
     /// Size class this bucket serves.
     size_class: GpuSizeClass,

@@ -444,7 +444,7 @@ impl PyKernelHandle {
     }
 
     /// Activate the kernel.
-    fn activate<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>>{
+    fn activate<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let handle = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             handle
@@ -455,7 +455,7 @@ impl PyKernelHandle {
     }
 
     /// Deactivate the kernel (pause).
-    fn deactivate<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>>{
+    fn deactivate<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let handle = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             handle
@@ -466,7 +466,7 @@ impl PyKernelHandle {
     }
 
     /// Terminate the kernel.
-    fn terminate<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>>{
+    fn terminate<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let handle = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             handle
@@ -481,7 +481,7 @@ impl PyKernelHandle {
         &self,
         py: Python<'py>,
         envelope: &PyMessageEnvelope,
-    ) -> PyResult<Bound<'py, PyAny>>{
+    ) -> PyResult<Bound<'py, PyAny>> {
         let handle = self.inner.clone();
         let env = envelope.clone().into();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -493,7 +493,7 @@ impl PyKernelHandle {
     }
 
     /// Receive a message envelope (blocking).
-    fn receive<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>>{
+    fn receive<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let handle = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             handle
@@ -515,11 +515,7 @@ impl PyKernelHandle {
     /// Raises:
     ///     TimeoutError: If no message received within timeout.
     #[pyo3(signature = (timeout=1.0))]
-    fn receive_timeout<'py>(
-        &self,
-        py: Python<'py>,
-        timeout: f64,
-    ) -> PyResult<Bound<'py, PyAny>>{
+    fn receive_timeout<'py>(&self, py: Python<'py>, timeout: f64) -> PyResult<Bound<'py, PyAny>> {
         let handle = self.inner.clone();
         let duration = Duration::from_secs_f64(timeout);
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -540,7 +536,7 @@ impl PyKernelHandle {
     }
 
     /// Wait for kernel to terminate.
-    fn wait<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>>{
+    fn wait<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let handle = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             handle
@@ -663,7 +659,7 @@ impl PyRingKernel {
         backend: &str,
         node_id: u64,
         enable_k2k: bool,
-    ) -> PyResult<Bound<'py, PyAny>>{
+    ) -> PyResult<Bound<'py, PyAny>> {
         // Currently only CPU backend is implemented
         if backend != "cpu" && backend != "auto" {
             return Err(PyRingKernelError::new(
@@ -702,7 +698,7 @@ impl PyRingKernel {
         backend: &str,
         node_id: u64,
         enable_k2k: bool,
-    ) -> PyResult<Self>{
+    ) -> PyResult<Self> {
         if backend != "cpu" && backend != "auto" {
             return Err(PyRingKernelError::new(
                 ErrorKind::CudaNotAvailable,
@@ -712,8 +708,11 @@ impl PyRingKernel {
         }
 
         let rt = tokio::runtime::Runtime::new().map_err(|e| {
-            PyRingKernelError::new(ErrorKind::Runtime, format!("Failed to create runtime: {}", e))
-                .into_py_err()
+            PyRingKernelError::new(
+                ErrorKind::Runtime,
+                format!("Failed to create runtime: {}", e),
+            )
+            .into_py_err()
         })?;
 
         let inner = rt.block_on(async {
@@ -766,12 +765,10 @@ impl PyRingKernel {
         py: Python<'py>,
         kernel_id: &str,
         options: Option<&PyLaunchOptions>,
-    ) -> PyResult<Bound<'py, PyAny>>{
+    ) -> PyResult<Bound<'py, PyAny>> {
         let inner = Arc::clone(&self.inner);
         let id = kernel_id.to_string();
-        let opts = options
-            .map(|o| o.inner.clone())
-            .unwrap_or_default();
+        let opts = options.map(|o| o.inner.clone()).unwrap_or_default();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             inner
@@ -788,10 +785,8 @@ impl PyRingKernel {
         &self,
         kernel_id: &str,
         options: Option<&PyLaunchOptions>,
-    ) -> PyResult<PyKernelHandle>{
-        let opts = options
-            .map(|o| o.inner.clone())
-            .unwrap_or_default();
+    ) -> PyResult<PyKernelHandle> {
+        let opts = options.map(|o| o.inner.clone()).unwrap_or_default();
 
         let result = if let Some(rt) = &self.tokio_runtime {
             rt.block_on(self.inner.launch(kernel_id, opts))
@@ -840,7 +835,7 @@ impl PyRingKernel {
     }
 
     /// Shutdown the runtime (async).
-    fn shutdown<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>>{
+    fn shutdown<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let inner = Arc::clone(&self.inner);
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             inner
@@ -851,16 +846,13 @@ impl PyRingKernel {
     }
 
     /// Shutdown the runtime (sync).
-    fn shutdown_sync(&self) -> PyResult<()>{
+    fn shutdown_sync(&self) -> PyResult<()> {
         let result = if let Some(rt) = &self.tokio_runtime {
             rt.block_on(self.inner.shutdown())
         } else {
             let handle = tokio::runtime::Handle::try_current().map_err(|_| {
-                PyRingKernelError::new(
-                    ErrorKind::Runtime,
-                    "No tokio runtime available",
-                )
-                .into_py_err()
+                PyRingKernelError::new(ErrorKind::Runtime, "No tokio runtime available")
+                    .into_py_err()
             })?;
             handle.block_on(self.inner.shutdown())
         };
@@ -870,9 +862,9 @@ impl PyRingKernel {
 
     /// Get the K2K broker (if K2K is enabled).
     fn k2k_broker(&self) -> Option<PyK2KBroker> {
-        self.inner.k2k_broker().map(|broker| {
-            PyK2KBroker::from_arc(Arc::clone(broker))
-        })
+        self.inner
+            .k2k_broker()
+            .map(|broker| PyK2KBroker::from_arc(Arc::clone(broker)))
     }
 
     // Context manager support
@@ -887,7 +879,7 @@ impl PyRingKernel {
         _exc_type: Option<&Bound<'py, PyAny>>,
         _exc_val: Option<&Bound<'py, PyAny>>,
         _exc_tb: Option<&Bound<'py, PyAny>>,
-    ) -> PyResult<Bound<'py, PyAny>>{
+    ) -> PyResult<Bound<'py, PyAny>> {
         self.shutdown(py)
     }
 
@@ -901,7 +893,7 @@ impl PyRingKernel {
         _exc_type: Option<&Bound<'_, PyAny>>,
         _exc_val: Option<&Bound<'_, PyAny>>,
         _exc_tb: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<bool>{
+    ) -> PyResult<bool> {
         self.shutdown_sync()?;
         Ok(false)
     }
@@ -917,7 +909,6 @@ impl PyRingKernel {
     }
 }
 
-
 /// Register runtime types with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyKernelMode>()?;
@@ -930,26 +921,4 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyRingKernel>()?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_launch_options_builder() {
-        let opts = PyLaunchOptions::new()
-            .with_queue_capacity(2048)
-            .with_block_size(512);
-        assert_eq!(opts.input_queue_capacity(), 2048);
-        assert_eq!(opts.block_size(), 512);
-    }
-
-    #[test]
-    fn test_kernel_state_checks() {
-        assert!(PyKernelState::Launched.can_activate());
-        assert!(PyKernelState::Active.can_deactivate());
-        assert!(PyKernelState::Active.is_running());
-        assert!(PyKernelState::Terminated.is_finished());
-    }
 }

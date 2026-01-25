@@ -75,6 +75,7 @@ pub trait HybridWorkload: Send + Sync {
 }
 
 /// A wrapper to execute any `FnOnce` as a hybrid workload.
+#[allow(dead_code)]
 pub struct FnWorkload<F, R>
 where
     F: FnOnce() -> R + Send + Sync,
@@ -84,6 +85,7 @@ where
     _marker: std::marker::PhantomData<R>,
 }
 
+#[allow(dead_code)]
 impl<F, R> FnWorkload<F, R>
 where
     F: FnOnce() -> R + Send + Sync,
@@ -99,6 +101,7 @@ where
 }
 
 /// A boxed hybrid workload for dynamic dispatch.
+#[allow(dead_code)]
 pub type BoxedWorkload<R> = Box<dyn HybridWorkload<Result = R>>;
 
 #[cfg(test)]

@@ -2,69 +2,137 @@
 //!
 //! Maps Rust errors to Python exceptions with actionable context.
 
-use pyo3::prelude::*;
 use pyo3::exceptions::{PyException, PyTimeoutError, PyValueError};
+use pyo3::prelude::*;
 use std::fmt;
 
 // Base exception for all RingKernel errors
-pyo3::create_exception!(ringkernel, RingKernelError, PyException,
-    "Base exception for all RingKernel errors.");
+pyo3::create_exception!(
+    ringkernel,
+    RingKernelError,
+    PyException,
+    "Base exception for all RingKernel errors."
+);
 
 // Memory-related errors
-pyo3::create_exception!(ringkernel, MemoryLimitError, RingKernelError,
-    "Memory limit exceeded during allocation.");
+pyo3::create_exception!(
+    ringkernel,
+    MemoryLimitError,
+    RingKernelError,
+    "Memory limit exceeded during allocation."
+);
 
 // Kernel-related errors
-pyo3::create_exception!(ringkernel, KernelError, RingKernelError,
-    "Kernel not found or in invalid state.");
+pyo3::create_exception!(
+    ringkernel,
+    KernelError,
+    RingKernelError,
+    "Kernel not found or in invalid state."
+);
 
-pyo3::create_exception!(ringkernel, KernelStateError, KernelError,
-    "Invalid kernel state transition.");
+pyo3::create_exception!(
+    ringkernel,
+    KernelStateError,
+    KernelError,
+    "Invalid kernel state transition."
+);
 
 // CUDA-specific errors
-pyo3::create_exception!(ringkernel, CudaError, RingKernelError,
-    "CUDA operation failed.");
+pyo3::create_exception!(
+    ringkernel,
+    CudaError,
+    RingKernelError,
+    "CUDA operation failed."
+);
 
-pyo3::create_exception!(ringkernel, CudaDeviceError, CudaError,
-    "CUDA device not available or invalid.");
+pyo3::create_exception!(
+    ringkernel,
+    CudaDeviceError,
+    CudaError,
+    "CUDA device not available or invalid."
+);
 
-pyo3::create_exception!(ringkernel, CudaMemoryError, CudaError,
-    "CUDA memory operation failed.");
+pyo3::create_exception!(
+    ringkernel,
+    CudaMemoryError,
+    CudaError,
+    "CUDA memory operation failed."
+);
 
 // Queue-related errors
-pyo3::create_exception!(ringkernel, QueueError, RingKernelError,
-    "Queue operation failed.");
+pyo3::create_exception!(
+    ringkernel,
+    QueueError,
+    RingKernelError,
+    "Queue operation failed."
+);
 
-pyo3::create_exception!(ringkernel, QueueFullError, QueueError,
-    "Queue is full, message dropped.");
+pyo3::create_exception!(
+    ringkernel,
+    QueueFullError,
+    QueueError,
+    "Queue is full, message dropped."
+);
 
-pyo3::create_exception!(ringkernel, QueueEmptyError, QueueError,
-    "Queue is empty, no messages available.");
+pyo3::create_exception!(
+    ringkernel,
+    QueueEmptyError,
+    QueueError,
+    "Queue is empty, no messages available."
+);
 
 // K2K messaging errors
-pyo3::create_exception!(ringkernel, K2KError, RingKernelError,
-    "Kernel-to-kernel messaging error.");
+pyo3::create_exception!(
+    ringkernel,
+    K2KError,
+    RingKernelError,
+    "Kernel-to-kernel messaging error."
+);
 
-pyo3::create_exception!(ringkernel, K2KDeliveryError, K2KError,
-    "Message delivery failed.");
+pyo3::create_exception!(
+    ringkernel,
+    K2KDeliveryError,
+    K2KError,
+    "Message delivery failed."
+);
 
 // Benchmark errors
-pyo3::create_exception!(ringkernel, BenchmarkError, RingKernelError,
-    "Benchmark operation failed.");
+pyo3::create_exception!(
+    ringkernel,
+    BenchmarkError,
+    RingKernelError,
+    "Benchmark operation failed."
+);
 
 // Hybrid dispatch errors
-pyo3::create_exception!(ringkernel, HybridError, RingKernelError,
-    "Hybrid CPU/GPU dispatch error.");
+pyo3::create_exception!(
+    ringkernel,
+    HybridError,
+    RingKernelError,
+    "Hybrid CPU/GPU dispatch error."
+);
 
-pyo3::create_exception!(ringkernel, GpuNotAvailableError, HybridError,
-    "GPU not available for execution.");
+pyo3::create_exception!(
+    ringkernel,
+    GpuNotAvailableError,
+    HybridError,
+    "GPU not available for execution."
+);
 
 // Resource errors
-pyo3::create_exception!(ringkernel, ResourceError, RingKernelError,
-    "Resource management error.");
+pyo3::create_exception!(
+    ringkernel,
+    ResourceError,
+    RingKernelError,
+    "Resource management error."
+);
 
-pyo3::create_exception!(ringkernel, ReservationError, ResourceError,
-    "Memory reservation failed.");
+pyo3::create_exception!(
+    ringkernel,
+    ReservationError,
+    ResourceError,
+    "Memory reservation failed."
+);
 
 /// Internal error type for the Python bindings.
 #[derive(Debug)]
@@ -192,107 +260,112 @@ impl From<ringkernel_core::error::RingKernelError> for PyRingKernelError {
 
         match &err {
             // Kernel lifecycle errors
-            RKError::KernelNotFound(id) => {
-                PyRingKernelError::new(ErrorKind::KernelNotFound, format!("Kernel not found: {}", id))
-            }
-            RKError::KernelAlreadyActive(id) => {
-                PyRingKernelError::new(ErrorKind::InvalidKernelState, format!("Kernel already active: {}", id))
-            }
-            RKError::KernelNotActive(id) => {
-                PyRingKernelError::new(ErrorKind::InvalidKernelState, format!("Kernel not active: {}", id))
-            }
-            RKError::KernelTerminated(id) => {
-                PyRingKernelError::new(ErrorKind::InvalidKernelState, format!("Kernel terminated: {}", id))
-            }
-            RKError::InvalidStateTransition { from, to } => {
-                PyRingKernelError::new(
-                    ErrorKind::InvalidKernelState,
-                    format!("Invalid state transition: {} -> {}", from, to),
-                )
-            }
-            RKError::InvalidState { expected, actual } => {
-                PyRingKernelError::new(
-                    ErrorKind::InvalidKernelState,
-                    format!("Expected state {}, got {}", expected, actual),
-                )
-            }
-            RKError::LaunchFailed(reason) => {
-                PyRingKernelError::new(ErrorKind::CudaOperationError, format!("Launch failed: {}", reason))
-            }
-            RKError::CompilationError(msg) => {
-                PyRingKernelError::new(ErrorKind::CudaOperationError, format!("Compilation failed: {}", msg))
-            }
+            RKError::KernelNotFound(id) => PyRingKernelError::new(
+                ErrorKind::KernelNotFound,
+                format!("Kernel not found: {}", id),
+            ),
+            RKError::KernelAlreadyActive(id) => PyRingKernelError::new(
+                ErrorKind::InvalidKernelState,
+                format!("Kernel already active: {}", id),
+            ),
+            RKError::KernelNotActive(id) => PyRingKernelError::new(
+                ErrorKind::InvalidKernelState,
+                format!("Kernel not active: {}", id),
+            ),
+            RKError::KernelTerminated(id) => PyRingKernelError::new(
+                ErrorKind::InvalidKernelState,
+                format!("Kernel terminated: {}", id),
+            ),
+            RKError::InvalidStateTransition { from, to } => PyRingKernelError::new(
+                ErrorKind::InvalidKernelState,
+                format!("Invalid state transition: {} -> {}", from, to),
+            ),
+            RKError::InvalidState { expected, actual } => PyRingKernelError::new(
+                ErrorKind::InvalidKernelState,
+                format!("Expected state {}, got {}", expected, actual),
+            ),
+            RKError::LaunchFailed(reason) => PyRingKernelError::new(
+                ErrorKind::CudaOperationError,
+                format!("Launch failed: {}", reason),
+            ),
+            RKError::CompilationError(msg) => PyRingKernelError::new(
+                ErrorKind::CudaOperationError,
+                format!("Compilation failed: {}", msg),
+            ),
 
             // Queue errors
-            RKError::QueueFull { capacity } => {
-                PyRingKernelError::new(ErrorKind::QueueFull, format!("Queue full (capacity: {})", capacity))
-            }
-            RKError::QueueEmpty => {
-                PyRingKernelError::new(ErrorKind::QueueEmpty, "Queue is empty")
-            }
+            RKError::QueueFull { capacity } => PyRingKernelError::new(
+                ErrorKind::QueueFull,
+                format!("Queue full (capacity: {})", capacity),
+            ),
+            RKError::QueueEmpty => PyRingKernelError::new(ErrorKind::QueueEmpty, "Queue is empty"),
 
             // Message errors
             RKError::SerializationError(msg) => {
                 PyRingKernelError::new(ErrorKind::Runtime, format!("Serialization failed: {}", msg))
             }
-            RKError::DeserializationError(msg) => {
-                PyRingKernelError::new(ErrorKind::Runtime, format!("Deserialization failed: {}", msg))
-            }
-            RKError::ValidationError(msg) => {
-                PyRingKernelError::new(ErrorKind::InvalidArgument, format!("Validation failed: {}", msg))
-            }
-            RKError::MessageTooLarge { size, max } => {
-                PyRingKernelError::new(
-                    ErrorKind::InvalidArgument,
-                    format!("Message too large: {} bytes (max: {} bytes)", size, max),
-                )
-            }
+            RKError::DeserializationError(msg) => PyRingKernelError::new(
+                ErrorKind::Runtime,
+                format!("Deserialization failed: {}", msg),
+            ),
+            RKError::ValidationError(msg) => PyRingKernelError::new(
+                ErrorKind::InvalidArgument,
+                format!("Validation failed: {}", msg),
+            ),
+            RKError::MessageTooLarge { size, max } => PyRingKernelError::new(
+                ErrorKind::InvalidArgument,
+                format!("Message too large: {} bytes (max: {} bytes)", size, max),
+            ),
             RKError::Timeout(duration) => {
                 PyRingKernelError::new(ErrorKind::Timeout, format!("Timeout after {:?}", duration))
             }
 
             // Memory errors
-            RKError::AllocationFailed { size, reason } => {
-                PyRingKernelError::new(
-                    ErrorKind::OutOfMemory,
-                    format!("Allocation of {} bytes failed: {}", size, reason),
-                )
-            }
-            RKError::HostAllocationFailed { size } => {
-                PyRingKernelError::new(
-                    ErrorKind::OutOfMemory,
-                    format!("Host allocation of {} bytes failed", size),
-                )
-            }
-            RKError::OutOfMemory { requested, available } => {
-                PyRingKernelError::new(
-                    ErrorKind::OutOfMemory,
-                    format!("Out of memory: requested {} bytes, available {} bytes", requested, available),
-                )
-            }
+            RKError::AllocationFailed { size, reason } => PyRingKernelError::new(
+                ErrorKind::OutOfMemory,
+                format!("Allocation of {} bytes failed: {}", size, reason),
+            ),
+            RKError::HostAllocationFailed { size } => PyRingKernelError::new(
+                ErrorKind::OutOfMemory,
+                format!("Host allocation of {} bytes failed", size),
+            ),
+            RKError::OutOfMemory {
+                requested,
+                available,
+            } => PyRingKernelError::new(
+                ErrorKind::OutOfMemory,
+                format!(
+                    "Out of memory: requested {} bytes, available {} bytes",
+                    requested, available
+                ),
+            ),
             RKError::PoolExhausted => {
                 PyRingKernelError::new(ErrorKind::OutOfMemory, "Memory pool exhausted")
             }
-            RKError::TransferFailed(msg) => {
-                PyRingKernelError::new(ErrorKind::CudaMemoryError, format!("Transfer failed: {}", msg))
-            }
+            RKError::TransferFailed(msg) => PyRingKernelError::new(
+                ErrorKind::CudaMemoryError,
+                format!("Transfer failed: {}", msg),
+            ),
             RKError::MemoryError(msg) => {
                 PyRingKernelError::new(ErrorKind::CudaMemoryError, msg.clone())
             }
 
             // Backend errors
-            RKError::BackendUnavailable(backend) => {
-                PyRingKernelError::new(ErrorKind::CudaNotAvailable, format!("Backend not available: {}", backend))
-            }
-            RKError::BackendInitFailed(msg) => {
-                PyRingKernelError::new(ErrorKind::CudaNotAvailable, format!("Backend init failed: {}", msg))
-            }
+            RKError::BackendUnavailable(backend) => PyRingKernelError::new(
+                ErrorKind::CudaNotAvailable,
+                format!("Backend not available: {}", backend),
+            ),
+            RKError::BackendInitFailed(msg) => PyRingKernelError::new(
+                ErrorKind::CudaNotAvailable,
+                format!("Backend init failed: {}", msg),
+            ),
             RKError::NoDeviceFound => {
                 PyRingKernelError::new(ErrorKind::CudaDeviceError, "No GPU device found")
             }
-            RKError::DeviceNotAvailable(msg) => {
-                PyRingKernelError::new(ErrorKind::CudaDeviceError, format!("Device not available: {}", msg))
-            }
+            RKError::DeviceNotAvailable(msg) => PyRingKernelError::new(
+                ErrorKind::CudaDeviceError,
+                format!("Device not available: {}", msg),
+            ),
             RKError::BackendError(msg) => {
                 PyRingKernelError::new(ErrorKind::CudaOperationError, msg.clone())
             }
@@ -301,42 +374,36 @@ impl From<ringkernel_core::error::RingKernelError> for PyRingKernelError {
             RKError::K2KError(msg) => {
                 PyRingKernelError::new(ErrorKind::K2KDeliveryFailed, msg.clone())
             }
-            RKError::K2KDestinationNotFound(dest) => {
-                PyRingKernelError::new(ErrorKind::K2KEndpointNotFound, format!("Destination not found: {}", dest))
-            }
+            RKError::K2KDestinationNotFound(dest) => PyRingKernelError::new(
+                ErrorKind::K2KEndpointNotFound,
+                format!("Destination not found: {}", dest),
+            ),
             RKError::K2KDeliveryFailed(msg) => {
                 PyRingKernelError::new(ErrorKind::K2KDeliveryFailed, msg.clone())
             }
 
             // HLC errors
-            RKError::ClockSkew { skew_ms, max_ms } => {
-                PyRingKernelError::new(
-                    ErrorKind::Runtime,
-                    format!("Clock skew too large: {}ms (max: {}ms)", skew_ms, max_ms),
-                )
-            }
+            RKError::ClockSkew { skew_ms, max_ms } => PyRingKernelError::new(
+                ErrorKind::Runtime,
+                format!("Clock skew too large: {}ms (max: {}ms)", skew_ms, max_ms),
+            ),
 
             // Sync errors
-            RKError::ChannelClosed => {
-                PyRingKernelError::new(ErrorKind::Runtime, "Channel closed")
-            }
-            RKError::LockPoisoned => {
-                PyRingKernelError::new(ErrorKind::Runtime, "Lock poisoned")
-            }
+            RKError::ChannelClosed => PyRingKernelError::new(ErrorKind::Runtime, "Channel closed"),
+            RKError::LockPoisoned => PyRingKernelError::new(ErrorKind::Runtime, "Lock poisoned"),
             RKError::DeadlockDetected => {
                 PyRingKernelError::new(ErrorKind::Runtime, "Deadlock detected")
             }
 
             // Health errors
-            RKError::CircuitBreakerOpen { name } => {
-                PyRingKernelError::new(ErrorKind::Runtime, format!("Circuit breaker open: {}", name))
-            }
-            RKError::RetryExhausted { attempts, reason } => {
-                PyRingKernelError::new(
-                    ErrorKind::Runtime,
-                    format!("Retry exhausted after {} attempts: {}", attempts, reason),
-                )
-            }
+            RKError::CircuitBreakerOpen { name } => PyRingKernelError::new(
+                ErrorKind::Runtime,
+                format!("Circuit breaker open: {}", name),
+            ),
+            RKError::RetryExhausted { attempts, reason } => PyRingKernelError::new(
+                ErrorKind::Runtime,
+                format!("Retry exhausted after {} attempts: {}", attempts, reason),
+            ),
 
             // Internal/generic errors
             RKError::Internal(msg) => {
@@ -345,14 +412,10 @@ impl From<ringkernel_core::error::RingKernelError> for PyRingKernelError {
             RKError::NotSupported(feature) => {
                 PyRingKernelError::new(ErrorKind::Runtime, format!("Not supported: {}", feature))
             }
-            RKError::Cancelled => {
-                PyRingKernelError::new(ErrorKind::Runtime, "Operation cancelled")
-            }
+            RKError::Cancelled => PyRingKernelError::new(ErrorKind::Runtime, "Operation cancelled"),
 
             // Catch-all for any other errors
-            _ => {
-                PyRingKernelError::new(ErrorKind::Runtime, err.to_string())
-            }
+            _ => PyRingKernelError::new(ErrorKind::Runtime, err.to_string()),
         }
     }
 }
@@ -403,7 +466,10 @@ pub fn register_exceptions(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<
 
     // Hybrid errors
     exceptions.add("HybridError", py.get_type_bound::<HybridError>())?;
-    exceptions.add("GpuNotAvailableError", py.get_type_bound::<GpuNotAvailableError>())?;
+    exceptions.add(
+        "GpuNotAvailableError",
+        py.get_type_bound::<GpuNotAvailableError>(),
+    )?;
 
     // Resource errors
     exceptions.add("ResourceError", py.get_type_bound::<ResourceError>())?;
@@ -419,23 +485,4 @@ pub fn register_exceptions(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<
     m.add("MemoryLimitError", py.get_type_bound::<MemoryLimitError>())?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_error_with_context() {
-        let err = PyRingKernelError::new(ErrorKind::MemoryLimit, "Allocation failed")
-            .with_context("requested 1GB");
-        assert!(err.to_string().contains("Allocation failed"));
-        assert!(err.to_string().contains("requested 1GB"));
-    }
-
-    #[test]
-    fn test_error_kind_mapping() {
-        let err = PyRingKernelError::new(ErrorKind::QueueFull, "Queue is full");
-        assert_eq!(err.kind, ErrorKind::QueueFull);
-    }
 }

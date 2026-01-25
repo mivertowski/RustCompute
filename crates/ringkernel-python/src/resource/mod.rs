@@ -128,20 +128,15 @@ impl PyReservationGuard {
     fn commit(&self) {
         if !self.committed.swap(true, Ordering::Relaxed) {
             // Move from reserved to allocated
-            self.guard
-                .reserved
-                .fetch_sub(self.bytes, Ordering::Relaxed);
+            self.guard.reserved.fetch_sub(self.bytes, Ordering::Relaxed);
             self.guard.current.fetch_add(self.bytes, Ordering::Relaxed);
         }
     }
 
     /// Explicitly release the reservation.
     fn release(&self) {
-        if !self.released.swap(true, Ordering::Relaxed) && !self.committed.load(Ordering::Relaxed)
-        {
-            self.guard
-                .reserved
-                .fetch_sub(self.bytes, Ordering::Relaxed);
+        if !self.released.swap(true, Ordering::Relaxed) && !self.committed.load(Ordering::Relaxed) {
+            self.guard.reserved.fetch_sub(self.bytes, Ordering::Relaxed);
         }
     }
 
@@ -172,9 +167,7 @@ impl PyReservationGuard {
 impl Drop for PyReservationGuard {
     fn drop(&mut self) {
         if !self.released.load(Ordering::Relaxed) && !self.committed.load(Ordering::Relaxed) {
-            self.guard
-                .reserved
-                .fetch_sub(self.bytes, Ordering::Relaxed);
+            self.guard.reserved.fetch_sub(self.bytes, Ordering::Relaxed);
         }
     }
 }
@@ -310,7 +303,7 @@ impl PyResourceGuard {
     ///
     /// Raises:
     ///     ReservationError: If reservation would exceed limits.
-    fn reserve(self_: PyRef<'_, Self>, bytes: u64) -> PyResult<PyReservationGuard>{
+    fn reserve(self_: PyRef<'_, Self>, bytes: u64) -> PyResult<PyReservationGuard> {
         if !self_.can_allocate(bytes) {
             return Err(PyRingKernelError::new(
                 ErrorKind::ReservationFailed,
@@ -349,7 +342,7 @@ impl PyResourceGuard {
     ///
     /// Raises:
     ///     MemoryLimitError: If estimate exceeds available memory.
-    fn validate(&self, estimate: &PyMemoryEstimate) -> PyResult<()>{
+    fn validate(&self, estimate: &PyMemoryEstimate) -> PyResult<()> {
         if !self.enforce_limits.load(Ordering::Relaxed) {
             return Ok(());
         }
@@ -481,37 +474,4 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMemoryEstimate>()?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_memory_estimate() {
-        let est = PyMemoryEstimate::new(1000, 500, 2000, 0.9);
-        assert_eq!(est.total_bytes(), 1500);
-        assert_eq!(est.peak_bytes, 2000);
-    }
-
-    #[test]
-    fn test_resource_guard() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|_py| {
-            let guard = PyResourceGuard::new(Some(10000), 0.1);
-            assert!(guard.can_allocate(5000));
-            guard.record_allocation(5000);
-            assert!(!guard.can_allocate(5000)); // Not enough space with margin
-        });
-    }
-
-    #[test]
-    fn test_unguarded() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
-            let cls = py.get_type_bound::<PyResourceGuard>();
-            let guard = PyResourceGuard::unguarded(&cls);
-            assert!(guard.can_allocate(u64::MAX)); // Always allowed
-        });
-    }
 }

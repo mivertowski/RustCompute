@@ -43,8 +43,8 @@
 // Suppress PyO3 internal cfg warnings
 #![allow(unexpected_cfgs)]
 
-mod error;
 mod core;
+mod error;
 
 // Feature-gated modules
 #[cfg(feature = "cuda")]

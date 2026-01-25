@@ -86,6 +86,7 @@ pub fn get_total_memory() -> Option<u64> {
 ///
 /// Returns None if unable to determine.
 #[must_use]
+#[allow(dead_code)]
 pub fn get_memory_utilization() -> Option<f64> {
     let total = get_total_memory()?;
     let available = get_available_memory()?;
