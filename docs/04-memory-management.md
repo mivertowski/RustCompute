@@ -431,6 +431,69 @@ println!("Staging buffer reuse rate: {:.1}%", stats.hit_rate() * 100.0);
 
 ---
 
+## GPU Stratified Memory Pool (v0.4.0)
+
+For GPU-side buffer reuse with O(1) allocation from free lists:
+
+```rust
+use ringkernel_cuda::memory_pool::{GpuStratifiedPool, GpuPoolConfig, GpuSizeClass};
+
+// Create pool with preset for graph workloads (small buffer heavy)
+let config = GpuPoolConfig::for_graph_analytics();
+let mut pool = GpuStratifiedPool::new(&device, config)?;
+
+// Pre-warm buckets for predictable latency
+pool.warm_bucket(GpuSizeClass::Size256B, 1000)?;  // 1000 × 256B buffers
+pool.warm_bucket(GpuSizeClass::Size1KB, 500)?;    // 500 × 1KB buffers
+
+// O(1) allocation from free list
+let ptr1 = pool.allocate(200)?;   // → 256B bucket
+let ptr2 = pool.allocate(800)?;   // → 1KB bucket
+let ptr3 = pool.allocate(3000)?;  // → 4KB bucket
+
+// Return to pool for reuse
+pool.deallocate(ptr1, 200)?;
+
+// Check diagnostics
+let diag = pool.diagnostics();
+println!("Total GPU bytes: {}", diag.total_bytes);
+println!("Pooled bytes: {}", diag.pooled_bytes);
+println!("Large allocation bytes: {}", diag.large_alloc_bytes);
+```
+
+### GPU Size Classes
+
+| Class | Size | Use Case |
+|-------|------|----------|
+| `Size256B` | 256 B | Node properties, small metadata |
+| `Size1KB` | 1 KB | Adjacency lists, small vectors |
+| `Size4KB` | 4 KB | Thread block scratch space |
+| `Size16KB` | 16 KB | Intermediate results |
+| `Size64KB` | 64 KB | Batch buffers |
+| `Size256KB` | 256 KB | Large working sets |
+
+### Configuration Presets
+
+```rust
+use ringkernel_cuda::memory_pool::GpuPoolConfig;
+
+// Graph analytics: many small buffers (256B, 1KB heavy)
+let graph_config = GpuPoolConfig::for_graph_analytics();
+
+// Simulation: larger buffers (4KB, 16KB heavy)
+let sim_config = GpuPoolConfig::for_simulation();
+
+// Custom configuration
+let custom = GpuPoolConfig {
+    initial_counts: [100, 50, 25, 10, 5, 2],  // Per size class
+    max_counts: [1000, 500, 250, 100, 50, 20],
+    track_allocations: true,
+    max_pool_bytes: 512 * 1024 * 1024,  // 512 MB limit
+};
+```
+
+---
+
 ## Unified Memory (CUDA Managed Memory)
 
 ```rust

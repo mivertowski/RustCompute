@@ -29,7 +29,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ringkernel = "0.3"
+ringkernel = "0.4"
 tokio = { version = "1.48", features = ["full"] }
 ```
 
@@ -37,10 +37,10 @@ For GPU backends:
 
 ```toml
 # NVIDIA CUDA
-ringkernel = { version = "0.3", features = ["cuda"] }
+ringkernel = { version = "0.4", features = ["cuda"] }
 
 # WebGPU (cross-platform)
-ringkernel = { version = "0.3", features = ["wgpu"] }
+ringkernel = { version = "0.4", features = ["wgpu"] }
 ```
 
 ## Quick Start
@@ -274,6 +274,81 @@ let buffer = cache.acquire::<f32>(4, ReductionOp::Sum)?;
 // Buffer automatically returned to cache on drop
 ```
 
+### GPU Memory Pool (v0.4)
+
+Size-stratified GPU VRAM pooling for O(1) allocations:
+
+```rust
+use ringkernel_cuda::memory_pool::{GpuStratifiedPool, GpuPoolConfig, GpuSizeClass};
+
+let config = GpuPoolConfig::for_graph_analytics();  // Optimized for small buffers
+let mut pool = GpuStratifiedPool::new(&device, config)?;
+
+// Pre-warm buckets for predictable latency
+pool.warm_bucket(GpuSizeClass::Size1KB, 100)?;
+
+// O(1) allocation from free list
+let ptr = pool.allocate(512)?;
+pool.deallocate(ptr, 512)?;
+```
+
+### Multi-Stream Execution (v0.4)
+
+Overlap compute and transfer operations:
+
+```rust
+use ringkernel_cuda::stream::{StreamManager, StreamConfig, StreamId};
+
+let manager = StreamManager::new(&device, StreamConfig::performance())?;
+
+// Launch on compute stream
+let stream = manager.cuda_stream(StreamId::Compute(0))?;
+// ... kernel execution ...
+
+// Synchronize with transfer stream
+manager.record_event("kernel_done", StreamId::Compute(0))?;
+manager.stream_wait_event(StreamId::Transfer, "kernel_done")?;
+```
+
+### Hybrid CPU-GPU Dispatch (v0.4)
+
+Intelligent workload routing with adaptive thresholds:
+
+```rust
+use ringkernel_core::hybrid::{HybridDispatcher, HybridConfig, HybridWorkload};
+
+let dispatcher = HybridDispatcher::new(HybridConfig::adaptive());
+
+// Workloads automatically routed to CPU or GPU based on size
+let result = dispatcher.execute(&my_workload);
+
+// Adaptive learning improves routing over time
+let stats = dispatcher.stats().snapshot();
+println!("GPU ratio: {:.1}%", stats.gpu_executions as f64 / stats.total() as f64 * 100.0);
+```
+
+### Benchmark Framework (v0.4)
+
+Comprehensive benchmarking with regression detection:
+
+```rust
+use ringkernel_core::benchmark::{BenchmarkSuite, BenchmarkConfig, Benchmarkable};
+
+let mut suite = BenchmarkSuite::new(BenchmarkConfig::comprehensive());
+suite.run_all_sizes(&MyWorkload);
+
+// Multiple report formats
+println!("{}", suite.generate_markdown_report());
+println!("{}", suite.generate_latex_table());
+
+// Regression detection
+if let Some(report) = suite.compare_to_baseline() {
+    if report.regression_count > 0 {
+        eprintln!("Performance regression detected!");
+    }
+}
+```
+
 ### Multi-Kernel Dispatch
 
 Route messages to GPU kernels based on message type:
@@ -494,7 +569,7 @@ See the [Showcase Applications Guide](docs/15-showcase-applications.md) for deta
 ## Testing
 
 ```bash
-# Run all tests (900+ tests)
+# Run all tests (950+ tests)
 cargo test --workspace
 
 # CUDA backend tests (requires NVIDIA GPU)
@@ -645,11 +720,11 @@ Performance varies significantly by hardware and workload.
 
 ## GPU Profiling
 
-RingKernel v0.3.2 includes comprehensive GPU profiling infrastructure. Enable with the `profiling` feature:
+RingKernel includes comprehensive GPU profiling infrastructure. Enable with the `profiling` feature:
 
 ```toml
 [dependencies]
-ringkernel-cuda = { version = "0.3", features = ["profiling"] }
+ringkernel-cuda = { version = "0.4", features = ["profiling"] }
 ```
 
 ### GPU Timer and Events
@@ -687,11 +762,11 @@ Features include:
 
 ## Enterprise Security
 
-RingKernel v0.3.2 includes comprehensive enterprise security features. Enable with the `enterprise` feature:
+RingKernel includes comprehensive enterprise security features. Enable with the `enterprise` feature:
 
 ```toml
 [dependencies]
-ringkernel-core = { version = "0.3", features = ["enterprise"] }
+ringkernel-core = { version = "0.4", features = ["enterprise"] }
 ```
 
 ### Authentication & Authorization

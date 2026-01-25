@@ -33,6 +33,11 @@
 
 pub mod analytics_context;
 pub mod audit;
+
+/// Benchmark framework (requires `benchmark` feature).
+#[cfg(feature = "benchmark")]
+pub mod benchmark;
+
 pub mod checkpoint;
 
 /// Cloud storage backends for checkpoints (requires `cloud-storage` feature).
@@ -47,6 +52,7 @@ pub mod domain;
 pub mod error;
 pub mod health;
 pub mod hlc;
+pub mod hybrid;
 pub mod k2k;
 pub mod memory;
 pub mod message;
@@ -56,6 +62,7 @@ pub mod persistent_message;
 pub mod pubsub;
 pub mod queue;
 pub mod reduction;
+pub mod resource;
 pub mod runtime;
 pub mod runtime_context;
 pub mod security;
@@ -116,6 +123,10 @@ pub mod prelude {
         RecoveryPolicy, RecoveryResult, RecoveryStatsSnapshot, RetryPolicy,
     };
     pub use crate::hlc::*;
+    pub use crate::hybrid::{
+        HybridConfig, HybridConfigBuilder, HybridDispatcher, HybridError, HybridResult,
+        HybridStats, HybridStatsSnapshot, HybridWorkload, ProcessingMode,
+    };
     pub use crate::k2k::{
         DeliveryStatus, K2KBroker, K2KBuilder, K2KConfig, K2KEndpoint, K2KMessage,
         K2KMessageRegistration, K2KTypeRegistry,
@@ -154,6 +165,11 @@ pub mod prelude {
     pub use crate::queue::*;
     pub use crate::reduction::{
         GlobalReduction, ReductionConfig, ReductionHandle, ReductionOp, ReductionScalar,
+    };
+    pub use crate::resource::{
+        global_guard, LinearEstimator, MemoryEstimate, MemoryEstimator, ReservationGuard,
+        ResourceError, ResourceGuard, ResourceResult, DEFAULT_MAX_MEMORY_BYTES,
+        SYSTEM_MEMORY_MARGIN,
     };
     pub use crate::runtime::*;
     pub use crate::runtime_context::{
@@ -226,6 +242,14 @@ pub mod prelude {
     pub use crate::tls::{
         CertificateInfo, CertificateStore, ClientAuth, SniResolver, TlsAcceptor, TlsConfig,
         TlsConfigBuilder, TlsConnector, TlsError, TlsResult, TlsSessionInfo, TlsVersion,
+    };
+
+    // Benchmark framework (feature-gated)
+    #[cfg(feature = "benchmark")]
+    pub use crate::benchmark::{
+        BenchmarkBaseline, BenchmarkConfig, BenchmarkResult, BenchmarkSuite, Benchmarkable,
+        ConfidenceInterval, DetailedStatistics, RegressionEntry, RegressionReport,
+        RegressionStatus, ScalingMetrics, WorkloadConfig, WorkloadSize,
     };
 }
 

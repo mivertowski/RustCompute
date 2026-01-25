@@ -9,7 +9,7 @@ keywords = ["gpu", "monte-carlo", "variance-reduction", "cuda", "simulation"]
 categories = ["science", "simulation", "mathematics"]
 
 [dependencies]
-ringkernel-core = { version = "0.3.2", path = "../ringkernel-core" }
+ringkernel-core = { version = "0.4.0", path = "../ringkernel-core" }
 bytemuck = { workspace = true }
 rand = "0.8"
 thiserror = { workspace = true }

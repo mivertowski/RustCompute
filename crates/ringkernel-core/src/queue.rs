@@ -664,6 +664,235 @@ impl QueueMetrics {
     }
 }
 
+// ============================================================================
+// Partitioned Queue
+// ============================================================================
+
+/// A partitioned queue for reduced contention with multiple producers.
+///
+/// Instead of a single queue with a lock, this uses multiple independent
+/// partitions (SPSC queues) to reduce contention when many producers
+/// are sending messages concurrently.
+///
+/// Producers are routed to partitions based on their source ID, ensuring
+/// messages from the same source go to the same partition (preserving order).
+///
+/// # Example
+///
+/// ```ignore
+/// use ringkernel_core::queue::{PartitionedQueue, QueueTier};
+///
+/// // Create 4 partitions with Medium tier capacity each
+/// let queue = PartitionedQueue::new(4, QueueTier::Medium.capacity());
+///
+/// // Enqueue with source-based routing
+/// queue.try_enqueue_from(source_id, envelope)?;
+///
+/// // Dequeue from any partition that has messages
+/// if let Some(envelope) = queue.try_dequeue_any() {
+///     // process message
+/// }
+/// ```
+pub struct PartitionedQueue {
+    /// Individual partition queues.
+    partitions: Vec<SpscQueue>,
+    /// Number of partitions.
+    partition_count: usize,
+    /// Round-robin dequeue index.
+    dequeue_index: AtomicU64,
+}
+
+impl PartitionedQueue {
+    /// Creates a new partitioned queue.
+    ///
+    /// # Arguments
+    ///
+    /// * `partition_count` - Number of partitions (should be power of 2 for efficiency)
+    /// * `capacity_per_partition` - Capacity of each partition
+    pub fn new(partition_count: usize, capacity_per_partition: usize) -> Self {
+        let partition_count = partition_count.max(1).next_power_of_two();
+        let partitions = (0..partition_count)
+            .map(|_| SpscQueue::new(capacity_per_partition))
+            .collect();
+
+        Self {
+            partitions,
+            partition_count,
+            dequeue_index: AtomicU64::new(0),
+        }
+    }
+
+    /// Creates a partitioned queue with default settings.
+    ///
+    /// Uses 4 partitions with Medium tier capacity.
+    pub fn with_defaults() -> Self {
+        Self::new(4, QueueTier::Medium.capacity())
+    }
+
+    /// Creates a partitioned queue sized for high contention.
+    ///
+    /// Uses 8 partitions with Large tier capacity.
+    pub fn for_high_contention() -> Self {
+        Self::new(8, QueueTier::Large.capacity())
+    }
+
+    /// Returns the partition index for a given source ID.
+    #[inline]
+    pub fn partition_for(&self, source_id: u64) -> usize {
+        (source_id as usize) & (self.partition_count - 1)
+    }
+
+    /// Returns the number of partitions.
+    pub fn partition_count(&self) -> usize {
+        self.partition_count
+    }
+
+    /// Returns the capacity per partition.
+    pub fn capacity_per_partition(&self) -> usize {
+        self.partitions.first().map_or(0, |p| p.capacity())
+    }
+
+    /// Total capacity across all partitions.
+    pub fn total_capacity(&self) -> usize {
+        self.capacity_per_partition() * self.partition_count
+    }
+
+    /// Total messages across all partitions.
+    pub fn total_messages(&self) -> usize {
+        self.partitions.iter().map(|p| p.len()).sum()
+    }
+
+    /// Enqueues a message to a partition based on source ID.
+    ///
+    /// Messages from the same source always go to the same partition,
+    /// preserving ordering for that source.
+    pub fn try_enqueue_from(&self, source_id: u64, envelope: MessageEnvelope) -> Result<()> {
+        let partition = self.partition_for(source_id);
+        self.partitions[partition].try_enqueue(envelope)
+    }
+
+    /// Enqueues a message using the envelope's source kernel ID.
+    pub fn try_enqueue(&self, envelope: MessageEnvelope) -> Result<()> {
+        let source_id = envelope.header.source_kernel;
+        self.try_enqueue_from(source_id, envelope)
+    }
+
+    /// Tries to dequeue from a specific partition.
+    pub fn try_dequeue_partition(&self, partition: usize) -> Result<MessageEnvelope> {
+        if partition >= self.partition_count {
+            return Err(RingKernelError::InvalidConfig(format!(
+                "Invalid partition index: {} (max: {})",
+                partition,
+                self.partition_count - 1
+            )));
+        }
+        self.partitions[partition].try_dequeue()
+    }
+
+    /// Tries to dequeue from any partition that has messages.
+    ///
+    /// Uses round-robin to fairly distribute dequeues across partitions.
+    pub fn try_dequeue_any(&self) -> Option<MessageEnvelope> {
+        let start_index = self.dequeue_index.fetch_add(1, Ordering::Relaxed) as usize;
+
+        for i in 0..self.partition_count {
+            let partition = (start_index + i) & (self.partition_count - 1);
+            if let Ok(envelope) = self.partitions[partition].try_dequeue() {
+                return Some(envelope);
+            }
+        }
+
+        None
+    }
+
+    /// Returns statistics for a specific partition.
+    pub fn partition_stats(&self, partition: usize) -> Option<QueueStats> {
+        self.partitions.get(partition).map(|p| p.stats())
+    }
+
+    /// Returns aggregated statistics across all partitions.
+    pub fn stats(&self) -> PartitionedQueueStats {
+        let mut total = QueueStats::default();
+        let mut partition_stats = Vec::with_capacity(self.partition_count);
+
+        for partition in &self.partitions {
+            let stats = partition.stats();
+            total.enqueued += stats.enqueued;
+            total.dequeued += stats.dequeued;
+            total.dropped += stats.dropped;
+            total.depth += stats.depth;
+            if stats.max_depth > total.max_depth {
+                total.max_depth = stats.max_depth;
+            }
+            partition_stats.push(stats);
+        }
+
+        PartitionedQueueStats {
+            total,
+            partition_stats,
+            partition_count: self.partition_count,
+        }
+    }
+
+    /// Resets statistics for all partitions.
+    pub fn reset_stats(&self) {
+        for partition in &self.partitions {
+            partition.reset_stats();
+        }
+    }
+}
+
+/// Statistics for a partitioned queue.
+#[derive(Debug, Clone)]
+pub struct PartitionedQueueStats {
+    /// Aggregated statistics.
+    pub total: QueueStats,
+    /// Per-partition statistics.
+    pub partition_stats: Vec<QueueStats>,
+    /// Number of partitions.
+    pub partition_count: usize,
+}
+
+impl PartitionedQueueStats {
+    /// Returns the load imbalance factor (max/avg).
+    ///
+    /// A value of 1.0 indicates perfect balance.
+    /// Higher values indicate imbalance (some partitions have more messages).
+    pub fn load_imbalance(&self) -> f64 {
+        if self.partition_count == 0 {
+            return 1.0;
+        }
+
+        let avg = self.total.depth as f64 / self.partition_count as f64;
+        if avg == 0.0 {
+            return 1.0;
+        }
+
+        let max = self
+            .partition_stats
+            .iter()
+            .map(|s| s.depth)
+            .max()
+            .unwrap_or(0);
+        max as f64 / avg
+    }
+
+    /// Returns the utilization of the most loaded partition.
+    pub fn max_partition_utilization(&self, capacity_per_partition: usize) -> f64 {
+        if capacity_per_partition == 0 {
+            return 0.0;
+        }
+
+        let max = self
+            .partition_stats
+            .iter()
+            .map(|s| s.depth)
+            .max()
+            .unwrap_or(0);
+        max as f64 / capacity_per_partition as f64
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -930,5 +1159,115 @@ mod tests {
         assert_eq!(metrics.stats.enqueued, 100);
         assert_eq!(metrics.tier, Some(QueueTier::Medium));
         assert!(metrics.suggested_upgrade.is_none());
+    }
+
+    // ========================================================================
+    // Partitioned Queue Tests
+    // ========================================================================
+
+    #[test]
+    fn test_partitioned_queue_creation() {
+        let queue = PartitionedQueue::new(4, 256);
+        assert_eq!(queue.partition_count(), 4);
+        assert_eq!(queue.capacity_per_partition(), 256);
+        assert_eq!(queue.total_capacity(), 1024);
+    }
+
+    #[test]
+    fn test_partitioned_queue_rounds_to_power_of_two() {
+        let queue = PartitionedQueue::new(3, 256);
+        assert_eq!(queue.partition_count(), 4); // Rounded up to 4
+    }
+
+    #[test]
+    fn test_partitioned_queue_routing() {
+        let queue = PartitionedQueue::with_defaults();
+
+        // Same source ID should always go to same partition
+        let partition1 = queue.partition_for(12345);
+        let partition2 = queue.partition_for(12345);
+        assert_eq!(partition1, partition2);
+
+        // Different source IDs may go to different partitions
+        let partition_a = queue.partition_for(0);
+        let partition_b = queue.partition_for(1);
+        assert!(partition_a != partition_b || queue.partition_count() == 1);
+    }
+
+    #[test]
+    fn test_partitioned_queue_enqueue_dequeue() {
+        let queue = PartitionedQueue::new(4, 64);
+
+        // Enqueue from different sources
+        for source in 0..16u64 {
+            let mut env = make_envelope();
+            env.header.source_kernel = source;
+            queue.try_enqueue(env).unwrap();
+        }
+
+        assert_eq!(queue.total_messages(), 16);
+
+        // Dequeue all
+        for _ in 0..16 {
+            let env = queue.try_dequeue_any();
+            assert!(env.is_some());
+        }
+
+        assert_eq!(queue.total_messages(), 0);
+        assert!(queue.try_dequeue_any().is_none());
+    }
+
+    #[test]
+    fn test_partitioned_queue_stats() {
+        let queue = PartitionedQueue::new(4, 64);
+
+        // Enqueue to different partitions
+        for source in 0..20u64 {
+            let mut env = make_envelope();
+            env.header.source_kernel = source;
+            queue.try_enqueue(env).unwrap();
+        }
+
+        let stats = queue.stats();
+        assert_eq!(stats.total.enqueued, 20);
+        assert_eq!(stats.partition_count, 4);
+        assert_eq!(stats.partition_stats.len(), 4);
+    }
+
+    #[test]
+    fn test_partitioned_queue_load_imbalance() {
+        let queue = PartitionedQueue::new(4, 64);
+
+        // All messages go to same partition (source 0 maps to partition 0)
+        for _ in 0..10 {
+            let mut env = make_envelope();
+            env.header.source_kernel = 0;
+            queue.try_enqueue(env).unwrap();
+        }
+
+        let stats = queue.stats();
+        // All 10 messages in one partition, avg = 2.5, max = 10
+        // Imbalance = 10 / 2.5 = 4.0
+        assert!((stats.load_imbalance() - 4.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_partitioned_queue_dequeue_partition() {
+        let queue = PartitionedQueue::new(4, 64);
+
+        // Enqueue to a specific partition (source 0)
+        let mut env = make_envelope();
+        env.header.source_kernel = 0;
+        queue.try_enqueue(env).unwrap();
+
+        let partition = queue.partition_for(0);
+
+        // Dequeue from that specific partition
+        let result = queue.try_dequeue_partition(partition);
+        assert!(result.is_ok());
+
+        // Invalid partition should error
+        let result = queue.try_dequeue_partition(100);
+        assert!(result.is_err());
     }
 }

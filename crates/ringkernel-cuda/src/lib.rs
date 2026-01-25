@@ -32,6 +32,8 @@
 
 #![warn(missing_docs)]
 
+#[cfg(feature = "ptx-cache")]
+pub mod compile;
 #[cfg(feature = "cooperative")]
 pub mod cooperative;
 #[cfg(feature = "cuda")]
@@ -43,7 +45,11 @@ pub mod k2k_gpu;
 #[cfg(feature = "cuda")]
 mod kernel;
 #[cfg(feature = "cuda")]
+pub mod launch_config;
+#[cfg(feature = "cuda")]
 mod memory;
+#[cfg(feature = "cuda")]
+pub mod memory_pool;
 #[cfg(feature = "cuda")]
 pub mod persistent;
 #[cfg(feature = "cuda")]
@@ -56,6 +62,8 @@ pub mod reduction;
 mod runtime;
 #[cfg(feature = "cuda")]
 mod stencil;
+#[cfg(feature = "cuda")]
+pub mod stream;
 
 #[cfg(feature = "cuda")]
 pub use device::CudaDevice;
@@ -87,6 +95,23 @@ pub use profiling::{
     CudaEvent, CudaEventFlags, CudaMemoryKind, CudaMemoryTracker, CudaNvtxProfiler,
     GpuChromeTraceBuilder, GpuEventArgs, GpuTimer, GpuTimerPool, GpuTraceEvent, KernelMetrics,
     ProfilingSession, TrackedAllocation, TransferDirection, TransferMetrics,
+};
+
+// PTX cache re-exports
+#[cfg(feature = "ptx-cache")]
+pub use compile::{PtxCache, PtxCacheError, PtxCacheResult, PtxCacheStats, CACHE_VERSION};
+
+// GPU memory pool re-exports
+#[cfg(feature = "cuda")]
+pub use memory_pool::{
+    GpuBucketStats, GpuPoolConfig, GpuPoolDiagnostics, GpuSizeClass, GpuStratifiedPool,
+};
+
+// Stream manager re-exports
+#[cfg(feature = "cuda")]
+pub use stream::{
+    OverlapMetrics, StreamConfig, StreamConfigBuilder, StreamError, StreamId, StreamManager,
+    StreamPool, StreamPoolStats, StreamResult,
 };
 
 /// Re-export memory module for advanced usage.

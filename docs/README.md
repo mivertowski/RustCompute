@@ -76,7 +76,7 @@ RingKernel enables GPU-accelerated actor systems with persistent kernels, lock-f
 |--------|---------|--------|
 | Command Injection Latency | 0.03µs (CUDA) | <0.1µs (all backends) |
 | Backend Coverage | 2/3 production-ready | 3/3 |
-| Test Count | 900+ | 1000+ |
+| Test Count | 950+ | 1000+ |
 | Speedup vs Traditional | 11,327x | >10,000x |
 
 ## Contributing

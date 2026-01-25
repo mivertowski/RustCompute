@@ -203,6 +203,162 @@ let config = MultiPhaseConfig::new()
 
 Run the PageRank example: `cargo run -p ringkernel --example pagerank_reduction --features cuda`
 
+### PTX Compilation Cache (in ringkernel-cuda)
+
+Disk-based PTX caching for faster kernel loading:
+
+- **`PtxCache`** - SHA-256 content-based caching with compute capability awareness
+- **`PtxCacheStats`** - Hit/miss statistics for cache performance monitoring
+- **`PtxCacheError`** - Descriptive error types for cache operations
+- Default location: `~/.cache/ringkernel/ptx/`
+- Environment variable: `RINGKERNEL_PTX_CACHE_DIR`
+
+```rust
+use ringkernel_cuda::compile::{PtxCache, PtxCacheStats};
+
+let cache = PtxCache::new()?;
+let hash = PtxCache::hash_source(cuda_source);
+
+if let Some(ptx) = cache.get(&hash, "sm_89")? {
+    // Use cached PTX
+} else {
+    let ptx = compile_ptx(cuda_source)?;
+    cache.put(&hash, "sm_89", &ptx)?;
+}
+```
+
+### GPU Stratified Memory Pool (in ringkernel-cuda)
+
+Size-stratified GPU VRAM pooling with O(1) allocation:
+
+- **`GpuStratifiedPool`** - 6 size classes (256B to 256KB) with free lists
+- **`GpuPoolConfig`** - Configuration with presets: `for_graph_analytics()`, `for_simulation()`
+- **`GpuSizeClass`** - Size class enum for bucket selection
+- **`GpuPoolDiagnostics`** - Utilization monitoring and statistics
+
+```rust
+use ringkernel_cuda::memory_pool::{GpuStratifiedPool, GpuPoolConfig, GpuSizeClass};
+
+let config = GpuPoolConfig::for_graph_analytics();
+let mut pool = GpuStratifiedPool::new(&device, config)?;
+pool.warm_bucket(GpuSizeClass::Size1KB, 100)?;  // Pre-allocate
+
+let ptr = pool.allocate(512)?;  // O(1) from free list
+pool.deallocate(ptr, 512)?;
+```
+
+### Multi-Stream Execution (in ringkernel-cuda)
+
+CUDA stream management for compute/transfer overlap:
+
+- **`StreamManager`** - Multi-stream with compute and transfer streams
+- **`StreamConfig`** - Configuration with presets: `minimal()`, `performance()`
+- **`StreamId`** - `Compute(usize)`, `Transfer`, `Default`
+- **`StreamPool`** - Load-balanced stream assignment
+- **`OverlapMetrics`** - Compute/transfer overlap measurement
+
+```rust
+use ringkernel_cuda::stream::{StreamManager, StreamConfig, StreamId};
+
+let manager = StreamManager::new(&device, StreamConfig::performance())?;
+manager.record_event("kernel_done", StreamId::Compute(0))?;
+manager.stream_wait_event(StreamId::Transfer, "kernel_done")?;
+```
+
+### Benchmark Framework (in ringkernel-core)
+
+Comprehensive benchmarking with regression detection (feature-gated via `benchmark`):
+
+- **`Benchmarkable` trait** - Generic interface for workloads
+- **`BenchmarkSuite`** - Orchestration with multiple report formats
+- **`BenchmarkConfig`** - Presets: `quick()`, `comprehensive()`, `ci()`
+- **`BenchmarkResult`** - Throughput, timing, custom metrics
+- **`RegressionReport`** - Baseline comparison with status tracking
+- **`Statistics`** - ConfidenceInterval, DetailedStatistics, ScalingMetrics
+
+```rust
+use ringkernel_core::benchmark::{BenchmarkSuite, BenchmarkConfig, Benchmarkable};
+
+let mut suite = BenchmarkSuite::new(BenchmarkConfig::comprehensive());
+suite.run_all_sizes(&MyWorkload);
+
+println!("{}", suite.generate_markdown_report());
+if let Some(report) = suite.compare_to_baseline() {
+    println!("Regressions: {}", report.regression_count);
+}
+```
+
+### Hybrid CPU-GPU Dispatcher (in ringkernel-core)
+
+Intelligent workload routing with adaptive thresholds:
+
+- **`HybridDispatcher`** - Automatic CPU/GPU routing with learning
+- **`HybridWorkload` trait** - `execute_cpu()` / `execute_gpu()` interface
+- **`ProcessingMode`** - `GpuOnly`, `CpuOnly`, `Hybrid`, `Adaptive`
+- **`HybridConfig`** - Presets: `cpu_only()`, `gpu_only()`, `adaptive()`
+- **`HybridStats`** - Execution counts and adaptive threshold history
+
+```rust
+use ringkernel_core::hybrid::{HybridDispatcher, HybridConfig};
+
+let dispatcher = HybridDispatcher::new(HybridConfig::adaptive());
+let result = dispatcher.execute(&workload);  // Automatic routing
+```
+
+### Resource Guard (in ringkernel-core)
+
+Memory limit enforcement with reservations:
+
+- **`ResourceGuard`** - Configurable limits with safety margin
+- **`ReservationGuard`** - RAII wrapper for guaranteed allocations
+- **`MemoryEstimator` trait** - Workload memory estimation
+- **`MemoryEstimate`** - Primary, auxiliary, peak bytes with confidence
+- **`LinearEstimator`** - Simple linear estimator
+- System utilities: `get_total_memory()`, `get_available_memory()`
+
+```rust
+use ringkernel_core::resource::{ResourceGuard, MemoryEstimate};
+
+let guard = ResourceGuard::with_max_memory(4 * 1024 * 1024 * 1024);
+let reservation = guard.reserve(512 * 1024 * 1024)?;
+// Automatically released on drop
+```
+
+### Kernel Mode Selection (in ringkernel-cuda)
+
+Intelligent kernel launch configuration:
+
+- **`KernelMode`** - `ElementCentric`, `SoA`, `Tiled`, `WarpCooperative`, `Auto`
+- **`AccessPattern`** - `Coalesced`, `Stencil`, `Irregular`, `Reduction`, `Scatter`, `Gather`
+- **`WorkloadProfile`** - Element count, bytes per element, access pattern
+- **`GpuArchitecture`** - Presets: `volta()`, `ampere()`, `ada()`, `hopper()`
+- **`KernelModeSelector`** - Optimal mode selection and launch config generation
+- **`LaunchConfig`** - Complete kernel launch configuration
+
+```rust
+use ringkernel_cuda::launch_config::{KernelModeSelector, WorkloadProfile, AccessPattern};
+
+let selector = KernelModeSelector::with_defaults();
+let profile = WorkloadProfile::new(1_000_000, 64)
+    .with_access_pattern(AccessPattern::Stencil { radius: 1 });
+let config = selector.launch_config(selector.select(&profile), 1_000_000);
+```
+
+### Partitioned Queues (in ringkernel-core)
+
+Multi-partition message queues for reduced contention:
+
+- **`PartitionedQueue`** - Hash-based routing by source kernel ID
+- **`PartitionedQueueStats`** - Per-partition statistics with load imbalance metric
+
+```rust
+use ringkernel_core::queue::PartitionedQueue;
+
+let queue = PartitionedQueue::new(4, 1024);  // 4 partitions
+queue.try_enqueue(envelope)?;  // Routed by source_kernel
+let msg = queue.try_dequeue_any();  // Round-robin dequeue
+```
+
 ### Enterprise Features (in ringkernel-core)
 
 The following enterprise-grade features provide production-ready infrastructure:
@@ -594,10 +750,10 @@ let handle = CudaPersistentHandle::new(simulation, "fdtd_3d");
 
 ### Test Count Summary
 
-900+ tests across the workspace:
-- ringkernel-core: 457 tests (including memory pool, analytics context, pressure reactions, enterprise security, auth, RBAC, tenancy, rate limiting, TLS, logging, alerting, recovery)
+950+ tests across the workspace:
+- ringkernel-core: 538 tests (including memory pool, analytics context, pressure reactions, enterprise security, auth, RBAC, tenancy, rate limiting, TLS, logging, alerting, recovery, benchmark framework, hybrid dispatcher, resource guard, partitioned queues)
 - ringkernel-cpu: 11 tests
-- ringkernel-cuda: 52 tests (reduction cache, phases, K2K, persistent actors)
+- ringkernel-cuda: 52+ tests (reduction cache, phases, K2K, persistent actors, PTX cache, GPU memory pool, stream manager, kernel mode selection)
 - ringkernel-cuda-codegen: 190+ tests (loops, shared memory, ring kernels, K2K, envelope format, energy calculation, checksums, 120+ GPU intrinsics)
 - ringkernel-wgpu-codegen: 55+ tests (types, intrinsics, transpiler, validation, 2D/3D/4D shared memory)
 - ringkernel-ir: 40+ tests (IR nodes, CUDA lowering, MSL lowering, messaging nodes, HLC nodes)
@@ -806,7 +962,7 @@ let _ = device.poll(wgpu::PollType::wait_indefinitely());
 
 ## Dependency Versions
 
-Key workspace dependencies (as of v0.3.2):
+Key workspace dependencies (as of v0.4.0):
 
 | Category | Package | Version | Notes |
 |----------|---------|---------|-------|
@@ -816,6 +972,7 @@ Key workspace dependencies (as of v0.3.2):
 | **GPU** | cudarc | 0.18.2 | CUDA bindings |
 | **GPU** | wgpu | 27.0 | WebGPU (Arc-based) |
 | **GPU** | metal | 0.31 | Apple Metal |
+| **Crypto** | sha2 | 0.10 | PTX cache hashing |
 | **Web** | axum | 0.8 | HTTP framework |
 | **Web** | tower | 0.5 | Service abstractions |
 | **gRPC** | tonic | 0.14 | gRPC framework |

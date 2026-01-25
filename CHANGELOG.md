@@ -7,6 +7,392 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-01-25
+
+### Added
+
+#### GPU Infrastructure Generalization (RustGraph → RingKernel)
+
+This release extracts ~7,000+ lines of proven GPU infrastructure from RustGraph into RingKernel, making these capabilities available to all RingKernel users.
+
+#### PTX Compilation Cache (`ringkernel-cuda/src/compile/`) - **NEW MODULE**
+
+- **`PtxCache`** - Disk-based PTX compilation cache for faster kernel loading
+  - SHA-256 content-based hashing for cache keys
+  - Compute capability-aware caching (separate cache per GPU architecture)
+  - Thread-safe with atomic file operations
+  - Environment variable support: `RINGKERNEL_PTX_CACHE_DIR`
+  - `PtxCacheStats` for hit/miss tracking
+  - `PtxCacheError` with descriptive error types
+  - Default cache location: `~/.cache/ringkernel/ptx/`
+
+```rust
+use ringkernel_cuda::compile::{PtxCache, PtxCacheStats};
+
+let cache = PtxCache::new()?;  // Uses default directory
+let hash = PtxCache::hash_source(cuda_source);
+
+// Check cache first
+if let Some(ptx) = cache.get(&hash, "sm_89")? {
+    // Use cached PTX
+} else {
+    let ptx = compile_ptx(cuda_source)?;
+    cache.put(&hash, "sm_89", &ptx)?;
+}
+
+println!("Cache stats: {:?}", cache.stats());
+```
+
+#### GPU Stratified Memory Pool (`ringkernel-cuda/src/memory_pool.rs`) - **NEW FILE**
+
+- **`GpuStratifiedPool`** - Size-stratified memory pool for GPU VRAM
+  - 6 size classes: 256B, 1KB, 4KB, 16KB, 64KB, 256KB
+  - O(1) allocation from free lists per bucket
+  - Large allocation fallback for oversized requests
+  - Thread-safe with atomic counters
+  - `GpuPoolConfig` with presets: `for_graph_analytics()`, `for_simulation()`
+  - `GpuPoolDiagnostics` for monitoring utilization
+  - `warm_bucket()` for pre-allocation
+  - `compact()` for memory defragmentation
+
+```rust
+use ringkernel_cuda::memory_pool::{GpuStratifiedPool, GpuPoolConfig, GpuSizeClass};
+
+let config = GpuPoolConfig::for_graph_analytics();  // 256B-heavy
+let mut pool = GpuStratifiedPool::new(&device, config)?;
+
+// Warm the small buffer bucket
+pool.warm_bucket(GpuSizeClass::Size1KB, 100)?;
+
+// Allocate (O(1) for pooled sizes)
+let ptr = pool.allocate(512)?;  // Uses 1KB bucket
+pool.deallocate(ptr, 512)?;
+
+println!("Diagnostics: {:?}", pool.diagnostics());
+```
+
+#### Multi-Stream Execution Manager (`ringkernel-cuda/src/stream/`) - **NEW MODULE**
+
+- **`StreamManager`** - Multi-stream CUDA execution for compute/transfer overlap
+  - Configurable compute streams (1-8) with priority support
+  - Dedicated transfer stream for async DMA
+  - Event-based inter-stream synchronization
+  - `StreamConfig` with presets: `minimal()`, `performance()`
+  - `StreamId` enum: `Compute(usize)`, `Transfer`, `Default`
+  - `record_event()` / `stream_wait_event()` for dependencies
+  - `event_elapsed_ms()` for timing measurements
+
+- **`StreamPool`** - Load-balanced stream assignment
+  - `assign_workload()` for explicit assignment
+  - `least_utilized()` for automatic load balancing
+  - Utilization tracking with atomic counters
+  - `StreamPoolStats` for monitoring
+
+- **`OverlapMetrics`** - Compute/transfer overlap measurement
+  - Overlap ratio calculation
+  - Transfer/compute time tracking
+
+```rust
+use ringkernel_cuda::stream::{StreamManager, StreamConfig, StreamId};
+
+let config = StreamConfig::performance();  // 4 compute + transfer
+let mut manager = StreamManager::new(&device, config)?;
+
+// Launch kernel on compute stream
+let compute_stream = manager.cuda_stream(StreamId::Compute(0))?;
+// ... launch kernel ...
+
+// Record event for synchronization
+manager.record_event("kernel_done", StreamId::Compute(0))?;
+
+// Transfer stream waits for kernel
+manager.stream_wait_event(StreamId::Transfer, "kernel_done")?;
+
+// Timing
+let elapsed = manager.event_elapsed_ms("start", "kernel_done")?;
+```
+
+#### Benchmark Framework (`ringkernel-core/src/benchmark/`) - **NEW MODULE**
+
+- **`Benchmarkable` trait** - Generic interface for benchmarkable workloads
+  - `name()` / `code()` for identification
+  - `execute()` for workload execution
+  - Supports custom workload sizes
+
+- **`BenchmarkSuite`** - Comprehensive benchmark orchestration
+  - `run()` / `run_all_sizes()` for execution
+  - Baseline comparison with `set_baseline()` / `compare_to_baseline()`
+  - Multiple report formats: Markdown, LaTeX, JSON
+
+- **`BenchmarkConfig`** - Benchmark configuration
+  - Warmup/measurement iterations
+  - Convergence thresholds
+  - Configurable workload sizes
+  - Presets: `quick()`, `comprehensive()`, `ci()`
+
+- **`BenchmarkResult`** - Detailed benchmark results
+  - Throughput (ops/s), total time, iterations
+  - Per-measurement timing data
+  - Custom metrics support
+  - Convergence tracking
+
+- **`RegressionReport`** - Performance regression detection
+  - Per-workload comparison to baseline
+  - Status: Regression, Improvement, Unchanged
+  - Configurable threshold (default: 5%)
+
+- **`Statistics`** - Statistical analysis utilities
+  - `ConfidenceInterval` with configurable confidence level
+  - `DetailedStatistics`: mean, std_dev, min, max, percentiles (p5, p25, median, p75, p95, p99)
+  - `ScalingMetrics` for analyzing algorithmic scaling (exponent, R²)
+
+```rust
+use ringkernel_core::benchmark::{BenchmarkSuite, BenchmarkConfig, Benchmarkable};
+
+struct MyWorkload;
+impl Benchmarkable for MyWorkload {
+    fn name(&self) -> &str { "MyWorkload" }
+    fn code(&self) -> &str { "MW" }
+    fn execute(&self, config: &WorkloadConfig) -> BenchmarkResult {
+        // ... run workload ...
+    }
+}
+
+let config = BenchmarkConfig::comprehensive()
+    .with_sizes(vec![1000, 10_000, 100_000]);
+let mut suite = BenchmarkSuite::new(config);
+
+suite.run_all_sizes(&MyWorkload);
+
+// Generate reports
+println!("{}", suite.generate_markdown_report());
+println!("{}", suite.generate_latex_table());
+
+// Regression detection
+let baseline = suite.create_baseline("v1.0");
+suite.set_baseline(baseline);
+if let Some(report) = suite.compare_to_baseline() {
+    println!("Regressions: {}", report.regression_count);
+}
+```
+
+#### Hybrid CPU-GPU Dispatcher (`ringkernel-core/src/hybrid/`) - **NEW MODULE**
+
+- **`HybridDispatcher`** - Intelligent CPU/GPU workload routing
+  - Automatic threshold-based routing
+  - Adaptive threshold learning from execution times
+  - Configurable learning rate
+  - Fallback to CPU when GPU unavailable
+
+- **`HybridWorkload` trait** - Workload interface for hybrid execution
+  - `execute_cpu()` / `execute_gpu()` implementations
+  - `workload_size()` for routing decisions
+  - `supports_gpu()` for capability detection
+  - `memory_estimate()` for resource planning
+
+- **`ProcessingMode`** - Routing mode configuration
+  - `GpuOnly` - Always use GPU
+  - `CpuOnly` - Always use CPU
+  - `Hybrid { gpu_threshold }` - Size-based routing
+  - `Adaptive` - Learn optimal threshold
+
+- **`HybridConfig`** - Dispatcher configuration
+  - Learning rate, initial threshold, min/max thresholds
+  - GPU availability flag
+  - Presets: `cpu_only()`, `gpu_only()`, `adaptive()`, `for_small_workloads()`, `for_large_workloads()`
+
+- **`HybridStats`** - Execution statistics
+  - CPU/GPU execution counts and times
+  - Adaptive threshold history
+  - `cpu_gpu_ratio()` for balance analysis
+
+```rust
+use ringkernel_core::hybrid::{HybridDispatcher, HybridConfig, HybridWorkload, ProcessingMode};
+
+struct MatrixMultiply { size: usize, /* ... */ }
+impl HybridWorkload for MatrixMultiply {
+    type Result = Matrix;
+    fn workload_size(&self) -> usize { self.size * self.size }
+    fn execute_cpu(&self) -> Matrix { /* CPU impl */ }
+    fn execute_gpu(&self) -> HybridResult<Matrix> { /* GPU impl */ }
+}
+
+let config = HybridConfig::adaptive()
+    .with_initial_threshold(10_000)
+    .with_learning_rate(0.1);
+let dispatcher = HybridDispatcher::new(config);
+
+let workload = MatrixMultiply { size: 1000 };
+
+// Automatic routing based on size and learned threshold
+let result = dispatcher.execute(&workload);
+
+// Check stats
+let stats = dispatcher.stats().snapshot();
+println!("GPU executions: {}, CPU executions: {}", stats.gpu_executions, stats.cpu_executions);
+```
+
+#### Resource Guard (`ringkernel-core/src/resource/`) - **NEW MODULE**
+
+- **`ResourceGuard`** - Memory limit enforcement with reservations
+  - Configurable maximum memory
+  - Safety margin (default: 30%)
+  - Reservation system for guaranteed allocations
+  - `can_allocate()` for pre-flight checks
+  - `reserve()` returns `ReservationGuard` RAII wrapper
+  - `max_safe_elements()` for capacity planning
+  - `unguarded()` for unlimited allocation mode
+  - `global_guard()` singleton for process-wide limits
+
+- **`MemoryEstimator` trait** - Workload memory estimation
+  - `estimate()` returns `MemoryEstimate`
+  - `name()` for identification
+
+- **`MemoryEstimate`** - Detailed memory requirements
+  - Primary, auxiliary, and peak bytes
+  - Confidence level (0.0-1.0)
+  - `total_bytes()` / `peak_bytes()` helpers
+  - Builder pattern with `with_primary()`, `with_auxiliary()`, etc.
+
+- **`LinearEstimator`** - Simple linear memory estimator
+  - Bytes per element + fixed overhead
+
+- **System utilities**:
+  - `get_total_memory()` - System RAM
+  - `get_available_memory()` - Free RAM
+  - `get_memory_utilization()` - Current usage percentage
+
+```rust
+use ringkernel_core::resource::{ResourceGuard, MemoryEstimate, MemoryEstimator};
+
+let guard = ResourceGuard::with_max_memory(4 * 1024 * 1024 * 1024);  // 4 GB
+
+// Check before allocating
+if guard.can_allocate(1024 * 1024 * 1024) {
+    // Safe to allocate 1 GB
+}
+
+// Reserve memory with RAII guard
+let reservation = guard.reserve(512 * 1024 * 1024)?;
+// ... use reserved memory ...
+// Automatically released when reservation drops
+
+// Calculate safe element count
+let max_elements = guard.max_safe_elements(64);  // 64 bytes per element
+println!("Can safely process {} elements", max_elements);
+```
+
+#### Kernel Mode Selection (`ringkernel-cuda/src/launch_config/`) - **NEW MODULE**
+
+- **`KernelMode`** - Execution mode selection
+  - `ElementCentric` - One thread per element (default)
+  - `SoA` - Structure-of-Arrays for coalesced access
+  - `WorkItemCentric` - Load-balanced work distribution
+  - `Tiled { tile_size }` - Tiled execution with configurable tile dimensions
+  - `WarpCooperative` - Warp-level parallelism
+  - `Auto` - Automatic selection based on workload
+
+- **`AccessPattern`** - Memory access pattern hints
+  - `Coalesced` - Sequential access
+  - `Stencil { radius }` - Stencil patterns with halo
+  - `Irregular` - Random access
+  - `Reduction` - Reduction operations
+  - `Scatter` / `Gather` - Indirect access
+
+- **`WorkloadProfile`** - Workload characteristics
+  - Element count, bytes per element
+  - Access pattern, compute intensity
+  - Builder pattern for configuration
+
+- **`GpuArchitecture`** - GPU capability profiles
+  - L2 cache size, SM count, max threads/SM
+  - Shared memory per SM
+  - Compute capability
+  - Presets: `volta()`, `ampere()`, `ada()`, `hopper()`
+
+- **`KernelModeSelector`** - Intelligent mode selection
+  - `select()` chooses optimal mode for workload
+  - `recommended_block_size()` per mode
+  - `recommended_grid_size()` for element count
+  - `launch_config()` returns complete `LaunchConfig`
+
+- **`LaunchConfig`** - Complete kernel launch configuration
+  - Grid dimensions, block dimensions
+  - Shared memory bytes
+  - `simple_1d()` / `simple_2d()` helpers
+
+```rust
+use ringkernel_cuda::launch_config::{
+    KernelModeSelector, WorkloadProfile, AccessPattern, GpuArchitecture,
+};
+
+let arch = GpuArchitecture::ada();  // RTX 40xx
+let selector = KernelModeSelector::new(arch);
+
+let profile = WorkloadProfile::new(1_000_000, 64)
+    .with_access_pattern(AccessPattern::Stencil { radius: 1 })
+    .with_compute_intensity(0.8);
+
+let mode = selector.select(&profile);  // Returns Tiled for stencil
+let config = selector.launch_config(mode, profile.element_count);
+
+println!("Grid: {:?}, Block: {:?}", config.grid_dim, config.block_dim);
+```
+
+#### Partitioned Queues (`ringkernel-core/src/queue.rs`)
+
+- **`PartitionedQueue`** - Multi-partition queue for reduced contention
+  - Hash-based message routing by source kernel ID
+  - Configurable partition count (rounded to power of 2)
+  - `try_enqueue()` routes to appropriate partition
+  - `try_dequeue_any()` round-robin across partitions
+  - `try_dequeue_partition()` for targeted dequeue
+  - `partition_for()` returns partition index for source
+
+- **`PartitionedQueueStats`** - Partition-level statistics
+  - Per-partition message counts
+  - `load_imbalance()` metric (max/avg ratio)
+  - Total message count across all partitions
+
+```rust
+use ringkernel_core::queue::PartitionedQueue;
+
+let queue = PartitionedQueue::new(4, 1024);  // 4 partitions, 1024 capacity each
+
+// Enqueue routes based on source kernel ID
+queue.try_enqueue(envelope)?;  // Uses envelope.header.source_kernel for routing
+
+// Dequeue from any partition (round-robin)
+if let Some(msg) = queue.try_dequeue_any() {
+    // Process message
+}
+
+// Check load balance
+let stats = queue.stats();
+println!("Load imbalance: {:.2}x", stats.load_imbalance());
+```
+
+### Changed
+
+- **Test Coverage** - Increased from 900+ to 950+ tests
+  - 12 PTX cache tests
+  - 15 GPU memory pool tests
+  - 18 stream manager tests
+  - 28 benchmark framework tests
+  - 27 hybrid dispatcher tests
+  - 23 resource guard tests
+  - 12 kernel mode selection tests
+  - 7 partitioned queue tests
+
+- **Dependencies** - Added `sha2 = "0.10"` for PTX cache hashing
+
+### Fixed
+
+- Fixed `source_id` → `source_kernel` field name in queue tests
+- Fixed floating point precision in `max_safe_elements` test
+- Fixed `RingKernelError::InvalidState` struct variant usage in memory pool
+- Removed unused `GpuBuffer` import in memory pool
+
 ## [0.3.2] - 2026-01-20
 
 ### Added
@@ -826,7 +1212,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLAUDE.md with build commands and architecture overview
 - Code examples for all major features
 
-[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/mivertowski/RustCompute/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/mivertowski/RustCompute/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/mivertowski/RustCompute/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/mivertowski/RustCompute/compare/v0.2.0...v0.3.0

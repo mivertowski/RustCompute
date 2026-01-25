@@ -38,6 +38,12 @@ parking_lot = { workspace = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
+# Cryptographic hashing (for PTX cache)
+sha2 = { version = "0.10", optional = true }
+
+# Temp directory (for cache tests)
+tempfile = { workspace = true, optional = true }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
 
@@ -52,3 +58,5 @@ cuda = ["cudarc"]
 cooperative = ["cuda"]
 # GPU profiling support - NVTX integration, CUDA events, Chrome trace export
 profiling = ["cuda", "serde", "serde_json"]
+# PTX compilation cache - eliminates first-tick kernel compilation overhead
+ptx-cache = ["cuda", "sha2", "tempfile"]

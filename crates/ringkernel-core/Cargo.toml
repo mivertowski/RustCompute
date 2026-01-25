@@ -96,3 +96,6 @@ tls = ["rustls", "rustls-pemfile", "webpki-roots"]
 
 # Combined enterprise feature
 enterprise = ["crypto", "auth", "rate-limiting", "alerting", "tls"]
+
+# Benchmark framework
+benchmark = ["serde", "serde_json"]

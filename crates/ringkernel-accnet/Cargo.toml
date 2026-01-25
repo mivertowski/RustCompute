@@ -12,10 +12,10 @@ readme = "README.md"
 
 [dependencies]
 # Core RingKernel dependencies
-ringkernel-core = { version = "0.3.2", path = "../ringkernel-core" }
-ringkernel-derive = { version = "0.3.2", path = "../ringkernel-derive" }
-ringkernel-cpu = { version = "0.3.2", path = "../ringkernel-cpu" }
-ringkernel-cuda-codegen = { version = "0.3.2", path = "../ringkernel-cuda-codegen", optional = true }
+ringkernel-core = { version = "0.4.0", path = "../ringkernel-core" }
+ringkernel-derive = { version = "0.4.0", path = "../ringkernel-derive" }
+ringkernel-cpu = { version = "0.4.0", path = "../ringkernel-cpu" }
+ringkernel-cuda-codegen = { version = "0.4.0", path = "../ringkernel-cuda-codegen", optional = true }
 syn = { version = "2.0", features = ["full", "parsing"], optional = true }
 
 # Async runtime
@@ -52,7 +52,7 @@ env_logger = "0.11"
 log = "0.4"
 
 # Optional CUDA backend
-ringkernel-cuda = { version = "0.3.2", path = "../ringkernel-cuda", optional = true, features = ["cuda"] }
+ringkernel-cuda = { version = "0.4.0", path = "../ringkernel-cuda", optional = true, features = ["cuda"] }
 cudarc = { workspace = true, optional = true }
 
 [dev-dependencies]

@@ -1,6 +1,6 @@
 [package]
 name = "ringkernel-tutorials"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["Michael Ivertowski <mivertowski@outlook.com>"]
 description = "Interactive tutorials for learning RingKernel"
