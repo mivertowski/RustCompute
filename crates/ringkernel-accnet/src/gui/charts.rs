@@ -671,11 +671,7 @@ impl MethodDistribution {
 
         for (i, label) in labels.iter().enumerate() {
             let x = rect.left() + 5.0 + legend_spacing * (i as f32 + 0.5);
-            let pct = if total > 0 {
-                self.counts[i] * 100 / total
-            } else {
-                0
-            };
+            let pct = (self.counts[i] * 100).checked_div(total).unwrap_or(0);
 
             painter.circle_filled(Pos2::new(x - 15.0, legend_y + 5.0), 4.0, colors[i]);
             painter.text(

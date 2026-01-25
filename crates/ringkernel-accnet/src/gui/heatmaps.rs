@@ -151,7 +151,7 @@ impl ActivityHeatmap {
     pub fn from_network_top_accounts(network: &AccountingNetwork, top_n: usize) -> Self {
         // Get top N accounts by transaction count
         let mut accounts: Vec<_> = network.accounts.iter().enumerate().collect();
-        accounts.sort_by(|a, b| b.1.transaction_count.cmp(&a.1.transaction_count));
+        accounts.sort_by_key(|a| std::cmp::Reverse(a.1.transaction_count));
         accounts.truncate(top_n);
 
         let mut data = vec![vec![0.0f32; 8]; accounts.len()];

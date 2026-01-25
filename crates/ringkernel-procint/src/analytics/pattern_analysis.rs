@@ -76,7 +76,7 @@ impl PatternAggregator {
     /// Get top patterns by frequency.
     pub fn top_patterns(&self, n: usize) -> Vec<&PatternSummary> {
         let mut sorted: Vec<_> = self.recent_patterns.iter().collect();
-        sorted.sort_by(|a, b| b.frequency.cmp(&a.frequency));
+        sorted.sort_by_key(|a| std::cmp::Reverse(a.frequency));
         sorted.truncate(n);
         sorted
     }

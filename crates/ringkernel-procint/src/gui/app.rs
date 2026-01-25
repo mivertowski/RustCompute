@@ -384,7 +384,7 @@ impl ProcessIntelligenceApp {
 
         // Get variations sorted by count
         let mut variations: Vec<_> = self.coordinator.variations().values().collect();
-        variations.sort_by(|a, b| b.count.cmp(&a.count));
+        variations.sort_by_key(|a| std::cmp::Reverse(a.count));
 
         // Get activity names and colors
         let sector = self.coordinator.pipeline().sector();
