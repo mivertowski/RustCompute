@@ -1,0 +1,35 @@
+# Python virtual environment
+.venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Compiled extension module
+*.so
+*.pyd
+
+# Distribution/packaging
+*.egg-info/
+dist/
+build/
+wheels/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Linting/formatting
+.ruff_cache/
+.mypy_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Maturin build artifacts
+target/

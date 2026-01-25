@@ -22,6 +22,7 @@ members = [
     "crates/ringkernel-wavesim3d",
     "crates/ringkernel-montecarlo",
     "crates/ringkernel-graph",
+    "crates/ringkernel-python",
     "tutorials",
 ]
 

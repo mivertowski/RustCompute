@@ -1,0 +1,27 @@
+# Ruff configuration for ringkernel-python
+
+target-version = "py38"  # Support Python 3.8+
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["B", "S"]  # Allow assert in tests
+"*.pyi" = ["I"]         # Skip import sorting in stubs
+
+[lint.isort]
+known-first-party = ["ringkernel"]
+force-single-line = false
+combine-as-imports = true
+
+[format]
+quote-style = "double"
+indent-style = "space"
