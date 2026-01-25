@@ -141,6 +141,39 @@ distributed GPU actor systems. Challenges include:
 Orleans.GpuBridge already supports P2P NVLink routing within a node; extending
 to multi-node clusters is natural future work.
 
+RustGraph's P4 optimization provides a foundation for multi-GPU execution:
+\begin{itemize}
+    \item METIS-based graph partitioning minimizes cross-GPU edge cuts
+    \item \texttt{tree\_reduce()} aggregates partial results across GPUs
+    \item Current evaluation shows 0.0\% partition imbalance (target $<$5\%)
+\end{itemize}
+
+\subsubsection{Enterprise Analytics}
+
+The unified hypergraph architecture in RustGraph demonstrates how GPU-native actors
+can serve enterprise analytics workloads:
+
+\begin{itemize}
+    \item \textbf{Real-Time Fraud Detection}: 26 fraud label types computed via
+    living analytics, with fraud triangle scoring aggregating opportunity, pressure,
+    and rationalization indicators
+
+    \item \textbf{Internal Controls}: Control-Account-Risk relationships enable
+    continuous control coverage assessment and gap identification
+
+    \item \textbf{Process Mining}: Object-Centric Process Mining (OCPM) tracks
+    multi-object patterns through activity sequences, identifying process deviations
+    in real-time
+
+    \item \textbf{Audit Support}: Three-way match validation (PO-GR-Invoice) and
+    segregation of duties analysis computed as living analytics
+\end{itemize}
+
+The 64+ algorithms across 15 domains in RustGraph---including centrality, community
+detection, compliance, temporal analytics, and behavioral analysis---demonstrate
+that GPU-native actors can support sophisticated enterprise requirements while
+maintaining O(1) query latency.
+
 \subsubsection{Actor Migration}
 
 Live migration of actors between GPUs could enable:

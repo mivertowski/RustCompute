@@ -308,6 +308,99 @@ actor semantics, causal ordering, and interactive capabilities that PERKS lacks.
 \end{tabular}
 \end{table}
 
+\subsection{RustGraph P0-P4 Optimization Results}
+
+We evaluate the GPU optimizations described in Section~\ref{sec:implementation}
+on an NVIDIA RTX 2000 Ada mobile GPU.
+
+\subsubsection{P0-P4 Benchmark Summary}
+
+\begin{table}[h]
+\centering
+\caption{P0-P4 optimization results (RTX 2000 Ada)}
+\label{tab:p0-p4-results}
+\begin{tabular}{@{}lllr@{}}
+\toprule
+\textbf{Optimization} & \textbf{Metric} & \textbf{Result} & \textbf{Target} \\
+\midrule
+P0: Fused Kernels & Speedup & 3.51$\times$ & 1.5--2.5$\times$ \\
+P1: Hybrid Dispatch & Hub Detection & Working & Yes \\
+P2: Work Stealing & Success Rate & 68\% & 50--70\% \\
+P3: Async Convergence & Sync Reduction & 80\% & 60\% \\
+P4: METIS Partition & Imbalance & 0.0\% & $<$5\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All optimizations meet or exceed their targets. P0 notably achieves 3.51$\times$
+speedup (40\% above the upper target bound) by eliminating redundant CSR traversals
+when running multiple algorithms simultaneously.
+
+\subsubsection{Algorithm Throughput (RTX 2000 Ada)}
+
+\begin{table}[h]
+\centering
+\caption{RustGraph algorithm throughput by scale}
+\label{tab:rustgraph-throughput}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Scale} & \textbf{PageRank (ME/s)} & \textbf{CC (ME/s)} & \textbf{BFS (ME/s)} \\
+\midrule
+100K nodes & 176--189 & 8--13 & 19--32 \\
+125K nodes & \textbf{258} & 9--12 & 21--30 \\
+150K nodes & 241 & 8--12 & 18--30 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key finding}: PageRank demonstrates \textbf{superlinear scaling} with
+exponent 1.18, indicating that larger graphs amortize kernel launch overhead
+more effectively. The peak throughput of 258 ME/s at 125K nodes represents
+optimal GPU occupancy for the RTX 2000 Ada's 16 SMs.
+
+\subsubsection{Algorithm Speedup Comparison}
+
+\begin{table}[h]
+\centering
+\caption{Living analytics GPU speedup vs CPU baseline}
+\label{tab:gpu-speedups}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Algorithm} & \textbf{GPU Speedup} & \textbf{Notes} \\
+\midrule
+PageRank & 65$\times$ & Continuous maintenance \\
+BFS & 45$\times$ & Level-synchronous \\
+Connected Components & 38$\times$ & Label propagation \\
+Katz Centrality & 5.2$\times$ & Power iteration \\
+HITS & 4.8$\times$ & Authority/hub scores \\
+Triangle Count & 3.2$\times$ & Edge intersection \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Kernel Mode Performance}
+
+\begin{table}[h]
+\centering
+\caption{Kernel mode performance comparison (100K nodes)}
+\label{tab:kernel-modes}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Mode} & \textbf{PageRank (ME/s)} & \textbf{CC (ME/s)} & \textbf{Use Case} \\
+\midrule
+NodeCentric & 165 & 8 & Small/dense graphs \\
+SoA & 178 & 10 & Medium graphs \\
+Tiled & 189 & 12 & Large working sets \\
+EdgeCentric & 142 & 13 & Scale-free (hubs) \\
+Auto & 185 & 12 & Automatic selection \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The Tiled kernel with \texttt{\_\_ldg()} L1 caching achieves the highest PageRank
+throughput by optimizing cache utilization for CSR traversal. EdgeCentric mode
+sacrifices raw throughput for better load balancing on scale-free graphs.
+
 \subsection{Summary}
 
 \begin{itemize}

@@ -338,3 +338,105 @@ While the core architecture is shared, each implementation extends it for specif
 
 These extensions demonstrate that the core paradigm is flexible enough to support
 diverse application domains while maintaining the fundamental actor semantics.
+
+\subsection{Unified Hypergraph for Enterprise Domains}
+
+RustGraph introduces a unified hypergraph architecture that integrates three enterprise
+domains into a single GPU-resident structure:
+
+\subsubsection{Domain Entity Types}
+
+\begin{table}[h]
+\centering
+\caption{Unified hypergraph entity type ranges}
+\label{tab:entity-types}
+\begin{tabular}{@{}llr@{}}
+\toprule
+\textbf{Domain} & \textbf{Entity Types} & \textbf{Type Range} \\
+\midrule
+Accounting & Vendor, Customer, Account, JournalEntry, JournalLine, & 1--204 \\
+           & PurchaseRequisition, PurchaseOrder, GoodsReceipt, Invoice, Payment & \\
+ICS        & Control, Risk, Assertion, ControlObjective & 300--303 \\
+OCPM       & Process, Activity, Event, ObjectType & 400--403 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Cross-Domain Edge Types}
+
+The domains are connected via specialized edge types enabling multi-domain analytics:
+
+\begin{itemize}
+    \item \textbf{Accounting $\rightarrow$ ICS}: \texttt{CoversAccount} (Control covers Account),
+    \texttt{ExposesToRisk} (Account exposes to Risk)
+    \item \textbf{ICS $\rightarrow$ OCPM}: \texttt{CoversProcess} (Control covers Process),
+    \texttt{MitigatesRisk} (Control mitigates Risk)
+    \item \textbf{OCPM $\rightarrow$ Accounting}: \texttt{InvolvesObject} (Activity involves Document),
+    \texttt{HasActivity} (Process has Activity)
+\end{itemize}
+
+This unified structure enables queries that span domains, such as: ``Find all
+controls that cover accounts involved in activities with high fraud risk.''
+
+\subsubsection{Fraud Label Bitmap}
+
+Each node includes a 64-bit \texttt{label\_bitmap} field encoding 26 fraud labels
+(FictitiousVendor, Kickback, RoundTripping, etc.) for efficient GPU-side detection:
+
+\begin{lstlisting}[language=Rust, caption={Fraud label bitmap encoding}]
+pub enum FraudLabel {
+    Clean = 0, Duplicate = 1, SplitTransaction = 2,
+    RoundTripping = 3, FictitiousVendor = 4, ShellCompany = 5,
+    // ... 20 more labels
+}
+
+fn is_flagged(bitmap: u64, label: FraudLabel) -> bool {
+    (bitmap >> (label as u8)) & 1 == 1
+}
+\end{lstlisting}
+
+\subsection{Temporal Query Architecture}
+
+RustGraph supports temporal queries through per-node history rings and HLC timestamps:
+
+\subsubsection{Per-Node History Rings}
+
+Each \texttt{GpuNodeState} maintains a circular buffer of 16 historical snapshots:
+
+\begin{lstlisting}[language=Rust, caption={History ring structure (within GpuNodeState)}]
+// Per-node temporal history (inline in 256-byte struct)
+struct HistoryEntry {
+    hlc_timestamp: u64,    // HLC physical time
+    pagerank: f32,         // PageRank at this time
+    component_id: u32,     // Component at this time
+    flags: u32,            // State flags
+}
+// 16 entries per node, ring buffer with head pointer
+\end{lstlisting}
+
+\subsubsection{HLC Timestamp Support}
+
+Timestamps follow two formats for interoperability:
+\begin{itemize}
+    \item \textbf{ISO 8601}: \texttt{2024-01-15T10:30:00.123Z}
+    \item \textbf{HLC Format}: \texttt{physical.logical.node\_id} (e.g., \texttt{1705312200123.42.7})
+\end{itemize}
+
+\subsubsection{Temporal Query Modes}
+
+\begin{itemize}
+    \item \textbf{Point-in-Time}: Query state at a specific HLC timestamp
+    \item \textbf{Range}: Query state changes within a time range
+    \item \textbf{Snapshot}: Capture full graph state at a timestamp
+    \item \textbf{Period Comparison}: Compare Q1 vs Q2 analytics (PageRank delta, component changes)
+\end{itemize}
+
+\subsubsection{Audit Trail Fields}
+
+The \texttt{GpuNodeState} includes dedicated audit fields computed via living analytics:
+\begin{itemize}
+    \item \texttt{fraud\_triangle\_score}: Opportunity + Pressure + Rationalization indicators
+    \item \texttt{control\_coverage}: Percentage of applicable controls active
+    \item \texttt{risk\_score}: Aggregated risk from connected Risk nodes
+    \item \texttt{three\_way\_match\_status}: PO-GR-Invoice matching result
+\end{itemize}

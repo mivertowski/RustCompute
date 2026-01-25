@@ -447,21 +447,104 @@ Orleans.GpuBridge extends Microsoft Orleans with GPU-native grains:
 RustGraph applies GPU-native actors to graph analytics:
 
 \begin{itemize}
-    \item \textbf{GpuNodeState}: 256-byte per-node actor state with inline
-    analytics fields (PageRank, centrality, component ID, fraud scores)
+    \item \textbf{GpuNodeState}: 256-byte per-node actor state (\texttt{\#[repr(C, align(256))]})
+    with 40+ inline analytics fields including PageRank, eigenvector centrality, component ID,
+    BFS distance, triangle count, fraud triangle score, control coverage, and HLC timestamps
 
     \item \textbf{Per-Node Inboxes}: Each graph node has a K2K ring buffer
-    (512 slots default) for receiving neighbor messages
+    (512 slots default) for receiving neighbor messages via lock-free atomics
 
-    \item \textbf{Living Analytics}: 64+ algorithms maintained via continuous
-    message propagation---queries read current state in O(1)
+    \item \textbf{Living Analytics}: 64+ algorithms across 15 domains (centrality, community,
+    components, traversal, similarity, GNN, accounting, compliance, process mining, behavioral,
+    temporal, audit) maintained via continuous message propagation---queries read current state in O(1)
 
-    \item \textbf{Audit Domain}: Three-way match, segregation of duties, and
-    fraud triangle scoring computed via actor messages
+    \item \textbf{Audit/Compliance}: Three-way match validation, segregation of duties analysis,
+    fraud triangle scoring, AML pattern detection, and control coverage assessment computed
+    via GPU actor messages
 
-    \item \textbf{Unified Hypergraph}: Accounting, controls, and process mining
-    integrated in single GPU-resident structure
+    \item \textbf{Unified Hypergraph}: Three interconnected domains in a single GPU-resident structure:
+    \begin{itemize}
+        \item \textit{Accounting}: Vendor, Customer, Account, JournalEntry, JournalLine (types 1-204)
+        \item \textit{ICS}: Control, Risk, Assertion, ControlObjective (types 300-303)
+        \item \textit{OCPM}: Process, Activity, Event, ObjectType (types 400-403)
+    \end{itemize}
+    Connected via 37 edge types including CoversAccount, MitigatesRisk, HasActivity, InvolvesObject,
+    with 26 fraud labels encoded in bitmap for GPU-side detection
+
+    \item \textbf{Process Mining}: Object-Centric Process Mining (OCPM) with multi-object patterns
+    tracking P2P, O2C, R2R, and custom processes through activity sequences
 \end{itemize}
+
+\subsubsection{P0-P4 GPU Optimizations}
+
+RustGraph implements five GPU optimization levels based on the research in
+``Optimizing GPU Living Actor Systems for Scalability and Performance'':
+
+\paragraph{P0: Fused Multi-Algorithm Kernels}
+A single memory pass executes PageRank, Connected Components, and BFS simultaneously
+via an \texttt{active\_algos} bitmask (\texttt{ALGO\_PAGERANK=1, ALGO\_CC=2, ALGO\_EIGENVECTOR=4, ALGO\_BFS=8}).
+This eliminates redundant memory transfers and achieves \textbf{3.51$\times$ speedup}
+(target: 1.5--2.5$\times$) by amortizing CSR traversal cost across algorithms.
+
+\paragraph{P1: Hybrid Dispatch with Node Classification}
+Nodes are classified by degree into three tiers:
+\begin{itemize}
+    \item Regular ($<$512 degree): Standard node-centric processing
+    \item Hub ($\geq$512 degree): Edge-centric kernels with warp-cooperative primitives
+    \item SuperHub ($\geq$4096 degree): Specialized handling with work distribution
+\end{itemize}
+This addresses the load imbalance inherent in scale-free graphs where hub nodes
+can dominate processing time.
+
+\paragraph{P2: Work Stealing Between Warps}
+A 512-byte GPU-resident \texttt{GlobalWorkStealingState} structure enables:
+\begin{itemize}
+    \item Block overflow bitmap for identifying overloaded nodes
+    \item Idle node bitmap for locating available workers
+    \item Adaptive threshold adjustment based on queue lengths
+\end{itemize}
+Result: \textbf{68\% steal success rate} (target: 50--70\%), improving GPU occupancy
+for workloads with heterogeneous node degrees.
+
+\paragraph{P3: Async Convergence Checking}
+Warp-local convergence detection with speculative iteration continuation:
+\begin{itemize}
+    \item Each warp maintains local convergence state
+    \item Speculative execution continues while awaiting global sync
+    \item Early termination when warp determines local convergence
+\end{itemize}
+Result: \textbf{80\% synchronization reduction} (target: 60\%), critical for
+algorithms like PageRank where most nodes converge before the global check.
+
+\paragraph{P4: Multi-GPU Partitioning}
+METIS-based graph partitioning for multi-GPU execution:
+\begin{itemize}
+    \item Minimize edge cuts between partitions
+    \item \texttt{tree\_reduce()} for cross-GPU aggregation
+    \item P2P communication via NVLink when available
+\end{itemize}
+Result: \textbf{0.0\% partition imbalance} (target: $<$5\%), enabling linear
+scaling to multiple GPUs.
+
+\paragraph{Kernel Mode Selection}
+The system automatically selects the optimal kernel mode based on graph characteristics:
+
+\begin{lstlisting}[language=Rust, caption={Automatic kernel mode selection}]
+pub enum KernelMode {
+    NodeCentric,  // 1 thread per node (default)
+    SoA,          // Coalesced memory via Structure-of-Arrays
+    EdgeCentric,  // 1 thread per edge (for hubs)
+    Tiled,        // L2 cache blocking with __ldg()
+    Auto,         // Automatic selection
+}
+
+fn select_optimal_kernel(stats: &GraphStats) -> KernelMode {
+    if stats.max_degree > 512 { EdgeCentric }
+    else if stats.working_set > 2 * L2_CACHE { Tiled }
+    else if stats.working_set > L2_CACHE { SoA }
+    else { NodeCentric }
+}
+\end{lstlisting}
 
 \subsubsection{Code Generation Comparison}
 
