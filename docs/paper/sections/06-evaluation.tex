@@ -323,8 +323,24 @@ Real-time queries & \textbf{GPU} & O(1) vs O(n) per query \\
 
 \subsection{Mixed Workload Performance}
 
-Real applications combine computation with interactive commands. We simulate a
-GUI application running at 60 FPS (16.67ms frame budget):
+Real applications combine computation with interactive commands. We evaluate
+against a concrete 60~FPS target motivated by \textbf{RustAssureTwin}, a native desktop
+application that renders 100K+ node graphs via wgpu while simultaneously consuming
+GPU-native actor analytics. The rendering pipeline operates as follows:
+
+\begin{enumerate}
+    \item \textbf{GPU actors}: RustGraph maintains living analytics (PageRank, fraud
+    triangle, control coverage) via continuous K2K message propagation.
+    \item \textbf{WebSocket stream}: State changes propagate to the desktop application
+    via WebSocket subscriptions ($<$1ms transport latency).
+    \item \textbf{wgpu renderer}: WGSL shaders render graph nodes with analytics-driven
+    visual encoding (color = risk score, size = PageRank, opacity = control coverage).
+    \item \textbf{Interactive commands}: User actions (zoom, pan, select, filter, temporal
+    scrub) generate H2K commands that must complete within the 16.67ms frame budget.
+\end{enumerate}
+
+This pipeline validates the mixed-workload scenario: computation and interaction must
+coexist within each frame.
 
 \begin{table}[h]
 \centering
@@ -349,15 +365,14 @@ Max commands/frame & 52 & 550,000 & Persistent \\
 \begin{axis}[
     ybar,
     bar width=0.8cm,
-    xlabel={},
     ylabel={Time (ms)},
     symbolic x coords={Traditional, Persistent},
     xtick=data,
     ymin=0,
     ymax=40,
-    legend style={at={(0.5,-0.15)}, anchor=north, legend columns=2},
-    nodes near coords,
-    every node near coord/.append style={font=\tiny},
+    legend style={at={(0.5,-0.20)}, anchor=north, legend columns=2},
+    nodes near coords={\pgfmathprintnumber\pgfplotspointmeta},
+    every node near coord/.append style={font=\small},
     width=0.8\columnwidth,
     height=6cm,
 ]
@@ -365,11 +380,23 @@ Max commands/frame & 52 & 550,000 & Persistent \\
 \addplot[fill=red!60] coordinates {(Traditional, 31.7) (Persistent, 0.003)};
 \legend{Compute, Commands}
 \end{axis}
+%% Annotation callout for the near-zero Persistent Commands bar
+\draw[->, thick, red!70!black] (4.8, 2.2) -- (4.55, 0.55);
+\node[anchor=west, font=\small\bfseries, red!70!black] at (4.8, 2.2) {0.003\,ms};
+\node[anchor=west, font=\scriptsize, text width=2.5cm, red!70!black] at (4.8, 1.6) {(10,567$\times$ reduction)};
 \end{tikzpicture}
-\caption{Time breakdown for mixed workload. Command overhead dominates traditional
-approach.}
+\caption{Time breakdown for mixed workload. Command overhead dominates the traditional
+approach (31.7\,ms); persistent actors reduce it to 0.003\,ms---invisible at this scale.}
 \label{fig:mixed}
 \end{figure}
+
+\textbf{Application validation}: RustAssureTwin's E2E test suite confirms that the
+persistent actor approach meets real application requirements: all 7 application modules
+load within 3 seconds, canvas interactions (click, zoom, pan) complete within 500ms,
+and the temporal playback pipeline---which reads per-node history ring entries and
+interpolates graph state---maintains smooth animation at playback speeds up to 8$\times$.
+The persistent actor model's 5.1ms total frame time leaves 11.5ms of headroom for
+UI rendering, temporal interpolation, and AI agent queries within the 16.67ms budget.
 
 \subsection{Comparison with PERKS}
 

@@ -240,17 +240,17 @@ Table~\ref{tab:ecosystem-comparison} compares the ecosystem implementations:
 \centering
 \caption{GPU-Native Actor Ecosystem Comparison}
 \label{tab:ecosystem-comparison}
-\begin{tabular}{@{}lllll@{}}
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
 \toprule
 \textbf{Feature} & \textbf{RingKernel} & \textbf{DotCompute} & \textbf{Orleans.GpuBridge} & \textbf{RustGraph} \\
 \midrule
 Language & Rust & C\# (.NET 9) & C\# (Orleans) & Rust \\
 GPU Backends & CUDA, WebGPU & CUDA, OpenCL, Metal & CUDA, DotCompute & CUDA \\
 Primary Domain & FDTD simulation & General compute & Distributed actors & Graph analytics \\
-Message Latency & 0.03$\mu$s & 1.24$\mu$s & 100-500ns & 100-500ns \\
+Message Latency & 0.03\,$\mu$s & 1.24\,$\mu$s & 100--500\,ns & 100--500\,ns \\
 Actor Granularity & Thread block & Thread block & Grain (virtual) & Graph node \\
 Unique Feature & Rust-to-CUDA DSL & LINQ-to-GPU & Hypergraph actors & 64+ living analytics \\
 Test Coverage & 900+ tests & 215/234 tests & 1,231 tests & 1,400+ tests \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table*}

@@ -78,6 +78,15 @@ This paradigm is realized through four complementary implementations:
 Together, these systems demonstrate that GPU-native actors are a universal paradigm
 applicable across languages, frameworks, and domains.
 
+A fifth system, \textbf{RustAssureTwin}, demonstrates the end-to-end application of this
+paradigm: a native desktop audit intelligence platform (Tauri~2 + Svelte~5 + Rust) that
+consumes RustGraph's living analytics to provide professional auditors with a
+\emph{digital twin} of the organization under audit. By surfacing GPU-computed O(1) queries
+through an interactive UI---complete with temporal playback, AI-assisted analysis, and
+cross-module drill-down---RustAssureTwin validates that GPU-native actors can serve
+non-technical domain experts without sacrificing the sub-microsecond responsiveness that
+the paradigm enables.
+
 \subsection{Contributions}
 
 This paper makes the following contributions:
@@ -103,6 +112,12 @@ This paper makes the following contributions:
     \item \textbf{Domain-Specific Applications}: We apply GPU-native actors to FDTD
     simulation (RingKernel), enterprise accounting (DotCompute), distributed virtual
     actors (Orleans.GpuBridge), and living graph analytics (RustGraph).
+
+    \item \textbf{Application-Layer Digital Twin} (\S\ref{sec:implementation}): We
+    present RustAssureTwin, a production desktop application that consumes GPU-native
+    actor state via RustGraph to provide audit intelligence with bi-temporal analytics,
+    tiered AI agents, and ISA/PCAOB-compliant workflows---demonstrating the full stack
+    from GPU kernel to professional end-user.
 
     \item \textbf{Comprehensive Evaluation} (\S\ref{sec:evaluation}): We demonstrate
     11,327$\times$ lower command latency and 2.7$\times$ higher mixed-workload

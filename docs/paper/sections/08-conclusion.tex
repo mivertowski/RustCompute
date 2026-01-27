@@ -40,6 +40,12 @@ through four independent implementations spanning two programming languages.
     architecture integrating Accounting, ICS, and OCPM domains with 26 fraud
     labels and temporal query support.
 
+    \item \textbf{Application-Layer Digital Twin}: We presented RustAssureTwin, a
+    production desktop application (Tauri~2 + Svelte~5 + Rust) that consumes
+    GPU-native actor state to provide audit intelligence with bi-temporal analytics,
+    three-tier AI agents, and ISA/PCAOB-compliant workflows---validating the full
+    stack from GPU kernel to professional end-user.
+
     \item \textbf{Comprehensive Evaluation}: We demonstrated 250-11,000$\times$ lower
     command latency, O(1) query time for living analytics, and 258 ME/s peak
     PageRank throughput compared to traditional GPU programming patterns.
@@ -119,6 +125,7 @@ RingKernel (Rust) & \url{https://github.com/mivertowski/RustCompute} \\
 DotCompute (.NET) & \url{https://github.com/mivertowski/DotCompute} \\
 Orleans.GpuBridge & \url{https://github.com/mivertowski/Orleans.GpuBridge} \\
 RustGraph & \url{https://github.com/mivertowski/RustGraph} \\
+RustAssureTwin & \url{https://github.com/mivertowski/RustAssureTwin} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -126,12 +133,14 @@ RustGraph & \url{https://github.com/mivertowski/RustGraph} \\
 All implementations are released under permissive licenses (Apache 2.0 / MIT).
 The combined ecosystem includes:
 \begin{itemize}
-    \item 7,000+ tests across all implementations (RustGraph: 1,350+, Orleans.GpuBridge: 1,231,
-    RingKernel: 900+, DotCompute: 215)
+    \item 7,500+ tests across all implementations (RustGraph: 1,350+, Orleans.GpuBridge: 1,231,
+    RingKernel: 900+, RustAssureTwin: 504, DotCompute: 215)
     \item 64+ algorithms in RustGraph spanning 15 analytics domains
     \item Unified hypergraph architecture for enterprise applications
     \item P0-P4 GPU optimizations with comprehensive benchmarking
-    \item Example applications for each domain (FDTD, virtual actors, graph analytics)
+    \item RustAssureTwin: production desktop application with bi-temporal analytics,
+    AI agent integration, and ISA/PCAOB-compliant audit workflows
+    \item Example applications for each domain (FDTD, virtual actors, graph analytics, audit)
     \item Documentation and tutorials
     \item Cross-platform support (CUDA, OpenCL, Metal, WebGPU)
 \end{itemize}

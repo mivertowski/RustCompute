@@ -290,6 +290,62 @@ By providing actor semantics on GPU, the paradigm opens these domains to develop
 familiar with Erlang/Akka/Orleans patterns, while maintaining GPU performance
 characteristics.
 
+\subsubsection{Digital Twins for Enterprise Assurance}
+
+RustAssureTwin demonstrates a particularly compelling application of GPU-native actors:
+\emph{digital twins for audit and assurance}. The living graph is not merely a database---it
+is a continuously updated mirror of the organization's financial transactions, internal
+controls, and business processes. Because GPU actors maintain 64+ analytics algorithms
+via continuous message propagation, the digital twin reflects the current state of the
+organization in real-time, including:
+
+\begin{itemize}
+    \item \textbf{Control environment health}: Control coverage, SoD violation counts,
+    and deficiency classifications are always current, enabling continuous monitoring
+    rather than periodic assessment.
+
+    \item \textbf{Fraud risk surface}: The fraud triangle score aggregates opportunity,
+    pressure, and rationalization indicators across the unified hypergraph. Changes
+    propagate within milliseconds of the underlying data mutation.
+
+    \item \textbf{Process conformance}: OCPM-based process mining continuously compares
+    actual activity sequences against reference models, surfacing deviations as they
+    occur rather than in post-hoc analysis.
+\end{itemize}
+
+This digital twin concept extends beyond audit. Any domain where a complex system must
+be monitored, analyzed, and queried interactively---supply chain management, regulatory
+compliance, operational risk---could benefit from the GPU-native actor paradigm's
+combination of continuous computation and O(1) query latency.
+
+\subsubsection{AI Agents as GPU Actor Consumers}
+
+The integration of AI agents with GPU-native actor state, as demonstrated in
+RustAssureTwin, suggests a broader pattern: \emph{AI systems that reason over
+continuously computed analytics rather than raw data}. Traditional AI pipelines
+require explicit feature engineering and batch computation before an AI model can
+reason about the data. With living analytics, the features are always current:
+
+\begin{itemize}
+    \item An AI agent querying ``which vendors have high fraud risk?'' reads
+    pre-computed \texttt{fraud\_triangle\_score} values in 3--17~ns per node,
+    rather than triggering a full graph analysis.
+
+    \item Temporal queries (``how did control coverage change last quarter?'') read
+    per-node history rings rather than re-scanning transaction logs.
+
+    \item Cross-domain queries (``find controls covering high-risk accounts in
+    processes with conformance deviations'') traverse the unified hypergraph's
+    cross-domain edges, with all analytics fields pre-computed.
+\end{itemize}
+
+The regulatory dimension adds further structure: AI agent outputs must comply with
+ISA~220 (quality management), PCAOB AS~1201 (supervision), and ISA~500 (audit
+evidence sufficiency). RustAssureTwin enforces these constraints through
+confidence-gated suggestions and mandatory human approval for all AI-generated
+audit content, demonstrating that GPU-native actor systems can serve regulated
+professional domains.
+
 \subsection{Ecosystem Sustainability}
 
 The existence of multiple independent implementations raises questions about

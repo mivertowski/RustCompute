@@ -350,13 +350,12 @@ domains into a single GPU-resident structure:
 \centering
 \caption{Unified hypergraph entity type ranges}
 \label{tab:entity-types}
-\begin{tabular}{@{}llr@{}}
+\begin{tabular}{@{}lp{7.5cm}r@{}}
 \toprule
 \textbf{Domain} & \textbf{Entity Types} & \textbf{Type Range} \\
 \midrule
-Accounting & Vendor, Customer, Account, JournalEntry, JournalLine, & 1--204 \\
-           & PurchaseRequisition, PurchaseOrder, GoodsReceipt, Invoice, Payment & \\
-ICS        & Control, Risk, Assertion, ControlObjective & 300--303 \\
+Accounting & Vendor, Customer, Account, JournalEntry, JournalLine, PurchaseRequisition, PurchaseOrder, GoodsReceipt, Invoice, Payment & 1--204 \\[3pt]
+ICS        & Control, Risk, Assertion, ControlObjective & 300--303 \\[3pt]
 OCPM       & Process, Activity, Event, ObjectType & 400--403 \\
 \bottomrule
 \end{tabular}
@@ -377,6 +376,37 @@ The domains are connected via specialized edge types enabling multi-domain analy
 
 This unified structure enables queries that span domains, such as: ``Find all
 controls that cover accounts involved in activities with high fraud risk.''
+
+\subsubsection{Regulatory Standards Mapping}
+
+The unified hypergraph is not an arbitrary data model; its domains and cross-domain edges
+directly map to the requirements of international audit and compliance standards:
+
+\begin{table}[h]
+\centering
+\caption{Mapping of unified hypergraph domains to professional standards}
+\label{tab:standards-mapping}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Standard} & \textbf{Requirement} & \textbf{Hypergraph Mapping} \\
+\midrule
+ISA 315 & Risk assessment of material misstatement & ICS $\rightarrow$ Accounting edges \\
+ISA 240 & Fraud risk identification & Fraud label bitmap (26 labels) \\
+ISA 500/530 & Audit evidence \& sampling & Three-way match, sample sizing \\
+ISA 570 & Going concern evaluation & Going concern analytics \\
+SOX 404 & Internal control effectiveness & Control coverage analytics \\
+PCAOB AS 2201 & Control testing \& deficiency classification & ICS entity types 300--303 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The ICS domain (types 300--303) models the control environment as defined by COSO~2013:
+Controls, Risks, Assertions, and Control Objectives form a graph structure where
+\texttt{MitigatesRisk} and \texttt{CoversAccount} edges encode the control-to-risk
+and control-to-account mappings required by ISA~315 for understanding the entity's
+internal control system. The living analytics continuously compute control coverage
+and deficiency classification, enabling the real-time monitoring required by SOX~404
+continuous auditing regimes.
 
 \subsubsection{Fraud Label Bitmap}
 
@@ -430,6 +460,44 @@ Timestamps follow two formats for interoperability:
     \item \textbf{Snapshot}: Capture full graph state at a timestamp
     \item \textbf{Period Comparison}: Compare Q1 vs Q2 analytics (PageRank delta, component changes)
 \end{itemize}
+
+\subsubsection{Bi-Temporal and Business-Time Extension}
+
+While HLC provides causal ordering within the GPU actor system, enterprise audit applications
+require a richer temporal model. RustAssureTwin extends the single-dimensional HLC timeline
+into a \emph{tri-temporal} model:
+
+\begin{enumerate}
+    \item \textbf{Valid Time} ($t_v$): When a fact is true in the real world (e.g., when an
+    invoice was actually issued). This is the domain-level truth timeline.
+
+    \item \textbf{Transaction Time} ($t_t$): When a fact was recorded in the system. HLC
+    timestamps map directly to this dimension---the GPU actor's \texttt{hlc\_physical} field
+    captures the exact moment of state mutation.
+
+    \item \textbf{Business Time} ($t_b$): Fiscal periods, reporting deadlines, and audit
+    cutoff dates. This is a discrete, calendar-aligned timeline (fiscal years, quarters,
+    months) that does not correspond to any physical clock.
+\end{enumerate}
+
+This tri-temporal model enables five query modes consumed by the application layer:
+
+\begin{itemize}
+    \item \textbf{Current}: Read the latest GPU actor state ($t_v = \text{now}, t_t = \text{now}$)
+    \item \textbf{Point-in-Time}: State at a historical valid time ($t_v = T$)
+    \item \textbf{As-Known-At}: State as recorded at a specific transaction time
+    ($t_t = T$), revealing what the system ``knew'' at that moment---critical for
+    detecting retroactive journal entries
+    \item \textbf{Period}: Aggregate state over a business period
+    ($t_b \in [\text{Q1 start}, \text{Q1 end}]$)
+    \item \textbf{Comparison}: Delta between two points along any temporal dimension,
+    e.g., comparing control coverage between Q3 and Q4
+\end{itemize}
+
+The per-node history rings (16 entries) store \texttt{hlc\_timestamp} as $t_t$; the
+application layer annotates entries with $t_v$ and $t_b$ from domain metadata. This
+separation ensures the GPU actor system remains general-purpose while enabling
+domain-specific temporal reasoning at the application layer.
 
 \subsubsection{Audit Trail Fields}
 

@@ -9,8 +9,11 @@ compute units as long-running actors with lock-free message passing and causal o
 
 This paper describes \textbf{RingKernel}, the Rust implementation of this paradigm,
 alongside three companion frameworks: \textbf{DotCompute} (.NET), \textbf{Orleans.GpuBridge}
-(Microsoft Orleans integration), and \textbf{RustGraph} (living graph database). Together,
-these systems demonstrate the broad applicability of GPU-native actors.
+(Microsoft Orleans integration), and \textbf{RustGraph} (living graph database). A fifth
+system, \textbf{RustAssureTwin}, demonstrates the full application stack: a native desktop
+audit intelligence platform consuming GPU-native actor state through bi-temporal analytics,
+AI-assisted reasoning, and ISA/PCAOB-compliant workflows. Together, these systems demonstrate
+the broad applicability of GPU-native actors from kernel to end-user.
 
 Our key contributions are: (1) formalization of GPU actor semantics with Host-to-Kernel (H2K),
 Kernel-to-Host (K2H), and Kernel-to-Kernel (K2K) messaging channels; (2) a 128-byte

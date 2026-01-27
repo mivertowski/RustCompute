@@ -650,3 +650,126 @@ The ecosystem maintains comprehensive test coverage:
 This cross-language implementation demonstrates that the GPU-native actor paradigm
 is not language-specific but a universal pattern applicable wherever persistent
 GPU kernels and lock-free messaging are available.
+
+\subsection{Application Layer: RustAssureTwin}
+
+While the previous sections describe the engine and infrastructure layers, an important
+validation of any systems paradigm is whether it can serve domain experts who are not
+systems programmers. \textbf{RustAssureTwin} is a native desktop audit intelligence
+platform that consumes RustGraph's GPU-native actor state to provide professional
+auditors with a \emph{digital twin} of the organization under audit.
+
+\subsubsection{Architecture}
+
+RustAssureTwin is built on a four-layer architecture:
+
+\begin{enumerate}
+    \item \textbf{Presentation Layer} (Svelte~5 + Tailwind~CSS): Seven application modules
+    (Dashboard, Explorer, Process, Controls, Audit, Reports, Admin) rendered in a
+    Tauri~2 desktop shell with wgpu-accelerated graph visualization supporting 100K+ nodes
+    at 60~FPS.
+
+    \item \textbf{Application Core} (TypeScript + Svelte stores): 21 reactive stores
+    managing graph state, temporal context, AI assistant, workflow progress, and
+    cross-module navigation. Stores subscribe to RustGraph state changes via
+    WebSocket and expose O(1) query results to UI components.
+
+    \item \textbf{Data Access Layer} (Rust backend via Tauri IPC): HTTP and WebSocket
+    clients to RustGraph, local SQLite cache for offline operation, and bulk
+    import/export for disconnected audit scenarios.
+
+    \item \textbf{Living Graph Engine} (RustGraph): GPU-native actors maintaining
+    64+ analytics algorithms continuously, providing the always-current state that
+    the application layer reads in O(1) time.
+\end{enumerate}
+
+Communication between layers uses Tauri's IPC mechanism: the Svelte frontend calls
+\texttt{invoke()} to the Rust backend, which in turn queries RustGraph via HTTP/WebSocket.
+This architecture ensures that GPU actor state reaches the UI within a single frame budget
+(16.67ms at 60~FPS), validated by the mixed-workload evaluation in Section~\ref{sec:evaluation}.
+
+\subsubsection{AI Agent Architecture}
+
+RustAssureTwin integrates a three-tier AI agent system that is a first-class consumer of
+GPU-native actor state:
+
+\begin{itemize}
+    \item \textbf{Tier~1 --- Observational}: Pattern detection and anomaly flagging.
+    The AI reads O(1) living analytics (fraud triangle scores, control coverage, SoD
+    violations) and surfaces findings to auditors. This tier requires no write access
+    to the graph and operates within ISA~200 professional skepticism guidelines.
+
+    \item \textbf{Tier~2 --- Analytical}: Risk assessment and sampling recommendations.
+    The AI aggregates GPU-computed analytics across the unified hypergraph to recommend
+    sample sizes (per ISA~530) and identify high-risk areas. Confidence thresholds
+    gate AI suggestions: $\geq$0.95 for factual queries, $\geq$0.80 for analytical
+    suggestions, $\geq$0.70 for exploratory recommendations.
+
+    \item \textbf{Tier~3 --- Collaborative}: Workpaper drafting and finding
+    documentation. The AI proposes structured content for audit workpapers, but all
+    output requires explicit human approval before inclusion---enforcing the
+    human-in-the-loop governance required by ISA~220 and PCAOB AS~1201.
+\end{itemize}
+
+The AI agents benefit directly from the GPU actor paradigm: because analytics are maintained
+continuously (not computed on-demand), the AI can access fraud scores, control coverage,
+and process conformance metrics in 3--17~ns per query. This enables conversational-speed
+AI interactions where the assistant can traverse the full unified hypergraph context
+within a single user-perceived response latency.
+
+\subsubsection{Temporal Visualization Pipeline}
+
+The bi-temporal model described in Section~\ref{sec:design} is surfaced through an
+interactive temporal visualization pipeline:
+
+\begin{enumerate}
+    \item \textbf{Temporal bar}: A global timeline control in the application footer
+    allows auditors to scrub to any point in valid time, transaction time, or business
+    period. Changing the temporal context updates all modules simultaneously.
+
+    \item \textbf{Playback controls}: Step-by-step temporal navigation with configurable
+    granularity (event, day, week, month) and playback speed (0.25$\times$--8$\times$).
+    The wgpu renderer animates graph state transitions by interpolating between
+    per-node history ring entries.
+
+    \item \textbf{Bi-temporal timeline}: A dual-axis visualization showing valid time
+    (horizontal) vs transaction time (vertical), enabling auditors to identify
+    retroactive journal entries---transactions where $t_v \ll t_t$, a key fraud
+    indicator under ISA~240.
+\end{enumerate}
+
+This pipeline demonstrates a concrete consumer of the per-node history rings: each
+ring entry's HLC timestamp drives the animation, while the application layer maps
+HLC values to human-readable dates and fiscal periods.
+
+\subsubsection{Audit Workflow Integration}
+
+RustAssureTwin implements complete audit workflows that consume GPU-native actor state:
+
+\begin{itemize}
+    \item \textbf{Audit Scoping}: A scope wizard identifies Significant Classes of
+    Transactions (SCOTs) by querying GPU-resident entity types and their risk scores.
+    A cost model editor estimates audit effort using role rates and SCOT complexity.
+
+    \item \textbf{Control Testing}: Step-by-step test execution panels guide auditors
+    through control tests, with test results written back to the graph as audit
+    evidence nodes linked to Control entities (types 300--303).
+
+    \item \textbf{Workpaper Management}: Section-based editors with embedded graph
+    snapshots---auditors can capture the current state of any subgraph and embed it
+    as evidence in ISA-compliant workpapers.
+
+    \item \textbf{Cross-Module Navigation}: A universal ``View in Explorer'' pattern
+    enables drill-down from any entity reference (control ID, finding, risk score)
+    to the Explorer module's graph visualization, preserving temporal and filter context
+    via URL state synchronization.
+\end{itemize}
+
+\subsubsection{Test Infrastructure}
+
+RustAssureTwin maintains 456 unit tests, 48 integration tests, and a Playwright E2E
+test suite covering navigation, performance, and audit-specific workflows. The E2E tests
+validate that GPU actor state reaches the UI correctly: performance tests verify that
+all 7 application modules load within 3 seconds, canvas interactions respond within
+500ms, and the graph visualization survives rapid zoom/pan stress tests without memory
+issues.
