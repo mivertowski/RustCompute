@@ -156,6 +156,14 @@ impl Drop for DirectPtxModule {
     }
 }
 
+// SAFETY: CUmodule handles are bound to a CUDA context, and since CUDA 4.0+
+// contexts can be accessed from any host thread. The CUDA driver serializes
+// operations on the same context internally. Callers must ensure the CUDA
+// context remains valid for the lifetime of this module (which is guaranteed
+// by the Drop impl that calls cuModuleUnload).
+unsafe impl Send for DirectPtxModule {}
+unsafe impl Sync for DirectPtxModule {}
+
 /// A cooperative kernel loaded via direct driver API.
 ///
 /// This provides true cooperative launch capability without relying on cudarc's
@@ -172,6 +180,15 @@ pub struct DirectCooperativeKernel {
     /// Function name (for debugging).
     func_name: String,
 }
+
+// SAFETY: CUfunction handles are derived from CUmodule and share the same
+// thread-safety guarantees. The CUDA driver API serializes kernel launches
+// on the same stream. DirectCooperativeKernel holds the parent module via
+// _module, ensuring the module (and its functions) remain valid. All mutable
+// state (block_size, max_blocks) is initialized at construction and read-only
+// thereafter. Concurrent launches on different streams are safe per CUDA spec.
+unsafe impl Send for DirectCooperativeKernel {}
+unsafe impl Sync for DirectCooperativeKernel {}
 
 impl DirectCooperativeKernel {
     /// Load a cooperative kernel from PTX source.
