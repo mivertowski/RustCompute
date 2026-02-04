@@ -1,0 +1,940 @@
+\documentclass[11pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{tcolorbox}
+\usepackage{fancyvrb}
+
+% Colors
+\definecolor{codeblue}{RGB}{0,102,204}
+\definecolor{codegray}{RGB}{128,128,128}
+\definecolor{codegreen}{RGB}{0,128,0}
+\definecolor{codepurple}{RGB}{128,0,128}
+\definecolor{backcolour}{RGB}{248,248,248}
+\definecolor{bordercolor}{RGB}{200,200,200}
+
+% Hyperref setup
+\hypersetup{
+    colorlinks=true,
+    linkcolor=codeblue,
+    urlcolor=codeblue,
+    citecolor=codeblue,
+    pdftitle={CUDA Wishlist: Features for True Persistent GPU Actors},
+    pdfauthor={Michael Ivertowski}
+}
+
+% Code listing style
+\lstdefinestyle{cudastyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{codeblue}\bfseries,
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=none,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=4,
+    frame=none,
+    xleftmargin=0pt,
+    aboveskip=6pt,
+    belowskip=6pt
+}
+
+\lstdefinestyle{cstyle}{
+    language=C,
+    style=cudastyle,
+    morekeywords={cudaError_t, cudaKernel_t, cudaStream_t, cudaMailbox_t,
+                  cudaActorAddr_t, cudaWorkQueue_t, cudaCheckpoint_t,
+                  cudaPreemptConfig_t, cudaCoherentRegion_t,
+                  __device__, __shared__, __checkpoint__, __debuggable__,
+                  uint32_t, uint64_t, size_t, bool, void}
+}
+
+\lstset{style=cudastyle}
+
+% Section formatting
+\titleformat{\section}
+    {\normalfont\Large\bfseries\color{codeblue}}
+    {\thesection}{1em}{}
+\titleformat{\subsection}
+    {\normalfont\large\bfseries}
+    {\thesubsection}{1em}{}
+\titleformat{\subsubsection}
+    {\normalfont\normalsize\bfseries}
+    {\thesubsubsection}{1em}{}
+
+% Header/Footer
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Reduce spacing
+\setlength{\parskip}{0.5em}
+\setlength{\parindent}{0pt}
+
+% Custom environment for benefits (subtle)
+\newenvironment{benefitsbox}{%
+    \vspace{6pt}%
+    \noindent\textbf{Benefits:}%
+    \begin{itemize}[leftmargin=1.5em,topsep=2pt,itemsep=1pt]%
+}{%
+    \end{itemize}%
+    \vspace{6pt}%
+}
+
+% Document
+\begin{document}
+
+% Title Page
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+
+    {\Huge\bfseries CUDA Wishlist:\\[0.3cm]
+    Features for True Persistent GPU Actors\par}
+
+    \vspace{1.5cm}
+
+    {\Large A Technical Proposal Based on RingKernel Implementation Experience\par}
+
+    \vspace{2cm}
+
+    {\large Michael Ivertowski\par}
+
+    \vspace{1cm}
+
+    {\large\today\par}
+
+    \vfill
+
+    \begin{abstract}
+    \noindent This document outlines CUDA features that would significantly improve the implementation of persistent GPU actors. These recommendations are based on practical experience building RingKernel's persistent actor infrastructure. RingKernel implements persistent GPU actors today using workarounds like cooperative groups, mapped memory, and software barriers. While functional, these approaches have significant limitations. Native CUDA support for actor-model primitives would unlock order-of-magnitude improvements in capability and performance.
+    \end{abstract}
+
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% Executive Summary
+\section{Executive Summary}
+
+RingKernel implements persistent GPU actors today using workarounds like cooperative groups, mapped memory, and software barriers. While functional, these approaches have significant limitations. Native CUDA support for actor-model primitives would unlock order-of-magnitude improvements in capability and performance.
+
+\subsection{Key Feature Requests (Priority Order)}
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Native Host$\leftrightarrow$Kernel Signaling} --- Replace polling with interrupt-driven communication
+    \item \textbf{Kernel-to-Kernel Mailboxes} --- First-class inter-block messaging
+    \item \textbf{Dynamic Block Scheduling} --- Work stealing and load balancing
+    \item \textbf{Persistent Kernel Preemption} --- Cooperative preemption for multi-tenant scenarios
+    \item \textbf{Checkpointing/Migration} --- Fault tolerance and GPU failover
+\end{enumerate}
+
+% Current State
+\section{Current State: How RingKernel Works Around CUDA Limitations}
+
+\subsection{Architecture Overview}
+
+\begin{Verbatim}[fontsize=\small,frame=single,framesep=3mm]
++---------------------------------------------------------------------+
+|                         HOST (CPU)                                  |
+|  +--------------+  +--------------+  +--------------+               |
+|  | Controller   |  | Visualizer   |  |   Audio      |               |
+|  +------+-------+  +------+-------+  +------+-------+               |
+|         +------------------+-----------------+                       |
+|                            |                                         |
+|  +-------------------------v-----------------------------------+    |
+|  |          MAPPED MEMORY (CPU + GPU visible)                  |    |
+|  |  [ControlBlock] [H2K Queue] [K2H Queue] [Progress]          |    |
+|  +---------------------------------------------------------+   |    |
++---------------------------------------------------------------------+
+                              | PCIe (commands only)
++---------------------------------------------------------------------+
+|                    GPU (PERSISTENT KERNEL)                          |
+|  +---------------------------------------------------------+       |
+|  |                 COORDINATOR (Block 0)                    |       |
+|  |  - Process H2K commands - Send K2H responses             |       |
+|  +---------------------------------------------------------+       |
+|                          | grid.sync()                              |
+|  +--------+ +--------+ +--------+ +--------+ +--------+             |
+|  |Block 1 | |Block 2 | |Block 3 | |  ...   | |Block N |             |
+|  | Actor  | | Actor  | | Actor  | |        | | Actor  |             |
+|  +---+----+ +---+----+ +---+----+ +--------+ +---+----+             |
+|      +----------+----------+-----------------+                      |
+|                    K2K HALO EXCHANGE                                |
+|  +---------------------------------------------------------+       |
+|  |  [Halo Buffers] - 6 faces x N blocks x 2 (ping-pong)    |       |
+|  +---------------------------------------------------------+       |
++---------------------------------------------------------------------+
+\end{Verbatim}
+
+\subsection{Current Workarounds and Their Costs}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Feature} & \textbf{Current Workaround} & \textbf{Cost} \\
+\midrule
+H2K Messaging & Mapped memory + polling & 1000+ spin iterations when idle \\
+K2H Responses & Mapped memory + volatile & No interrupt; host must poll \\
+Grid Sync & Cooperative groups & Grid size limited to $\sim$1024 blocks \\
+K2K Messaging & Device memory + barriers & Extra sync points; no addressing \\
+Fault Tolerance & None & Single GPU failure = total loss \\
+Load Balancing & Static block assignment & Hot spots cause tail latency \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\newpage
+
+% Feature Request 1
+\section{Feature Request 1: Native Host$\leftrightarrow$Kernel Signaling}
+
+\subsection{The Problem}
+
+Currently, persistent kernels detect host commands by polling mapped memory:
+
+\begin{lstlisting}[style=cstyle,title={Current: Wasteful spin-wait}]
+while (true) {
+    if (h2k_try_recv(header, slots, &cmd)) {
+        process_command(&cmd);
+    } else {
+        // No work - spin uselessly
+        volatile int spin_count = 0;
+        for (int i = 0; i < 1000; i++) {
+            spin_count++;
+        }
+    }
+    grid.sync();  // Synchronize after each check
+}
+\end{lstlisting}
+
+This wastes SM cycles and increases power consumption during idle periods.
+
+\subsection{Proposed Solution: \texttt{cudaKernelNotify()} / \texttt{\_\_kernel\_wait()}}
+
+\begin{lstlisting}[style=cstyle,title={Host side - signal the kernel}]
+cudaKernelNotify(kernelHandle, KERNEL_NOTIFY_MESSAGE);
+\end{lstlisting}
+
+\begin{lstlisting}[style=cstyle,title={Kernel side - efficient wait}]
+__device__ void actor_loop() {
+    while (!should_terminate) {
+        // Sleep until host signals (zero power consumption)
+        __kernel_wait(KERNEL_WAIT_HOST_SIGNAL | KERNEL_WAIT_TIMEOUT,
+                      timeout_cycles);
+
+        // Process all available messages
+        while (try_recv_message(&msg)) {
+            process_message(&msg);
+        }
+
+        grid.sync();
+    }
+}
+\end{lstlisting}
+
+\begin{benefitsbox}
+    \item Zero power consumption during idle periods
+    \item Sub-microsecond wake-up latency (currently $\sim$10$\mu$s with polling)
+    \item Reduced PCIe traffic (no constant memory polling)
+\end{benefitsbox}
+
+\subsection{Extended API Concept}
+
+\begin{lstlisting}[style=cstyle,title={Host API}]
+cudaError_t cudaKernelNotify(cudaKernel_t kernel, unsigned int flags);
+cudaError_t cudaKernelWaitIdle(cudaKernel_t kernel, unsigned int timeoutMs);
+\end{lstlisting}
+
+\begin{lstlisting}[style=cstyle,title={Device intrinsics}]
+__device__ unsigned int __kernel_wait(unsigned int flags, unsigned long timeout);
+__device__ void __kernel_yield();  // Yield SM cycles to other kernels
+
+// Flags
+#define KERNEL_WAIT_HOST_SIGNAL     0x1
+#define KERNEL_WAIT_PEER_SIGNAL     0x2
+#define KERNEL_WAIT_TIMEOUT         0x4
+#define KERNEL_WAIT_ANY            (KERNEL_WAIT_HOST_SIGNAL | KERNEL_WAIT_PEER_SIGNAL)
+\end{lstlisting}
+
+\newpage
+
+% Feature Request 2
+\section{Feature Request 2: Kernel-to-Kernel Mailboxes}
+
+\subsection{The Problem}
+
+Inter-block communication currently requires manual buffer management:
+
+\begin{lstlisting}[style=cstyle,title={Current: Manual halo exchange}]
+void pack_halo_faces(float tile[Z+2][Y+2][X+2], float* halo_buffers,
+                     int block_id, int pingpong) {
+    // Manually compute offsets
+    int block_stride = 6 * face_size * 2;  // 6 faces, 2 ping-pong
+    float* my_halo = halo_buffers + block_id * block_stride;
+
+    // Pack each face manually
+    if (tid < FACE_SIZE) {
+        my_halo[FACE_POS_X * face_stride + tid] = tile[...][...][TILE_X];
+        // ... repeat for 5 more faces
+    }
+}
+
+// Then manually unpack from neighbors
+void unpack_halo_faces(float tile[...], const float* halo_buffers,
+                       const K2KRouteEntry* route, int pingpong) {
+    // Manually read from neighbor's halo buffer
+    if (route->neighbors.pos_x >= 0) {
+        const float* n_halo = halo_buffers + route->neighbors.pos_x * block_stride;
+        tile[...][...][TILE_X+1] = n_halo[FACE_NEG_X * face_stride + tid];
+    }
+    // ... repeat for 5 more directions
+}
+\end{lstlisting}
+
+This is error-prone and requires explicit synchronization.
+
+\subsection{Proposed Solution: Native Block Mailboxes}
+
+\begin{lstlisting}[style=cstyle,title={Kernel setup - declare mailbox topology}]
+__shared__ cudaMailbox_t mailbox;
+
+__device__ void init_mailbox() {
+    // Register block as actor with neighbors
+    cudaMailboxConfig_t config;
+    config.maxMessageSize = 64;
+    config.queueDepth = 16;
+    config.neighbors = compute_neighbors(blockIdx);  // 3D grid topology
+
+    __mailbox_init(&mailbox, &config);
+}
+
+// Send to neighbor (non-blocking)
+__device__ void send_halo_to_neighbor(int direction, void* data, size_t size) {
+    __mailbox_send(&mailbox, direction, data, size, MAILBOX_ASYNC);
+}
+
+// Receive from neighbor (blocking with timeout)
+__device__ bool receive_halo_from_neighbor(int direction, void* data,
+                                           size_t* size, int timeout) {
+    return __mailbox_recv(&mailbox, direction, data, size, timeout);
+}
+
+// Collective: exchange all halos with sync
+__device__ void exchange_all_halos(void* send_bufs[6], void* recv_bufs[6]) {
+    __mailbox_exchange(&mailbox, send_bufs, recv_bufs, MAILBOX_ALL_NEIGHBORS);
+}
+\end{lstlisting}
+
+\begin{benefitsbox}
+    \item Type-safe, bounded mailboxes
+    \item Hardware-accelerated routing (leverage NVLink topology)
+    \item Automatic flow control (backpressure)
+    \item Reduced synchronization (send implies visibility)
+\end{benefitsbox}
+
+\subsection{Advanced: Addressable Actor Model}
+
+\begin{lstlisting}[style=cstyle,title={Globally unique actor addresses}]
+typedef struct {
+    uint32_t device_id;
+    uint32_t kernel_id;
+    uint32_t block_id;
+} cudaActorAddr_t;
+
+// Send to any actor (multi-GPU aware)
+__device__ cudaError_t __actor_send(
+    cudaActorAddr_t dest,
+    void* message,
+    size_t size,
+    unsigned int flags
+);
+
+// Receive with sender info
+__device__ cudaError_t __actor_recv(
+    cudaActorAddr_t* sender,  // OUT: who sent this
+    void* message,
+    size_t* size,
+    unsigned int flags
+);
+\end{lstlisting}
+
+\newpage
+
+% Feature Request 3
+\section{Feature Request 3: Dynamic Block Scheduling}
+
+\subsection{The Problem}
+
+Current cooperative kernels have static block assignment. If one region requires more compute (e.g., wavefront in simulation), those blocks become hot spots:
+
+\begin{Verbatim}[fontsize=\small,frame=single,framesep=3mm]
+Time ->
+Block 0: ============================  (done, waiting)
+Block 1: ============================  (done, waiting)
+Block 2: ============================================  (heavy load)
+Block 3: ============================  (done, waiting)
+         ^                            ^
+         All blocks must wait for slowest block to finish
+\end{Verbatim}
+
+\subsection{Proposed Solution: Work Stealing Queues}
+
+\begin{lstlisting}[style=cstyle,title={Device-wide work queue}]
+__device__ cudaWorkQueue_t global_work_queue;
+
+// Block claims work dynamically
+__device__ void persistent_worker() {
+    while (!should_terminate) {
+        WorkItem item;
+
+        // Try to get work from global queue
+        if (__work_queue_pop(&global_work_queue, &item)) {
+            process_work_item(&item);
+
+            // May generate more work
+            if (item.spawns_children) {
+                for (auto& child : item.children) {
+                    __work_queue_push(&global_work_queue, &child);
+                }
+            }
+        } else {
+            // Try stealing from other blocks
+            if (!__work_queue_steal(&global_work_queue, &item, STEAL_RANDOM)) {
+                // No work anywhere - yield
+                __kernel_yield();
+            }
+        }
+    }
+}
+\end{lstlisting}
+
+\begin{benefitsbox}
+    \item Automatic load balancing
+    \item Better SM utilization
+    \item Adaptive to irregular workloads (graph algorithms, sparse matrices)
+\end{benefitsbox}
+
+\subsection{Configuration API}
+
+\begin{lstlisting}[style=cstyle,title={Host side - configure work queue}]
+cudaWorkQueueConfig_t config;
+config.maxItems = 1000000;
+config.itemSize = 64;
+config.policy = CUDA_WORK_QUEUE_POLICY_LIFO;  // or FIFO, PRIORITY
+config.stealingEnabled = true;
+
+cudaError_t cudaWorkQueueCreate(cudaWorkQueue_t* queue, cudaWorkQueueConfig_t* config);
+cudaError_t cudaWorkQueueSeed(cudaWorkQueue_t queue, void* initialWork, size_t count);
+\end{lstlisting}
+
+\newpage
+
+% Feature Request 4
+\section{Feature Request 4: Persistent Kernel Preemption}
+
+\subsection{The Problem}
+
+Persistent kernels monopolize the GPU. In multi-tenant or interactive scenarios, this is problematic:
+
+\begin{itemize}[leftmargin=*]
+    \item Real-time visualization needs occasional GPU access
+    \item Multiple simulations competing for resources
+    \item System needs to respond to user input
+\end{itemize}
+
+Currently, we must either:
+\begin{enumerate}
+    \item Design kernels with frequent exit points (loses state)
+    \item Accept high latency for other GPU work
+\end{enumerate}
+
+\subsection{Proposed Solution: Cooperative Preemption}
+
+\begin{lstlisting}[style=cstyle,title={Mark preemption-safe points in kernel}]
+__device__ void persistent_actor() {
+    while (!should_terminate) {
+        // Phase 1: Compute (non-preemptible)
+        compute_intensive_work();
+
+        // Phase 2: Preemption checkpoint
+        __preemption_point();  // GPU can preempt here safely
+
+        // Phase 3: Communication
+        exchange_halos();
+
+        __preemption_point();
+    }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[style=cstyle,title={Host-side control}]
+// Request preemption with priority
+cudaError_t cudaKernelPreempt(cudaKernel_t kernel, cudaPreemptConfig_t* config);
+
+typedef struct {
+    unsigned int urgency;        // 0=polite, 100=immediate
+    unsigned int timeoutMs;      // How long to wait for checkpoint
+    cudaStream_t resumeStream;   // Where to resume after
+    void* checkpointBuffer;      // Save kernel state here
+} cudaPreemptConfig_t;
+\end{lstlisting}
+
+\begin{benefitsbox}
+    \item GPU time-slicing without kernel redesign
+    \item Interactive responsiveness
+    \item Fair scheduling in multi-tenant environments
+\end{benefitsbox}
+
+\newpage
+
+% Feature Request 5
+\section{Feature Request 5: Kernel Checkpointing and Migration}
+
+\subsection{The Problem}
+
+GPU failures are catastrophic for long-running simulations:
+\begin{itemize}[leftmargin=*]
+    \item No way to save kernel state
+    \item No way to migrate to another GPU
+    \item Hours of simulation lost on hardware fault
+\end{itemize}
+
+\subsection{Proposed Solution: Native Checkpointing}
+
+\begin{lstlisting}[style=cstyle,title={Device side - declare checkpointable state}]
+__device__ __checkpoint__ float simulation_state[N];
+__device__ __checkpoint__ uint64_t step_counter;
+__shared__ __checkpoint__ float shared_tile[16][16][16];
+
+// Checkpoint intrinsic
+__device__ void checkpoint_if_needed() {
+    if (__checkpoint_requested()) {
+        // Hardware captures all __checkpoint__ variables
+        __checkpoint_save();
+
+        // Optional: kernel continues or terminates
+        if (__checkpoint_mode() == CHECKPOINT_AND_EXIT) {
+            return;
+        }
+    }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[style=cstyle,title={Host-side API}]
+// Trigger checkpoint
+cudaError_t cudaKernelCheckpoint(
+    cudaKernel_t kernel,
+    cudaCheckpoint_t* checkpoint,
+    unsigned int flags
+);
+
+// Restore kernel on same or different GPU
+cudaError_t cudaKernelRestore(
+    cudaKernel_t* kernel,        // OUT: new kernel handle
+    cudaCheckpoint_t checkpoint,
+    int deviceId                 // Target GPU (can be different)
+);
+
+// Serialize checkpoint for storage
+cudaError_t cudaCheckpointSerialize(
+    cudaCheckpoint_t checkpoint,
+    void** buffer,
+    size_t* size
+);
+\end{lstlisting}
+
+\subsection{Migration Scenario}
+
+\begin{lstlisting}[style=cstyle,title={GPU 0 has failing VRAM}]
+cudaCheckpoint_t checkpoint;
+cudaKernelCheckpoint(kernel, &checkpoint, CUDA_CHECKPOINT_URGENT);
+
+// Migrate to GPU 1
+cudaSetDevice(1);
+cudaKernel_t new_kernel;
+cudaKernelRestore(&new_kernel, checkpoint, 1);
+
+// Continue simulation on new GPU
+cudaKernelResume(new_kernel);
+\end{lstlisting}
+
+\begin{benefitsbox}
+    \item Fault tolerance for long-running simulations
+    \item GPU maintenance without data loss
+    \item Multi-GPU load balancing via migration
+\end{benefitsbox}
+
+\newpage
+
+% Feature Request 6
+\section{Feature Request 6: Extended Cooperative Groups}
+
+\subsection{Current Limitations}
+
+Cooperative groups are powerful but limited:
+\begin{itemize}[leftmargin=*]
+    \item Grid size capped at $\sim$1024 blocks (device-dependent)
+    \item \texttt{grid.sync()} has high overhead ($\sim$50$\mu$s on large grids)
+    \item No partial sync (e.g., sync only my neighbors)
+\end{itemize}
+
+\subsection{Proposed Extensions}
+
+\subsubsection{Hierarchical Sync Groups}
+
+\begin{lstlisting}[style=cstyle]
+// Create groups at different granularities
+cg::grid_group grid = cg::this_grid();
+cg::super_block_group<4, 4, 4> neighborhood = cg::this_neighborhood();
+cg::warp_group warp = cg::this_warp();
+
+// Sync at appropriate level
+neighborhood.sync();  // Only sync 64 nearby blocks (faster)
+\end{lstlisting}
+
+\subsubsection{Named Barriers}
+
+\begin{lstlisting}[style=cstyle]
+// Multiple independent sync phases
+__device__ cg::named_barrier_t halo_barrier;
+__device__ cg::named_barrier_t compute_barrier;
+
+// Sync only participants in this phase
+cg::named_sync(&halo_barrier);     // Only blocks doing halo exchange
+cg::named_sync(&compute_barrier);  // Only blocks doing compute
+\end{lstlisting}
+
+\subsubsection{Topology-Aware Groups}
+
+\begin{lstlisting}[style=cstyle]
+// Group blocks by NVLink connectivity
+cg::nvlink_group linked_blocks = cg::this_nvlink_domain();
+
+// Fast sync within NVLink domain (no PCIe)
+linked_blocks.sync();
+
+// Get topology info
+if (linked_blocks.is_nvlink_connected(neighbor_block)) {
+    // Use direct NVLink path
+} else {
+    // Route through host memory
+}
+\end{lstlisting}
+
+\newpage
+
+% Feature Request 7
+\section{Feature Request 7: Persistent Kernel Debugging}
+
+\subsection{The Problem}
+
+Debugging persistent kernels is extremely difficult:
+\begin{itemize}[leftmargin=*]
+    \item \texttt{cuda-gdb} breaks the persistent loop
+    \item \texttt{printf} causes synchronization issues
+    \item No way to inspect state without terminating
+\end{itemize}
+
+\subsection{Proposed Solution: Non-Intrusive Inspection}
+
+\begin{lstlisting}[style=cstyle,title={Mark variables as debuggable}]
+__device__ __debuggable__ float pressure[N];
+__device__ __debuggable__ uint64_t step_counter;
+\end{lstlisting}
+
+\begin{lstlisting}[style=cstyle,title={Host-side inspection}]
+// Read kernel state without stopping it
+cudaError_t cudaKernelInspect(
+    cudaKernel_t kernel,
+    const char* symbolName,
+    void* buffer,
+    size_t size
+);
+
+// Example usage
+float pressure_snapshot[N];
+cudaKernelInspect(kernel, "pressure", pressure_snapshot, sizeof(pressure_snapshot));
+uint64_t step;
+cudaKernelInspect(kernel, "step_counter", &step, sizeof(step));
+\end{lstlisting}
+
+\begin{benefitsbox}
+    \item Debug without disrupting simulation
+    \item Profile memory access patterns
+    \item Monitor convergence in real-time
+\end{benefitsbox}
+
+\newpage
+
+% Feature Request 8
+\section{Feature Request 8: Memory Model Enhancements}
+
+\subsection{Sequentially Consistent Atomics Option}
+
+Current CUDA atomics are relaxed by default. For actor mailboxes, we need SC:
+
+\begin{lstlisting}[style=cstyle]
+// Current: Relaxed by default (can reorder)
+atomicAdd(&counter, 1);
+
+// Proposed: Explicit memory order
+atomicAdd_sc(&counter, 1);       // Sequentially consistent
+atomicAdd_acq_rel(&counter, 1);  // Acquire-release
+atomicAdd_relaxed(&counter, 1);  // Explicit relaxed
+\end{lstlisting}
+
+\subsection{System-Scope Fences with Ordering}
+
+\begin{lstlisting}[style=cstyle]
+// Current: Single fence type
+__threadfence_system();
+
+// Proposed: Explicit ordering
+__threadfence_system_acquire();  // Acquire semantics
+__threadfence_system_release();  // Release semantics
+__threadfence_system_seq_cst();  // Full sequential consistency
+\end{lstlisting}
+
+\subsection{Mapped Memory Coherence Control}
+
+\begin{lstlisting}[style=cstyle]
+// Current: Implicit coherence (expensive)
+float* mapped = cudaHostAlloc(..., cudaHostAllocMapped);
+
+// Proposed: Explicit coherence domains
+cudaCoherentRegion_t region;
+cudaCreateCoherentRegion(&region, mapped, size, CUDA_COHERENCE_ON_DEMAND);
+
+// Kernel explicitly requests coherence when needed
+__device__ void check_commands() {
+    __coherence_acquire(&region);  // Ensure we see host writes
+    if (command_pending) {
+        process_command();
+    }
+    __coherence_release(&region);  // Make our writes visible to host
+}
+\end{lstlisting}
+
+\newpage
+
+% Feature Request 9
+\section{Feature Request 9: Multi-GPU Persistent Kernels}
+
+\subsection{The Problem}
+
+RingKernel currently runs on single GPU. Multi-GPU requires:
+\begin{itemize}[leftmargin=*]
+    \item Separate kernel launches per GPU
+    \item Manual NVLink/PCIe routing
+    \item Complex synchronization
+\end{itemize}
+
+\subsection{Proposed Solution: Unified Multi-GPU Kernel}
+
+\begin{lstlisting}[style=cstyle,title={Launch spans multiple GPUs}]
+cudaMultiGpuLaunchConfig_t config;
+config.numDevices = 4;
+config.devices = {0, 1, 2, 3};
+config.blocksPerDevice = 512;
+config.topology = CUDA_TOPOLOGY_RING;  // or MESH, TREE, CUSTOM
+
+cudaLaunchCooperativeKernelMultiDevice(&kernel, config);
+\end{lstlisting}
+
+\begin{lstlisting}[style=cstyle,title={In kernel - seamless multi-GPU}]
+__device__ void distributed_actor() {
+    int global_block_id = __multi_gpu_block_id();
+    int device_id = __multi_gpu_device_id();
+
+    // Send to block on any GPU - runtime handles routing
+    __mailbox_send(dest_global_block_id, data, size,
+                   MAILBOX_CROSS_GPU | MAILBOX_ASYNC);
+
+    // Grid sync spans all GPUs
+    cg::multi_device_grid grid = cg::this_multi_device_grid();
+    grid.sync();  // Sync all 2048 blocks across 4 GPUs
+}
+\end{lstlisting}
+
+\begin{benefitsbox}
+    \item Scale simulations beyond single GPU memory
+    \item Transparent NVLink utilization
+    \item Single code path for any GPU count
+\end{benefitsbox}
+
+\newpage
+
+% Feature Request 10
+\section{Feature Request 10: Actor Lifecycle Management}
+
+\subsection{The Problem}
+
+Currently, all blocks must participate from start to finish. We cannot:
+\begin{itemize}[leftmargin=*]
+    \item Spawn new actors dynamically
+    \item Terminate individual actors
+    \item Change the number of actors during execution
+\end{itemize}
+
+\subsection{Proposed Solution: Dynamic Actor Registry}
+
+\begin{lstlisting}[style=cstyle,title={Device-side actor creation}]
+__device__ cudaActor_t spawn_actor(void (*handler)(void*), void* state) {
+    return __actor_spawn(handler, state, ACTOR_FLAGS_DEFAULT);
+}
+\end{lstlisting}
+
+\begin{lstlisting}[style=cstyle,title={Host-side actor management}]
+cudaError_t cudaActorSpawn(
+    cudaKernel_t kernel,
+    cudaActor_t* actor,
+    cudaActorConfig_t* config
+);
+
+cudaError_t cudaActorTerminate(cudaActor_t actor, int exitCode);
+
+cudaError_t cudaActorQuery(
+    cudaActor_t actor,
+    cudaActorInfo_t* info  // State, message count, etc.
+);
+\end{lstlisting}
+
+\begin{benefitsbox}
+    \item Elastic actor systems (scale up/down)
+    \item Resource efficiency (terminate idle actors)
+    \item Dynamic task graphs
+\end{benefitsbox}
+
+\newpage
+
+% Implementation Priority Matrix
+\section{Implementation Priority Matrix}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Feature} & \textbf{Impact} & \textbf{Complexity} & \textbf{Priority} \\
+\midrule
+Host$\leftrightarrow$Kernel Signaling & Very High & Medium & \textbf{P0} \\
+K2K Mailboxes & Very High & High & \textbf{P0} \\
+Dynamic Scheduling & High & High & \textbf{P1} \\
+Preemption & High & Very High & \textbf{P1} \\
+Checkpointing & High & Very High & \textbf{P2} \\
+Extended Cooperative Groups & Medium & Medium & \textbf{P2} \\
+Debugging Tools & Medium & Low & \textbf{P2} \\
+Memory Model Enhancements & Medium & Medium & \textbf{P3} \\
+Multi-GPU Kernels & Very High & Very High & \textbf{P3} \\
+Dynamic Actor Registry & Medium & High & \textbf{P3} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\newpage
+
+% Conclusion
+\section{Conclusion}
+
+The persistent GPU actor model represents a paradigm shift from the traditional ``launch, compute, exit'' GPU programming model. NVIDIA has made significant progress with cooperative groups and persistent threads, but native support for actor-model primitives would unlock the next generation of GPU applications:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Real-time simulations} with sub-millisecond host interaction
+    \item \textbf{Distributed GPU computing} with seamless multi-GPU scaling
+    \item \textbf{Fault-tolerant HPC} with checkpoint/restart
+    \item \textbf{Interactive scientific visualization} with responsive compute
+\end{itemize}
+
+RingKernel demonstrates that persistent GPU actors are viable today, but with significant engineering complexity. Native CUDA support would make these patterns accessible to the broader GPU programming community.
+
+\newpage
+
+% Appendix A
+\appendix
+\section{Current RingKernel Performance}
+
+Benchmark results on RTX Ada (AD102):
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Metric} & \textbf{Traditional Kernel} & \textbf{Persistent Actor} & \textbf{Delta} \\
+\midrule
+Command Injection & 317 $\mu$s & 0.03 $\mu$s & \textbf{11,327$\times$ faster} \\
+Query Latency & 0.01 $\mu$s & 0.01 $\mu$s & Same \\
+Single Step & 3.2 $\mu$s & 163 $\mu$s & 51$\times$ slower \\
+Mixed Workload (60 FPS) & 40.5 ms & 15.3 ms & \textbf{2.7$\times$ faster} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The persistent model excels at \textbf{interactive latency} while traditional excels at \textbf{batch throughput}. Native CUDA support could eliminate this tradeoff.
+
+\section{Related Work}
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{NVIDIA Cooperative Groups} (CUDA 9+): Foundation for grid-wide sync
+    \item \textbf{AMD HIP Persistent Kernels}: Similar exploration in ROCm ecosystem
+    \item \textbf{Vulkan/SPIR-V}: Different approach via command buffers
+    \item \textbf{SYCL}: Exploring persistent execution model
+    \item \textbf{Academic}: ``GPUfs'' (ASPLOS '13), ``GPUnet'' (OSDI '14), ``Tango'' (ISCA '21)
+\end{itemize}
+
+\section{Feedback Channel}
+
+We welcome discussion on these proposals:
+\begin{itemize}[leftmargin=*]
+    \item GitHub: \url{https://github.com/mivertowski/ringkernel}
+    \item GTC: Annual Birds-of-a-Feather session on GPU actors
+\end{itemize}
+
+\newpage
+
+% Contact Page
+\thispagestyle{empty}
+\vspace*{\fill}
+\begin{center}
+    {\LARGE\bfseries Contact Information}
+
+    \vspace{2cm}
+
+    {\Large Michael Ivertowski}
+
+    \vspace{0.5cm}
+
+    {\large \href{mailto:michael.ivertowski@ch.ey.com}{michael.ivertowski@ch.ey.com}}
+
+    \vspace{3cm}
+
+    \hrule
+    \vspace{0.5cm}
+    {\small Document generated from RingKernel project documentation.}
+
+    {\small \url{https://github.com/mivertowski/ringkernel}}
+\end{center}
+\vspace*{\fill}
+
+\end{document}

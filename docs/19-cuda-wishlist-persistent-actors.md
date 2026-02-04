@@ -722,6 +722,5 @@ The persistent model excels at **interactive latency** while traditional excels 
 ## Appendix C: Feedback Channel
 
 We welcome discussion on these proposals:
-- GitHub: https://github.com/anthropics/ringkernel
-- NVIDIA Developer Forums: Tag with "persistent-kernels"
+- GitHub: https://github.com/mivertowski/ringkernel
 - GTC: Annual Birds-of-a-Feather session on GPU actors
