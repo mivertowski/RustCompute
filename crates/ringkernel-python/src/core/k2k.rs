@@ -316,7 +316,7 @@ impl PyK2KBroker {
 /// Register K2K types with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Create k2k submodule
-    let k2k = PyModule::new_bound(m.py(), "k2k")?;
+    let k2k = PyModule::new(m.py(), "k2k")?;
     k2k.add_class::<PyK2KConfig>()?;
     k2k.add_class::<PyDeliveryStatus>()?;
     k2k.add_class::<PyDeliveryReceipt>()?;

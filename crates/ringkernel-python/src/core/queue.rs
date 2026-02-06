@@ -490,7 +490,7 @@ impl From<PartitionedQueueStats> for PyPartitionedQueueStats {
 /// Register queue types with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Create queue submodule
-    let queue = PyModule::new_bound(m.py(), "queue")?;
+    let queue = PyModule::new(m.py(), "queue")?;
     queue.add_class::<PyQueueStats>()?;
     queue.add_class::<PyQueueTier>()?;
     queue.add_class::<PyQueueHealth>()?;

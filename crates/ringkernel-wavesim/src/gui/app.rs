@@ -919,10 +919,11 @@ impl Default for WaveSimApp {
 
 /// Run the application.
 pub fn run() -> iced::Result {
-    iced::application(WaveSimApp::title, WaveSimApp::update, WaveSimApp::view)
+    iced::application(WaveSimApp::new, WaveSimApp::update, WaveSimApp::view)
+        .title(WaveSimApp::title)
         .subscription(WaveSimApp::subscription)
         .theme(WaveSimApp::theme)
         .window_size(Size::new(1200.0, 800.0))
         .antialiasing(true)
-        .run_with(WaveSimApp::new)
+        .run()
 }

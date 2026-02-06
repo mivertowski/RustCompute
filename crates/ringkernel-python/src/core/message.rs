@@ -494,7 +494,7 @@ impl PyMessageEnvelope {
     /// Get the payload bytes.
     #[getter]
     fn payload<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.payload)
+        PyBytes::new(py, &self.inner.payload)
     }
 
     /// Total size in bytes (header + payload).
@@ -508,7 +508,7 @@ impl PyMessageEnvelope {
     /// Returns:
     ///     The envelope as a contiguous byte buffer.
     fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new_bound(py, &self.inner.to_bytes())
+        PyBytes::new(py, &self.inner.to_bytes())
     }
 
     /// Deserialize an envelope from bytes.

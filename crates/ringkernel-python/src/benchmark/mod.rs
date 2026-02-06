@@ -941,7 +941,7 @@ impl PyBenchmarkBaseline {
 /// Register benchmark types with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Create benchmark submodule
-    let benchmark = PyModule::new_bound(m.py(), "benchmark")?;
+    let benchmark = PyModule::new(m.py(), "benchmark")?;
 
     // Configuration types
     benchmark.add_class::<PyBenchmarkConfig>()?;

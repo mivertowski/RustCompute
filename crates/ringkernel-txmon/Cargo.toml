@@ -18,7 +18,7 @@ ringkernel-core = { version = "0.4.1", path = "../ringkernel-core" }
 inventory = { workspace = true }
 
 # GUI
-iced = { version = "0.13", features = ["tokio"] }
+iced = { version = "0.14", features = ["tokio"] }
 
 # Async runtime
 tokio = { workspace = true }

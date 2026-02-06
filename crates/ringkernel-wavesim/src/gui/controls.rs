@@ -2,9 +2,7 @@
 
 use super::app::{ComputeBackend, DrawMode, Message};
 use crate::simulation::SimulationMode;
-use iced::widget::{
-    button, column, container, pick_list, row, slider, text, text_input, vertical_space,
-};
+use iced::widget::{button, column, container, pick_list, row, slider, space, text, text_input};
 use iced::{Alignment, Element, Length};
 
 /// Build the controls panel.
@@ -205,7 +203,7 @@ pub fn view_controls(
             text(format!("FPS: {:.1}", fps)).size(12),
             text(format!("Steps/sec: {}", steps_str)).size(12),
             text(format!("Throughput: {} cells/s", throughput_str)).size(12),
-            vertical_space().height(5),
+            space().height(5),
             text("Simulation").size(16),
             text(format!("Cells: {}", cell_count)).size(12),
             text(format!("Courant #: {:.3}", courant)).size(12),
@@ -292,28 +290,28 @@ pub fn view_controls(
     // Main controls column
     column![
         text("WaveSim Controls").size(20),
-        vertical_space().height(10),
+        space().height(10),
         control_buttons,
-        vertical_space().height(15),
+        space().height(15),
         speed_section,
-        vertical_space().height(15),
+        space().height(15),
         cell_size_section,
-        vertical_space().height(15),
+        space().height(15),
         grid_section,
-        vertical_space().height(15),
+        space().height(15),
         impulse_section,
-        vertical_space().height(15),
+        space().height(15),
         backend_section,
-        vertical_space().height(15),
+        space().height(15),
         draw_mode_section,
-        vertical_space().height(15),
+        space().height(15),
         sim_mode_section,
-        vertical_space().height(15),
+        space().height(15),
         stats_btn,
         stats_panel,
-        vertical_space().height(15),
+        space().height(15),
         instructions,
-        vertical_space().height(15),
+        space().height(15),
         legend,
     ]
     .spacing(5)

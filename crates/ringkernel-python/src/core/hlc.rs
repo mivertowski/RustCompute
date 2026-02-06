@@ -283,7 +283,7 @@ impl PyHlcClock {
 /// Register HLC types with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Create hlc submodule
-    let hlc = PyModule::new_bound(m.py(), "hlc")?;
+    let hlc = PyModule::new(m.py(), "hlc")?;
     hlc.add_class::<PyHlcTimestamp>()?;
     hlc.add_class::<PyHlcClock>()?;
 

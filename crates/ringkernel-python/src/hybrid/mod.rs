@@ -298,7 +298,7 @@ impl PyHybridDispatcher {
 /// Register hybrid types with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Create hybrid submodule
-    let hybrid = PyModule::new_bound(m.py(), "hybrid")?;
+    let hybrid = PyModule::new(m.py(), "hybrid")?;
     hybrid.add_class::<PyProcessingMode>()?;
     hybrid.add_class::<PyHybridConfig>()?;
     hybrid.add_class::<PyHybridStats>()?;

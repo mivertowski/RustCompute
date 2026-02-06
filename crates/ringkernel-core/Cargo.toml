@@ -63,7 +63,7 @@ hkdf = { version = "0.12", optional = true }
 sha2 = { version = "0.10", optional = true }
 
 # Authentication (optional)
-jsonwebtoken = { version = "9.2", optional = true }
+jsonwebtoken = { version = "10", features = ["rust_crypto"], optional = true }
 base64 = { version = "0.21", optional = true }
 
 # Rate limiting (optional)

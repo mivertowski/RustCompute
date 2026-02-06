@@ -435,54 +435,54 @@ impl<T, E: Into<PyRingKernelError>> IntoPyResult<T> for Result<T, E> {
 /// Register exception types with the Python module.
 pub fn register_exceptions(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Create exceptions module
-    let exceptions = PyModule::new_bound(py, "exceptions")?;
+    let exceptions = PyModule::new(py, "exceptions")?;
 
     // Add base exception
-    exceptions.add("RingKernelError", py.get_type_bound::<RingKernelError>())?;
+    exceptions.add("RingKernelError", py.get_type::<RingKernelError>())?;
 
     // Memory errors
-    exceptions.add("MemoryLimitError", py.get_type_bound::<MemoryLimitError>())?;
+    exceptions.add("MemoryLimitError", py.get_type::<MemoryLimitError>())?;
 
     // Kernel errors
-    exceptions.add("KernelError", py.get_type_bound::<KernelError>())?;
-    exceptions.add("KernelStateError", py.get_type_bound::<KernelStateError>())?;
+    exceptions.add("KernelError", py.get_type::<KernelError>())?;
+    exceptions.add("KernelStateError", py.get_type::<KernelStateError>())?;
 
     // CUDA errors
-    exceptions.add("CudaError", py.get_type_bound::<CudaError>())?;
-    exceptions.add("CudaDeviceError", py.get_type_bound::<CudaDeviceError>())?;
-    exceptions.add("CudaMemoryError", py.get_type_bound::<CudaMemoryError>())?;
+    exceptions.add("CudaError", py.get_type::<CudaError>())?;
+    exceptions.add("CudaDeviceError", py.get_type::<CudaDeviceError>())?;
+    exceptions.add("CudaMemoryError", py.get_type::<CudaMemoryError>())?;
 
     // Queue errors
-    exceptions.add("QueueError", py.get_type_bound::<QueueError>())?;
-    exceptions.add("QueueFullError", py.get_type_bound::<QueueFullError>())?;
-    exceptions.add("QueueEmptyError", py.get_type_bound::<QueueEmptyError>())?;
+    exceptions.add("QueueError", py.get_type::<QueueError>())?;
+    exceptions.add("QueueFullError", py.get_type::<QueueFullError>())?;
+    exceptions.add("QueueEmptyError", py.get_type::<QueueEmptyError>())?;
 
     // K2K errors
-    exceptions.add("K2KError", py.get_type_bound::<K2KError>())?;
-    exceptions.add("K2KDeliveryError", py.get_type_bound::<K2KDeliveryError>())?;
+    exceptions.add("K2KError", py.get_type::<K2KError>())?;
+    exceptions.add("K2KDeliveryError", py.get_type::<K2KDeliveryError>())?;
 
     // Benchmark errors
-    exceptions.add("BenchmarkError", py.get_type_bound::<BenchmarkError>())?;
+    exceptions.add("BenchmarkError", py.get_type::<BenchmarkError>())?;
 
     // Hybrid errors
-    exceptions.add("HybridError", py.get_type_bound::<HybridError>())?;
+    exceptions.add("HybridError", py.get_type::<HybridError>())?;
     exceptions.add(
         "GpuNotAvailableError",
-        py.get_type_bound::<GpuNotAvailableError>(),
+        py.get_type::<GpuNotAvailableError>(),
     )?;
 
     // Resource errors
-    exceptions.add("ResourceError", py.get_type_bound::<ResourceError>())?;
-    exceptions.add("ReservationError", py.get_type_bound::<ReservationError>())?;
+    exceptions.add("ResourceError", py.get_type::<ResourceError>())?;
+    exceptions.add("ReservationError", py.get_type::<ReservationError>())?;
 
     // Add exceptions module to main module
     m.add_submodule(&exceptions)?;
 
     // Also add commonly-used exceptions at top level
-    m.add("RingKernelError", py.get_type_bound::<RingKernelError>())?;
-    m.add("CudaError", py.get_type_bound::<CudaError>())?;
-    m.add("KernelError", py.get_type_bound::<KernelError>())?;
-    m.add("MemoryLimitError", py.get_type_bound::<MemoryLimitError>())?;
+    m.add("RingKernelError", py.get_type::<RingKernelError>())?;
+    m.add("CudaError", py.get_type::<CudaError>())?;
+    m.add("KernelError", py.get_type::<KernelError>())?;
+    m.add("MemoryLimitError", py.get_type::<MemoryLimitError>())?;
 
     Ok(())
 }

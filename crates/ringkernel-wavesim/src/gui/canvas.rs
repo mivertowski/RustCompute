@@ -345,38 +345,30 @@ impl canvas::Program<Message> for GridCanvas {
     fn update(
         &self,
         _state: &mut Self::State,
-        event: canvas::Event,
+        event: &canvas::Event,
         bounds: Rectangle,
         cursor: mouse::Cursor,
-    ) -> (canvas::event::Status, Option<Message>) {
+    ) -> Option<canvas::Action<Message>> {
         match event {
             canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(position) = cursor.position_in(bounds) {
-                    // Convert to normalized coordinates [0, 1]
                     let x = position.x / bounds.width;
                     let y = position.y / bounds.height;
 
-                    return (
-                        canvas::event::Status::Captured,
-                        Some(Message::CanvasClick(x, y)),
-                    );
+                    return Some(canvas::Action::publish(Message::CanvasClick(x, y)));
                 }
             }
             canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
                 if let Some(position) = cursor.position_in(bounds) {
-                    // Convert to normalized coordinates [0, 1]
                     let x = position.x / bounds.width;
                     let y = position.y / bounds.height;
 
-                    return (
-                        canvas::event::Status::Captured,
-                        Some(Message::CanvasRightClick(x, y)),
-                    );
+                    return Some(canvas::Action::publish(Message::CanvasRightClick(x, y)));
                 }
             }
             _ => {}
         }
 
-        (canvas::event::Status::Ignored, None)
+        None
     }
 }

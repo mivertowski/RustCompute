@@ -715,7 +715,7 @@ impl From<RustStreamPoolStats> for PyStreamPoolStats {
 /// Register CUDA types with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Create cuda submodule
-    let cuda = PyModule::new_bound(m.py(), "cuda")?;
+    let cuda = PyModule::new(m.py(), "cuda")?;
 
     // Device functions
     cuda.add_function(wrap_pyfunction!(is_cuda_available, &cuda)?)?;

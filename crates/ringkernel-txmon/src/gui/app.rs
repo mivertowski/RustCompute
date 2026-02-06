@@ -5,10 +5,7 @@ use crate::factory::{CustomerStats, FactoryState, GeneratorConfig, TransactionGe
 use crate::monitoring::MonitoringEngine;
 use crate::types::{AlertType, MonitoringAlert, Transaction};
 
-use iced::widget::{
-    button, column, container, horizontal_rule, horizontal_space, row, scrollable, slider, text,
-    vertical_space, Column,
-};
+use iced::widget::{button, column, container, row, rule, scrollable, slider, space, text, Column};
 use iced::{time, Alignment, Color, Element, Length, Subscription, Theme};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -218,7 +215,7 @@ impl TxMonApp {
     pub fn view(&self) -> Element<'_, Message> {
         let content = column![
             self.view_header(),
-            horizontal_rule(1),
+            rule::horizontal(1),
             row![self.view_left_panel(), self.view_right_panel(),].spacing(20),
         ]
         .padding(20)
@@ -246,7 +243,7 @@ impl TxMonApp {
             text("RingKernel Transaction Monitor")
                 .size(24)
                 .color(colors::TEXT_PRIMARY),
-            horizontal_space(),
+            space().width(Length::Fill),
             container(
                 text(format!(" {} ", self.factory_state))
                     .size(14)
@@ -270,9 +267,9 @@ impl TxMonApp {
     fn view_left_panel(&self) -> Element<'_, Message> {
         column![
             self.view_factory_controls(),
-            vertical_space().height(15),
+            space().height(15),
             self.view_account_overview(),
-            vertical_space().height(15),
+            space().height(15),
             self.view_transaction_feed(),
         ]
         .width(Length::FillPortion(3))
@@ -283,11 +280,11 @@ impl TxMonApp {
     fn view_right_panel(&self) -> Element<'_, Message> {
         column![
             self.view_statistics(),
-            vertical_space().height(10),
+            space().height(10),
             self.view_alert_legend(),
-            vertical_space().height(10),
+            space().height(10),
             self.view_high_risk_accounts(),
-            vertical_space().height(10),
+            space().height(10),
             self.view_alerts_panel(),
         ]
         .width(Length::FillPortion(2))
@@ -436,7 +433,7 @@ impl TxMonApp {
             text(format!("-> {}", tx.country_name()))
                 .size(12)
                 .color(colors::TEXT_SECONDARY),
-            horizontal_space(),
+            space().width(Length::Fill),
             text(if tx.is_high_value() { "!" } else { "" })
                 .size(12)
                 .color(colors::ALERT_HIGH),
@@ -461,11 +458,11 @@ impl TxMonApp {
         let content = column![
             self.stat_row("TPS", format!("{:.0}", self.transactions_per_second)),
             self.stat_row("Alerts/s", format!("{:.1}", self.alerts_per_second)),
-            horizontal_rule(1),
+            rule::horizontal(1),
             self.stat_row("Total Processed", format_number(self.total_transactions)),
             self.stat_row("Total Alerts", format_number(self.total_alerts)),
             self.stat_row("Flagged Tx", format_number(self.flagged_transactions)),
-            horizontal_rule(1),
+            rule::horizontal(1),
             self.stat_row("Flagged Rate", flagged_rate),
         ]
         .spacing(8);
@@ -535,7 +532,7 @@ impl TxMonApp {
                     text(format!("Customer #{}", customer_id))
                         .size(12)
                         .color(colors::TEXT_PRIMARY),
-                    horizontal_space(),
+                    space().width(Length::Fill),
                     text(format!("{} alerts", alert_count))
                         .size(12)
                         .color(rank_color),
@@ -562,7 +559,7 @@ impl TxMonApp {
             text("Compliance Alerts")
                 .size(16)
                 .color(colors::TEXT_PRIMARY),
-            horizontal_space(),
+            space().width(Length::Fill),
             button(text("Clear").size(12))
                 .padding([4, 8])
                 .on_press(Message::ClearAlerts),
@@ -586,7 +583,7 @@ impl TxMonApp {
         container(
             column![
                 header,
-                vertical_space().height(10),
+                space().height(10),
                 scrollable(alerts_list).height(200),
             ]
             .spacing(5),
@@ -624,7 +621,7 @@ impl TxMonApp {
             row![
                 indicator,
                 text(severity.name()).size(12).color(color),
-                horizontal_space(),
+                space().width(Length::Fill),
                 text(format!("#{}", alert.alert_id % 10000))
                     .size(10)
                     .color(colors::TEXT_DISABLED),
@@ -670,7 +667,7 @@ impl TxMonApp {
         container(
             column![
                 text(title).size(16).color(colors::TEXT_PRIMARY),
-                vertical_space().height(10),
+                space().height(10),
                 content.into(),
             ]
             .spacing(5),
@@ -718,7 +715,7 @@ impl TxMonApp {
     fn stat_row(&self, label: &'static str, value: String) -> Element<'static, Message> {
         row![
             text(label).size(14).color(colors::TEXT_SECONDARY),
-            horizontal_space(),
+            space().width(Length::Fill),
             text(value).size(14).color(colors::TEXT_PRIMARY),
         ]
         .into()

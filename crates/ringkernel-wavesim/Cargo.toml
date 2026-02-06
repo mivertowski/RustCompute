@@ -20,7 +20,7 @@ ringkernel-cuda-codegen = { version = "0.4.1", path = "../ringkernel-cuda-codege
 inventory = { workspace = true }
 
 # GUI
-iced = { version = "0.13", features = ["canvas", "tokio"] }
+iced = { version = "0.14", features = ["canvas", "tokio"] }
 
 # Async runtime
 tokio = { workspace = true }

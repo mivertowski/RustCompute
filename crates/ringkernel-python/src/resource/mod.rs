@@ -455,7 +455,7 @@ fn get_available_memory() -> Option<u64> {
 /// Register resource types with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Create resource submodule
-    let resource = PyModule::new_bound(m.py(), "resource")?;
+    let resource = PyModule::new(m.py(), "resource")?;
     resource.add_class::<PyMemoryEstimate>()?;
     resource.add_class::<PyReservationGuard>()?;
     resource.add_class::<PyResourceGuard>()?;
