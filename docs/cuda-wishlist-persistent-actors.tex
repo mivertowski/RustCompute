@@ -16,6 +16,7 @@
 \usepackage{enumitem}
 \usepackage{tcolorbox}
 \usepackage{fancyvrb}
+\usepackage{amsmath}
 
 % Colors
 \definecolor{codeblue}{RGB}{0,102,204}
@@ -114,7 +115,7 @@
 
     \vspace{1.5cm}
 
-    {\Large A Technical Proposal Based on RingKernel Implementation Experience\par}
+    {\Large A Technical Proposal Based on RingKernel and RustGraph\\Implementation Experience\par}
 
     \vspace{2cm}
 
@@ -127,7 +128,7 @@
     \vfill
 
     \begin{abstract}
-    \noindent This document outlines CUDA features that would significantly improve the implementation of persistent GPU actors. These recommendations are based on practical experience building RingKernel's persistent actor infrastructure. RingKernel implements persistent GPU actors today using workarounds like cooperative groups, mapped memory, and software barriers. While functional, these approaches have significant limitations. Native CUDA support for actor-model primitives would unlock order-of-magnitude improvements in capability and performance.
+    \noindent This document outlines CUDA features that would significantly improve the implementation of persistent GPU actors. These recommendations are based on practical experience building RingKernel's persistent actor infrastructure and RustGraph's GPU-native living graph database. RingKernel implements persistent GPU actors today using workarounds like cooperative groups, mapped memory, and software barriers. RustGraph extends this model to graph analytics, where nodes and edges are persistent GPU actors that maintain analytics state (PageRank, BFS, Connected Components) via message passing across multi-layer hypergraph structures. While functional, these approaches have significant limitations. Native CUDA support for actor-model primitives would unlock order-of-magnitude improvements in capability and performance.
     \end{abstract}
 
 \end{titlepage}
@@ -138,22 +139,27 @@
 % Executive Summary
 \section{Executive Summary}
 
-RingKernel implements persistent GPU actors today using workarounds like cooperative groups, mapped memory, and software barriers. While functional, these approaches have significant limitations. Native CUDA support for actor-model primitives would unlock order-of-magnitude improvements in capability and performance.
+RingKernel implements persistent GPU actors for stencil computations, while RustGraph extends the model to graph analytics---nodes and edges are persistent GPU actors that maintain PageRank, BFS distances, component IDs, and 64+ other analytics via K2K message passing. Both systems use workarounds like cooperative groups, mapped memory, and software barriers. While functional, these approaches have significant limitations. Native CUDA support for actor-model primitives would unlock order-of-magnitude improvements in capability and performance.
 
 \subsection{Key Feature Requests (Priority Order)}
 
 \begin{enumerate}[leftmargin=*]
     \item \textbf{Native Host$\leftrightarrow$Kernel Signaling} --- Replace polling with interrupt-driven communication
-    \item \textbf{Kernel-to-Kernel Mailboxes} --- First-class inter-block messaging
-    \item \textbf{Dynamic Block Scheduling} --- Work stealing and load balancing
+    \item \textbf{Kernel-to-Kernel Mailboxes} --- First-class inter-block messaging with irregular graph topologies
+    \item \textbf{Dynamic Block Scheduling} --- Work stealing and load balancing for power-law graphs
     \item \textbf{Persistent Kernel Preemption} --- Cooperative preemption for multi-tenant scenarios
-    \item \textbf{Checkpointing/Migration} --- Fault tolerance and GPU failover
+    \item \textbf{Checkpointing/Migration} --- Fault tolerance, GPU failover, and live graph snapshots
+    \item \textbf{GPU-Side Convergence Detection} --- Hardware-accelerated quiescence for iterative algorithms
+    \item \textbf{Selective Grid Sync} --- Predicate-based partial synchronization for layer-scoped analytics
+    \item \textbf{Variable-Fan-Out K2K Messaging} --- Irregular neighbor messaging for graph topologies
+    \item \textbf{Multi-Algorithm BSP Execution} --- Concurrent actor behaviors via bitmask selection
+    \item \textbf{Warp-Level Actor Granularity} --- Sub-block actor assignment for hub nodes
 \end{enumerate}
 
 % Current State
-\section{Current State: How RingKernel Works Around CUDA Limitations}
+\section{Current State: How We Work Around CUDA Limitations}
 
-\subsection{Architecture Overview}
+\subsection{RingKernel Architecture}
 
 \begin{Verbatim}[fontsize=\small,frame=single,framesep=3mm]
 +---------------------------------------------------------------------+
@@ -188,6 +194,33 @@ RingKernel implements persistent GPU actors today using workarounds like coopera
 +---------------------------------------------------------------------+
 \end{Verbatim}
 
+\subsection{RustGraph Architecture}
+
+RustGraph extends the persistent actor model to graph analytics. Each node is a 256-byte GPU-resident actor; edges are 64-byte actors. Analytics emerge from message passing in a BSP (Bulk Synchronous Parallel) tick loop:
+
+\begin{Verbatim}[fontsize=\small,frame=single,framesep=3mm]
++---------------------------------------------------------------------+
+|                    GPU (PERSISTENT GRAPH RUNTIME)                    |
+|                                                                      |
+|  BSP Tick Loop:                                                      |
+|  [1. Propagate] -> [2. Receive] -> [3. Apply] -> [4. Converge]      |
+|                                                                      |
+|  +--------+ +--------+ +--------+ +--------+ +--------+             |
+|  |Node 0  | |Node 1  | |Node 2  | |  ...   | |Node N  |             |
+|  |256B    | |256B    | |256B    | |        | |256B    |             |
+|  |PR,BFS  | |PR,BFS  | |PR,BFS  | |        | |PR,BFS  |             |
+|  |CC,EV   | |CC,EV   | |CC,EV   | |        | |CC,EV   |             |
+|  +---+----+ +---+----+ +---+----+ +--------+ +---+----+             |
+|      |          |          |                      |                   |
+|      +----------+----------+----------------------+                   |
+|          K2K RING BUFFER INBOXES (512 msg/node)                      |
+|                                                                      |
+|  Multi-Algorithm: active_algos bitmask (PR|CC|EV|BFS)                |
+|  Layer Scoping:   node.layer field -> flag-based filtering           |
+|  Kernel Modes:    NodeCentric | SoA | EdgeCentric | Tiled | Auto    |
++---------------------------------------------------------------------+
+\end{Verbatim}
+
 \subsection{Current Workarounds and Their Costs}
 
 \begin{table}[h]
@@ -202,6 +235,14 @@ Grid Sync & Cooperative groups & Grid size limited to $\sim$1024 blocks \\
 K2K Messaging & Device memory + barriers & Extra sync points; no addressing \\
 Fault Tolerance & None & Single GPU failure = total loss \\
 Load Balancing & Static block assignment & Hot spots cause tail latency \\
+\midrule
+\multicolumn{3}{@{}l@{}}{\textit{Additional workarounds from RustGraph graph analytics:}} \\
+\midrule
+Graph K2K & Ring buffer inboxes (512 msg) & Fixed fan-out; no topology awareness \\
+Convergence & Host-side polling per tick & Round-trip per convergence check \\
+Layer Scoping & Flag-based filtering (CONVERGED) & All nodes visited even when inactive \\
+Multi-Algorithm & Bitmask + branching & Warp divergence on mixed algorithms \\
+Hub Nodes & Warp-cooperative (32 threads) & Manual warp-level programming \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -381,6 +422,37 @@ __device__ cudaError_t __actor_recv(
 );
 \end{lstlisting}
 
+\subsection{Graph-Irregular Messaging Extension}
+
+Beyond structured halo exchange, graph analytics require \textbf{irregular} messaging where each node sends to a variable number of neighbors determined by the adjacency structure. RustGraph currently implements this with per-node ring buffer inboxes (512 messages, lock-free atomics), but native support would be far more efficient:
+
+\begin{lstlisting}[style=cstyle,title={CSR-driven irregular messaging}]
+// Send to all graph neighbors (variable fan-out)
+__device__ void propagate_to_neighbors(
+    uint64_t node_id,
+    const uint32_t* csr_offsets,   // CSR row pointers
+    const uint32_t* csr_neighbors, // CSR column indices
+    void* message, size_t size
+) {
+    uint32_t start = csr_offsets[node_id];
+    uint32_t end   = csr_offsets[node_id + 1];
+
+    // Hardware-accelerated scatter to variable neighbors
+    for (uint32_t i = start; i < end; i++) {
+        __mailbox_send_csr(csr_neighbors[i], message, size,
+                           MAILBOX_ASYNC | MAILBOX_COALESCE);
+    }
+}
+
+// Receive with aggregation (e.g., sum for PageRank)
+__device__ float __mailbox_recv_reduce(
+    cudaMailbox_t* mailbox,
+    cudaReduceOp_t op  // SUM, MAX, MIN, OR
+);
+\end{lstlisting}
+
+This pattern occurs in every graph analytics algorithm: PageRank (scatter rank/degree), BFS (scatter distance+1), Connected Components (scatter min component ID). Hardware support for CSR-driven scatter with built-in reduction would dramatically reduce the software complexity.
+
 \newpage
 
 % Feature Request 3
@@ -436,6 +508,20 @@ __device__ void persistent_worker() {
     \item Better SM utilization
     \item Adaptive to irregular workloads (graph algorithms, sparse matrices)
 \end{benefitsbox}
+
+\subsection{Graph-Specific Motivation: Power-Law Degree Distributions}
+
+Real-world graphs follow power-law degree distributions where a small number of ``hub'' nodes have $10{,}000$+ neighbors while most nodes have $<10$. This creates extreme load imbalance:
+
+\begin{Verbatim}[fontsize=\small,frame=single,framesep=3mm]
+Node degree distribution (log-scale):
+  1-10 neighbors:     85% of nodes  (fast to process)
+  10-100 neighbors:   12% of nodes
+  100-1000 neighbors:  2.5% of nodes
+  1000+ neighbors:     0.5% of nodes (bottleneck: 50x slower)
+\end{Verbatim}
+
+RustGraph addresses this with multiple kernel modes (NodeCentric, EdgeCentric, Tiled, Warp-Cooperative) selected at launch time based on graph characteristics. But the optimal mode varies \textit{within} a single graph---hub nodes need edge-centric processing while leaf nodes need node-centric. Hardware work-stealing queues with heterogeneous work items would allow mixing strategies dynamically within a single kernel launch.
 
 \subsection{Configuration API}
 
@@ -581,10 +667,32 @@ cudaKernelRestore(&new_kernel, checkpoint, 1);
 cudaKernelResume(new_kernel);
 \end{lstlisting}
 
+\subsection{Live Graph Snapshots (Snapshot-Without-Stop)}
+
+RustGraph's temporal time machine takes named snapshots of the full graph state (all node analytics, edge weights, hyperedge aggregates) for period comparison. Currently, this requires a host-side copy of all GPU state vectors---$N \times 256\text{B} + E \times 64\text{B}$ per snapshot:
+
+\begin{lstlisting}[style=cstyle,title={Proposed: GPU-side snapshot without stopping the kernel}]
+// Take a consistent snapshot without stopping the persistent kernel
+cudaCheckpoint_t snapshot;
+cudaKernelCheckpoint(kernel, &snapshot,
+    CUDA_CHECKPOINT_NONBLOCKING |    // Don't stop the kernel
+    CUDA_CHECKPOINT_CONSISTENT  |    // Wait for BSP phase boundary
+    CUDA_CHECKPOINT_GPU_LOCAL);      // Keep snapshot in GPU memory
+
+// Compare two GPU-resident snapshots (no host transfer)
+cudaCheckpointDiff_t diff;
+cudaCheckpointCompare(snapshot_a, snapshot_b, &diff,
+    CUDA_DIFF_STRUCTURAL | CUDA_DIFF_ANALYTICS);
+\end{lstlisting}
+
+For 100K-node graphs, each snapshot is $\sim$26 MB. With 50 max snapshots, the entire time machine fits in GPU memory. Hardware support for consistent-at-BSP-boundary snapshots would eliminate the current host round-trip overhead.
+
 \begin{benefitsbox}
     \item Fault tolerance for long-running simulations
     \item GPU maintenance without data loss
     \item Multi-GPU load balancing via migration
+    \item Zero-downtime graph snapshots for temporal analytics
+    \item GPU-resident snapshot comparison without host transfer
 \end{benefitsbox}
 
 \newpage
@@ -779,10 +887,34 @@ __device__ void distributed_actor() {
 }
 \end{lstlisting}
 
+\subsection{Graph Partitioning Considerations}
+
+RustGraph's multi-GPU module implements graph partitioning strategies (vertex-cut, edge-cut, 2D partitioning) to distribute graphs across GPUs. The challenge is that cross-partition edges require K2K messages across GPU boundaries. With NVLink, this is $\sim$10$\times$ slower than intra-GPU messaging; with PCIe, $\sim$100$\times$ slower.
+
+Hardware-aware partitioning hints would significantly improve performance:
+
+\begin{lstlisting}[style=cstyle,title={Topology-aware graph partitioning}]
+// Query NVLink topology for partition planning
+cudaMultiGpuTopology_t topology;
+cudaGetMultiGpuTopology(&topology);
+
+// Get bandwidth between GPU pairs (for edge-cut cost model)
+float bw = topology.bandwidth[gpu_a][gpu_b];  // GB/s
+float lat = topology.latency[gpu_a][gpu_b];   // ns
+
+// Hint: these node ranges communicate frequently
+cudaMultiGpuAffinityHint_t hint;
+hint.nodeRange = {start, end};
+hint.preferDevice = gpu_id;
+hint.communicatesWith = {neighbor_ranges};
+cudaSetMultiGpuAffinity(&hint);
+\end{lstlisting}
+
 \begin{benefitsbox}
     \item Scale simulations beyond single GPU memory
     \item Transparent NVLink utilization
     \item Single code path for any GPU count
+    \item Topology-aware graph partitioning for minimal cross-GPU traffic
 \end{benefitsbox}
 
 \newpage
@@ -830,6 +962,312 @@ cudaError_t cudaActorQuery(
 
 \newpage
 
+% Feature Request 11
+\section{Feature Request 11: GPU-Side Convergence Detection}
+
+\subsection{The Problem}
+
+Iterative graph algorithms (PageRank, Label Propagation, Connected Components) run in a BSP tick loop until convergence---when no node changes state beyond a threshold. Currently, convergence detection requires either:
+
+\begin{itemize}[leftmargin=*]
+    \item A host-side reduction after each tick (PCIe round-trip per iteration)
+    \item A device-wide atomic counter with \texttt{grid.sync()} (high overhead)
+\end{itemize}
+
+RustGraph uses \texttt{grid.sync()} plus a shared atomic counter to detect quiescence. For PageRank on 100K nodes, convergence typically takes 15--30 iterations, meaning 15--30 full grid synchronizations just for the convergence check.
+
+\subsection{Proposed Solution: Hardware Convergence Counter}
+
+\begin{lstlisting}[style=cstyle,title={Hardware convergence detection}]
+// Device-wide convergence counter (hardware-managed)
+__device__ cudaConvergence_t convergence;
+
+__device__ void pagerank_apply(uint64_t node_id) {
+    float new_rank = compute_new_rank(node_id);
+    float old_rank = nodes[node_id].pagerank;
+    float diff = fabsf(new_rank - old_rank);
+
+    nodes[node_id].pagerank = new_rank;
+
+    // Hardware accumulates max diff across all threads
+    __convergence_report(&convergence, diff);
+}
+
+// After grid.sync(), check convergence without host round-trip
+__device__ bool check_convergence() {
+    float max_diff = __convergence_result(&convergence);
+    return max_diff < EPSILON;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[style=cstyle,title={Host-side API}]
+// Query convergence status without stopping the kernel
+cudaError_t cudaKernelConvergenceStatus(
+    cudaKernel_t kernel,
+    float* maxDiff,           // OUT: maximum change in last tick
+    uint32_t* activeNodes,    // OUT: nodes that changed
+    uint32_t* totalIterations // OUT: ticks since init
+);
+\end{lstlisting}
+
+\begin{benefitsbox}
+    \item Eliminates PCIe round-trip per iteration for convergence checking
+    \item Hardware-accelerated reduction (faster than software atomics)
+    \item Enables fully autonomous kernel convergence without host involvement
+    \item Applicable to any iterative algorithm: PageRank, Jacobi, GMRES, etc.
+\end{benefitsbox}
+
+\newpage
+
+% Feature Request 12
+\section{Feature Request 12: Selective Grid Sync (Sync-by-Predicate)}
+
+\subsection{The Problem}
+
+RustGraph's multi-layer hypergraph organizes nodes into layers (Governance, Process, Accounting). Layer-scoped analytics run PageRank/BFS/CC within a single layer by marking non-layer nodes as \texttt{CONVERGED} and clearing their propagation flags. However, \texttt{grid.sync()} still synchronizes \textit{all} blocks---even those processing only inactive nodes:
+
+\begin{Verbatim}[fontsize=\small,frame=single,framesep=3mm]
+Layer-scoped PageRank (Layer 1 = 500 nodes, Total = 10,000 nodes):
+
+Block 0:  [Layer 1 nodes] -> ACTIVE, propagating
+Block 1:  [Layer 1 nodes] -> ACTIVE, propagating
+Block 2:  [Layer 2 nodes] -> CONVERGED, skip  (but still syncs!)
+Block 3:  [Layer 3 nodes] -> CONVERGED, skip  (but still syncs!)
+...
+Block 99: [Layer 3 nodes] -> CONVERGED, skip  (but still syncs!)
+
+grid.sync() waits for ALL 100 blocks, even though only 2 are doing work.
+\end{Verbatim}
+
+\subsection{Proposed Solution: Predicate-Based Partial Sync}
+
+\begin{lstlisting}[style=cstyle,title={Sync only blocks that match a predicate}]
+// Each block declares its activity status
+__device__ bool my_block_active = has_active_nodes_in_layer(blockIdx.x, target_layer);
+
+// Sync only active blocks (inactive blocks skip the barrier)
+cg::grid_group grid = cg::this_grid();
+grid.sync_if(my_block_active);
+
+// Or: sync by layer membership
+__device__ uint8_t my_layer = determine_layer(blockIdx.x);
+cg::predicate_sync(grid, my_layer == target_layer);
+\end{lstlisting}
+
+\begin{lstlisting}[style=cstyle,title={Alternative: dynamic sync groups}]
+// Create a sync group from active blocks only
+cg::dynamic_group active_blocks = cg::create_group_if(
+    grid, has_active_nodes(blockIdx.x)
+);
+
+// Sync only the active subset (O(active_blocks) instead of O(all_blocks))
+active_blocks.sync();
+\end{lstlisting}
+
+\begin{benefitsbox}
+    \item Layer-scoped analytics sync only relevant blocks (5--20$\times$ fewer blocks)
+    \item Inactive blocks can be yielded to other kernels
+    \item Generalizes to any partitioned workload (multi-physics, domain decomposition)
+    \item Reduces grid sync overhead proportional to active fraction
+\end{benefitsbox}
+
+\newpage
+
+% Feature Request 13
+\section{Feature Request 13: Multi-Algorithm BSP Execution}
+
+\subsection{The Problem}
+
+RustGraph runs multiple graph algorithms concurrently on the same graph using a bitmask (\texttt{active\_algos}: \texttt{ALGO\_PAGERANK|ALGO\_CC|ALGO\_BFS}). Each node processes all active algorithms in the same BSP tick. This creates warp divergence:
+
+\begin{lstlisting}[style=cstyle,title={Current: branching on algorithm bitmask}]
+__device__ void apply_phase(uint64_t node_id) {
+    if (active_algos & ALGO_PAGERANK) {
+        apply_pagerank(node_id);  // Branch A
+    }
+    if (active_algos & ALGO_CC) {
+        apply_cc(node_id);        // Branch B
+    }
+    if (active_algos & ALGO_BFS) {
+        apply_bfs(node_id);       // Branch C
+    }
+    // Warp divergence: threads in same warp may take different branches
+    // depending on node flags (e.g., BFS only propagates from frontier)
+}
+\end{lstlisting}
+
+\subsection{Proposed Solution: Algorithm-Parallel Execution Lanes}
+
+\begin{lstlisting}[style=cstyle,title={Hardware algorithm lanes}]
+// Define algorithm behaviors as independent execution lanes
+cudaAlgoLane_t lanes[3];
+lanes[0] = {.kernel = pagerank_kernel, .mask = ALGO_PAGERANK};
+lanes[1] = {.kernel = cc_kernel,       .mask = ALGO_CC};
+lanes[2] = {.kernel = bfs_kernel,      .mask = ALGO_BFS};
+
+// Launch all algorithms in parallel lanes (same data, different compute)
+cudaLaunchAlgorithmParallel(lanes, 3, node_data, edge_data,
+    CUDA_ALGO_SYNC_BSP);  // BSP: all lanes sync at tick boundary
+
+// Each lane runs without warp divergence from other algorithms
+\end{lstlisting}
+
+\begin{lstlisting}[style=cstyle,title={Device-side: per-lane tick loop}]
+__device__ void pagerank_lane(uint64_t node_id) {
+    // Pure PageRank - no branching on other algorithms
+    float sum = receive_pagerank_messages(node_id);
+    float new_rank = 0.15/N + 0.85 * sum;
+    nodes[node_id].pagerank = new_rank;
+    propagate_rank(node_id, new_rank);
+}
+
+// Lanes share node state but execute independently
+// Hardware ensures visibility at BSP tick boundaries
+\end{lstlisting}
+
+\begin{benefitsbox}
+    \item Eliminates warp divergence from multi-algorithm branching
+    \item Each algorithm runs at full warp efficiency
+    \item BSP synchronization preserved across lanes
+    \item Shared node state with hardware-enforced consistency at tick boundaries
+\end{benefitsbox}
+
+\newpage
+
+% Feature Request 14
+\section{Feature Request 14: GPU-Resident Graph Data Structures}
+
+\subsection{The Problem}
+
+Graph analytics kernels spend significant time traversing CSR (Compressed Sparse Row) structures to find neighbors. This involves indirect memory access patterns with poor cache locality:
+
+\begin{lstlisting}[style=cstyle,title={Current: software CSR traversal}]
+__device__ void scatter_to_neighbors(uint64_t node_id) {
+    uint32_t start = csr_offsets[node_id];     // Random read 1
+    uint32_t end   = csr_offsets[node_id + 1]; // Sequential (cached)
+
+    for (uint32_t i = start; i < end; i++) {
+        uint32_t neighbor = csr_neighbors[i];  // Random read 2
+        float* inbox = &inboxes[neighbor];     // Random read 3
+        atomicAdd(inbox, message);             // Random atomic
+    }
+    // 3 levels of indirection per neighbor, poor L2 utilization
+}
+\end{lstlisting}
+
+RustGraph mitigates this with \texttt{\_\_ldg()} L1 caching in tiled kernels, but the fundamental indirection overhead remains.
+
+\subsection{Proposed Solution: Hardware CSR Iterator}
+
+\begin{lstlisting}[style=cstyle,title={Hardware-accelerated neighbor iteration}]
+// Declare graph topology to hardware
+cudaGraphTopology_t topo;
+cudaCreateGraphTopology(&topo, csr_offsets, csr_neighbors,
+    num_nodes, num_edges, CUDA_GRAPH_CSR);
+
+// Hardware-assisted neighbor iteration
+__device__ void scatter_to_neighbors(uint64_t node_id) {
+    cudaNeighborIterator_t iter;
+    __graph_neighbors_begin(&iter, &topo, node_id);
+
+    while (__graph_neighbors_next(&iter)) {
+        uint32_t neighbor = __graph_neighbor_id(&iter);
+        // Hardware prefetches next neighbor while processing current
+        atomicAdd(&inboxes[neighbor], message);
+    }
+}
+
+// Hardware-level optimizations:
+// - Prefetch next CSR segment into L1 while processing current
+// - Coalesce neighbor accesses across warps
+// - Vectorized CSR reads (128-bit loads for 4 neighbors at once)
+\end{lstlisting}
+
+\begin{benefitsbox}
+    \item Hardware prefetching of CSR segments eliminates stalls
+    \item Coalesced neighbor access across warps
+    \item Reduced register pressure (hardware manages iteration state)
+    \item Applicable to any sparse graph algorithm (GNN, SSSP, triangle counting)
+\end{benefitsbox}
+
+\newpage
+
+% Feature Request 15
+\section{Feature Request 15: Warp-Level Actor Granularity}
+
+\subsection{The Problem}
+
+In the standard actor model, one thread block = one actor. But graph analytics have extreme degree heterogeneity: hub nodes with 10,000+ neighbors need far more compute than leaf nodes with 1--2 neighbors. RustGraph implements warp-cooperative kernels where 32 threads collaborate on a single hub node:
+
+\begin{lstlisting}[style=cstyle,title={Current: manual warp-cooperative processing}]
+__global__ void warp_coop_pagerank(/* ... */) {
+    int warp_id = threadIdx.x / 32;
+    int lane_id = threadIdx.x % 32;
+    int node_id = blockIdx.x * warps_per_block + warp_id;
+
+    // Each warp processes one node cooperatively
+    uint32_t start = csr_offsets[node_id];
+    uint32_t end   = csr_offsets[node_id + 1];
+    uint32_t degree = end - start;
+
+    // Warp-strided neighbor iteration
+    float sum = 0.0f;
+    for (uint32_t i = start + lane_id; i < end; i += 32) {
+        uint32_t neighbor = csr_neighbors[i];
+        sum += nodes[neighbor].pagerank / nodes[neighbor].out_degree;
+    }
+
+    // Warp-level reduction
+    sum = __shfl_down_sync(0xFFFFFFFF, sum, 16);
+    sum = __shfl_down_sync(0xFFFFFFFF, sum, 8);
+    // ... full butterfly reduction
+}
+\end{lstlisting}
+
+This is error-prone and requires manual warp-level programming for every algorithm.
+
+\subsection{Proposed Solution: Sub-Block Actor Assignment}
+
+\begin{lstlisting}[style=cstyle,title={Hardware sub-block actor assignment}]
+// Declare actors with variable compute requirements
+cudaActorConfig_t config;
+config.granularity = CUDA_ACTOR_ADAPTIVE;  // Not fixed to block
+config.minThreads = 1;     // Leaf nodes: 1 thread
+config.maxThreads = 32;    // Hub nodes: full warp
+config.assignmentHint = degree_array;  // Per-actor work estimate
+
+// Hardware assigns threads to actors based on degree
+cudaLaunchAdaptiveActors(kernel, config, num_actors);
+
+// In kernel: hardware provides actor context
+__device__ void actor_compute() {
+    cudaActorContext_t ctx = __actor_context();
+    int my_threads = ctx.num_threads;  // 1 for leaves, 32 for hubs
+    int my_lane    = ctx.thread_rank;  // 0..num_threads-1
+
+    // Same code works for any thread count
+    uint32_t start = csr_offsets[ctx.actor_id];
+    uint32_t end   = csr_offsets[ctx.actor_id + 1];
+
+    float sum = 0.0f;
+    for (uint32_t i = start + my_lane; i < end; i += my_threads) {
+        sum += neighbor_value(csr_neighbors[i]);
+    }
+
+    // Hardware-managed reduction across actor's threads
+    sum = __actor_reduce(ctx, sum, CUDA_REDUCE_SUM);
+}
+\end{lstlisting}
+
+\begin{benefitsbox}
+    \item Eliminates manual warp-level programming
+    \item Automatic load balancing: hubs get more threads, leaves fewer
+    \item Same kernel code handles all degree ranges
+    \item Hardware-optimized reduction within actor thread groups
+\end{benefitsbox}
+
+\newpage
+
 % Implementation Priority Matrix
 \section{Implementation Priority Matrix}
 
@@ -839,11 +1277,24 @@ cudaError_t cudaActorQuery(
 \toprule
 \textbf{Feature} & \textbf{Impact} & \textbf{Complexity} & \textbf{Priority} \\
 \midrule
+\multicolumn{4}{@{}l@{}}{\textit{Core persistent actor infrastructure:}} \\
+\midrule
 Host$\leftrightarrow$Kernel Signaling & Very High & Medium & \textbf{P0} \\
-K2K Mailboxes & Very High & High & \textbf{P0} \\
-Dynamic Scheduling & High & High & \textbf{P1} \\
+K2K Mailboxes + Graph Messaging & Very High & High & \textbf{P0} \\
+GPU-Side Convergence Detection & Very High & Low & \textbf{P0} \\
+Dynamic Scheduling (Power-Law) & High & High & \textbf{P1} \\
 Preemption & High & Very High & \textbf{P1} \\
-Checkpointing & High & Very High & \textbf{P2} \\
+Selective Grid Sync & High & Medium & \textbf{P1} \\
+\midrule
+\multicolumn{4}{@{}l@{}}{\textit{Graph analytics acceleration:}} \\
+\midrule
+Warp-Level Actor Granularity & High & High & \textbf{P1} \\
+Multi-Algorithm BSP Execution & High & High & \textbf{P2} \\
+GPU-Resident Graph Data Structures & Very High & Very High & \textbf{P2} \\
+\midrule
+\multicolumn{4}{@{}l@{}}{\textit{System-level capabilities:}} \\
+\midrule
+Checkpointing + Live Snapshots & High & Very High & \textbf{P2} \\
 Extended Cooperative Groups & Medium & Medium & \textbf{P2} \\
 Debugging Tools & Medium & Low & \textbf{P2} \\
 Memory Model Enhancements & Medium & Medium & \textbf{P3} \\
@@ -862,12 +1313,14 @@ The persistent GPU actor model represents a paradigm shift from the traditional 
 
 \begin{itemize}[leftmargin=*]
     \item \textbf{Real-time simulations} with sub-millisecond host interaction
+    \item \textbf{GPU-native graph analytics} with always-current PageRank, BFS, CC, and 64+ algorithms
     \item \textbf{Distributed GPU computing} with seamless multi-GPU scaling
-    \item \textbf{Fault-tolerant HPC} with checkpoint/restart
+    \item \textbf{Fault-tolerant HPC} with checkpoint/restart and live graph snapshots
     \item \textbf{Interactive scientific visualization} with responsive compute
+    \item \textbf{Multi-layer hypergraph analytics} with layer-scoped computation and cross-layer traversal
 \end{itemize}
 
-RingKernel demonstrates that persistent GPU actors are viable today, but with significant engineering complexity. Native CUDA support would make these patterns accessible to the broader GPU programming community.
+RingKernel and RustGraph demonstrate that persistent GPU actors are viable today for both structured stencil computations and irregular graph analytics, but with significant engineering complexity. The five new feature requests (convergence detection, selective sync, multi-algorithm BSP, GPU-resident graph structures, warp-level actors) address the specific pain points of graph workloads that complement the original structured-grid requirements. Native CUDA support would make these patterns accessible to the broader GPU programming community.
 
 \newpage
 
@@ -893,6 +1346,49 @@ Mixed Workload (60 FPS) & 40.5 ms & 15.3 ms & \textbf{2.7$\times$ faster} \\
 
 The persistent model excels at \textbf{interactive latency} while traditional excels at \textbf{batch throughput}. Native CUDA support could eliminate this tradeoff.
 
+\section{Current RustGraph Performance}
+
+Benchmark results on RTX 2000 Ada (AD106), persistent graph actor model:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Algorithm} & \textbf{100K Nodes} & \textbf{125K Nodes} & \textbf{150K Nodes} \\
+\midrule
+PageRank (ME/s) & 176--189 & \textbf{258} & \textbf{241} \\
+Connected Components (ME/s) & 8--13 & 9--12 & 8--12 \\
+BFS (ME/s) & 19--32 & 21--30 & 18--30 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+PageRank scaling exponent & \textbf{1.18} (superlinear) \\
+Node state size & 256 bytes (\texttt{\#[repr(C, align(256))]}) \\
+Edge state size & 64 bytes (\texttt{\#[repr(C, align(64))]}) \\
+K2K inbox capacity & 512 messages/node (lock-free ring buffer) \\
+Concurrent algorithms & Up to 4 (PR + CC + BFS + EV via bitmask) \\
+Temporal snapshot size & $\sim$26 MB per snapshot (100K nodes) \\
+Layer-scoped analytics & 3 layers, flag-based filtering \\
+Kernel modes (auto-selected) & NodeCentric, SoA, EdgeCentric, Tiled, Warp-Coop \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Key observations relevant to CUDA feature requests:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Convergence overhead}: Host-side convergence check adds $\sim$5\% overhead per tick. GPU-side convergence detection (Feature 11) would eliminate this entirely.
+    \item \textbf{Layer-scoped waste}: When running analytics on a single layer (e.g., 500 of 10,000 nodes), 95\% of blocks sync unnecessarily. Selective grid sync (Feature 12) would reduce sync cost by $20\times$.
+    \item \textbf{Hub node bottleneck}: Warp-cooperative kernels achieve $\sim$258 ME/s on PageRank vs.\ $\sim$189 ME/s for node-centric. Hardware sub-block actors (Feature 15) would make this automatic.
+    \item \textbf{Multi-algorithm divergence}: Running PR+CC+BFS simultaneously causes $\sim$15\% warp divergence. Algorithm-parallel lanes (Feature 13) would eliminate this.
+\end{itemize}
+
 \section{Related Work}
 
 \begin{itemize}[leftmargin=*]
@@ -901,6 +1397,7 @@ The persistent model excels at \textbf{interactive latency} while traditional ex
     \item \textbf{Vulkan/SPIR-V}: Different approach via command buffers
     \item \textbf{SYCL}: Exploring persistent execution model
     \item \textbf{Academic}: ``GPUfs'' (ASPLOS '13), ``GPUnet'' (OSDI '14), ``Tango'' (ISCA '21)
+    \item \textbf{GPU Graph Frameworks}: Gunrock, cuGraph --- kernel-per-iteration model; RustGraph --- persistent actor model with always-current analytics
 \end{itemize}
 
 \section{Feedback Channel}
@@ -931,9 +1428,11 @@ We welcome discussion on these proposals:
 
     \hrule
     \vspace{0.5cm}
-    {\small Document generated from RingKernel project documentation.}
+    {\small Document generated from RingKernel and RustGraph project experience.}
 
-    {\small \url{https://github.com/mivertowski/ringkernel}}
+    {\small RingKernel: \url{https://github.com/mivertowski/ringkernel}}
+
+    {\small RustGraph: \url{https://github.com/mivertowski/rustgraph}}
 \end{center}
 \vspace*{\fill}
 
