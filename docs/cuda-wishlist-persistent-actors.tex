@@ -271,7 +271,7 @@ while (true) {
 }
 \end{lstlisting}
 
-This wastes SM cycles and increases power consumption during idle periods.
+This wastes SM cycles and increases power consumption during idle periods. CUDA provides \texttt{\_\_nanosleep()} (since CUDA 10) for power-efficient polling, which reduces SM power consumption during spin-waits but does not eliminate polling entirely---there is still no interrupt-driven host$\to$kernel notification mechanism.
 
 \subsection{Proposed Solution: \texttt{cudaKernelNotify()} / \texttt{\_\_kernel\_wait()}}
 
@@ -356,6 +356,15 @@ void unpack_halo_faces(float tile[...], const float* halo_buffers,
 \end{lstlisting}
 
 This is error-prone and requires explicit synchronization.
+
+\subsection{Current State: Hopper DSMEM and Thread Block Clusters}
+
+Hopper (SM 9.0+) introduces \textbf{Distributed Shared Memory (DSMEM)} and \textbf{Thread Block Clusters}, which provide a partial solution: blocks within a cluster (up to 8--16 blocks) can directly access each other's shared memory via \texttt{cluster.map\_shared\_rank()}. This enables mailbox-like semantics within a cluster. However, clusters are limited to a single SM group (typically 8--16 blocks) and do not support grid-wide or cross-kernel messaging. The gap remains for:
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+    \item Grid-wide K2K messaging beyond cluster boundaries
+    \item Addressable actor mailboxes with routing
+    \item Variable-topology messaging (graph adjacency, not just spatial neighbors)
+\end{itemize}
 
 \subsection{Proposed Solution: Native Block Mailboxes}
 
@@ -472,6 +481,10 @@ Block 3: ============================  (done, waiting)
          All blocks must wait for slowest block to finish
 \end{Verbatim}
 
+\subsection{Current State: Device Graph Launch and Green Contexts}
+
+CUDA 12.0+ provides \textbf{Device Graph Launch}, allowing kernels to launch CUDA graphs from the device side, enabling some dynamic work generation. CUDA 13.1 introduces \textbf{Green Contexts}, which partition GPU resources (SMs, memory bandwidth) into isolated contexts. These provide building blocks for scheduling but do not offer work-stealing queues, dynamic load balancing within a persistent kernel, or priority-based scheduling across blocks.
+
 \subsection{Proposed Solution: Work Stealing Queues}
 
 \begin{lstlisting}[style=cstyle,title={Device-wide work queue}]
@@ -557,6 +570,8 @@ Currently, we must either:
     \item Accept high latency for other GPU work
 \end{enumerate}
 
+CUDA does support hardware-level compute preemption (since Pascal/SM 6.0), which the driver uses for context switching and watchdog timers. However, this preemption is \textbf{not user-controllable}---there are no APIs to request preemption, set priorities, or define safe preemption points. The hardware preemption also does not support saving/restoring application-level state.
+
 \subsection{Proposed Solution: Cooperative Preemption}
 
 \begin{lstlisting}[style=cstyle,title={Mark preemption-safe points in kernel}]
@@ -607,6 +622,8 @@ GPU failures are catastrophic for long-running simulations:
     \item No way to migrate to another GPU
     \item Hours of simulation lost on hardware fault
 \end{itemize}
+
+CUDA provides \texttt{cuCheckpointProcessSave/Restore} (driver API) for process-level GPU memory checkpointing, and CUPTI provides checkpoint/replay for profiler instrumentation. However, these save \textbf{GPU memory allocations only}---they do not capture kernel execution state (registers, program counter, shared memory) and cannot checkpoint a running persistent kernel at an application-defined safe point.
 
 \subsection{Proposed Solution: Native Checkpointing}
 
@@ -709,6 +726,10 @@ Cooperative groups are powerful but limited:
     \item No partial sync (e.g., sync only my neighbors)
 \end{itemize}
 
+\subsection{Current State: Hopper Thread Block Clusters}
+
+Hopper (SM 9.0+) introduces \texttt{cluster\_group} with \texttt{cluster.sync()}, providing synchronization across a cluster of blocks (up to 16). This is a significant step toward hierarchical sync, but clusters are fixed at launch time, limited in size, and do not support the dynamic, topology-aware, or named barrier patterns proposed below. Note: \texttt{cudaLaunchCooperativeKernelMultiDevice} was removed in CUDA 13.0, so multi-GPU grid sync is no longer available through cooperative groups.
+
 \subsection{Proposed Extensions}
 
 \subsubsection{Hierarchical Sync Groups}
@@ -798,38 +819,40 @@ cudaKernelInspect(kernel, "step_counter", &step, sizeof(step));
 \newpage
 
 % Feature Request 8
-\section{Feature Request 8: Memory Model Enhancements}
+\section{Feature Request 8: Mapped Memory Coherence Control}
 
-\subsection{Sequentially Consistent Atomics Option}
+\subsection{Current State: libcu++/CCCL Already Provides Ordered Atomics}
 
-Current CUDA atomics are relaxed by default. For actor mailboxes, we need SC:
+NVIDIA's libcu++ (part of CCCL) already provides C++ standard memory ordering for atomics and fences. The original motivation for this feature---sequentially consistent atomics and ordered fences---is \textbf{already available}:
 
-\begin{lstlisting}[style=cstyle]
-// Current: Relaxed by default (can reorder)
-atomicAdd(&counter, 1);
+\begin{lstlisting}[style=cstyle,title={Existing: libcu++ ordered atomics (CCCL)}]
+#include <cuda/atomic>
 
-// Proposed: Explicit memory order
-atomicAdd_sc(&counter, 1);       // Sequentially consistent
-atomicAdd_acq_rel(&counter, 1);  // Acquire-release
-atomicAdd_relaxed(&counter, 1);  // Explicit relaxed
+// Sequentially consistent atomic (already works)
+cuda::atomic<int, cuda::thread_scope_device> counter;
+counter.fetch_add(1, cuda::memory_order_seq_cst);
+
+// Acquire-release semantics (already works)
+counter.fetch_add(1, cuda::memory_order_acq_rel);
+
+// Scoped fences (already works)
+cuda::atomic_thread_fence(cuda::memory_order_acquire,
+                          cuda::thread_scope_system);
+cuda::atomic_thread_fence(cuda::memory_order_release,
+                          cuda::thread_scope_system);
+
+// Memory Synchronization Domains (Hopper+, already available)
+// Fine-grained coherence control via domain-scoped fences
 \end{lstlisting}
 
-\subsection{System-Scope Fences with Ordering}
+RingKernel currently uses legacy CUDA intrinsics (\texttt{atomicAdd}, \texttt{\_\_threadfence\_system}) which lack explicit ordering. Migrating to libcu++ would address the atomics and fence requirements. \textbf{The remaining gap is mapped memory coherence control}, which libcu++ does not address.
+
+\subsection{Remaining Request: Explicit Mapped Memory Coherence Domains}
+
+Persistent actors continuously poll mapped memory for host commands. Current mapped memory provides implicit coherence that is either always-on (expensive) or relies on volatile semantics with no formal guarantees. Explicit coherence domains would allow actors to request visibility only when needed:
 
 \begin{lstlisting}[style=cstyle]
-// Current: Single fence type
-__threadfence_system();
-
-// Proposed: Explicit ordering
-__threadfence_system_acquire();  // Acquire semantics
-__threadfence_system_release();  // Release semantics
-__threadfence_system_seq_cst();  // Full sequential consistency
-\end{lstlisting}
-
-\subsection{Mapped Memory Coherence Control}
-
-\begin{lstlisting}[style=cstyle]
-// Current: Implicit coherence (expensive)
+// Current: Implicit coherence (expensive, always-on)
 float* mapped = cudaHostAlloc(..., cudaHostAllocMapped);
 
 // Proposed: Explicit coherence domains
@@ -846,6 +869,8 @@ __device__ void check_commands() {
 }
 \end{lstlisting}
 
+This is distinct from Memory Synchronization Domains (Hopper+), which control L2 cache partitioning between domains but do not provide explicit acquire/release semantics for mapped CPU$\leftrightarrow$GPU memory regions.
+
 \newpage
 
 % Feature Request 9
@@ -860,6 +885,12 @@ RingKernel currently runs on single GPU. Multi-GPU requires:
     \item Complex synchronization
 \end{itemize}
 
+\subsection{Current State: Multi-GPU Cooperative Launch Was Removed}
+
+\texttt{cudaLaunchCooperativeKernelMultiDevice} was deprecated in CUDA 11.3 and \textbf{removed entirely in CUDA 13.0}. NVIDIA's current recommendation is \textbf{NVSHMEM} for multi-GPU communication, which provides one-sided put/get operations and collective synchronization across GPUs. However, NVSHMEM is designed for bulk-synchronous SPMD programs, not persistent actor systems with irregular messaging patterns.
+
+The gap: there is no CUDA-native way to launch a single persistent kernel that spans multiple GPUs with unified block addressing and cross-GPU mailbox routing.
+
 \subsection{Proposed Solution: Unified Multi-GPU Kernel}
 
 \begin{lstlisting}[style=cstyle,title={Launch spans multiple GPUs}]
@@ -869,7 +900,7 @@ config.devices = {0, 1, 2, 3};
 config.blocksPerDevice = 512;
 config.topology = CUDA_TOPOLOGY_RING;  // or MESH, TREE, CUSTOM
 
-cudaLaunchCooperativeKernelMultiDevice(&kernel, config);
+cudaLaunchMultiGpuPersistentKernel(&kernel, config);
 \end{lstlisting}
 
 \begin{lstlisting}[style=cstyle,title={In kernel - seamless multi-GPU}]
@@ -976,6 +1007,10 @@ Iterative graph algorithms (PageRank, Label Propagation, Connected Components) r
 
 RustGraph uses \texttt{grid.sync()} plus a shared atomic counter to detect quiescence. For PageRank on 100K nodes, convergence typically takes 15--30 iterations, meaning 15--30 full grid synchronizations just for the convergence check.
 
+\subsection{Current State: Graph Conditional Nodes and Block-Level Reduction}
+
+CUDA 12.4+ introduces \textbf{Graph conditional WHILE nodes}, which enable GPU-resident loops that repeat a subgraph until a device-side condition is met---without host involvement. Combined with block-level \texttt{cg::reduce()} for cooperative groups, this provides a partial solution for convergence loops in graph-launched workloads. However, this requires structuring work as CUDA Graphs rather than persistent kernels, and the reduction is block-scoped, not grid-wide. For persistent actor systems that run a continuous BSP tick loop, there is no hardware-accelerated grid-wide convergence primitive.
+
 \subsection{Proposed Solution: Hardware Convergence Counter}
 
 \begin{lstlisting}[style=cstyle,title={Hardware convergence detection}]
@@ -1038,6 +1073,10 @@ Block 99: [Layer 3 nodes] -> CONVERGED, skip  (but still syncs!)
 
 grid.sync() waits for ALL 100 blocks, even though only 2 are doing work.
 \end{Verbatim}
+
+\subsection{Current State: Cluster-Scoped Partial Sync on Hopper}
+
+Hopper's thread block clusters support partial synchronization within a cluster using bitmasked \texttt{mbarrier} operations---a block can wait on a subset of cluster members (up to 16 blocks). This enables partial sync at the cluster level but does not extend to grid-wide predicate-based synchronization. For graphs with 100+ blocks where only a subset is active, cluster-level partial sync is insufficient.
 
 \subsection{Proposed Solution: Predicate-Based Partial Sync}
 
@@ -1226,6 +1265,10 @@ __global__ void warp_coop_pagerank(/* ... */) {
 
 This is error-prone and requires manual warp-level programming for every algorithm.
 
+\subsection{Current State: Cooperative Groups Warp Partitions}
+
+CUDA cooperative groups provide \texttt{tiled\_partition<N>} for static warp subdivision and \texttt{labeled\_partition} for dynamic grouping based on a label value. \texttt{coalesced\_threads()} captures the active thread mask. These provide the building blocks for sub-warp computation but require manual orchestration---there is no concept of assigning actors to variable-sized thread groups based on workload, no \texttt{\_\_actor\_context()}, and no automatic load-balanced mapping of actors to hardware threads.
+
 \subsection{Proposed Solution: Sub-Block Actor Assignment}
 
 \begin{lstlisting}[style=cstyle,title={Hardware sub-block actor assignment}]
@@ -1297,7 +1340,7 @@ GPU-Resident Graph Data Structures & Very High & Very High & \textbf{P2} \\
 Checkpointing + Live Snapshots & High & Very High & \textbf{P2} \\
 Extended Cooperative Groups & Medium & Medium & \textbf{P2} \\
 Debugging Tools & Medium & Low & \textbf{P2} \\
-Memory Model Enhancements & Medium & Medium & \textbf{P3} \\
+Mapped Memory Coherence Control & Medium & Medium & \textbf{P3} \\
 Multi-GPU Kernels & Very High & Very High & \textbf{P3} \\
 Dynamic Actor Registry & Medium & High & \textbf{P3} \\
 \bottomrule
@@ -1393,6 +1436,11 @@ Key observations relevant to CUDA feature requests:
 
 \begin{itemize}[leftmargin=*]
     \item \textbf{NVIDIA Cooperative Groups} (CUDA 9+): Foundation for grid-wide sync
+    \item \textbf{Thread Block Clusters / DSMEM} (Hopper, CUDA 12+): Cluster-scoped shared memory and partial sync (up to 16 blocks)
+    \item \textbf{CUDA Graphs + Conditional Nodes} (CUDA 12.4+): Device-side control flow, GPU-resident loops
+    \item \textbf{Green Contexts} (CUDA 13.1): GPU resource partitioning across workloads
+    \item \textbf{libcu++/CCCL}: C++ standard atomics and memory ordering for CUDA
+    \item \textbf{NVSHMEM}: Multi-GPU communication (replacement for removed multi-device cooperative launch)
     \item \textbf{AMD HIP Persistent Kernels}: Similar exploration in ROCm ecosystem
     \item \textbf{Vulkan/SPIR-V}: Different approach via command buffers
     \item \textbf{SYCL}: Exploring persistent execution model
