@@ -212,6 +212,7 @@ pub enum ControlError {
 
 impl ControlError {
     /// Convert from u32.
+    #[inline]
     pub const fn from_u32(value: u32) -> Self {
         match value {
             0 => Self::None,

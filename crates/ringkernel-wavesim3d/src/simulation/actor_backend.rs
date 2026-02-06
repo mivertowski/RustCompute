@@ -1122,6 +1122,8 @@ impl ActorGpuBackend3D {
             })
             .collect();
 
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut cell_states = unsafe {
             stream
                 .alloc::<CellActorState>(total_cells)
@@ -1133,6 +1135,8 @@ impl ActorGpuBackend3D {
 
         // Allocate inbox headers (cudarc 0.18.2 API)
         let inbox_headers_data: Vec<InboxHeader> = vec![InboxHeader::default(); total_cells];
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut inbox_headers = unsafe {
             stream
                 .alloc::<InboxHeader>(total_cells)
@@ -1146,6 +1150,8 @@ impl ActorGpuBackend3D {
         let inbox_buffer_size = total_cells * config.inbox_capacity as usize;
         let inbox_buffers_data: Vec<HaloMessage> =
             vec![HaloMessage::new(0, 0, Direction3D::West, 0.0, 0.0); inbox_buffer_size];
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut inbox_buffers = unsafe {
             stream
                 .alloc::<HaloMessage>(inbox_buffer_size)
@@ -1169,6 +1175,8 @@ impl ActorGpuBackend3D {
             params.c_squared,
             params.damping,
         );
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut tile_control = unsafe {
             stream
                 .alloc::<ActorTileControl>(1)
@@ -1188,6 +1196,8 @@ impl ActorGpuBackend3D {
             };
 
             let total_cells_u32 = total_cells as u32;
+            // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+            // are valid and allocated with sufficient size for the grid dimensions.
             unsafe {
                 stream
                     .launch_builder(&fn_init_inbox)
@@ -1252,6 +1262,8 @@ impl ActorGpuBackend3D {
 
         // Create dummy routing table (not used in single-tile mode)
         let routing_table = K2KRoutingTable3D::for_tile(0, 0, 0, 1, 1, 1);
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut routing_tables = unsafe {
             self.stream
                 .alloc::<K2KRoutingTable3D>(1)
@@ -1262,6 +1274,8 @@ impl ActorGpuBackend3D {
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
         // Launch the actor kernel (cudarc 0.18.2 API)
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             self.stream
                 .launch_builder(&self.fn_cell_actor)
@@ -1291,6 +1305,8 @@ impl ActorGpuBackend3D {
     /// Download pressure data from GPU to CPU grid.
     pub fn download_pressure(&self, grid: &mut SimulationGrid3D) -> Result<(), ActorError> {
         // Allocate temporary buffers on GPU (cudarc 0.18.2 API)
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut pressure_gpu = unsafe {
             self.stream
                 .alloc::<f32>(grid.pressure.len())
@@ -1300,6 +1316,8 @@ impl ActorGpuBackend3D {
             .memcpy_htod(&grid.pressure, &mut pressure_gpu)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut pressure_prev_gpu = unsafe {
             self.stream
                 .alloc::<f32>(grid.pressure_prev.len())
@@ -1318,6 +1336,8 @@ impl ActorGpuBackend3D {
 
         // Launch extract pressure kernel (cudarc 0.18.2 API)
         let total_cells_u32 = self.total_cells as u32;
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             self.stream
                 .launch_builder(&self.fn_extract_pressure)
@@ -1355,6 +1375,8 @@ impl ActorGpuBackend3D {
             .collect();
 
         // Upload to GPU (cudarc 0.18.2 API)
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut pressure_gpu = unsafe {
             self.stream
                 .alloc::<f32>(grid.pressure.len())
@@ -1364,6 +1386,8 @@ impl ActorGpuBackend3D {
             .memcpy_htod(&grid.pressure, &mut pressure_gpu)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut pressure_prev_gpu = unsafe {
             self.stream
                 .alloc::<f32>(grid.pressure_prev.len())
@@ -1373,6 +1397,8 @@ impl ActorGpuBackend3D {
             .memcpy_htod(&grid.pressure_prev, &mut pressure_prev_gpu)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut cell_types_gpu = unsafe {
             self.stream
                 .alloc::<u8>(cell_types_u8.len())
@@ -1382,6 +1408,8 @@ impl ActorGpuBackend3D {
             .memcpy_htod(&cell_types_u8, &mut cell_types_gpu)
             .map_err(|e| ActorError::MemoryError(e.to_string()))?;
 
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut reflection_coeff_gpu = unsafe {
             self.stream
                 .alloc::<f32>(grid.reflection_coeff.len())
@@ -1400,6 +1428,8 @@ impl ActorGpuBackend3D {
         };
 
         let total_cells_u32 = self.total_cells as u32;
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             self.stream
                 .launch_builder(&self.fn_init_states)
@@ -1429,6 +1459,8 @@ impl ActorGpuBackend3D {
         };
 
         let total_cells_u32 = self.total_cells as u32;
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             self.stream
                 .launch_builder(&self.fn_init_inbox)
@@ -1457,6 +1489,8 @@ impl ActorGpuBackend3D {
         };
 
         // cudarc 0.18.2 API
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             self.stream
                 .launch_builder(&self.fn_inject_impulse)

@@ -24,6 +24,8 @@
 
 #![warn(missing_docs)]
 
+pub mod dsl_common;
+
 use std::collections::HashMap;
 use thiserror::Error;
 

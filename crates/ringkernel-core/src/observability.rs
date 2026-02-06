@@ -2457,10 +2457,10 @@ impl OtlpExporter {
         // Without the alerting feature (reqwest), we can only buffer spans
         #[cfg(not(feature = "alerting"))]
         {
-            eprintln!(
-                "[OTLP stub] Would export {} spans to {} (enable 'alerting' feature for HTTP export)",
-                spans.len(),
-                self.config.endpoint
+            tracing::debug!(
+                span_count = spans.len(),
+                endpoint = %self.config.endpoint,
+                "OTLP stub: would export spans (enable 'alerting' feature for HTTP export)"
             );
             OtlpExportResult {
                 spans_exported: spans.len(),

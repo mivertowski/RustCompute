@@ -123,54 +123,11 @@ pub mod memory_exports {
 // Placeholder implementations when CUDA is not available
 #[cfg(not(feature = "cuda"))]
 mod stub {
-    use async_trait::async_trait;
-    use ringkernel_core::error::{Result, RingKernelError};
-    use ringkernel_core::runtime::{
-        Backend, KernelHandle, KernelId, LaunchOptions, RingKernelRuntime, RuntimeMetrics,
-    };
-
-    /// Stub CUDA runtime when CUDA feature is disabled.
-    pub struct CudaRuntime;
-
-    impl CudaRuntime {
-        /// Create fails when CUDA is not available.
-        pub async fn new() -> Result<Self> {
-            Err(RingKernelError::BackendUnavailable(
-                "CUDA feature not enabled".to_string(),
-            ))
-        }
-    }
-
-    #[async_trait]
-    impl RingKernelRuntime for CudaRuntime {
-        fn backend(&self) -> Backend {
-            Backend::Cuda
-        }
-
-        fn is_backend_available(&self, _backend: Backend) -> bool {
-            false
-        }
-
-        async fn launch(&self, _kernel_id: &str, _options: LaunchOptions) -> Result<KernelHandle> {
-            Err(RingKernelError::BackendUnavailable("CUDA".to_string()))
-        }
-
-        fn get_kernel(&self, _kernel_id: &KernelId) -> Option<KernelHandle> {
-            None
-        }
-
-        fn list_kernels(&self) -> Vec<KernelId> {
-            vec![]
-        }
-
-        fn metrics(&self) -> RuntimeMetrics {
-            RuntimeMetrics::default()
-        }
-
-        async fn shutdown(&self) -> Result<()> {
-            Ok(())
-        }
-    }
+    ringkernel_core::unavailable_backend!(
+        CudaRuntime,
+        ringkernel_core::runtime::Backend::Cuda,
+        "CUDA"
+    );
 }
 
 #[cfg(not(feature = "cuda"))]

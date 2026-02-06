@@ -1,6 +1,6 @@
 [package]
 name = "ringkernel-python"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Python bindings for RingKernel GPU-native actor framework"
 license = "MIT OR Apache-2.0"

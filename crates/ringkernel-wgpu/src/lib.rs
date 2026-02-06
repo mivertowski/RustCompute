@@ -54,54 +54,11 @@ pub use runtime::WgpuRuntime;
 // Stub implementation when wgpu feature is disabled
 #[cfg(not(feature = "wgpu"))]
 mod stub {
-    use async_trait::async_trait;
-    use ringkernel_core::error::{Result, RingKernelError};
-    use ringkernel_core::runtime::{
-        Backend, KernelHandle, KernelId, LaunchOptions, RingKernelRuntime, RuntimeMetrics,
-    };
-
-    /// Stub WebGPU runtime when wgpu feature is disabled.
-    pub struct WgpuRuntime;
-
-    impl WgpuRuntime {
-        /// Create fails when wgpu is not available.
-        pub async fn new() -> Result<Self> {
-            Err(RingKernelError::BackendUnavailable(
-                "wgpu feature not enabled".to_string(),
-            ))
-        }
-    }
-
-    #[async_trait]
-    impl RingKernelRuntime for WgpuRuntime {
-        fn backend(&self) -> Backend {
-            Backend::Wgpu
-        }
-
-        fn is_backend_available(&self, _backend: Backend) -> bool {
-            false
-        }
-
-        async fn launch(&self, _kernel_id: &str, _options: LaunchOptions) -> Result<KernelHandle> {
-            Err(RingKernelError::BackendUnavailable("WebGPU".to_string()))
-        }
-
-        fn get_kernel(&self, _kernel_id: &KernelId) -> Option<KernelHandle> {
-            None
-        }
-
-        fn list_kernels(&self) -> Vec<KernelId> {
-            vec![]
-        }
-
-        fn metrics(&self) -> RuntimeMetrics {
-            RuntimeMetrics::default()
-        }
-
-        async fn shutdown(&self) -> Result<()> {
-            Ok(())
-        }
-    }
+    ringkernel_core::unavailable_backend!(
+        WgpuRuntime,
+        ringkernel_core::runtime::Backend::Wgpu,
+        "wgpu"
+    );
 }
 
 #[cfg(not(feature = "wgpu"))]

@@ -31,6 +31,8 @@
 #![warn(clippy::all)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+#[macro_use]
+pub mod backend_stub;
 pub mod analytics_context;
 pub mod audit;
 

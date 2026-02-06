@@ -81,6 +81,8 @@ impl GpuPhiloxRng {
         let block_size = 256u32;
         let grid_size = n.div_ceil(block_size);
 
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size.
         unsafe {
             self.stream
                 .launch_builder(&self.fill_uniform)
@@ -105,6 +107,8 @@ impl GpuPhiloxRng {
         let block_size = 256u32;
         let grid_size = n.div_ceil(block_size);
 
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size.
         unsafe {
             self.stream
                 .launch_builder(&self.fill_normal)
@@ -125,6 +129,8 @@ impl GpuPhiloxRng {
 
     /// Generate uniform random numbers and copy to host.
     pub fn generate_uniform(&self, n: usize) -> Result<Vec<f32>> {
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the input data.
         let mut output = unsafe {
             self.stream
                 .alloc::<f32>(n)
@@ -143,6 +149,8 @@ impl GpuPhiloxRng {
 
     /// Generate standard normal random numbers and copy to host.
     pub fn generate_normal(&self, n: usize) -> Result<Vec<f32>> {
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the input data.
         let mut output = unsafe {
             self.stream
                 .alloc::<f32>(n)
@@ -161,6 +169,8 @@ impl GpuPhiloxRng {
 
     /// Allocate device buffer.
     pub fn alloc(&self, n: usize) -> Result<CudaSlice<f32>> {
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the input data.
         unsafe {
             self.stream
                 .alloc::<f32>(n)
@@ -253,6 +263,8 @@ impl GpuAntitheticVariates {
         let block_size = 256u32;
         let grid_size = n.div_ceil(block_size);
 
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size.
         unsafe {
             self.stream
                 .launch_builder(&self.transform_fn)
@@ -282,6 +294,8 @@ impl GpuAntitheticVariates {
         let block_size = 256u32;
         let grid_size = n.div_ceil(block_size);
 
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size.
         unsafe {
             self.stream
                 .launch_builder(&self.mean_fn)
@@ -355,6 +369,8 @@ impl GpuImportanceSampling {
         let block_size = 256u32;
         let grid_size = n.div_ceil(block_size);
 
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size.
         unsafe {
             self.stream
                 .launch_builder(&self.weights_fn)
@@ -386,11 +402,15 @@ impl GpuImportanceSampling {
         let num_blocks = n.div_ceil(block_size);
 
         // Allocate partial sums
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the input data.
         let mut partial_weighted = unsafe {
             self.stream
                 .alloc::<f32>(num_blocks as usize)
                 .map_err(|e| GpuMonteCarloError::CudaError(e.to_string()))?
         };
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the input data.
         let mut partial_weights = unsafe {
             self.stream
                 .alloc::<f32>(num_blocks as usize)
@@ -398,6 +418,8 @@ impl GpuImportanceSampling {
         };
 
         // First pass: block-level reduction
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size.
         unsafe {
             self.stream
                 .launch_builder(&self.reduce_fn)

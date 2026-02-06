@@ -145,8 +145,8 @@ impl KernelDispatcher {
     /// # Arguments
     ///
     /// - `kernel_id`: The kernel that will handle messages of this type
-    pub fn register<M: PersistentMessage>(&self, kernel_id: KernelId) {
-        self.register_with_name::<M>(kernel_id, std::any::type_name::<M>());
+    pub fn register<M: PersistentMessage>(&self, kernel_id: KernelId) -> crate::error::Result<()> {
+        self.register_with_name::<M>(kernel_id, std::any::type_name::<M>())
     }
 
     /// Register a message type with a custom handler name.
@@ -154,7 +154,7 @@ impl KernelDispatcher {
         &self,
         kernel_id: KernelId,
         handler_name: &str,
-    ) {
+    ) -> crate::error::Result<()> {
         let type_id = M::message_type();
 
         // Add to routing table
@@ -163,7 +163,7 @@ impl KernelDispatcher {
         // Add to handler table for the kernel
         let mut handler_tables = self.handler_tables.write();
         let table = handler_tables.entry(kernel_id).or_default();
-        table.register_message::<M>(handler_name);
+        table.register_message::<M>(handler_name)
     }
 
     /// Register a route with explicit type_id (for dynamic registration).
@@ -430,7 +430,9 @@ impl DispatcherBuilder {
                     registration = registration.with_response(0);
                 }
 
-                table.register(registration);
+                if let Err(e) = table.register(registration) {
+                    tracing::warn!("Failed to register handler in dispatcher build: {}", e);
+                }
             }
         }
 
@@ -542,7 +544,9 @@ mod tests {
         let dispatcher = DispatcherBuilder::new().build();
 
         let kernel_id = KernelId::new("processor");
-        dispatcher.register::<TestRequest>(kernel_id.clone());
+        dispatcher
+            .register::<TestRequest>(kernel_id.clone())
+            .unwrap();
 
         assert!(dispatcher.has_route(5001));
         assert_eq!(dispatcher.get_route(5001), Some(kernel_id));

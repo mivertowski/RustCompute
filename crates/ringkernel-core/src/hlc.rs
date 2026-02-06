@@ -72,6 +72,7 @@ impl HlcTimestamp {
     }
 
     /// Create a timestamp from the current wall clock.
+    #[inline]
     pub fn now(node_id: u64) -> Self {
         let physical = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -125,6 +126,7 @@ impl Default for HlcTimestamp {
 }
 
 impl Ord for HlcTimestamp {
+    #[inline]
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Compare physical time first
         match self.physical.cmp(&other.physical) {
@@ -142,6 +144,7 @@ impl Ord for HlcTimestamp {
 }
 
 impl PartialOrd for HlcTimestamp {
+    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
@@ -224,6 +227,7 @@ impl HlcClock {
     }
 
     /// Generate a new timestamp, advancing the clock.
+    #[inline]
     pub fn tick(&self) -> HlcTimestamp {
         let wall = Self::wall_time();
 
@@ -264,6 +268,7 @@ impl HlcClock {
     /// Update clock on receiving a message with the given timestamp.
     ///
     /// Returns the new local timestamp that causally follows the received timestamp.
+    #[inline]
     pub fn update(&self, received: &HlcTimestamp) -> Result<HlcTimestamp> {
         let wall = Self::wall_time();
 
@@ -319,6 +324,7 @@ impl HlcClock {
     }
 
     /// Get current wall clock time in microseconds.
+    #[inline]
     fn wall_time() -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -455,5 +461,86 @@ mod tests {
         assert!(s.contains("1234567890"));
         assert!(s.contains("42"));
         assert!(s.contains("7"));
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn total_ordering_reflexive(p in 0u64..1_000_000, l in 0u64..1000, n in 0u64..100) {
+            let ts = HlcTimestamp::new(p, l, n);
+            prop_assert_eq!(ts.cmp(&ts), std::cmp::Ordering::Equal);
+        }
+
+        #[test]
+        fn total_ordering_antisymmetric(
+            p1 in 0u64..1_000_000, l1 in 0u64..1000, n1 in 0u64..100,
+            p2 in 0u64..1_000_000, l2 in 0u64..1000, n2 in 0u64..100,
+        ) {
+            let a = HlcTimestamp::new(p1, l1, n1);
+            let b = HlcTimestamp::new(p2, l2, n2);
+            if a <= b && b <= a {
+                prop_assert_eq!(a, b);
+            }
+        }
+
+        #[test]
+        fn total_ordering_transitive(
+            p1 in 0u64..1_000_000, l1 in 0u64..1000, n1 in 0u64..100,
+            p2 in 0u64..1_000_000, l2 in 0u64..1000, n2 in 0u64..100,
+            p3 in 0u64..1_000_000, l3 in 0u64..1000, n3 in 0u64..100,
+        ) {
+            let a = HlcTimestamp::new(p1, l1, n1);
+            let b = HlcTimestamp::new(p2, l2, n2);
+            let c = HlcTimestamp::new(p3, l3, n3);
+            if a <= b && b <= c {
+                prop_assert!(a <= c);
+            }
+        }
+
+        #[test]
+        fn zero_is_minimum(p in 1u64..1_000_000, l in 0u64..1000, n in 0u64..100) {
+            let zero = HlcTimestamp::zero();
+            let ts = HlcTimestamp::new(p, l, n);
+            prop_assert!(zero < ts);
+        }
+
+        #[test]
+        fn pack_unpack_preserves_physical_and_logical(
+            p in 0u64..u64::MAX, l in 0u64..0xFFFF_FFFF_FFFF, n in 0u64..0xFFFF,
+        ) {
+            let ts = HlcTimestamp::new(p, l, n);
+            let unpacked = HlcTimestamp::unpack(ts.pack());
+            prop_assert_eq!(ts.physical, unpacked.physical);
+            prop_assert_eq!(ts.logical, unpacked.logical);
+            prop_assert_eq!(ts.node_id, unpacked.node_id);
+        }
+
+        #[test]
+        fn tick_strictly_increasing(n in 2usize..=20) {
+            let clock = HlcClock::new(42);
+            let mut prev = clock.tick();
+            for _ in 1..n {
+                let curr = clock.tick();
+                prop_assert!(curr > prev, "tick() must be strictly increasing: {:?} not > {:?}", curr, prev);
+                prev = curr;
+            }
+        }
+
+        #[test]
+        fn update_preserves_causality(node_a in 1u64..100, node_b in 100u64..200) {
+            let clock_a = HlcClock::new(node_a);
+            let clock_b = HlcClock::new(node_b);
+
+            let ts_a = clock_a.tick();
+            let ts_b = clock_b.update(&ts_a).unwrap();
+
+            // Received message causality: ts_b must follow ts_a
+            prop_assert!(ts_b > ts_a);
+        }
     }
 }

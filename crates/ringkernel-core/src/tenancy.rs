@@ -356,8 +356,8 @@ struct TenantEntry {
     quota: ResourceQuota,
     /// Resource usage (with interior mutability).
     usage: RwLock<ResourceUsage>,
-    /// Whether tenant is active.
-    active: bool,
+    /// Whether tenant is active (interior mutability for suspension).
+    active: std::sync::atomic::AtomicBool,
     /// When tenant was registered.
     _registered_at: Instant,
 }
@@ -401,7 +401,7 @@ impl TenantRegistry {
             _context: TenantContext::new(&tenant_id),
             quota,
             usage: RwLock::new(ResourceUsage::new()),
-            active: true,
+            active: std::sync::atomic::AtomicBool::new(true),
             _registered_at: Instant::now(),
         };
 
@@ -426,7 +426,7 @@ impl TenantRegistry {
             _context: TenantContext::new(&tenant_id),
             quota,
             usage: RwLock::new(ResourceUsage::new()),
-            active: true,
+            active: std::sync::atomic::AtomicBool::new(true),
             _registered_at: Instant::now(),
         };
 
@@ -457,18 +457,31 @@ impl TenantRegistry {
         self.tenants
             .read()
             .get(tenant_id)
-            .map(|e| e.active)
+            .map(|e| e.active.load(std::sync::atomic::Ordering::Acquire))
             .unwrap_or(false)
     }
 
-    /// Suspend a tenant.
+    /// Suspend a tenant. Suspended tenants cannot allocate resources or send messages.
     pub fn suspend_tenant(&self, tenant_id: &str) -> TenantResult<()> {
         let tenants = self.tenants.read();
-        let _entry = tenants
+        let entry = tenants
             .get(tenant_id)
             .ok_or_else(|| TenantError::NotFound(tenant_id.to_string()))?;
-        // Note: Would need interior mutability for active flag
-        // For now, this is a placeholder
+        entry
+            .active
+            .store(false, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+
+    /// Resume a previously suspended tenant.
+    pub fn resume_tenant(&self, tenant_id: &str) -> TenantResult<()> {
+        let tenants = self.tenants.read();
+        let entry = tenants
+            .get(tenant_id)
+            .ok_or_else(|| TenantError::NotFound(tenant_id.to_string()))?;
+        entry
+            .active
+            .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
     }
 
@@ -479,7 +492,7 @@ impl TenantRegistry {
             .get(tenant_id)
             .ok_or_else(|| TenantError::NotFound(tenant_id.to_string()))?;
 
-        if !entry.active {
+        if !entry.active.load(std::sync::atomic::Ordering::Acquire) {
             return Err(TenantError::Suspended(tenant_id.to_string()));
         }
 
@@ -511,7 +524,7 @@ impl TenantRegistry {
             .get(tenant_id)
             .ok_or_else(|| TenantError::NotFound(tenant_id.to_string()))?;
 
-        if !entry.active {
+        if !entry.active.load(std::sync::atomic::Ordering::Acquire) {
             return Err(TenantError::Suspended(tenant_id.to_string()));
         }
 
@@ -544,7 +557,7 @@ impl TenantRegistry {
             .get(tenant_id)
             .ok_or_else(|| TenantError::NotFound(tenant_id.to_string()))?;
 
-        if !entry.active {
+        if !entry.active.load(std::sync::atomic::Ordering::Acquire) {
             return Err(TenantError::Suspended(tenant_id.to_string()));
         }
 
@@ -711,5 +724,50 @@ mod tests {
 
         assert!(registry.try_allocate_kernel("unknown").is_err());
         assert!(registry.get_quota("unknown").is_none());
+    }
+
+    #[test]
+    fn test_suspend_and_resume_tenant() {
+        let registry = TenantRegistry::new()
+            .with_tenant("tenant_a", ResourceQuota::new().with_max_kernels(10));
+
+        assert!(registry.is_tenant_active("tenant_a"));
+        assert!(registry.try_allocate_kernel("tenant_a").is_ok());
+
+        // Suspend
+        registry.suspend_tenant("tenant_a").unwrap();
+        assert!(!registry.is_tenant_active("tenant_a"));
+
+        // Operations should fail while suspended
+        assert!(matches!(
+            registry.try_allocate_kernel("tenant_a"),
+            Err(TenantError::Suspended(_))
+        ));
+        assert!(matches!(
+            registry.try_allocate_gpu_memory("tenant_a", 100),
+            Err(TenantError::Suspended(_))
+        ));
+        assert!(matches!(
+            registry.record_message("tenant_a"),
+            Err(TenantError::Suspended(_))
+        ));
+
+        // Resume
+        registry.resume_tenant("tenant_a").unwrap();
+        assert!(registry.is_tenant_active("tenant_a"));
+        assert!(registry.try_allocate_kernel("tenant_a").is_ok());
+    }
+
+    #[test]
+    fn test_suspend_unknown_tenant() {
+        let registry = TenantRegistry::new();
+        assert!(matches!(
+            registry.suspend_tenant("unknown"),
+            Err(TenantError::NotFound(_))
+        ));
+        assert!(matches!(
+            registry.resume_tenant("unknown"),
+            Err(TenantError::NotFound(_))
+        ));
     }
 }

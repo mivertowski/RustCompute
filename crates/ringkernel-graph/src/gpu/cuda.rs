@@ -97,6 +97,8 @@ impl GpuBfs {
 
         // Initialize distances
         let num_sources = sources.len() as u32;
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size.
         unsafe {
             self.stream
                 .launch_builder(&self.init_fn)
@@ -113,6 +115,8 @@ impl GpuBfs {
         }
 
         // Copy distances to new_distances
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size.
         unsafe {
             self.stream
                 .launch_builder(&self.copy_fn)
@@ -137,6 +141,8 @@ impl GpuBfs {
                 .map_err(|e| GpuGraphError::CudaError(e.to_string()))?;
 
             // Advance frontier
+            // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+            // are valid and allocated with sufficient size.
             unsafe {
                 self.stream
                     .launch_builder(&self.advance_fn)
@@ -166,6 +172,8 @@ impl GpuBfs {
             }
 
             // Copy new_distances to distances
+            // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+            // are valid and allocated with sufficient size.
             unsafe {
                 self.stream
                     .launch_builder(&self.copy_fn)
@@ -199,6 +207,8 @@ impl GpuBfs {
     }
 
     fn alloc_i32(&self, n: usize) -> Result<CudaSlice<i32>> {
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the input data.
         unsafe {
             self.stream
                 .alloc::<i32>(n)
@@ -207,6 +217,8 @@ impl GpuBfs {
     }
 
     fn htod_u64(&self, data: &[u64]) -> Result<CudaSlice<u64>> {
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the input data.
         let mut slice = unsafe {
             self.stream
                 .alloc::<u64>(data.len())
@@ -219,6 +231,8 @@ impl GpuBfs {
     }
 
     fn htod_u32(&self, data: &[u32]) -> Result<CudaSlice<u32>> {
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the input data.
         let mut slice = unsafe {
             self.stream
                 .alloc::<u32>(data.len())
@@ -313,6 +327,8 @@ impl GpuSpmv {
             (self.htod_f64(values)?, 1i32)
         } else {
             // Allocate dummy buffer
+            // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+            // is computed from the input data.
             let dummy = unsafe {
                 self.stream
                     .alloc::<f64>(1)
@@ -328,6 +344,8 @@ impl GpuSpmv {
         let grid_size = num_rows.div_ceil(block_size);
 
         // Launch SpMV
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size.
         unsafe {
             self.stream
                 .launch_builder(&self.spmv_fn)
@@ -391,6 +409,8 @@ impl GpuSpmv {
         let (values_dev, has_values) = if let Some(ref values) = matrix.values {
             (self.htod_f64(values)?, 1i32)
         } else {
+            // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+            // is computed from the input data.
             let dummy = unsafe {
                 self.stream
                     .alloc::<f64>(1)
@@ -403,6 +423,8 @@ impl GpuSpmv {
         let grid_size = num_rows.div_ceil(block_size);
 
         // Launch SpMV with accumulation
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size.
         unsafe {
             self.stream
                 .launch_builder(&self.spmv_axpby_fn)
@@ -447,6 +469,8 @@ impl GpuSpmv {
         let y_dev = self.htod_f64(y)?;
         let mut partial_sums = self.alloc_f64(num_blocks as usize)?;
 
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size.
         unsafe {
             self.stream
                 .launch_builder(&self.dot_fn)
@@ -530,6 +554,8 @@ impl GpuSpmv {
     }
 
     fn alloc_f64(&self, n: usize) -> Result<CudaSlice<f64>> {
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the input data.
         unsafe {
             self.stream
                 .alloc::<f64>(n)
@@ -538,6 +564,8 @@ impl GpuSpmv {
     }
 
     fn htod_u64(&self, data: &[u64]) -> Result<CudaSlice<u64>> {
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the input data.
         let mut slice = unsafe {
             self.stream
                 .alloc::<u64>(data.len())
@@ -550,6 +578,8 @@ impl GpuSpmv {
     }
 
     fn htod_u32(&self, data: &[u32]) -> Result<CudaSlice<u32>> {
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the input data.
         let mut slice = unsafe {
             self.stream
                 .alloc::<u32>(data.len())
@@ -562,6 +592,8 @@ impl GpuSpmv {
     }
 
     fn htod_f64(&self, data: &[f64]) -> Result<CudaSlice<f64>> {
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the input data.
         let mut slice = unsafe {
             self.stream
                 .alloc::<f64>(data.len())

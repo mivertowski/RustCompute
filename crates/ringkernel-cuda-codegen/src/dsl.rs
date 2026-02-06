@@ -4,6 +4,9 @@
 //! These functions have CPU fallback implementations for testing but are transpiled
 //! to the corresponding CUDA operations when used in kernel code.
 //!
+//! Common functions (thread indices, basic math, synchronization) are shared with
+//! the WGSL backend via `ringkernel_codegen::dsl_common`.
+//!
 //! # Thread/Block Index Access
 //!
 //! ```ignore
@@ -50,93 +53,44 @@
 
 use std::sync::atomic::{fence, Ordering};
 
+// Re-export common DSL functions shared across backends.
+// These provide: thread/block indices, sync primitives, and basic math.
+pub use ringkernel_codegen::dsl_common::{
+    block_dim_x,
+    block_dim_y,
+    block_dim_z,
+    block_idx_x,
+    block_idx_y,
+    block_idx_z,
+    ceil,
+    cos,
+    exp,
+    floor,
+    fma,
+    grid_dim_x,
+    grid_dim_y,
+    grid_dim_z,
+    log,
+    powf,
+    round,
+    rsqrt,
+    sin,
+    // Math
+    sqrt,
+    // Synchronization
+    sync_threads,
+    tan,
+    thread_fence,
+    thread_fence_block,
+    // Thread/block indices
+    thread_idx_x,
+    thread_idx_y,
+    thread_idx_z,
+};
+
 // ============================================================================
-// Thread/Block Index Functions
+// CUDA-Specific Thread/Block Functions
 // ============================================================================
-
-/// Get the thread index within a block (x dimension).
-/// Transpiles to: `threadIdx.x`
-#[inline]
-pub fn thread_idx_x() -> i32 {
-    0 // CPU fallback: single-threaded execution
-}
-
-/// Get the thread index within a block (y dimension).
-/// Transpiles to: `threadIdx.y`
-#[inline]
-pub fn thread_idx_y() -> i32 {
-    0
-}
-
-/// Get the thread index within a block (z dimension).
-/// Transpiles to: `threadIdx.z`
-#[inline]
-pub fn thread_idx_z() -> i32 {
-    0
-}
-
-/// Get the block index within a grid (x dimension).
-/// Transpiles to: `blockIdx.x`
-#[inline]
-pub fn block_idx_x() -> i32 {
-    0
-}
-
-/// Get the block index within a grid (y dimension).
-/// Transpiles to: `blockIdx.y`
-#[inline]
-pub fn block_idx_y() -> i32 {
-    0
-}
-
-/// Get the block index within a grid (z dimension).
-/// Transpiles to: `blockIdx.z`
-#[inline]
-pub fn block_idx_z() -> i32 {
-    0
-}
-
-/// Get the block dimension (x dimension).
-/// Transpiles to: `blockDim.x`
-#[inline]
-pub fn block_dim_x() -> i32 {
-    1
-}
-
-/// Get the block dimension (y dimension).
-/// Transpiles to: `blockDim.y`
-#[inline]
-pub fn block_dim_y() -> i32 {
-    1
-}
-
-/// Get the block dimension (z dimension).
-/// Transpiles to: `blockDim.z`
-#[inline]
-pub fn block_dim_z() -> i32 {
-    1
-}
-
-/// Get the grid dimension (x dimension).
-/// Transpiles to: `gridDim.x`
-#[inline]
-pub fn grid_dim_x() -> i32 {
-    1
-}
-
-/// Get the grid dimension (y dimension).
-/// Transpiles to: `gridDim.y`
-#[inline]
-pub fn grid_dim_y() -> i32 {
-    1
-}
-
-/// Get the grid dimension (z dimension).
-/// Transpiles to: `gridDim.z`
-#[inline]
-pub fn grid_dim_z() -> i32 {
-    1
-}
 
 /// Get the warp size (always 32 on NVIDIA GPUs).
 /// Transpiles to: `warpSize`
@@ -146,15 +100,8 @@ pub fn warp_size() -> i32 {
 }
 
 // ============================================================================
-// Synchronization Functions
+// CUDA-Specific Synchronization Functions
 // ============================================================================
-
-/// Synchronize all threads in a block.
-/// Transpiles to: `__syncthreads()`
-#[inline]
-pub fn sync_threads() {
-    // CPU fallback: no-op (single-threaded)
-}
 
 /// Synchronize threads and count predicate.
 /// Transpiles to: `__syncthreads_count(predicate)`
@@ -187,20 +134,6 @@ pub fn sync_threads_or(predicate: bool) -> i32 {
     } else {
         0
     }
-}
-
-/// Thread memory fence.
-/// Transpiles to: `__threadfence()`
-#[inline]
-pub fn thread_fence() {
-    fence(Ordering::SeqCst);
-}
-
-/// Block-level memory fence.
-/// Transpiles to: `__threadfence_block()`
-#[inline]
-pub fn thread_fence_block() {
-    fence(Ordering::Release);
 }
 
 /// System-wide memory fence.
@@ -314,20 +247,8 @@ pub fn atomic_dec(addr: &mut u32, val: u32) -> u32 {
 }
 
 // ============================================================================
-// Basic Math Functions
+// CUDA-Specific Math Functions
 // ============================================================================
-
-/// Square root. Transpiles to: `sqrtf(x)`
-#[inline]
-pub fn sqrt(x: f32) -> f32 {
-    x.sqrt()
-}
-
-/// Reciprocal square root. Transpiles to: `rsqrtf(x)`
-#[inline]
-pub fn rsqrt(x: f32) -> f32 {
-    1.0 / x.sqrt()
-}
 
 /// Absolute value for f32. Transpiles to: `fabsf(x)`
 #[inline]
@@ -335,34 +256,10 @@ pub fn fabs(x: f32) -> f32 {
     x.abs()
 }
 
-/// Floor. Transpiles to: `floorf(x)`
-#[inline]
-pub fn floor(x: f32) -> f32 {
-    x.floor()
-}
-
-/// Ceiling. Transpiles to: `ceilf(x)`
-#[inline]
-pub fn ceil(x: f32) -> f32 {
-    x.ceil()
-}
-
-/// Round to nearest. Transpiles to: `roundf(x)`
-#[inline]
-pub fn round(x: f32) -> f32 {
-    x.round()
-}
-
 /// Truncate toward zero. Transpiles to: `truncf(x)`
 #[inline]
 pub fn trunc(x: f32) -> f32 {
     x.trunc()
-}
-
-/// Fused multiply-add. Transpiles to: `fmaf(a, b, c)`
-#[inline]
-pub fn fma(a: f32, b: f32, c: f32) -> f32 {
-    a.mul_add(b, c)
 }
 
 /// Minimum. Transpiles to: `fminf(a, b)`
@@ -408,26 +305,8 @@ pub fn hypot(x: f32, y: f32) -> f32 {
 }
 
 // ============================================================================
-// Trigonometric Functions
+// CUDA-Specific Trigonometric Functions
 // ============================================================================
-
-/// Sine. Transpiles to: `sinf(x)`
-#[inline]
-pub fn sin(x: f32) -> f32 {
-    x.sin()
-}
-
-/// Cosine. Transpiles to: `cosf(x)`
-#[inline]
-pub fn cos(x: f32) -> f32 {
-    x.cos()
-}
-
-/// Tangent. Transpiles to: `tanf(x)`
-#[inline]
-pub fn tan(x: f32) -> f32 {
-    x.tan()
-}
 
 /// Arcsine. Transpiles to: `asinf(x)`
 #[inline]
@@ -472,7 +351,7 @@ pub fn cospi(x: f32) -> f32 {
 }
 
 // ============================================================================
-// Hyperbolic Functions
+// CUDA-Specific Hyperbolic Functions
 // ============================================================================
 
 /// Hyperbolic sine. Transpiles to: `sinhf(x)`
@@ -512,14 +391,8 @@ pub fn atanh(x: f32) -> f32 {
 }
 
 // ============================================================================
-// Exponential and Logarithmic Functions
+// CUDA-Specific Exponential and Logarithmic Functions
 // ============================================================================
-
-/// Exponential (base e). Transpiles to: `expf(x)`
-#[inline]
-pub fn exp(x: f32) -> f32 {
-    x.exp()
-}
 
 /// Exponential (base 2). Transpiles to: `exp2f(x)`
 #[inline]
@@ -537,12 +410,6 @@ pub fn exp10(x: f32) -> f32 {
 #[inline]
 pub fn expm1(x: f32) -> f32 {
     x.exp_m1()
-}
-
-/// Natural logarithm (base e). Transpiles to: `logf(x)`
-#[inline]
-pub fn log(x: f32) -> f32 {
-    x.ln()
 }
 
 /// Logarithm (base 2). Transpiles to: `log2f(x)`

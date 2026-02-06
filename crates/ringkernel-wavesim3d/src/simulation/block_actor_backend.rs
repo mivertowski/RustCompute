@@ -1164,7 +1164,7 @@ impl BlockActorGpuBackend {
                     (true, Some(kernel))
                 }
                 Err(e) => {
-                    eprintln!("Warning: Cooperative kernel not available: {}. Using fused kernel fallback.", e);
+                    tracing::warn!(error = %e, "cooperative kernel not available, using fused kernel fallback");
                     (false, None)
                 }
             }
@@ -1177,6 +1177,8 @@ impl BlockActorGpuBackend {
 
         // Allocate block states (cudarc 0.18.2 API)
         let blocks_data: Vec<BlockState> = vec![BlockState::default(); num_blocks];
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut blocks = unsafe {
             stream
                 .alloc::<BlockState>(num_blocks)
@@ -1188,6 +1190,8 @@ impl BlockActorGpuBackend {
 
         // Allocate double-buffered ghost faces
         let ghost_data: Vec<GhostFaces> = vec![GhostFaces::default(); num_blocks];
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut ghost_a = unsafe {
             stream
                 .alloc::<GhostFaces>(num_blocks)
@@ -1197,6 +1201,8 @@ impl BlockActorGpuBackend {
             .memcpy_htod(&ghost_data, &mut ghost_a)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut ghost_b = unsafe {
             stream
                 .alloc::<GhostFaces>(num_blocks)
@@ -1289,6 +1295,8 @@ impl BlockActorGpuBackend {
         };
 
         // Upload params once (cudarc 0.18.2 API)
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut params_gpu = unsafe {
             self.stream
                 .alloc::<BlockGridParams>(1)
@@ -1303,6 +1311,8 @@ impl BlockActorGpuBackend {
             let use_buffer_b: u32 = if self.read_from_a { 1 } else { 0 };
 
             // Launch fused kernel (cudarc 0.18.2 API)
+            // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+            // are valid and allocated with sufficient size for the grid dimensions.
             unsafe {
                 self.stream
                     .launch_builder(&self.fn_fused_step)
@@ -1368,6 +1378,8 @@ impl BlockActorGpuBackend {
         let persistent_params = PersistentParams::from((&self.params, num_steps));
 
         // Upload params to GPU
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut params_gpu = unsafe {
             self.stream
                 .alloc::<PersistentParams>(1)
@@ -1399,6 +1411,8 @@ impl BlockActorGpuBackend {
         ];
 
         // Launch cooperative kernel (true grid.sync() support)
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             kernel
                 .launch(&config, &mut kernel_params)
@@ -1439,6 +1453,8 @@ impl BlockActorGpuBackend {
         };
 
         // Upload params (cudarc 0.18.2 API)
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut params_gpu = unsafe {
             self.stream
                 .alloc::<BlockGridParams>(1)
@@ -1457,6 +1473,8 @@ impl BlockActorGpuBackend {
             };
 
             // Phase 1: Extract faces and write to ghost buffers (cudarc 0.18.2 API)
+            // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+            // are valid and allocated with sufficient size for the grid dimensions.
             unsafe {
                 self.stream
                     .launch_builder(&self.fn_extract_faces)
@@ -1473,6 +1491,8 @@ impl BlockActorGpuBackend {
                 .map_err(|e| BlockActorError::LaunchError(e.to_string()))?;
 
             // Phase 2: Compute FDTD using ghost data (cudarc 0.18.2 API)
+            // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+            // are valid and allocated with sufficient size for the grid dimensions.
             unsafe {
                 self.stream
                     .launch_builder(&self.fn_compute_fdtd)
@@ -1501,6 +1521,8 @@ impl BlockActorGpuBackend {
     /// Download pressure from GPU to CPU grid.
     pub fn download_pressure(&self, grid: &mut SimulationGrid3D) -> Result<(), BlockActorError> {
         // Upload params (cudarc 0.18.2 API)
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut params_gpu = unsafe {
             self.stream
                 .alloc::<BlockGridParams>(1)
@@ -1511,6 +1533,8 @@ impl BlockActorGpuBackend {
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
         // Allocate and upload pressure buffers
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut pressure_gpu = unsafe {
             self.stream
                 .alloc::<f32>(grid.pressure.len())
@@ -1520,6 +1544,8 @@ impl BlockActorGpuBackend {
             .memcpy_htod(&grid.pressure, &mut pressure_gpu)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut pressure_prev_gpu = unsafe {
             self.stream
                 .alloc::<f32>(grid.pressure_prev.len())
@@ -1536,6 +1562,8 @@ impl BlockActorGpuBackend {
         };
 
         // Launch extract pressure kernel (cudarc 0.18.2 API)
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             self.stream
                 .launch_builder(&self.fn_extract_pressure)
@@ -1561,6 +1589,8 @@ impl BlockActorGpuBackend {
     /// Upload pressure from CPU grid to GPU.
     pub fn upload_pressure(&mut self, grid: &SimulationGrid3D) -> Result<(), BlockActorError> {
         // Upload params (cudarc 0.18.2 API)
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut params_gpu = unsafe {
             self.stream
                 .alloc::<BlockGridParams>(1)
@@ -1571,6 +1601,8 @@ impl BlockActorGpuBackend {
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
         // Upload pressure buffers
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut pressure_gpu = unsafe {
             self.stream
                 .alloc::<f32>(grid.pressure.len())
@@ -1580,6 +1612,8 @@ impl BlockActorGpuBackend {
             .memcpy_htod(&grid.pressure, &mut pressure_gpu)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut pressure_prev_gpu = unsafe {
             self.stream
                 .alloc::<f32>(grid.pressure_prev.len())
@@ -1600,6 +1634,8 @@ impl BlockActorGpuBackend {
                 CellType::Obstacle => 3u8,
             })
             .collect();
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut cell_types_gpu = unsafe {
             self.stream
                 .alloc::<u8>(cell_types_u8.len())
@@ -1609,6 +1645,8 @@ impl BlockActorGpuBackend {
             .memcpy_htod(&cell_types_u8, &mut cell_types_gpu)
             .map_err(|e| BlockActorError::MemoryError(e.to_string()))?;
 
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut reflection_gpu = unsafe {
             self.stream
                 .alloc::<f32>(grid.reflection_coeff.len())
@@ -1625,6 +1663,8 @@ impl BlockActorGpuBackend {
         };
 
         // Launch init blocks kernel (cudarc 0.18.2 API)
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             self.stream
                 .launch_builder(&self.fn_init_blocks)
@@ -1667,6 +1707,8 @@ impl BlockActorGpuBackend {
         amplitude: f32,
     ) -> Result<(), BlockActorError> {
         // Upload params (cudarc 0.18.2 API)
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut params_gpu = unsafe {
             self.stream
                 .alloc::<BlockGridParams>(1)
@@ -1683,6 +1725,8 @@ impl BlockActorGpuBackend {
         };
 
         // Launch inject impulse kernel (cudarc 0.18.2 API)
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             self.stream
                 .launch_builder(&self.fn_inject_impulse)

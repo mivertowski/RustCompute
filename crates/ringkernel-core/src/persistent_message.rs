@@ -186,28 +186,30 @@ impl DispatchTable {
 
     /// Register a handler.
     ///
-    /// # Panics
-    ///
-    /// Panics if a handler with the same ID is already registered.
-    pub fn register(&mut self, registration: HandlerRegistration) {
+    /// Returns an error if a handler with the same ID is already registered.
+    pub fn register(&mut self, registration: HandlerRegistration) -> crate::error::Result<()> {
         // Check for duplicate handler ID
-        if self
+        if let Some(existing) = self
             .handlers
             .iter()
-            .any(|h| h.handler_id == registration.handler_id)
+            .find(|h| h.handler_id == registration.handler_id)
         {
-            panic!(
-                "Duplicate handler ID: {} ({})",
-                registration.handler_id, registration.name
-            );
+            return Err(crate::error::RingKernelError::InvalidConfig(format!(
+                "Duplicate handler ID: {} (new: {}, existing: {})",
+                registration.handler_id, registration.name, existing.name
+            )));
         }
 
         self.max_handler_id = self.max_handler_id.max(registration.handler_id);
         self.handlers.push(registration);
+        Ok(())
     }
 
     /// Register a handler from a PersistentMessage type.
-    pub fn register_message<M: PersistentMessage>(&mut self, name: impl Into<String>) {
+    pub fn register_message<M: PersistentMessage>(
+        &mut self,
+        name: impl Into<String>,
+    ) -> crate::error::Result<()> {
         let registration = HandlerRegistration::new(M::handler_id(), name, M::message_type());
 
         let registration = if M::requires_response() {
@@ -217,7 +219,7 @@ impl DispatchTable {
             registration
         };
 
-        self.register(registration);
+        self.register(registration)
     }
 
     /// Get all registered handlers.
@@ -254,9 +256,15 @@ mod tests {
     fn test_dispatch_table_registration() {
         let mut table = DispatchTable::new();
 
-        table.register(HandlerRegistration::new(1, "fraud_check", 1001));
-        table.register(HandlerRegistration::new(2, "aggregate", 1002));
-        table.register(HandlerRegistration::new(3, "pattern_detect", 1003).with_response(2003));
+        table
+            .register(HandlerRegistration::new(1, "fraud_check", 1001))
+            .unwrap();
+        table
+            .register(HandlerRegistration::new(2, "aggregate", 1002))
+            .unwrap();
+        table
+            .register(HandlerRegistration::new(3, "pattern_detect", 1003).with_response(2003))
+            .unwrap();
 
         assert_eq!(table.len(), 3);
         assert_eq!(table.max_handler_id(), 3);
@@ -272,11 +280,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Duplicate handler ID")]
-    fn test_duplicate_handler_panics() {
+    fn test_duplicate_handler_returns_error() {
         let mut table = DispatchTable::new();
-        table.register(HandlerRegistration::new(1, "first", 1001));
-        table.register(HandlerRegistration::new(1, "second", 1002)); // Should panic
+        table
+            .register(HandlerRegistration::new(1, "first", 1001))
+            .unwrap();
+        let result = table.register(HandlerRegistration::new(1, "second", 1002));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Duplicate handler ID"));
     }
 
     #[test]

@@ -271,6 +271,8 @@ impl GpuExecutor {
             .map_err(|e| format!("Failed to copy outflow_counts: {}", e))?;
 
         // Allocate output buffer
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the input data and checked by the caller.
         let d_suspense_scores = unsafe { cuda_device.alloc::<f32>(n) }
             .map_err(|e| format!("Failed to allocate suspense_scores: {}", e))?;
 
@@ -290,6 +292,9 @@ impl GpuExecutor {
             shared_mem_bytes: 0,
         };
 
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size. Grid/block dimensions are
+        // computed to cover the input data.
         unsafe {
             func.launch(
                 cfg,
@@ -352,6 +357,8 @@ impl GpuExecutor {
             .map_err(|e| format!("Failed to copy account_types: {}", e))?;
 
         // Allocate output buffer
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the input data and checked by the caller.
         let d_violation_flags = unsafe { cuda_device.alloc::<u8>(n_flows) }
             .map_err(|e| format!("Failed to allocate violation_flags: {}", e))?;
 
@@ -371,6 +378,9 @@ impl GpuExecutor {
             shared_mem_bytes: 0,
         };
 
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size. Grid/block dimensions are
+        // computed to cover the input data.
         unsafe {
             func.launch(
                 cfg,
@@ -435,6 +445,9 @@ impl GpuExecutor {
             shared_mem_bytes: 0,
         };
 
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size. Grid/block dimensions are
+        // computed to cover the input data.
         unsafe { func.launch(cfg, (&d_amounts, &d_digit_counts, n_flows as i32)) }
             .map_err(|e| format!("Kernel launch failed: {}", e))?;
 

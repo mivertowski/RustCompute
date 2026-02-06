@@ -193,6 +193,8 @@ impl Renderer3D {
         });
 
         // Create surface - use unsafe to get 'static lifetime
+        // SAFETY: The window handle outlives the surface. The window is valid
+        // for the duration of the renderer's lifetime.
         let surface = unsafe {
             instance
                 .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(window).unwrap())

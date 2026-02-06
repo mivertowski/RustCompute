@@ -231,6 +231,8 @@ impl TileGpuBackend for CudaTileBackend {
 
         // Launch kernel using cudarc 0.18 builder API
         let stream = self.device.stream();
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             stream
                 .launch_builder(&self.kernels.fdtd_step)
@@ -268,6 +270,8 @@ impl TileGpuBackend for CudaTileBackend {
 
         // Launch kernel using cudarc 0.18 builder API
         let stream = self.device.stream();
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             stream
                 .launch_builder(&self.kernels.extract_halo)
@@ -322,6 +326,8 @@ impl TileGpuBackend for CudaTileBackend {
 
         // Launch kernel using cudarc 0.18 builder API
         let stream = self.device.stream();
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             stream
                 .launch_builder(&self.kernels.inject_halo)
@@ -363,6 +369,8 @@ impl TileGpuBackend for CudaTileBackend {
 
         // Launch kernel using cudarc 0.18 builder API
         let stream = self.device.stream();
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             stream
                 .launch_builder(&self.kernels.read_interior)

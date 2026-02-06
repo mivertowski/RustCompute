@@ -985,9 +985,9 @@ impl PassManager {
 
             // Safety check
             if iteration == self.max_iterations - 1 {
-                eprintln!(
-                    "Warning: optimization reached max iterations ({})",
-                    self.max_iterations
+                tracing::warn!(
+                    max_iterations = self.max_iterations,
+                    "optimization reached max iterations"
                 );
             }
         }

@@ -63,6 +63,11 @@ enterprise = ["dep:serde_json"]
 # ML framework bridges (PyTorch, ONNX, Hugging Face)
 ml-bridge = []
 
+# Convenience bundles
+web = ["axum", "tower", "grpc"]
+data = ["arrow", "polars"]
+monitoring = ["tracing-integration", "prometheus"]
+
 # Full persistent ecosystem (persistent + web frameworks)
 persistent-full = ["persistent-cuda", "persistent-wgpu", "actix", "axum", "axum-ws", "axum-sse", "grpc"]
 

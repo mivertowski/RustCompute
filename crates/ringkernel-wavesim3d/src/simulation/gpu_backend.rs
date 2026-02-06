@@ -244,6 +244,8 @@ impl GpuBackend3D {
         let params = GridParams::from(grid);
 
         // Allocate GPU buffers (cudarc 0.18.2 API)
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut pressure = unsafe {
             stream
                 .alloc::<f32>(grid.pressure.len())
@@ -253,6 +255,8 @@ impl GpuBackend3D {
             .memcpy_htod(&grid.pressure, &mut pressure)
             .map_err(|e| GpuError::MemoryError(e.to_string()))?;
 
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut pressure_prev = unsafe {
             stream
                 .alloc::<f32>(grid.pressure_prev.len())
@@ -274,6 +278,8 @@ impl GpuBackend3D {
             })
             .collect();
 
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut cell_types = unsafe {
             stream
                 .alloc::<u8>(cell_types_u8.len())
@@ -283,6 +289,8 @@ impl GpuBackend3D {
             .memcpy_htod(&cell_types_u8, &mut cell_types)
             .map_err(|e| GpuError::MemoryError(e.to_string()))?;
 
+        // SAFETY: cudarc's alloc returns properly aligned device memory. The size
+        // is computed from the simulation grid dimensions.
         let mut reflection_coeff = unsafe {
             stream
                 .alloc::<f32>(grid.reflection_coeff.len())
@@ -328,6 +336,8 @@ impl GpuBackend3D {
         };
 
         // Launch FDTD kernel (cudarc 0.18.2 API)
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             self.stream
                 .launch_builder(&self.fn_fdtd_step)
@@ -354,6 +364,8 @@ impl GpuBackend3D {
         };
 
         let total_cells_u32 = self.total_cells as u32;
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             self.stream
                 .launch_builder(&self.fn_boundary)
@@ -418,6 +430,8 @@ impl GpuBackend3D {
             shared_mem_bytes: 0,
         };
 
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             self.stream
                 .launch_builder(&self.fn_impulse)
@@ -458,6 +472,8 @@ impl GpuBackend3D {
             shared_mem_bytes: 0,
         };
 
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             self.stream
                 .launch_builder(&self.fn_spherical_impulse)

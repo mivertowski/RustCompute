@@ -91,7 +91,7 @@ impl AnalysisRuntime {
                 if cuda_available {
                     Backend::Cuda
                 } else {
-                    eprintln!("Warning: CUDA requested but not available, falling back to CPU");
+                    tracing::warn!("CUDA requested but not available, falling back to CPU");
                     Backend::Cpu
                 }
             }
@@ -128,22 +128,22 @@ impl AnalysisRuntime {
                 match executor.compile_kernels() {
                     Ok(()) => {
                         status.gpu_kernels_ready = true;
-                        eprintln!(
-                            "GPU: {} (CC {}.{}) - Kernels compiled",
-                            executor.device_name(),
-                            executor.compute_capability().0,
-                            executor.compute_capability().1
+                        tracing::info!(
+                            device = %executor.device_name(),
+                            cc_major = executor.compute_capability().0,
+                            cc_minor = executor.compute_capability().1,
+                            "GPU kernels compiled"
                         );
                         (Some(executor), true)
                     }
                     Err(e) => {
-                        eprintln!("Warning: Failed to compile GPU kernels: {}", e);
+                        tracing::warn!(error = %e, "failed to compile GPU kernels");
                         (None, false)
                     }
                 }
             }
             Err(e) => {
-                eprintln!("Warning: Failed to initialize GPU: {}", e);
+                tracing::warn!(error = %e, "failed to initialize GPU");
                 (None, false)
             }
         }
@@ -176,7 +176,7 @@ impl AnalysisRuntime {
                             return self.convert_gpu_result(network, gpu_result);
                         }
                         Err(e) => {
-                            eprintln!("GPU analysis failed, falling back to CPU: {}", e);
+                            tracing::warn!(error = %e, "GPU analysis failed, falling back to CPU");
                         }
                     }
                 }
@@ -264,7 +264,7 @@ impl AnalysisRuntime {
             match executor.run_benchmarks(network) {
                 Ok(results) => Some(results),
                 Err(e) => {
-                    eprintln!("Benchmark failed: {}", e);
+                    tracing::warn!(error = %e, "benchmark failed");
                     None
                 }
             }

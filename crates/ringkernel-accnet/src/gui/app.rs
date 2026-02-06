@@ -70,26 +70,26 @@ impl AccNetApp {
         let analysis_runtime = AnalysisRuntime::with_backend(Backend::Auto);
         if analysis_runtime.is_cuda_active() {
             let status = analysis_runtime.status();
-            eprintln!(
-                "AccNet: GPU acceleration active - {} (CC {}.{})",
-                status.cuda_device_name.as_deref().unwrap_or("Unknown"),
-                status.cuda_compute_capability.map(|c| c.0).unwrap_or(0),
-                status.cuda_compute_capability.map(|c| c.1).unwrap_or(0)
+            tracing::info!(
+                device = %status.cuda_device_name.as_deref().unwrap_or("Unknown"),
+                cc_major = status.cuda_compute_capability.map(|c| c.0).unwrap_or(0),
+                cc_minor = status.cuda_compute_capability.map(|c| c.1).unwrap_or(0),
+                "AccNet: GPU acceleration active"
             );
         } else {
-            eprintln!("AccNet: CPU backend (CUDA not available)");
+            tracing::info!("AccNet: CPU backend (CUDA not available)");
         }
 
         // Initialize GPU-native actor runtime for ring kernel analytics
         let actor_runtime = GpuActorRuntime::new(CoordinatorConfig::default());
         if actor_runtime.is_gpu_active() {
             let status = actor_runtime.status();
-            eprintln!(
-                "AccNet: Ring Kernel Actor System active - {} kernels",
-                status.kernels_launched
+            tracing::info!(
+                kernels = status.kernels_launched,
+                "AccNet: Ring Kernel Actor System active"
             );
         } else {
-            eprintln!("AccNet: Ring Kernel Actor System (CPU fallback)");
+            tracing::info!("AccNet: Ring Kernel Actor System (CPU fallback)");
         }
 
         Self {

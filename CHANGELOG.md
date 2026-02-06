@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-02-06
+
+### Added
+
+#### Property-Based Testing
+- **proptest integration** in `ringkernel-core` for queue and HLC invariants
+  - Queue: capacity power-of-2 invariant, length bounds, FIFO ordering, stats consistency, enqueue/dequeue roundtrip, partitioned routing determinism (6 tests)
+  - HLC: total ordering (reflexive, antisymmetric, transitive), zero-is-minimum, pack/unpack round-trip, tick strictly increasing, update causality preservation (7 tests)
+  - 13 new property-based tests, increasing total test count from 1403 to 1416
+
+#### Ecosystem Feature Bundles
+- **`web`** convenience feature combining `axum`, `tower`, and `grpc`
+- **`data`** convenience feature combining `arrow` and `polars`
+- **`monitoring`** convenience feature combining `tracing-integration` and `prometheus`
+
+### Changed
+
+#### DSL Consolidation
+- **Shared DSL marker functions** extracted to `ringkernel-codegen/src/dsl_common.rs`
+  - 27 identical functions deduplicated: thread/block indices, synchronization primitives, math functions
+  - Both `ringkernel-cuda-codegen` and `ringkernel-wgpu-codegen` now re-export from the shared module
+  - ~300 lines of duplicate code eliminated
+
+#### Backend Stub Deduplication
+- **`unavailable_backend!` macro** in `ringkernel-core/src/backend_stub.rs`
+  - Single macro generates the full `RingKernelRuntime` stub for disabled backends
+  - Applied to `ringkernel-cuda`, `ringkernel-wgpu`, and `ringkernel-metal`
+  - ~100 lines of triplicated stub code eliminated
+
+#### Logging Standardization
+- Replaced `eprintln!` with structured `tracing` macros in library code across 6 crates:
+  - `ringkernel-core/src/observability.rs` — OTLP stub logging
+  - `ringkernel-ir/src/optimize.rs` — optimization iteration warning
+  - `ringkernel-accnet/src/cuda/runtime.rs` — GPU init, fallback, and error logging
+  - `ringkernel-accnet/src/gui/app.rs` — backend status logging
+  - `ringkernel-wavesim3d/src/simulation/block_actor_backend.rs` — cooperative kernel fallback
+  - `ringkernel-wavesim3d/src/simulation/persistent_backend.rs` — grid size info
+
+#### Unsafe Documentation
+- Added `// SAFETY:` comments to all `unsafe` blocks in GPU backend code (~80+ blocks):
+  - `ringkernel-accnet/src/cuda/executor.rs` (5 blocks)
+  - `ringkernel-graph/src/gpu/cuda.rs` (18 blocks)
+  - `ringkernel-montecarlo/src/gpu/cuda.rs` (11 blocks)
+  - `ringkernel-wavesim/src/simulation/cuda_compute.rs` (4 blocks)
+  - `ringkernel-wavesim/src/simulation/cuda_packed.rs` (6 blocks)
+  - `ringkernel-wavesim3d/src/simulation/gpu_backend.rs` (8 blocks)
+  - `ringkernel-wavesim3d/src/simulation/block_actor_backend.rs` (21 blocks)
+  - `ringkernel-wavesim3d/src/simulation/actor_backend.rs` (16 blocks)
+  - `ringkernel-wavesim3d/src/visualization/renderer.rs` (1 block)
+
+#### Hot-Path Performance
+- Added `#[inline]` annotations to queue hot-path methods (`try_enqueue`, `try_dequeue`, `len`, `is_empty`, `is_full`, `capacity`)
+- Added `#[inline]` to HLC timestamp operations (`tick`, `update`, `cmp`, `partial_cmp`)
+- Added `#[inline]` to control block state accessors
+- Eliminated unnecessary `clone()` in queue retry loop
+
+### Fixed
+
+- Tenant suspension now correctly sets `active` flag (was no-op)
+- Handler registration returns `Result` instead of panicking on duplicate ID
+- TLS session resumption stores actual session ticket data
+- CloudWatch audit sink returns explicit `Err` instead of silently dropping events
+
 ## [0.4.0] - 2026-01-25
 
 ### Added
@@ -1264,7 +1327,8 @@ println!("Load imbalance: {:.2}x", stats.load_imbalance());
 - CLAUDE.md with build commands and architecture overview
 - Code examples for all major features
 
-[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/mivertowski/RustCompute/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/mivertowski/RustCompute/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/mivertowski/RustCompute/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/mivertowski/RustCompute/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/mivertowski/RustCompute/compare/v0.3.0...v0.3.1

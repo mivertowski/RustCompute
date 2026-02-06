@@ -3,6 +3,9 @@
 //! These functions are compile-time markers that the transpiler recognizes
 //! and converts to WGSL intrinsics. They do nothing at Rust compile time.
 //!
+//! Common functions (thread indices, basic math, synchronization) are shared with
+//! the CUDA backend via `ringkernel_codegen::dsl_common`.
+//!
 //! # Thread/Workgroup Indices
 //!
 //! | Function | WGSL Equivalent |
@@ -18,93 +21,44 @@
 
 #![allow(unused_variables)]
 
+// Re-export common DSL functions shared across backends.
+// These provide: thread/block indices, sync primitives, and basic math.
+pub use ringkernel_codegen::dsl_common::{
+    block_dim_x,
+    block_dim_y,
+    block_dim_z,
+    block_idx_x,
+    block_idx_y,
+    block_idx_z,
+    ceil,
+    cos,
+    exp,
+    floor,
+    fma,
+    grid_dim_x,
+    grid_dim_y,
+    grid_dim_z,
+    log,
+    powf,
+    round,
+    rsqrt,
+    sin,
+    // Math
+    sqrt,
+    // Synchronization
+    sync_threads,
+    tan,
+    thread_fence,
+    thread_fence_block,
+    // Thread/block indices
+    thread_idx_x,
+    thread_idx_y,
+    thread_idx_z,
+};
+
 // =============================================================================
-// Thread/Workgroup Indices
+// WGSL-Specific Thread/Workgroup Indices
 // =============================================================================
-
-/// Get the x-component of the local thread index within the workgroup.
-/// Maps to `local_invocation_id.x` in WGSL.
-#[inline(always)]
-pub fn thread_idx_x() -> i32 {
-    0
-}
-
-/// Get the y-component of the local thread index within the workgroup.
-/// Maps to `local_invocation_id.y` in WGSL.
-#[inline(always)]
-pub fn thread_idx_y() -> i32 {
-    0
-}
-
-/// Get the z-component of the local thread index within the workgroup.
-/// Maps to `local_invocation_id.z` in WGSL.
-#[inline(always)]
-pub fn thread_idx_z() -> i32 {
-    0
-}
-
-/// Get the x-component of the workgroup index.
-/// Maps to `workgroup_id.x` in WGSL.
-#[inline(always)]
-pub fn block_idx_x() -> i32 {
-    0
-}
-
-/// Get the y-component of the workgroup index.
-/// Maps to `workgroup_id.y` in WGSL.
-#[inline(always)]
-pub fn block_idx_y() -> i32 {
-    0
-}
-
-/// Get the z-component of the workgroup index.
-/// Maps to `workgroup_id.z` in WGSL.
-#[inline(always)]
-pub fn block_idx_z() -> i32 {
-    0
-}
-
-/// Get the x-dimension of the workgroup size.
-/// Maps to a compile-time constant `WORKGROUP_SIZE_X` in WGSL.
-#[inline(always)]
-pub fn block_dim_x() -> i32 {
-    0
-}
-
-/// Get the y-dimension of the workgroup size.
-/// Maps to a compile-time constant `WORKGROUP_SIZE_Y` in WGSL.
-#[inline(always)]
-pub fn block_dim_y() -> i32 {
-    0
-}
-
-/// Get the z-dimension of the workgroup size.
-/// Maps to a compile-time constant `WORKGROUP_SIZE_Z` in WGSL.
-#[inline(always)]
-pub fn block_dim_z() -> i32 {
-    0
-}
-
-/// Get the x-component of the number of workgroups in the dispatch.
-/// Maps to `num_workgroups.x` in WGSL.
-#[inline(always)]
-pub fn grid_dim_x() -> i32 {
-    0
-}
-
-/// Get the y-component of the number of workgroups in the dispatch.
-/// Maps to `num_workgroups.y` in WGSL.
-#[inline(always)]
-pub fn grid_dim_y() -> i32 {
-    0
-}
-
-/// Get the z-component of the number of workgroups in the dispatch.
-/// Maps to `num_workgroups.z` in WGSL.
-#[inline(always)]
-pub fn grid_dim_z() -> i32 {
-    0
-}
 
 /// Get the global thread ID (x-component).
 /// Maps to `global_invocation_id.x` in WGSL.
@@ -126,25 +80,6 @@ pub fn global_thread_id_y() -> i32 {
 pub fn global_thread_id_z() -> i32 {
     0
 }
-
-// =============================================================================
-// Synchronization
-// =============================================================================
-
-/// Synchronize all threads in the workgroup.
-/// Maps to `workgroupBarrier()` in WGSL.
-#[inline(always)]
-pub fn sync_threads() {}
-
-/// Memory fence for storage buffers.
-/// Maps to `storageBarrier()` in WGSL.
-#[inline(always)]
-pub fn thread_fence() {}
-
-/// Memory fence within the workgroup.
-/// Maps to `workgroupBarrier()` in WGSL.
-#[inline(always)]
-pub fn thread_fence_block() {}
 
 // =============================================================================
 // Atomic Operations (32-bit)
@@ -200,79 +135,13 @@ pub fn atomic_store<T>(_ptr: &T, _val: T) {
 }
 
 // =============================================================================
-// Math Functions
+// WGSL-Specific Math Functions
 // =============================================================================
-
-/// Square root. Maps to `sqrt(x)` in WGSL.
-#[inline(always)]
-pub fn sqrt(x: f32) -> f32 {
-    x.sqrt()
-}
-
-/// Reciprocal square root. Maps to `inverseSqrt(x)` in WGSL.
-#[inline(always)]
-pub fn rsqrt(x: f32) -> f32 {
-    1.0 / x.sqrt()
-}
 
 /// Absolute value. Maps to `abs(x)` in WGSL.
 #[inline(always)]
 pub fn abs<T: num_traits::Signed>(x: T) -> T {
     x.abs()
-}
-
-/// Floor. Maps to `floor(x)` in WGSL.
-#[inline(always)]
-pub fn floor(x: f32) -> f32 {
-    x.floor()
-}
-
-/// Ceiling. Maps to `ceil(x)` in WGSL.
-#[inline(always)]
-pub fn ceil(x: f32) -> f32 {
-    x.ceil()
-}
-
-/// Round to nearest. Maps to `round(x)` in WGSL.
-#[inline(always)]
-pub fn round(x: f32) -> f32 {
-    x.round()
-}
-
-/// Sine. Maps to `sin(x)` in WGSL.
-#[inline(always)]
-pub fn sin(x: f32) -> f32 {
-    x.sin()
-}
-
-/// Cosine. Maps to `cos(x)` in WGSL.
-#[inline(always)]
-pub fn cos(x: f32) -> f32 {
-    x.cos()
-}
-
-/// Tangent. Maps to `tan(x)` in WGSL.
-#[inline(always)]
-pub fn tan(x: f32) -> f32 {
-    x.tan()
-}
-
-/// Exponential. Maps to `exp(x)` in WGSL.
-#[inline(always)]
-pub fn exp(x: f32) -> f32 {
-    x.exp()
-}
-
-/// Natural logarithm. Maps to `log(x)` in WGSL.
-#[inline(always)]
-pub fn log(x: f32) -> f32 {
-    x.ln()
-}
-
-/// Power. Maps to `pow(x, y)` in WGSL.
-#[inline(always)]
-pub fn powf(x: f32, y: f32) -> f32 {
-    x.powf(y)
 }
 
 /// Minimum. Maps to `min(a, b)` in WGSL.
@@ -291,12 +160,6 @@ pub fn max<T: Ord>(a: T, b: T) -> T {
 #[inline(always)]
 pub fn clamp<T: Ord>(x: T, lo: T, hi: T) -> T {
     std::cmp::max(lo, std::cmp::min(x, hi))
-}
-
-/// Fused multiply-add. Maps to `fma(a, b, c)` in WGSL.
-#[inline(always)]
-pub fn fma(a: f32, b: f32, c: f32) -> f32 {
-    a.mul_add(b, c)
 }
 
 /// Linear interpolation. Maps to `mix(a, b, t)` in WGSL.

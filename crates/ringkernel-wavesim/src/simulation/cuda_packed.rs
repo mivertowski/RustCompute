@@ -371,6 +371,8 @@ impl CudaPackedBackend {
         };
 
         let stream = self.device.stream();
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             stream
                 .launch_builder(&self.kernels.upload_tile)
@@ -432,6 +434,8 @@ impl CudaPackedBackend {
                 shared_mem_bytes: 0,
             };
 
+            // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+            // are valid and allocated with sufficient size for the grid dimensions.
             unsafe {
                 stream
                     .launch_builder(&self.kernels.exchange_halos)
@@ -452,6 +456,8 @@ impl CudaPackedBackend {
             shared_mem_bytes: 0,
         };
 
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             stream
                 .launch_builder(&self.kernels.apply_boundary)
@@ -472,6 +478,8 @@ impl CudaPackedBackend {
             shared_mem_bytes: 0,
         };
 
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             stream
                 .launch_builder(&self.kernels.fdtd_all_tiles)
@@ -527,6 +535,8 @@ impl CudaPackedBackend {
         };
 
         let stream = self.device.stream();
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             stream
                 .launch_builder(&self.kernels.inject_impulse)
@@ -567,6 +577,8 @@ impl CudaPackedBackend {
         };
 
         let stream = self.device.stream();
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size for the grid dimensions.
         unsafe {
             stream
                 .launch_builder(&self.kernels.read_all_interiors)

@@ -53,9 +53,9 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 # RingKernel crates (for codegen and validation)
-ringkernel-ir = { version = "0.4.0", path = "../ringkernel-ir" }
-ringkernel-cuda-codegen = { version = "0.4.0", path = "../ringkernel-cuda-codegen", optional = true }
-ringkernel-wgpu-codegen = { version = "0.4.0", path = "../ringkernel-wgpu-codegen", optional = true }
+ringkernel-ir = { version = "0.4.1", path = "../ringkernel-ir" }
+ringkernel-cuda-codegen = { version = "0.4.1", path = "../ringkernel-cuda-codegen", optional = true }
+ringkernel-wgpu-codegen = { version = "0.4.1", path = "../ringkernel-wgpu-codegen", optional = true }
 
 # Proc macro parsing
 syn = { workspace = true }

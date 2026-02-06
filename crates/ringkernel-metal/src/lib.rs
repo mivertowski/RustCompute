@@ -55,54 +55,11 @@ pub use runtime::MetalRuntime;
 // Stub implementation when Metal is not available
 #[cfg(not(all(target_os = "macos", feature = "metal")))]
 mod stub {
-    use async_trait::async_trait;
-    use ringkernel_core::error::{Result, RingKernelError};
-    use ringkernel_core::runtime::{
-        Backend, KernelHandle, KernelId, LaunchOptions, RingKernelRuntime, RuntimeMetrics,
-    };
-
-    /// Stub Metal runtime when not on macOS or Metal feature disabled.
-    pub struct MetalRuntime;
-
-    impl MetalRuntime {
-        /// Create fails when Metal is not available.
-        pub async fn new() -> Result<Self> {
-            Err(RingKernelError::BackendUnavailable(
-                "Metal not available (requires macOS with metal feature)".to_string(),
-            ))
-        }
-    }
-
-    #[async_trait]
-    impl RingKernelRuntime for MetalRuntime {
-        fn backend(&self) -> Backend {
-            Backend::Metal
-        }
-
-        fn is_backend_available(&self, _backend: Backend) -> bool {
-            false
-        }
-
-        async fn launch(&self, _kernel_id: &str, _options: LaunchOptions) -> Result<KernelHandle> {
-            Err(RingKernelError::BackendUnavailable("Metal".to_string()))
-        }
-
-        fn get_kernel(&self, _kernel_id: &KernelId) -> Option<KernelHandle> {
-            None
-        }
-
-        fn list_kernels(&self) -> Vec<KernelId> {
-            vec![]
-        }
-
-        fn metrics(&self) -> RuntimeMetrics {
-            RuntimeMetrics::default()
-        }
-
-        async fn shutdown(&self) -> Result<()> {
-            Ok(())
-        }
-    }
+    ringkernel_core::unavailable_backend!(
+        MetalRuntime,
+        ringkernel_core::runtime::Backend::Metal,
+        "Metal"
+    );
 }
 
 #[cfg(not(all(target_os = "macos", feature = "metal")))]

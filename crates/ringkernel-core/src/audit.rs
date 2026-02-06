@@ -1141,13 +1141,16 @@ impl AuditSink for CloudWatchSink {
             return Ok(());
         }
 
-        // Note: In a real implementation, this would use aws-sdk-cloudwatchlogs
-        // to call PutLogEvents. For now, we log to stderr as a fallback.
-        eprintln!(
-            "[CloudWatch stub] Would send {} events to {}/{}",
+        // Stub: CloudWatch Logs integration requires aws-sdk-cloudwatchlogs.
+        // Events are dropped with a warning. To implement, add the `cloudwatch`
+        // feature flag and the aws-sdk-cloudwatchlogs dependency.
+        tracing::warn!(
+            event_count = events.len(),
+            log_group = %self.config.log_group,
+            log_stream = %self.config.log_stream,
+            "CloudWatch sink is a stub: {} audit events dropped. \
+             Enable the `cloudwatch` feature for real AWS integration.",
             events.len(),
-            self.config.log_group,
-            self.config.log_stream
         );
 
         Ok(())
@@ -1331,7 +1334,7 @@ impl AuditLogger {
         // Write to all sinks
         for sink in &self.sinks {
             if let Err(e) = sink.write(&event) {
-                eprintln!("Audit sink error: {}", e);
+                tracing::error!("Audit sink error: {}", e);
             }
         }
 

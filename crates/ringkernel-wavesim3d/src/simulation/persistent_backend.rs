@@ -216,9 +216,10 @@ impl PersistentBackend {
             // If we exceed, fall back to software sync
             let estimated_max_blocks = 512; // Conservative estimate
             if total_blocks > estimated_max_blocks {
-                eprintln!(
-                    "Note: Grid requires {} blocks, exceeds estimated cooperative limit {}. Using software sync.",
-                    total_blocks, estimated_max_blocks
+                tracing::info!(
+                    total_blocks,
+                    max_blocks = estimated_max_blocks,
+                    "grid exceeds estimated cooperative limit, using software sync"
                 );
                 false
             } else {

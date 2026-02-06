@@ -114,6 +114,7 @@ impl SpscQueue {
     }
 
     /// Get current depth.
+    #[inline]
     fn depth(&self) -> u64 {
         let head = self.head.load(Ordering::Acquire);
         let tail = self.tail.load(Ordering::Acquire);
@@ -139,14 +140,17 @@ impl SpscQueue {
 }
 
 impl MessageQueue for SpscQueue {
+    #[inline]
     fn capacity(&self) -> usize {
         self.capacity
     }
 
+    #[inline]
     fn len(&self) -> usize {
         self.depth() as usize
     }
 
+    #[inline]
     fn try_enqueue(&self, envelope: MessageEnvelope) -> Result<()> {
         let head = self.head.load(Ordering::Acquire);
         let tail = self.tail.load(Ordering::Acquire);
@@ -175,6 +179,7 @@ impl MessageQueue for SpscQueue {
         Ok(())
     }
 
+    #[inline]
     fn try_dequeue(&self) -> Result<MessageEnvelope> {
         let tail = self.tail.load(Ordering::Acquire);
         let head = self.head.load(Ordering::Acquire);
@@ -239,19 +244,23 @@ impl MpscQueue {
 }
 
 impl MessageQueue for MpscQueue {
+    #[inline]
     fn capacity(&self) -> usize {
         self.inner.capacity()
     }
 
+    #[inline]
     fn len(&self) -> usize {
         self.inner.len()
     }
 
+    #[inline]
     fn try_enqueue(&self, envelope: MessageEnvelope) -> Result<()> {
         let _guard = self.producer_lock.lock();
         self.inner.try_enqueue(envelope)
     }
 
+    #[inline]
     fn try_dequeue(&self) -> Result<MessageEnvelope> {
         self.inner.try_dequeue()
     }
@@ -289,6 +298,10 @@ impl BoundedQueue {
     }
 
     /// Blocking enqueue with timeout.
+    ///
+    /// Note: `envelope` is cloned on each retry because `try_enqueue` takes
+    /// ownership. For zero-copy retry, the `MessageQueue` trait would need to
+    /// return the envelope on failure, which is a larger refactor.
     pub fn enqueue_timeout(
         &self,
         envelope: MessageEnvelope,
@@ -1269,5 +1282,107 @@ mod tests {
         // Invalid partition should error
         let result = queue.try_dequeue_partition(100);
         assert!(result.is_err());
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use crate::hlc::HlcTimestamp;
+    use crate::message::MessageHeader;
+    use proptest::prelude::*;
+
+    /// Create a test envelope with a distinct message_type as sequence tag.
+    fn make_envelope_with_seq(seq: u64) -> MessageEnvelope {
+        MessageEnvelope {
+            // MessageHeader::new(message_type, source_kernel, dest_kernel, payload_size, timestamp)
+            header: MessageHeader::new(seq, 1, 0, 8, HlcTimestamp::now(1)),
+            payload: vec![1, 2, 3, 4, 5, 6, 7, 8],
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn spsc_capacity_invariant(cap in 1usize..=256) {
+            let queue = SpscQueue::new(cap);
+            let actual_cap = queue.capacity();
+            prop_assert!(actual_cap.is_power_of_two());
+            prop_assert!(actual_cap >= cap);
+        }
+
+        #[test]
+        fn spsc_len_never_exceeds_capacity(n in 1usize..=128) {
+            let queue = SpscQueue::new(n);
+            let cap = queue.capacity();
+            for i in 0..(cap + 10) {
+                let _ = queue.try_enqueue(make_envelope_with_seq(i as u64));
+                prop_assert!(queue.len() <= cap);
+            }
+        }
+
+        #[test]
+        fn spsc_fifo_ordering(count in 1usize..=64) {
+            let queue = SpscQueue::new((count + 1).next_power_of_two());
+
+            for i in 0..count {
+                queue.try_enqueue(make_envelope_with_seq(i as u64)).unwrap();
+            }
+
+            // Dequeue and verify FIFO order via message_type tag
+            for i in 0..count {
+                let env = queue.try_dequeue().unwrap();
+                prop_assert_eq!(env.header.message_type, i as u64);
+            }
+
+            prop_assert!(queue.is_empty());
+        }
+
+        #[test]
+        fn spsc_stats_consistency(enqueue_count in 1usize..=64) {
+            let queue = SpscQueue::new(64);
+            let cap = queue.capacity();
+            let mut expected_dropped = 0u64;
+
+            for i in 0..enqueue_count {
+                if queue.try_enqueue(make_envelope_with_seq(i as u64)).is_err() {
+                    expected_dropped += 1;
+                }
+            }
+
+            let stats = queue.stats();
+            let successful = enqueue_count as u64 - expected_dropped;
+            prop_assert_eq!(stats.enqueued, successful);
+            prop_assert_eq!(stats.dropped, expected_dropped);
+            prop_assert_eq!(stats.depth, successful);
+            prop_assert!(stats.depth <= cap as u64);
+        }
+
+        #[test]
+        fn spsc_enqueue_dequeue_roundtrip(n in 1usize..=32) {
+            let queue = SpscQueue::new(64);
+
+            for i in 0..n {
+                queue.try_enqueue(make_envelope_with_seq(i as u64)).unwrap();
+            }
+
+            for _ in 0..n {
+                queue.try_dequeue().unwrap();
+            }
+
+            let stats = queue.stats();
+            prop_assert_eq!(stats.enqueued, n as u64);
+            prop_assert_eq!(stats.dequeued, n as u64);
+            prop_assert_eq!(stats.depth, 0);
+            prop_assert!(queue.is_empty());
+        }
+
+        #[test]
+        fn partitioned_routing_deterministic(source_id in 0u64..1000, partitions in 1usize..=8) {
+            let queue = PartitionedQueue::new(partitions, 64);
+            let p1 = queue.partition_for(source_id);
+            let p2 = queue.partition_for(source_id);
+            prop_assert_eq!(p1, p2);
+            prop_assert!(p1 < queue.partition_count());
+        }
     }
 }
