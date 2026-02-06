@@ -21,3 +21,7 @@ target
 #.idea/
 .env
 docs/PLAN-accounting-analytics.md
+docs/ringkernel-executive-overview.aux
+docs/ringkernel-executive-overview.log
+docs/ringkernel-executive-overview.out
+docs/ringkernel-executive-overview.toc

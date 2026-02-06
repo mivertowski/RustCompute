@@ -9,7 +9,7 @@ keywords = ["gpu", "graph", "bfs", "cuda", "parallel"]
 categories = ["science", "algorithms", "mathematics"]
 
 [dependencies]
-ringkernel-core = { version = "0.4.1", path = "../ringkernel-core" }
+ringkernel-core = { version = "0.4.2", path = "../ringkernel-core" }
 bytemuck = { workspace = true }
 thiserror = { workspace = true }
 

@@ -44,6 +44,13 @@ pub struct PersistentFdtdConfig {
     pub progress_interval: u64,
     /// Enable energy calculation.
     pub track_energy: bool,
+    /// Nanosleep duration for idle spin-wait (nanoseconds).
+    /// Used when the kernel has no work to do, reducing power consumption.
+    pub idle_sleep_ns: u32,
+    /// Use libcu++ ordered atomics (cuda::atomic_ref) for queue operations.
+    /// Requires CUDA 11.0+ toolkit. When false (default), uses legacy
+    /// __threadfence_system() pairs.
+    pub use_libcupp_atomics: bool,
 }
 
 impl Default for PersistentFdtdConfig {
@@ -54,6 +61,8 @@ impl Default for PersistentFdtdConfig {
             use_cooperative: true,
             progress_interval: 100,
             track_energy: true,
+            idle_sleep_ns: 1000,
+            use_libcupp_atomics: false,
         }
     }
 }
@@ -82,6 +91,20 @@ impl PersistentFdtdConfig {
     /// Set progress reporting interval.
     pub fn with_progress_interval(mut self, interval: u64) -> Self {
         self.progress_interval = interval;
+        self
+    }
+
+    /// Set idle sleep duration in nanoseconds.
+    /// Controls power consumption during spin-wait when no work is available.
+    pub fn with_idle_sleep(mut self, ns: u32) -> Self {
+        self.idle_sleep_ns = ns;
+        self
+    }
+
+    /// Enable libcu++ ordered atomics for queue operations.
+    /// Requires CUDA 11.0+ toolkit.
+    pub fn with_libcupp_atomics(mut self, enabled: bool) -> Self {
+        self.use_libcupp_atomics = enabled;
         self
     }
 
@@ -137,7 +160,17 @@ fn generate_header(config: &PersistentFdtdConfig) -> String {
     }
 
     code.push_str("#include <cuda_runtime.h>\n");
-    code.push_str("#include <stdint.h>\n\n");
+    code.push_str("#include <stdint.h>\n");
+
+    if config.use_libcupp_atomics {
+        code.push_str("\n// libcu++ ordered atomics (CUDA 11.0+)\n");
+        code.push_str("#if __CUDACC_VER_MAJOR__ < 11\n");
+        code.push_str("#error \"libcu++ atomics require CUDA 11.0 or later\"\n");
+        code.push_str("#endif\n");
+        code.push_str("#include <cuda/atomic>\n");
+    }
+
+    code.push('\n');
 
     code
 }
@@ -273,8 +306,47 @@ fn generate_device_functions(config: &PersistentFdtdConfig) -> String {
     let mut code = String::new();
 
     // Software grid barrier (fallback when cooperative not available)
-    code.push_str(
-        r#"
+    if config.use_libcupp_atomics {
+        code.push_str(
+            r#"
+// ============================================================================
+// SYNCHRONIZATION FUNCTIONS (libcu++ ordered atomics)
+// ============================================================================
+
+// Software grid barrier using cuda::atomic_ref with explicit memory ordering.
+// Uses device scope (not system) since barrier is GPU-internal.
+__device__ void software_grid_sync(
+    uint32_t* barrier_counter,
+    uint32_t* barrier_gen,
+    int num_blocks
+) {
+    __syncthreads();  // First sync within block
+
+    if (threadIdx.x == 0) {
+        cuda::atomic_ref<unsigned int, cuda::thread_scope_device> gen_ref(*barrier_gen);
+        cuda::atomic_ref<unsigned int, cuda::thread_scope_device> cnt_ref(*barrier_counter);
+
+        unsigned int gen = gen_ref.load(cuda::memory_order_acquire);
+
+        unsigned int arrived = cnt_ref.fetch_add(1, cuda::memory_order_acq_rel) + 1;
+        if (arrived == num_blocks) {
+            cnt_ref.store(0, cuda::memory_order_relaxed);
+            gen_ref.fetch_add(1, cuda::memory_order_release);
+        } else {
+            while (gen_ref.load(cuda::memory_order_acquire) == gen) {
+                __nanosleep(100);  // Reduce power in barrier spin
+            }
+        }
+    }
+
+    __syncthreads();
+}
+
+"#,
+        );
+    } else {
+        code.push_str(
+            r#"
 // ============================================================================
 // SYNCHRONIZATION FUNCTIONS
 // ============================================================================
@@ -298,6 +370,7 @@ __device__ void software_grid_sync(
         } else {
             while (atomicAdd((unsigned int*)barrier_gen, 0) == gen) {
                 __threadfence();
+                __nanosleep(100);  // Reduce power in barrier spin
             }
         }
     }
@@ -306,11 +379,75 @@ __device__ void software_grid_sync(
 }
 
 "#,
-    );
+        );
+    }
 
     // H2K/K2H queue operations
-    code.push_str(
-        r#"
+    if config.use_libcupp_atomics {
+        code.push_str(
+            r#"
+// ============================================================================
+// MESSAGE QUEUE OPERATIONS (libcu++ ordered atomics)
+// ============================================================================
+
+// Try to receive H2K message using cuda::atomic_ref with memory ordering.
+// acquire on tail read ensures we see the host's payload writes.
+// release on tail publish ensures host sees our consumption.
+__device__ bool h2k_try_recv(
+    SpscQueueHeader* header,
+    H2KMessage* slots,
+    H2KMessage* out_msg
+) {
+    cuda::atomic_ref<uint64_t, cuda::thread_scope_system> head_ref(header->head);
+    cuda::atomic_ref<uint64_t, cuda::thread_scope_system> tail_ref(header->tail);
+
+    uint64_t tail = tail_ref.load(cuda::memory_order_relaxed);
+    uint64_t head = head_ref.load(cuda::memory_order_acquire);
+
+    if (head == tail) {
+        return false;  // Empty
+    }
+
+    uint32_t slot = tail & header->mask;
+    *out_msg = slots[slot];
+
+    tail_ref.store(tail + 1, cuda::memory_order_release);
+
+    return true;
+}
+
+// Send K2H message using cuda::atomic_ref with memory ordering.
+// acquire on head read to see our own previous writes.
+// release on head publish ensures host sees the payload.
+__device__ bool k2h_send(
+    SpscQueueHeader* header,
+    K2HMessage* slots,
+    const K2HMessage* msg
+) {
+    cuda::atomic_ref<uint64_t, cuda::thread_scope_system> head_ref(header->head);
+    cuda::atomic_ref<uint64_t, cuda::thread_scope_system> tail_ref(header->tail);
+
+    uint64_t head = head_ref.load(cuda::memory_order_relaxed);
+    uint64_t tail = tail_ref.load(cuda::memory_order_acquire);
+    uint32_t capacity = header->capacity;
+
+    if (head - tail >= capacity) {
+        return false;  // Full
+    }
+
+    uint32_t slot = head & header->mask;
+    slots[slot] = *msg;
+
+    head_ref.store(head + 1, cuda::memory_order_release);
+
+    return true;
+}
+
+"#,
+        );
+    } else {
+        code.push_str(
+            r#"
 // ============================================================================
 // MESSAGE QUEUE OPERATIONS
 // ============================================================================
@@ -389,37 +526,54 @@ __device__ bool k2h_send(
 }
 
 "#,
-    );
+        );
+    }
 
-    // Energy reduction function
+    // Energy reduction function (two-phase warp-shuffle)
     code.push_str(
         r#"
 // ============================================================================
-// ENERGY CALCULATION (Parallel Reduction)
+// ENERGY CALCULATION (Warp-Shuffle Reduction)
 // ============================================================================
 
 // Block-level parallel reduction for energy: E = sum(p^2)
-// Uses shared memory for efficient reduction within a block
+// Two-phase approach: intra-warp shuffle (no __syncthreads), then
+// cross-warp reduction via shared memory (one __syncthreads).
 __device__ float block_reduce_energy(
     float my_energy,
     float* shared_reduce,
     int threads_per_block
 ) {
     int tid = threadIdx.x;
+    int warp_id = tid / 32;
+    int lane_id = tid % 32;
+    int num_warps = threads_per_block / 32;
 
-    // Store initial value in shared memory
-    shared_reduce[tid] = my_energy;
-    __syncthreads();
-
-    // Parallel reduction tree
-    for (int stride = threads_per_block / 2; stride > 0; stride >>= 1) {
-        if (tid < stride) {
-            shared_reduce[tid] += shared_reduce[tid + stride];
-        }
-        __syncthreads();
+    // Phase 1: Intra-warp reduction via shuffle (no syncthreads needed)
+    float val = my_energy;
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        val += __shfl_down_sync(0xFFFFFFFF, val, offset);
     }
 
-    // Return the total for this block (only thread 0 has final sum)
+    // Warp leaders write partial sums to shared memory
+    if (lane_id == 0) {
+        shared_reduce[warp_id] = val;
+    }
+    __syncthreads();
+
+    // Phase 2: First warp reduces across all warp results
+    val = (tid < num_warps) ? shared_reduce[tid] : 0.0f;
+    if (warp_id == 0) {
+        for (int offset = 16; offset > 0; offset >>= 1) {
+            val += __shfl_down_sync(0xFFFFFFFF, val, offset);
+        }
+    }
+
+    // Thread 0 has the final block sum
+    if (tid == 0) {
+        shared_reduce[0] = val;
+    }
+
     return shared_reduce[0];
 }
 
@@ -667,12 +821,8 @@ extern "C" __global__ void __launch_bounds__({threads_per_block}, 2)
 
         // --- Phase 2: Check if we have work ---
         if (ctrl->steps_remaining == 0) {{
-            // No work - brief spinwait then check again
-            // Use volatile counter to prevent optimization
-            volatile int spin_count = 0;
-            for (int i = 0; i < 1000; i++) {{
-                spin_count++;
-            }}
+            // No work - sleep to reduce power consumption, then check again
+            __nanosleep({idle_sleep_ns});
             {grid_sync}
             continue;
         }}
@@ -839,6 +989,7 @@ extern "C" __global__ void __launch_bounds__({threads_per_block}, 2)
             ""
         },
         grid_sync = grid_sync,
+        idle_sleep_ns = config.idle_sleep_ns,
     )
 }
 
@@ -1019,9 +1170,28 @@ mod tests {
         assert!(code.contains("if (ctrl->should_terminate)"));
         assert!(code.contains("break;"));
 
-        // Must handle no-work case
+        // Must handle no-work case with nanosleep
         assert!(code.contains("if (ctrl->steps_remaining == 0)"));
-        assert!(code.contains("volatile int spin_count"));
+        assert!(code.contains("__nanosleep(1000)"));
+    }
+
+    #[test]
+    fn test_idle_sleep_configurable() {
+        let config = PersistentFdtdConfig::new("test_sleep").with_idle_sleep(5000);
+        let code = generate_persistent_fdtd_kernel(&config);
+
+        assert!(code.contains("__nanosleep(5000)"));
+        assert!(!code.contains("__nanosleep(1000)"));
+    }
+
+    #[test]
+    fn test_software_barrier_nanosleep() {
+        let config = PersistentFdtdConfig::new("test_barrier").with_cooperative(false);
+        let code = generate_persistent_fdtd_kernel(&config);
+
+        // Software barrier spin-loop should contain nanosleep
+        assert!(code.contains("__nanosleep(100)"));
+        assert!(code.contains("Reduce power in barrier spin"));
     }
 
     #[test]
@@ -1032,10 +1202,11 @@ mod tests {
 
         let code = generate_persistent_fdtd_kernel(&config);
 
-        // Must have energy reduction function
+        // Must have energy reduction function with warp-shuffle
         assert!(code.contains("block_reduce_energy"));
         assert!(code.contains("E = sum(p^2)"));
-        assert!(code.contains("Parallel reduction tree"));
+        assert!(code.contains("Warp-Shuffle Reduction"));
+        assert!(code.contains("__shfl_down_sync(0xFFFFFFFF, val, offset)"));
 
         // Must have shared memory for energy reduction
         assert!(code.contains("energy_reduce[512]")); // 8*8*8 = 512 threads
@@ -1059,5 +1230,44 @@ mod tests {
         // Must compute final energy at termination
         assert!(code.contains("FINAL ENERGY CALCULATION"));
         assert!(code.contains("block_final_energy"));
+    }
+
+    #[test]
+    fn test_generate_kernel_libcupp_atomics() {
+        let config = PersistentFdtdConfig::new("test_libcupp")
+            .with_libcupp_atomics(true)
+            .with_cooperative(false);
+
+        let code = generate_persistent_fdtd_kernel(&config);
+
+        // Must include libcu++ header with version guard
+        assert!(code.contains("#include <cuda/atomic>"));
+        assert!(code.contains("__CUDACC_VER_MAJOR__ < 11"));
+
+        // Queue operations must use cuda::atomic_ref with system scope
+        assert!(code.contains("cuda::atomic_ref<uint64_t, cuda::thread_scope_system>"));
+        assert!(code.contains("memory_order_acquire"));
+        assert!(code.contains("memory_order_release"));
+
+        // Must NOT have legacy __threadfence_system() in queue ops
+        assert!(!code.contains("__threadfence_system()"));
+
+        // Software barrier must use device scope (not system)
+        assert!(code.contains("cuda::atomic_ref<unsigned int, cuda::thread_scope_device>"));
+        assert!(code.contains("memory_order_acq_rel"));
+    }
+
+    #[test]
+    fn test_generate_kernel_default_no_libcupp() {
+        let config = PersistentFdtdConfig::default();
+        let code = generate_persistent_fdtd_kernel(&config);
+
+        // Default must NOT include libcu++
+        assert!(!code.contains("#include <cuda/atomic>"));
+        assert!(!code.contains("cuda::atomic_ref"));
+
+        // Must use legacy fencing
+        assert!(code.contains("__threadfence_system()"));
+        assert!(code.contains("volatile"));
     }
 }

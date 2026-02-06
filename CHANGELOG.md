@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-02-06
+
+### Added
+
+#### CUDA Codegen: Warp-Shuffle Reductions
+- **Two-phase warp-shuffle reduction** replaces tree reduction in all generated CUDA code
+  - Phase 1: Intra-warp `__shfl_down_sync(0xFFFFFFFF, val, offset)` — zero `__syncthreads()` calls
+  - Phase 2: Cross-warp reduction via shared memory — one `__syncthreads()` call
+  - Applies to: `block_reduce_energy` (persistent FDTD), `generate_block_reduce_fn`, `generate_grid_reduce_fn`, `generate_reduce_and_broadcast_fn`, and all inline reduction generators
+  - Reduces barrier count from O(log N) to 1 per block reduction (e.g., 9 → 1 for 512-thread blocks)
+
+#### CUDA Codegen: `__nanosleep()` Power Efficiency
+- **`PersistentFdtdConfig::idle_sleep_ns`** (default 1000ns): configurable idle sleep duration
+- Persistent FDTD idle spin-wait now uses `__nanosleep()` instead of volatile counter loop
+- Software grid barrier spin-loop uses `__nanosleep(100)` to reduce power consumption
+- Builder: `with_idle_sleep(ns)` to customize sleep duration
+
+#### CUDA Codegen: libcu++ Ordered Atomics (opt-in)
+- **`PersistentFdtdConfig::use_libcupp_atomics`** (default false): opt-in `cuda::atomic_ref` support
+- When enabled, H2K/K2H queue operations use `memory_order_acquire`/`memory_order_release` instead of `__threadfence_system()` pairs
+- Software barrier uses `cuda::thread_scope_device` (narrower than system scope) with `memory_order_acq_rel`
+- Compile-time guard: `#if __CUDACC_VER_MAJOR__ < 11` error for CUDA toolkit version check
+- Builder: `with_libcupp_atomics(true)` to enable
+
+### Changed
+- `block_reduce_energy` in persistent FDTD now uses warp-shuffle instead of shared-memory tree reduction
+- All standalone reduction helpers in `reduction_intrinsics.rs` upgraded to warp-shuffle pattern
+
 ## [0.4.1] - 2026-02-06
 
 ### Added

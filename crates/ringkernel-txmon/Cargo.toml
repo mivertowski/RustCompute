@@ -13,8 +13,8 @@ categories = ["simulation", "finance", "visualization"]
 readme = "README.md"
 
 [dependencies]
-ringkernel = { version = "0.4.1", path = "../ringkernel" }
-ringkernel-core = { version = "0.4.1", path = "../ringkernel-core" }
+ringkernel = { version = "0.4.2", path = "../ringkernel" }
+ringkernel-core = { version = "0.4.2", path = "../ringkernel-core" }
 inventory = { workspace = true }
 
 # GUI
@@ -34,8 +34,8 @@ rand = { version = "0.8", features = ["small_rng"] }
 bytemuck = { version = "1.24", features = ["derive"] }
 
 # CUDA compute (optional)
-ringkernel-cuda = { version = "0.4.1", path = "../ringkernel-cuda", optional = true }
-ringkernel-cuda-codegen = { version = "0.4.1", path = "../ringkernel-cuda-codegen", optional = true }
+ringkernel-cuda = { version = "0.4.2", path = "../ringkernel-cuda", optional = true }
+ringkernel-cuda-codegen = { version = "0.4.2", path = "../ringkernel-cuda-codegen", optional = true }
 cudarc = { workspace = true, optional = true }
 syn = { workspace = true, optional = true }
 

@@ -320,71 +320,111 @@ pub fn generate_reduction_helpers(config: &ReductionCodegenConfig) -> String {
     code
 }
 
-/// Generate a block-level reduction function.
+/// Generate the warp-shuffle combine expression for a reduction operation.
+fn shfl_combine_expr(op: &ReductionOp, val: &str, offset: &str) -> String {
+    let shfl = format!("__shfl_down_sync(0xFFFFFFFF, {}, {})", val, offset);
+    op.combine_expr(val, &shfl)
+}
+
+/// Generate a block-level reduction function using two-phase warp-shuffle.
 fn generate_block_reduce_fn(ty: &str, block_size: u32, op: &ReductionOp) -> String {
-    let combine = op.combine_expr("shared[tid]", "shared[tid + s]");
+    let warp_combine = shfl_combine_expr(op, "val", "offset");
+    let cross_warp_combine = shfl_combine_expr(op, "val", "offset");
+    let num_warps = block_size / 32;
+    let identity = op.identity(ty);
 
     format!(
         r#"
-// Block-level {op} reduction using shared memory
+// Block-level {op} reduction using warp-shuffle + shared memory
 __device__ {ty} __block_reduce_{op}({ty} val, {ty}* shared) {{
     int tid = threadIdx.x;
-    shared[tid] = val;
-    __syncthreads();
+    int warp_id = tid / 32;
+    int lane_id = tid % 32;
 
-    // Tree reduction
+    // Phase 1: Intra-warp reduction via shuffle
     #pragma unroll
-    for (int s = {block_size} / 2; s > 0; s >>= 1) {{
-        if (tid < s) {{
-            shared[tid] = {combine};
-        }}
-        __syncthreads();
+    for (int offset = 16; offset > 0; offset >>= 1) {{
+        val = {warp_combine};
     }}
 
-    return shared[0];
+    // Warp leaders store partial results
+    if (lane_id == 0) {{
+        shared[warp_id] = val;
+    }}
+    __syncthreads();
+
+    // Phase 2: First warp reduces across warp results
+    val = (tid < {num_warps}) ? shared[tid] : {identity};
+    if (warp_id == 0) {{
+        #pragma unroll
+        for (int offset = 16; offset > 0; offset >>= 1) {{
+            val = {cross_warp_combine};
+        }}
+    }}
+
+    return val;
 }}
 
 "#,
         ty = ty,
         op = op,
-        block_size = block_size,
-        combine = combine
+        num_warps = num_warps,
+        identity = identity,
+        warp_combine = warp_combine,
+        cross_warp_combine = cross_warp_combine
     )
 }
 
 /// Generate a grid-level reduction function with atomic accumulation.
 fn generate_grid_reduce_fn(ty: &str, block_size: u32, op: &ReductionOp) -> String {
     let atomic_fn = op.atomic_fn();
-    let combine = op.combine_expr("shared[tid]", "shared[tid + s]");
+    let warp_combine = shfl_combine_expr(op, "val", "offset");
+    let cross_warp_combine = shfl_combine_expr(op, "val", "offset");
+    let num_warps = block_size / 32;
+    let identity = op.identity(ty);
 
     format!(
         r#"
-// Grid-level {op} reduction with atomic accumulation
+// Grid-level {op} reduction with warp-shuffle + atomic accumulation
 __device__ void __grid_reduce_{op}({ty} val, {ty}* shared, {ty}* accumulator) {{
     int tid = threadIdx.x;
-    shared[tid] = val;
+    int warp_id = tid / 32;
+    int lane_id = tid % 32;
+
+    // Phase 1: Intra-warp reduction via shuffle
+    #pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {{
+        val = {warp_combine};
+    }}
+
+    // Warp leaders store partial results
+    if (lane_id == 0) {{
+        shared[warp_id] = val;
+    }}
     __syncthreads();
 
-    // Block-level tree reduction
-    #pragma unroll
-    for (int s = {block_size} / 2; s > 0; s >>= 1) {{
-        if (tid < s) {{
-            shared[tid] = {combine};
+    // Phase 2: First warp reduces across warp results
+    val = (tid < {num_warps}) ? shared[tid] : {identity};
+    if (warp_id == 0) {{
+        #pragma unroll
+        for (int offset = 16; offset > 0; offset >>= 1) {{
+            val = {cross_warp_combine};
         }}
-        __syncthreads();
     }}
 
     // Block leader atomically accumulates
     if (tid == 0) {{
-        {atomic_fn}(accumulator, shared[0]);
+        {atomic_fn}(accumulator, val);
     }}
 }}
 
 "#,
         ty = ty,
         op = op,
-        block_size = block_size,
-        combine = combine,
+        num_warps = num_warps,
+        identity = identity,
+        warp_combine = warp_combine,
+        cross_warp_combine = cross_warp_combine,
         atomic_fn = atomic_fn
     )
 }
@@ -397,7 +437,10 @@ fn generate_reduce_and_broadcast_fn(
     use_cooperative: bool,
 ) -> String {
     let atomic_fn = op.atomic_fn();
-    let combine = op.combine_expr("shared[tid]", "shared[tid + s]");
+    let warp_combine = shfl_combine_expr(op, "val", "offset");
+    let cross_warp_combine = shfl_combine_expr(op, "val", "offset");
+    let num_warps = block_size / 32;
+    let identity = op.identity(ty);
 
     let grid_sync = if use_cooperative {
         "    cg::grid_group grid = cg::this_grid();\n    grid.sync();"
@@ -416,38 +459,52 @@ fn generate_reduce_and_broadcast_fn(
 
     format!(
         r#"
-// Reduce-and-broadcast: all threads get the global {op} result
+// Reduce-and-broadcast: all threads get the global {op} result (warp-shuffle)
 __device__ {ty} __reduce_and_broadcast_{op}({params}) {{
     int tid = threadIdx.x;
-    shared[tid] = val;
+    int warp_id = tid / 32;
+    int lane_id = tid % 32;
+
+    // Phase 1: Intra-warp reduction via shuffle
+    #pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {{
+        val = {warp_combine};
+    }}
+
+    // Warp leaders store partial results
+    if (lane_id == 0) {{
+        shared[warp_id] = val;
+    }}
     __syncthreads();
 
-    // Phase 1: Block-level reduction
-    #pragma unroll
-    for (int s = {block_size} / 2; s > 0; s >>= 1) {{
-        if (tid < s) {{
-            shared[tid] = {combine};
+    // Phase 2: First warp reduces across warp results
+    val = (tid < {num_warps}) ? shared[tid] : {identity};
+    if (warp_id == 0) {{
+        #pragma unroll
+        for (int offset = 16; offset > 0; offset >>= 1) {{
+            val = {cross_warp_combine};
         }}
-        __syncthreads();
     }}
 
-    // Phase 2: Block leader atomically accumulates
+    // Phase 3: Block leader atomically accumulates
     if (tid == 0) {{
-        {atomic_fn}(accumulator, shared[0]);
+        {atomic_fn}(accumulator, val);
     }}
 
-    // Phase 3: Grid-wide synchronization
+    // Phase 4: Grid-wide synchronization
 {grid_sync}
 
-    // Phase 4: All threads read the result
+    // Phase 5: All threads read the result
     return *accumulator;
 }}
 
 "#,
         ty = ty,
         op = op,
-        block_size = block_size,
-        combine = combine,
+        num_warps = num_warps,
+        identity = identity,
+        warp_combine = warp_combine,
+        cross_warp_combine = cross_warp_combine,
         atomic_fn = atomic_fn,
         params = params,
         grid_sync = grid_sync
@@ -594,6 +651,7 @@ fn validate_args(args: &[String], expected: usize, name: &str) -> Result<(), Str
 /// Generate inline reduction code (without helper function call).
 ///
 /// Use this when you want the reduction logic inlined in a specific location.
+/// Uses two-phase warp-shuffle reduction for efficiency.
 pub fn generate_inline_block_reduce(
     value_expr: &str,
     shared_array: &str,
@@ -602,23 +660,41 @@ pub fn generate_inline_block_reduce(
     block_size: u32,
     op: &ReductionOp,
 ) -> String {
-    let combine = op.combine_expr(
-        &format!("{}[__tid]", shared_array),
-        &format!("{}[__tid + __s]", shared_array),
-    );
+    let warp_combine = shfl_combine_expr(op, "__val", "__offset");
+    let cross_warp_combine = shfl_combine_expr(op, "__val", "__offset");
+    let num_warps = block_size / 32;
+    let identity = op.identity(ty);
 
     format!(
         r#"{{
     int __tid = threadIdx.x;
-    {shared_array}[__tid] = {value_expr};
+    int __warp_id = __tid / 32;
+    int __lane_id = __tid % 32;
+    {ty} __val = {value_expr};
+
+    // Phase 1: Intra-warp reduction via shuffle
+    #pragma unroll
+    for (int __offset = 16; __offset > 0; __offset >>= 1) {{
+        __val = {warp_combine};
+    }}
+
+    // Warp leaders store partial results
+    if (__lane_id == 0) {{
+        {shared_array}[__warp_id] = __val;
+    }}
     __syncthreads();
 
-    #pragma unroll
-    for (int __s = {block_size} / 2; __s > 0; __s >>= 1) {{
-        if (__tid < __s) {{
-            {shared_array}[__tid] = {combine};
+    // Phase 2: First warp reduces across warp results
+    __val = (__tid < {num_warps}) ? {shared_array}[__tid] : {identity};
+    if (__warp_id == 0) {{
+        #pragma unroll
+        for (int __offset = 16; __offset > 0; __offset >>= 1) {{
+            __val = {cross_warp_combine};
         }}
-        __syncthreads();
+    }}
+
+    if (__tid == 0) {{
+        {shared_array}[0] = __val;
     }}
 
     {ty} {result_var} = {shared_array}[0];
@@ -627,8 +703,10 @@ pub fn generate_inline_block_reduce(
         shared_array = shared_array,
         result_var = result_var,
         ty = ty,
-        block_size = block_size,
-        combine = combine
+        num_warps = num_warps,
+        identity = identity,
+        warp_combine = warp_combine,
+        cross_warp_combine = cross_warp_combine
     )
 }
 
@@ -637,39 +715,56 @@ pub fn generate_inline_grid_reduce(
     value_expr: &str,
     shared_array: &str,
     accumulator: &str,
-    _ty: &str,
+    ty: &str,
     block_size: u32,
     op: &ReductionOp,
 ) -> String {
     let atomic_fn = op.atomic_fn();
-    let combine = op.combine_expr(
-        &format!("{}[__tid]", shared_array),
-        &format!("{}[__tid + __s]", shared_array),
-    );
+    let warp_combine = shfl_combine_expr(op, "__val", "__offset");
+    let cross_warp_combine = shfl_combine_expr(op, "__val", "__offset");
+    let num_warps = block_size / 32;
+    let identity = op.identity(ty);
 
     format!(
         r#"{{
     int __tid = threadIdx.x;
-    {shared_array}[__tid] = {value_expr};
+    int __warp_id = __tid / 32;
+    int __lane_id = __tid % 32;
+    {ty} __val = {value_expr};
+
+    // Phase 1: Intra-warp reduction via shuffle
+    #pragma unroll
+    for (int __offset = 16; __offset > 0; __offset >>= 1) {{
+        __val = {warp_combine};
+    }}
+
+    // Warp leaders store partial results
+    if (__lane_id == 0) {{
+        {shared_array}[__warp_id] = __val;
+    }}
     __syncthreads();
 
-    #pragma unroll
-    for (int __s = {block_size} / 2; __s > 0; __s >>= 1) {{
-        if (__tid < __s) {{
-            {shared_array}[__tid] = {combine};
+    // Phase 2: First warp reduces across warp results
+    __val = (__tid < {num_warps}) ? {shared_array}[__tid] : {identity};
+    if (__warp_id == 0) {{
+        #pragma unroll
+        for (int __offset = 16; __offset > 0; __offset >>= 1) {{
+            __val = {cross_warp_combine};
         }}
-        __syncthreads();
     }}
 
     if (__tid == 0) {{
-        {atomic_fn}({accumulator}, {shared_array}[0]);
+        {atomic_fn}({accumulator}, __val);
     }}
 }}"#,
+        ty = ty,
         value_expr = value_expr,
         shared_array = shared_array,
         accumulator = accumulator,
-        block_size = block_size,
-        combine = combine,
+        num_warps = num_warps,
+        identity = identity,
+        warp_combine = warp_combine,
+        cross_warp_combine = cross_warp_combine,
         atomic_fn = atomic_fn
     )
 }
@@ -687,10 +782,10 @@ pub fn generate_inline_reduce_and_broadcast(
     use_cooperative: bool,
 ) -> String {
     let atomic_fn = op.atomic_fn();
-    let combine = op.combine_expr(
-        &format!("{}[__tid]", shared_array),
-        &format!("{}[__tid + __s]", shared_array),
-    );
+    let warp_combine = shfl_combine_expr(op, "__val", "__offset");
+    let cross_warp_combine = shfl_combine_expr(op, "__val", "__offset");
+    let num_warps = block_size / 32;
+    let identity = op.identity(ty);
 
     let grid_sync = if use_cooperative {
         "    cg::grid_group __grid = cg::this_grid();\n    __grid.sync();"
@@ -701,21 +796,34 @@ pub fn generate_inline_reduce_and_broadcast(
     format!(
         r#"{{
     int __tid = threadIdx.x;
-    {shared_array}[__tid] = {value_expr};
+    int __warp_id = __tid / 32;
+    int __lane_id = __tid % 32;
+    {ty} __val = {value_expr};
+
+    // Phase 1: Intra-warp reduction via shuffle
+    #pragma unroll
+    for (int __offset = 16; __offset > 0; __offset >>= 1) {{
+        __val = {warp_combine};
+    }}
+
+    // Warp leaders store partial results
+    if (__lane_id == 0) {{
+        {shared_array}[__warp_id] = __val;
+    }}
     __syncthreads();
 
-    // Block-level reduction
-    #pragma unroll
-    for (int __s = {block_size} / 2; __s > 0; __s >>= 1) {{
-        if (__tid < __s) {{
-            {shared_array}[__tid] = {combine};
+    // Phase 2: First warp reduces across warp results
+    __val = (__tid < {num_warps}) ? {shared_array}[__tid] : {identity};
+    if (__warp_id == 0) {{
+        #pragma unroll
+        for (int __offset = 16; __offset > 0; __offset >>= 1) {{
+            __val = {cross_warp_combine};
         }}
-        __syncthreads();
     }}
 
     // Atomic accumulation
     if (__tid == 0) {{
-        {atomic_fn}({accumulator}, {shared_array}[0]);
+        {atomic_fn}({accumulator}, __val);
     }}
 
     // Grid synchronization
@@ -729,8 +837,10 @@ pub fn generate_inline_reduce_and_broadcast(
         accumulator = accumulator,
         result_var = result_var,
         ty = ty,
-        block_size = block_size,
-        combine = combine,
+        num_warps = num_warps,
+        identity = identity,
+        warp_combine = warp_combine,
+        cross_warp_combine = cross_warp_combine,
         atomic_fn = atomic_fn,
         grid_sync = grid_sync
     )
@@ -777,15 +887,18 @@ mod tests {
     fn test_generate_block_reduce() {
         let code = generate_block_reduce_fn("float", 256, &ReductionOp::Sum);
         assert!(code.contains("__device__ float __block_reduce_sum"));
-        assert!(code.contains("shared[tid] = shared[tid] + shared[tid + s]"));
+        assert!(code.contains("__shfl_down_sync(0xFFFFFFFF, val, offset)"));
         assert!(code.contains("__syncthreads()"));
+        assert!(code.contains("warp_id"));
+        assert!(code.contains("lane_id"));
     }
 
     #[test]
     fn test_generate_grid_reduce() {
         let code = generate_grid_reduce_fn("double", 128, &ReductionOp::Max);
         assert!(code.contains("__device__ void __grid_reduce_max"));
-        assert!(code.contains("atomicMax(accumulator, shared[0])"));
+        assert!(code.contains("__shfl_down_sync(0xFFFFFFFF, val, offset)"));
+        assert!(code.contains("atomicMax(accumulator, val)"));
     }
 
     #[test]
@@ -812,7 +925,8 @@ mod tests {
             256,
             &ReductionOp::Sum,
         );
-        assert!(code.contains("shared_mem[__tid] = my_value"));
+        assert!(code.contains("__shfl_down_sync(0xFFFFFFFF, __val, __offset)"));
+        assert!(code.contains("shared_mem[__warp_id] = __val"));
         assert!(code.contains("float result = shared_mem[0]"));
     }
 
