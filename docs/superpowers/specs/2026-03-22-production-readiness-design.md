@@ -488,23 +488,23 @@ Based on docs/19-cuda-wishlist-persistent-actors.md:
 - [x] 1.1.10 Graph error coverage verification — already clean
 - [x] 1.2.1 unwrap/expect/panic reduction: ringkernel-core — 96 eliminated (482be2c)
 - [x] 1.2.2 unwrap reduction: ringkernel-cuda-codegen — 163 eliminated (c943775)
-- [ ] 1.2.3 unwrap reduction: ringkernel-wavesim — deferred (GUI code, lower risk)
+- [x] 1.2.3 unwrap reduction: ringkernel-wavesim — 30 eliminated (d135fff)
 - [x] 1.2.4 unwrap reduction: ringkernel-ecosystem — 2 eliminated (5cf7b82)
 - [x] 1.2.5 unwrap reduction: ringkernel-cpu — 7 eliminated (5cf7b82)
 - [x] 1.2.6 unwrap reduction: ringkernel-wgpu-codegen — 1 eliminated (5cf7b82)
 - [x] 1.2.7 unwrap reduction: ringkernel-cuda — 13 eliminated (5cf7b82)
 - [x] 1.2.8 unwrap reduction: ringkernel-graph — 2 eliminated (5cf7b82)
 - [x] 1.2.9 unwrap reduction: ringkernel-metal — 0 needed (all in test code)
-- [ ] 1.2.10 unwrap reduction: remaining application crates — deferred
+- [x] 1.2.10 unwrap reduction: remaining app crates — 33 eliminated (d135fff)
 - [x] 1.3.1 TLS PEM parsing implementation (47df34a)
 - [x] 1.3.2 TLS integration tests — 5 tests added (47df34a)
-- [ ] 1.4.1 CloudWatch audit sink implementation — deferred (feature-gated, non-blocking)
+- [x] 1.4.1 CloudWatch audit sink implementation (ef91248)
 - [x] 1.4.2 OTLP: add dedicated otel feature flag (2ac9199)
 - [x] 1.4.3 CLI input validation (950ada3)
-- [ ] 1.5.1 Add clippy::unwrap_used lint — deferred (needs wavesim cleanup first)
+- [x] 1.5.1 Add clippy::unwrap_used lint to 12 crates (17f84f4)
 - [x] 1.5.2 Add cargo audit to CI (609a261)
 - [x] 1.5.3 MSRV already established — rust-version = "1.75" in Cargo.toml
-- [ ] 1.5.4 Add graceful shutdown for persistent GPU kernels — Phase 2/5 scope
+- [x] 1.5.4 Graceful shutdown handler (d2de663)
 
 ### Phase 0: Roadmap Corrections (Immediate)
 - [x] 0.1 Fix Metal persistent kernels claim (f611d3f)
