@@ -68,6 +68,7 @@ pub mod resource;
 pub mod runtime;
 pub mod runtime_context;
 pub mod security;
+pub mod shutdown;
 pub mod state;
 pub mod telemetry;
 pub mod telemetry_pipeline;
@@ -186,6 +187,7 @@ pub mod prelude {
         MemoryEncryption, ReportFormat, ResourceLimits, SandboxPolicy, SandboxStats,
         SandboxViolation, ViolationType,
     };
+    pub use crate::shutdown::{GracefulShutdown, ShutdownGuard, ShutdownSignal};
     pub use crate::state::{
         ControlBlockStateHelper, EmbeddedState, EmbeddedStateSize, GpuState, StateDescriptor,
         StateSnapshot, CONTROL_BLOCK_STATE_SIZE, STATE_DESCRIPTOR_MAGIC,
