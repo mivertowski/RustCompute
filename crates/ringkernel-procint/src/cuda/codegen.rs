@@ -4,6 +4,8 @@
 
 #![allow(missing_docs)]
 
+use crate::error::ProcIntError;
+
 #[cfg(feature = "cuda")]
 use ringkernel_cuda_codegen::{
     transpile_global_kernel, transpile_ring_kernel, transpile_stencil_kernel, RingKernelConfig,
@@ -62,7 +64,7 @@ impl KernelSource {
 
 /// Generate all CUDA kernels for process intelligence.
 #[cfg(feature = "cuda")]
-pub fn generate_all_kernels() -> Result<Vec<KernelSource>, String> {
+pub fn generate_all_kernels() -> Result<Vec<KernelSource>, ProcIntError> {
     Ok(vec![
         generate_dfg_batch_kernel()?,
         generate_pattern_batch_kernel()?,
@@ -75,7 +77,7 @@ pub fn generate_all_kernels() -> Result<Vec<KernelSource>, String> {
 ///
 /// Each thread processes one event pair to build edge frequencies.
 #[cfg(feature = "cuda")]
-pub fn generate_dfg_batch_kernel() -> Result<KernelSource, String> {
+pub fn generate_dfg_batch_kernel() -> Result<KernelSource, ProcIntError> {
     let kernel_fn: syn::ItemFn = parse_quote! {
         fn dfg_construction(
             source_activities: &[u32],
@@ -104,8 +106,10 @@ pub fn generate_dfg_batch_kernel() -> Result<KernelSource, String> {
         }
     };
 
-    let cuda_source = transpile_global_kernel(&kernel_fn)
-        .map_err(|e| format!("Failed to transpile DFG batch kernel: {}", e))?;
+    let cuda_source = transpile_global_kernel(&kernel_fn).map_err(|e| ProcIntError::Codegen {
+        kernel: "dfg_batch",
+        reason: e.to_string(),
+    })?;
 
     Ok(
         KernelSource::new("dfg_construction", cuda_source, KernelType::Global)
@@ -117,7 +121,7 @@ pub fn generate_dfg_batch_kernel() -> Result<KernelSource, String> {
 ///
 /// Each thread analyzes one DFG node for patterns.
 #[cfg(feature = "cuda")]
-pub fn generate_pattern_batch_kernel() -> Result<KernelSource, String> {
+pub fn generate_pattern_batch_kernel() -> Result<KernelSource, ProcIntError> {
     let kernel_fn: syn::ItemFn = parse_quote! {
         fn pattern_detection(
             event_counts: &[u32],
@@ -159,8 +163,10 @@ pub fn generate_pattern_batch_kernel() -> Result<KernelSource, String> {
         }
     };
 
-    let cuda_source = transpile_global_kernel(&kernel_fn)
-        .map_err(|e| format!("Failed to transpile pattern batch kernel: {}", e))?;
+    let cuda_source = transpile_global_kernel(&kernel_fn).map_err(|e| ProcIntError::Codegen {
+        kernel: "pattern_batch",
+        reason: e.to_string(),
+    })?;
 
     Ok(
         KernelSource::new("pattern_detection", cuda_source, KernelType::Global)
@@ -172,7 +178,7 @@ pub fn generate_pattern_batch_kernel() -> Result<KernelSource, String> {
 ///
 /// Uses GridPos abstraction for pairwise event comparison.
 #[cfg(feature = "cuda")]
-pub fn generate_partial_order_stencil_kernel() -> Result<KernelSource, String> {
+pub fn generate_partial_order_stencil_kernel() -> Result<KernelSource, ProcIntError> {
     let stencil_fn: syn::ItemFn = parse_quote! {
         fn partial_order_derive(
             start_times: &[u64],
@@ -197,8 +203,11 @@ pub fn generate_partial_order_stencil_kernel() -> Result<KernelSource, String> {
         .with_tile_size(16, 16)
         .with_halo(0); // No halo needed for pairwise comparison
 
-    let cuda_source = transpile_stencil_kernel(&stencil_fn, &config)
-        .map_err(|e| format!("Failed to transpile partial order stencil: {}", e))?;
+    let cuda_source =
+        transpile_stencil_kernel(&stencil_fn, &config).map_err(|e| ProcIntError::Codegen {
+            kernel: "partial_order_stencil",
+            reason: e.to_string(),
+        })?;
 
     Ok(
         KernelSource::new("partial_order_derive", cuda_source, KernelType::Stencil)
@@ -210,7 +219,7 @@ pub fn generate_partial_order_stencil_kernel() -> Result<KernelSource, String> {
 ///
 /// Continuous event processing with HLC timestamps.
 #[cfg(feature = "cuda")]
-pub fn generate_dfg_ring_kernel() -> Result<KernelSource, String> {
+pub fn generate_dfg_ring_kernel() -> Result<KernelSource, ProcIntError> {
     let handler_fn: syn::ItemFn = parse_quote! {
         fn process_event(ctx: &RingContext, event: &GpuObjectEvent) -> EdgeUpdate {
             let tid = ctx.global_thread_id();
@@ -237,8 +246,11 @@ pub fn generate_dfg_ring_kernel() -> Result<KernelSource, String> {
         .with_hlc(true)
         .with_k2k(false); // No K2K needed for DFG
 
-    let cuda_source = transpile_ring_kernel(&handler_fn, &config)
-        .map_err(|e| format!("Failed to transpile DFG ring kernel: {}", e))?;
+    let cuda_source =
+        transpile_ring_kernel(&handler_fn, &config).map_err(|e| ProcIntError::Codegen {
+            kernel: "dfg_ring",
+            reason: e.to_string(),
+        })?;
 
     Ok(
         KernelSource::new("ring_kernel_dfg", cuda_source, KernelType::Ring)
@@ -346,28 +358,28 @@ struct EdgeUpdate {
 
 // Fallback implementations when cuda feature is not enabled
 #[cfg(not(feature = "cuda"))]
-pub fn generate_all_kernels() -> Result<Vec<KernelSource>, String> {
-    Err("CUDA feature not enabled. Build with --features cuda".to_string())
+pub fn generate_all_kernels() -> Result<Vec<KernelSource>, ProcIntError> {
+    Err(ProcIntError::CudaNotEnabled)
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn generate_dfg_batch_kernel() -> Result<KernelSource, String> {
-    Err("CUDA feature not enabled".to_string())
+pub fn generate_dfg_batch_kernel() -> Result<KernelSource, ProcIntError> {
+    Err(ProcIntError::CudaNotEnabled)
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn generate_pattern_batch_kernel() -> Result<KernelSource, String> {
-    Err("CUDA feature not enabled".to_string())
+pub fn generate_pattern_batch_kernel() -> Result<KernelSource, ProcIntError> {
+    Err(ProcIntError::CudaNotEnabled)
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn generate_partial_order_stencil_kernel() -> Result<KernelSource, String> {
-    Err("CUDA feature not enabled".to_string())
+pub fn generate_partial_order_stencil_kernel() -> Result<KernelSource, ProcIntError> {
+    Err(ProcIntError::CudaNotEnabled)
 }
 
 #[cfg(not(feature = "cuda"))]
-pub fn generate_dfg_ring_kernel() -> Result<KernelSource, String> {
-    Err("CUDA feature not enabled".to_string())
+pub fn generate_dfg_ring_kernel() -> Result<KernelSource, ProcIntError> {
+    Err(ProcIntError::CudaNotEnabled)
 }
 
 /// Generate DFG construction kernel (legacy static version).

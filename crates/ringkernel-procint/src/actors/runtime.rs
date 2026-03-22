@@ -2,6 +2,7 @@
 //!
 //! Manages GPU resources and kernel execution.
 
+use crate::error::ProcIntError;
 use std::time::{Duration, Instant};
 
 /// GPU actor runtime configuration.
@@ -59,7 +60,7 @@ impl GpuActorRuntime {
     }
 
     /// Initialize the runtime.
-    pub fn init(&mut self) -> Result<(), String> {
+    pub fn init(&mut self) -> Result<(), ProcIntError> {
         if self.initialized {
             return Ok(());
         }

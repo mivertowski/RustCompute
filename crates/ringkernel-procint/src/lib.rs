@@ -57,6 +57,7 @@
 pub mod actors;
 pub mod analytics;
 pub mod cuda;
+pub mod error;
 pub mod fabric;
 pub mod gui;
 pub mod kernels;

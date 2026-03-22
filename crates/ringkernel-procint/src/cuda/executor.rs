@@ -4,6 +4,7 @@
 //! Uses ringkernel-cuda patterns for proper GPU integration.
 
 use super::{KernelSource, KernelType};
+use crate::error::ProcIntError;
 
 #[allow(unused_imports)]
 use super::LaunchConfig;
@@ -231,7 +232,7 @@ impl KernelExecutor {
     }
 
     /// Compile a kernel from source using NVRTC.
-    pub fn compile(&mut self, source: &KernelSource) -> Result<&CompiledKernel, String> {
+    pub fn compile(&mut self, source: &KernelSource) -> Result<&CompiledKernel, ProcIntError> {
         // Clone the name first to avoid lifetime issues
         let kernel_name = source.name.clone();
         let entry_point = source.entry_point.clone();
@@ -244,8 +245,12 @@ impl KernelExecutor {
         #[cfg(feature = "cuda")]
         if let Some(device) = &self.device {
             // Compile CUDA C to PTX using NVRTC
-            let ptx = cudarc::nvrtc::compile_ptx(&cuda_source)
-                .map_err(|e| format!("NVRTC compilation failed for {}: {}", kernel_name, e))?;
+            let ptx = cudarc::nvrtc::compile_ptx(&cuda_source).map_err(|e| {
+                ProcIntError::NvrtcCompilation {
+                    kernel: kernel_name.clone(),
+                    reason: e.to_string(),
+                }
+            })?;
 
             // Load the PTX module into the device
             // load_ptx requires 'static strings, so we use leaked Box<str>
@@ -254,11 +259,10 @@ impl KernelExecutor {
 
             device
                 .load_ptx(ptx, module_name, &[func_name])
-                .map_err(|e| {
-                    format!(
-                        "Failed to load PTX for {} (func: {}): {}",
-                        kernel_name, func_name, e
-                    )
+                .map_err(|e| ProcIntError::PtxLoad {
+                    kernel: kernel_name.clone(),
+                    func: func_name.to_string(),
+                    reason: e.to_string(),
                 })?;
 
             log::info!(
@@ -290,10 +294,10 @@ impl KernelExecutor {
     pub fn execute_dfg_gpu(
         &mut self,
         events: &[crate::models::GpuObjectEvent],
-    ) -> Result<(Vec<crate::models::GpuDFGEdge>, ExecutionResult), String> {
+    ) -> Result<(Vec<crate::models::GpuDFGEdge>, ExecutionResult), ProcIntError> {
         use crate::models::GpuDFGEdge;
 
-        let device = self.device.as_ref().ok_or("No CUDA device available")?;
+        let device = self.device.as_ref().ok_or(ProcIntError::NoCudaDevice)?;
         let start = std::time::Instant::now();
 
         let n = events.len();
@@ -336,13 +340,13 @@ impl KernelExecutor {
         // Host-to-Device transfers
         let d_sources = device
             .htod_sync_copy(&source_activities)
-            .map_err(|e| format!("HtoD sources failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "sources", reason: e.to_string() })?;
         let d_targets = device
             .htod_sync_copy(&target_activities)
-            .map_err(|e| format!("HtoD targets failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "targets", reason: e.to_string() })?;
         let d_durations = device
             .htod_sync_copy(&durations)
-            .map_err(|e| format!("HtoD durations failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "durations", reason: e.to_string() })?;
 
         // Allocate output buffers (initialized to zeros)
         let edge_frequencies = vec![0u32; edge_count];
@@ -350,15 +354,15 @@ impl KernelExecutor {
 
         let d_edge_freq = device
             .htod_sync_copy(&edge_frequencies)
-            .map_err(|e| format!("HtoD edge_freq failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "edge_freq", reason: e.to_string() })?;
         let d_edge_dur = device
             .htod_sync_copy(&edge_durations)
-            .map_err(|e| format!("HtoD edge_dur failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "edge_dur", reason: e.to_string() })?;
 
         // Get the compiled kernel function
         let func = device
             .get_func("dfg_construction", "dfg_construction_kernel")
-            .ok_or("DFG kernel not loaded - call compile() with generate_dfg_kernel() first")?;
+            .ok_or_else(|| ProcIntError::KernelNotLoaded("dfg_construction".into()))?;
 
         // Launch configuration
         let block_size = 256u32;
@@ -384,13 +388,13 @@ impl KernelExecutor {
                     pair_count as i32,
                 ),
             )
-            .map_err(|e| format!("Kernel launch failed: {}", e))?;
+            .map_err(|e| ProcIntError::KernelLaunch { kernel: "dfg_construction", reason: e.to_string() })?;
         }
 
         // Synchronize - wait for kernel completion
         device
             .synchronize()
-            .map_err(|e| format!("Device synchronize failed: {}", e))?;
+            .map_err(|e| ProcIntError::DeviceSync(e.to_string()))?;
 
         // Device-to-Host transfers
         let mut result_frequencies = vec![0u32; edge_count];
@@ -398,10 +402,10 @@ impl KernelExecutor {
 
         device
             .dtoh_sync_copy_into(&d_edge_freq, &mut result_frequencies)
-            .map_err(|e| format!("DtoH frequencies failed: {}", e))?;
+            .map_err(|e| ProcIntError::DeviceToHost { buffer: "frequencies", reason: e.to_string() })?;
         device
             .dtoh_sync_copy_into(&d_edge_dur, &mut result_durations)
-            .map_err(|e| format!("DtoH durations failed: {}", e))?;
+            .map_err(|e| ProcIntError::DeviceToHost { buffer: "durations", reason: e.to_string() })?;
 
         let elapsed = start.elapsed().as_micros() as u64;
 
@@ -449,10 +453,10 @@ impl KernelExecutor {
         nodes: &[crate::models::GpuDFGNode],
         bottleneck_threshold: f32,
         duration_threshold: f32,
-    ) -> Result<(Vec<crate::models::GpuPatternMatch>, ExecutionResult), String> {
+    ) -> Result<(Vec<crate::models::GpuPatternMatch>, ExecutionResult), ProcIntError> {
         use crate::models::{GpuPatternMatch, PatternSeverity, PatternType};
 
-        let device = self.device.as_ref().ok_or("No CUDA device available")?;
+        let device = self.device.as_ref().ok_or(ProcIntError::NoCudaDevice)?;
         let start = std::time::Instant::now();
 
         let n = nodes.len();
@@ -469,16 +473,16 @@ impl KernelExecutor {
         // HtoD transfers
         let d_event_counts = device
             .htod_sync_copy(&event_counts)
-            .map_err(|e| format!("HtoD event_counts failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "event_counts", reason: e.to_string() })?;
         let d_avg_durations = device
             .htod_sync_copy(&avg_durations)
-            .map_err(|e| format!("HtoD avg_durations failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "avg_durations", reason: e.to_string() })?;
         let d_incoming = device
             .htod_sync_copy(&incoming_counts)
-            .map_err(|e| format!("HtoD incoming failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "incoming", reason: e.to_string() })?;
         let d_outgoing = device
             .htod_sync_copy(&outgoing_counts)
-            .map_err(|e| format!("HtoD outgoing failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "outgoing", reason: e.to_string() })?;
 
         // Output buffers
         let pattern_types = vec![0u8; n];
@@ -486,17 +490,15 @@ impl KernelExecutor {
 
         let d_pattern_types = device
             .htod_sync_copy(&pattern_types)
-            .map_err(|e| format!("HtoD pattern_types failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "pattern_types", reason: e.to_string() })?;
         let d_pattern_conf = device
             .htod_sync_copy(&pattern_confidences)
-            .map_err(|e| format!("HtoD pattern_conf failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "pattern_conf", reason: e.to_string() })?;
 
         // Get kernel function
         let func = device
             .get_func("pattern_detection", "pattern_detection_kernel")
-            .ok_or(
-                "Pattern kernel not loaded - call compile() with generate_pattern_kernel() first",
-            )?;
+            .ok_or_else(|| ProcIntError::KernelNotLoaded("pattern_detection".into()))?;
 
         // Launch configuration
         let block_size = 256u32;
@@ -524,12 +526,12 @@ impl KernelExecutor {
                     n as i32,
                 ),
             )
-            .map_err(|e| format!("Pattern kernel launch failed: {}", e))?;
+            .map_err(|e| ProcIntError::KernelLaunch { kernel: "pattern_detection", reason: e.to_string() })?;
         }
 
         device
             .synchronize()
-            .map_err(|e| format!("Device synchronize failed: {}", e))?;
+            .map_err(|e| ProcIntError::DeviceSync(e.to_string()))?;
 
         // DtoH transfers
         let mut result_types = vec![0u8; n];
@@ -537,10 +539,10 @@ impl KernelExecutor {
 
         device
             .dtoh_sync_copy_into(&d_pattern_types, &mut result_types)
-            .map_err(|e| format!("DtoH pattern_types failed: {}", e))?;
+            .map_err(|e| ProcIntError::DeviceToHost { buffer: "pattern_types", reason: e.to_string() })?;
         device
             .dtoh_sync_copy_into(&d_pattern_conf, &mut result_confidences)
-            .map_err(|e| format!("DtoH pattern_conf failed: {}", e))?;
+            .map_err(|e| ProcIntError::DeviceToHost { buffer: "pattern_conf", reason: e.to_string() })?;
 
         let elapsed = start.elapsed().as_micros() as u64;
 
@@ -590,11 +592,11 @@ impl KernelExecutor {
     pub fn execute_partial_order_gpu(
         &mut self,
         events: &[crate::models::GpuObjectEvent],
-    ) -> Result<(Vec<crate::models::GpuPartialOrderTrace>, ExecutionResult), String> {
+    ) -> Result<(Vec<crate::models::GpuPartialOrderTrace>, ExecutionResult), ProcIntError> {
         use crate::models::{GpuPartialOrderTrace, HybridTimestamp};
         use std::collections::HashMap;
 
-        let device = self.device.as_ref().ok_or("No CUDA device available")?;
+        let device = self.device.as_ref().ok_or(ProcIntError::NoCudaDevice)?;
         let start = std::time::Instant::now();
 
         // Group events by case
@@ -633,21 +635,21 @@ impl KernelExecutor {
             // HtoD transfers
             let d_start_times = device
                 .htod_sync_copy(&start_times_padded)
-                .map_err(|e| format!("HtoD start_times failed: {}", e))?;
+                .map_err(|e| ProcIntError::HostToDevice { buffer: "start_times", reason: e.to_string() })?;
             let d_end_times = device
                 .htod_sync_copy(&end_times_padded)
-                .map_err(|e| format!("HtoD end_times failed: {}", e))?;
+                .map_err(|e| ProcIntError::HostToDevice { buffer: "end_times", reason: e.to_string() })?;
 
             // Output buffer (16x16 = 256 elements)
             let precedence_flat = vec![0u32; 256];
             let d_precedence = device
                 .htod_sync_copy(&precedence_flat)
-                .map_err(|e| format!("HtoD precedence failed: {}", e))?;
+                .map_err(|e| ProcIntError::HostToDevice { buffer: "precedence", reason: e.to_string() })?;
 
             // Get kernel function
             let func = device
                 .get_func("partial_order", "partial_order_kernel")
-                .ok_or("Partial order kernel not loaded")?;
+                .ok_or_else(|| ProcIntError::KernelNotLoaded("partial_order".into()))?;
 
             // Launch configuration (16x16 grid for pairwise comparison)
             let config = CudaLaunchConfig {
@@ -664,12 +666,12 @@ impl KernelExecutor {
                     config,
                     (&d_start_times, &d_end_times, &d_precedence, 16i32, 16i32),
                 )
-                .map_err(|e| format!("Partial order kernel launch failed: {}", e))?;
+                .map_err(|e| ProcIntError::KernelLaunch { kernel: "partial_order", reason: e.to_string() })?;
             }
 
             device
                 .synchronize()
-                .map_err(|e| format!("Device synchronize failed: {}", e))?;
+                .map_err(|e| ProcIntError::DeviceSync(e.to_string()))?;
 
             total_kernel_time_us += kernel_start.elapsed().as_micros() as u64;
 
@@ -677,7 +679,7 @@ impl KernelExecutor {
             let mut result_precedence = vec![0u32; 256];
             device
                 .dtoh_sync_copy_into(&d_precedence, &mut result_precedence)
-                .map_err(|e| format!("DtoH precedence failed: {}", e))?;
+                .map_err(|e| ProcIntError::DeviceToHost { buffer: "precedence", reason: e.to_string() })?;
 
             // Convert flat precedence to 16x16 bit matrix
             let mut precedence_matrix = [0u16; 16];
@@ -776,11 +778,11 @@ impl KernelExecutor {
         &mut self,
         events: &[crate::models::GpuObjectEvent],
         model: &crate::models::ProcessModel,
-    ) -> Result<(Vec<crate::models::ConformanceResult>, ExecutionResult), String> {
+    ) -> Result<(Vec<crate::models::ConformanceResult>, ExecutionResult), ProcIntError> {
         use crate::models::{ComplianceLevel, ConformanceResult, ConformanceStatus};
         use std::collections::HashMap;
 
-        let device = self.device.as_ref().ok_or("No CUDA device available")?;
+        let device = self.device.as_ref().ok_or(ProcIntError::NoCudaDevice)?;
         let start = std::time::Instant::now();
 
         // Group events by case
@@ -821,30 +823,30 @@ impl KernelExecutor {
         // HtoD transfers
         let d_activities = device
             .htod_sync_copy(&all_activities)
-            .map_err(|e| format!("HtoD activities failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "activities", reason: e.to_string() })?;
         let d_trace_starts = device
             .htod_sync_copy(&trace_starts)
-            .map_err(|e| format!("HtoD trace_starts failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "trace_starts", reason: e.to_string() })?;
         let d_trace_lengths = device
             .htod_sync_copy(&trace_lengths)
-            .map_err(|e| format!("HtoD trace_lengths failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "trace_lengths", reason: e.to_string() })?;
         let d_model_sources = device
             .htod_sync_copy(&model_sources)
-            .map_err(|e| format!("HtoD model_sources failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "model_sources", reason: e.to_string() })?;
         let d_model_targets = device
             .htod_sync_copy(&model_targets)
-            .map_err(|e| format!("HtoD model_targets failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "model_targets", reason: e.to_string() })?;
 
         // Output buffer
         let fitness_scores = vec![0.0f32; num_traces];
         let d_fitness = device
             .htod_sync_copy(&fitness_scores)
-            .map_err(|e| format!("HtoD fitness failed: {}", e))?;
+            .map_err(|e| ProcIntError::HostToDevice { buffer: "fitness", reason: e.to_string() })?;
 
         // Get kernel function
         let func = device
             .get_func("conformance", "conformance_kernel")
-            .ok_or("Conformance kernel not loaded")?;
+            .ok_or_else(|| ProcIntError::KernelNotLoaded("conformance".into()))?;
 
         // Launch configuration
         let block_size = 256u32;
@@ -871,18 +873,18 @@ impl KernelExecutor {
                     num_traces as i32,
                 ),
             )
-            .map_err(|e| format!("Conformance kernel launch failed: {}", e))?;
+            .map_err(|e| ProcIntError::KernelLaunch { kernel: "conformance", reason: e.to_string() })?;
         }
 
         device
             .synchronize()
-            .map_err(|e| format!("Device synchronize failed: {}", e))?;
+            .map_err(|e| ProcIntError::DeviceSync(e.to_string()))?;
 
         // DtoH transfer
         let mut result_fitness = vec![0.0f32; num_traces];
         device
             .dtoh_sync_copy_into(&d_fitness, &mut result_fitness)
-            .map_err(|e| format!("DtoH fitness failed: {}", e))?;
+            .map_err(|e| ProcIntError::DeviceToHost { buffer: "fitness", reason: e.to_string() })?;
 
         let elapsed = start.elapsed().as_micros() as u64;
 
@@ -1221,18 +1223,11 @@ mod tests {
         let source = generate_dfg_kernel();
         let result = executor.compile(&source);
 
-        // Convert result to bool to release borrow
-        let is_ok = result.is_ok();
-        let err_msg = if let Err(ref e) = result {
-            Some(e.clone())
-        } else {
-            None
-        };
-
         // Print error for debugging if it fails
-        if let Some(e) = err_msg {
+        if let Err(ref e) = result {
             eprintln!("Kernel compilation error: {}", e);
         }
+        let is_ok = result.is_ok();
 
         // Skip GPU compilation tests when no CUDA available
         if gpu_status == GpuStatus::CpuFallback {
