@@ -519,7 +519,10 @@ impl ReductionBufferCache {
 
         // Try to get from cache
         let buffer = {
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self
+                .cache
+                .lock()
+                .expect("ReductionBufferCache mutex poisoned");
             cache.get_mut(&key).and_then(|v| v.pop())
         };
 
@@ -561,7 +564,10 @@ impl ReductionBufferCache {
         key: CacheKey,
         buffer: ReductionBuffer<T>,
     ) {
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self
+            .cache
+            .lock()
+            .expect("ReductionBufferCache mutex poisoned");
         let entry = cache.entry(key).or_default();
 
         if entry.len() < self.max_per_key {
@@ -579,25 +585,37 @@ impl ReductionBufferCache {
     /// Get the number of cached buffers for a given key.
     pub fn cached_count(&self, num_slots: usize, op: ReductionOp) -> usize {
         let key = CacheKey::new(num_slots, op);
-        let cache = self.cache.lock().unwrap();
+        let cache = self
+            .cache
+            .lock()
+            .expect("ReductionBufferCache mutex poisoned");
         cache.get(&key).map(|v| v.len()).unwrap_or(0)
     }
 
     /// Get the total number of cached buffers across all keys.
     pub fn total_cached(&self) -> usize {
-        let cache = self.cache.lock().unwrap();
+        let cache = self
+            .cache
+            .lock()
+            .expect("ReductionBufferCache mutex poisoned");
         cache.values().map(|v| v.len()).sum()
     }
 
     /// Clear all cached buffers.
     pub fn clear(&self) {
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self
+            .cache
+            .lock()
+            .expect("ReductionBufferCache mutex poisoned");
         cache.clear();
     }
 
     /// Trim cache to at most `max` buffers per key.
     pub fn trim_to(&self, max: usize) {
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self
+            .cache
+            .lock()
+            .expect("ReductionBufferCache mutex poisoned");
         for entry in cache.values_mut() {
             while entry.len() > max {
                 entry.pop();
@@ -623,13 +641,17 @@ impl<T: ReductionScalar + 'static> Deref for CachedReductionBuffer<'_, T> {
     type Target = ReductionBuffer<T>;
 
     fn deref(&self) -> &Self::Target {
-        self.buffer.as_ref().unwrap()
+        self.buffer
+            .as_ref()
+            .expect("CachedReductionBuffer accessed after take()")
     }
 }
 
 impl<T: ReductionScalar + 'static> DerefMut for CachedReductionBuffer<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.buffer.as_mut().unwrap()
+        self.buffer
+            .as_mut()
+            .expect("CachedReductionBuffer accessed after take()")
     }
 }
 
@@ -644,17 +666,26 @@ impl<T: ReductionScalar + 'static> Drop for CachedReductionBuffer<'_, T> {
 impl<T: ReductionScalar + 'static> CachedReductionBuffer<'_, T> {
     /// Get the device pointer for kernel parameter passing.
     pub fn device_ptr(&self) -> u64 {
-        self.buffer.as_ref().unwrap().device_ptr()
+        self.buffer
+            .as_ref()
+            .expect("CachedReductionBuffer accessed after take()")
+            .device_ptr()
     }
 
     /// Get number of slots.
     pub fn num_slots(&self) -> usize {
-        self.buffer.as_ref().unwrap().num_slots()
+        self.buffer
+            .as_ref()
+            .expect("CachedReductionBuffer accessed after take()")
+            .num_slots()
     }
 
     /// Get the reduction operation.
     pub fn op(&self) -> ReductionOp {
-        self.buffer.as_ref().unwrap().op()
+        self.buffer
+            .as_ref()
+            .expect("CachedReductionBuffer accessed after take()")
+            .op()
     }
 
     /// Take ownership of the buffer, removing it from cache management.
@@ -662,7 +693,9 @@ impl<T: ReductionScalar + 'static> CachedReductionBuffer<'_, T> {
     /// After calling this, the buffer will NOT be returned to the cache
     /// when this wrapper is dropped.
     pub fn take(mut self) -> ReductionBuffer<T> {
-        self.buffer.take().unwrap()
+        self.buffer
+            .take()
+            .expect("CachedReductionBuffer::take() called on already-taken buffer")
     }
 }
 

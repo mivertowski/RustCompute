@@ -373,21 +373,30 @@ impl MockAtomics {
 
     /// Atomic add (u32).
     pub fn atomic_add_u32(&self, addr: usize, val: u32) -> u32 {
-        let mut map = self.u32_values.write().unwrap();
+        let mut map = self
+            .u32_values
+            .write()
+            .expect("MockAtomics u32 RwLock poisoned");
         let atomic = map.entry(addr).or_insert_with(|| AtomicU32::new(0));
         atomic.fetch_add(val, Ordering::SeqCst)
     }
 
     /// Atomic add (u64).
     pub fn atomic_add_u64(&self, addr: usize, val: u64) -> u64 {
-        let mut map = self.u64_values.write().unwrap();
+        let mut map = self
+            .u64_values
+            .write()
+            .expect("MockAtomics u64 RwLock poisoned");
         let atomic = map.entry(addr).or_insert_with(|| AtomicU64::new(0));
         atomic.fetch_add(val, Ordering::SeqCst)
     }
 
     /// Atomic CAS (u32).
     pub fn atomic_cas_u32(&self, addr: usize, expected: u32, new: u32) -> u32 {
-        let mut map = self.u32_values.write().unwrap();
+        let mut map = self
+            .u32_values
+            .write()
+            .expect("MockAtomics u32 RwLock poisoned");
         let atomic = map.entry(addr).or_insert_with(|| AtomicU32::new(0));
         match atomic.compare_exchange(expected, new, Ordering::SeqCst, Ordering::SeqCst) {
             Ok(v) | Err(v) => v,
@@ -396,21 +405,30 @@ impl MockAtomics {
 
     /// Atomic max (u32).
     pub fn atomic_max_u32(&self, addr: usize, val: u32) -> u32 {
-        let mut map = self.u32_values.write().unwrap();
+        let mut map = self
+            .u32_values
+            .write()
+            .expect("MockAtomics u32 RwLock poisoned");
         let atomic = map.entry(addr).or_insert_with(|| AtomicU32::new(0));
         atomic.fetch_max(val, Ordering::SeqCst)
     }
 
     /// Atomic min (u32).
     pub fn atomic_min_u32(&self, addr: usize, val: u32) -> u32 {
-        let mut map = self.u32_values.write().unwrap();
+        let mut map = self
+            .u32_values
+            .write()
+            .expect("MockAtomics u32 RwLock poisoned");
         let atomic = map.entry(addr).or_insert_with(|| AtomicU32::new(0));
         atomic.fetch_min(val, Ordering::SeqCst)
     }
 
     /// Load value (u32).
     pub fn load_u32(&self, addr: usize) -> u32 {
-        let map = self.u32_values.read().unwrap();
+        let map = self
+            .u32_values
+            .read()
+            .expect("MockAtomics u32 RwLock poisoned");
         map.get(&addr)
             .map(|a| a.load(Ordering::SeqCst))
             .unwrap_or(0)
@@ -418,7 +436,10 @@ impl MockAtomics {
 
     /// Store value (u32).
     pub fn store_u32(&self, addr: usize, val: u32) {
-        let mut map = self.u32_values.write().unwrap();
+        let mut map = self
+            .u32_values
+            .write()
+            .expect("MockAtomics u32 RwLock poisoned");
         let atomic = map.entry(addr).or_insert_with(|| AtomicU32::new(0));
         atomic.store(val, Ordering::SeqCst);
     }

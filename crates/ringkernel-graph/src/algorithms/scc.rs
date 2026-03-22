@@ -76,7 +76,10 @@ pub fn scc_tarjan_with_config(adj: &CsrMatrix, _config: &SccConfig) -> Result<Ve
 
             if neighbor_idx < neighbors.len() {
                 let w = neighbors[neighbor_idx] as usize;
-                dfs_stack.last_mut().unwrap().1 += 1;
+                dfs_stack
+                    .last_mut()
+                    .expect("DFS stack non-empty during neighbor processing")
+                    .1 += 1;
 
                 if index[w] == u32::MAX {
                     // Not visited, push to DFS stack
@@ -98,7 +101,9 @@ pub fn scc_tarjan_with_config(adj: &CsrMatrix, _config: &SccConfig) -> Result<Ve
                 if lowlink[v] == index[v] {
                     // Pop all nodes in this SCC
                     loop {
-                        let w = stack.pop().unwrap();
+                        let w = stack
+                            .pop()
+                            .expect("SCC stack non-empty: node v must be on stack");
                         on_stack[w] = false;
                         component[w] = ComponentId::new(current_component);
                         if w == v {

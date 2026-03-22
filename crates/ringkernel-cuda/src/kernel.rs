@@ -517,7 +517,9 @@ impl KernelHandleInner for CudaKernel {
                 .iter()
                 .position(|e| e.header.correlation_id.0 == correlation_id)
             {
-                return Ok(unclaimed.remove(pos).unwrap());
+                return Ok(unclaimed
+                    .remove(pos)
+                    .expect("position found by .position() must be valid"));
             }
         }
 

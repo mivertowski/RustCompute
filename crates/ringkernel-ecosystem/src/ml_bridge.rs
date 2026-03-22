@@ -809,7 +809,10 @@ impl<R: HuggingFaceRuntime> HuggingFacePipeline<R> {
         if self.model_handle.is_none() {
             self.load().await?;
         }
-        Ok(self.model_handle.as_ref().unwrap())
+        Ok(self
+            .model_handle
+            .as_ref()
+            .expect("model_handle is Some after load()"))
     }
 
     /// Run text classification.

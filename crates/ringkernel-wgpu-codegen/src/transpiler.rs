@@ -954,7 +954,11 @@ impl WgslTranspiler {
                 if ret.expr.is_none() {
                     return Ok(format!("if ({cond}) {{ return; }}"));
                 }
-                let ret_val = self.transpile_expr(ret.expr.as_ref().unwrap())?;
+                let ret_val = self.transpile_expr(
+                    ret.expr
+                        .as_ref()
+                        .expect("return expression verified non-None above"),
+                )?;
                 return Ok(format!("if ({cond}) {{ return {ret_val}; }}"));
             }
         }

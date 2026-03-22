@@ -835,7 +835,9 @@ impl<R: RuntimeHandle + GpuCandleOps> GpuCandleExecutor<R> {
         let in_shape = input.dims();
         let out_features = weight.dims()[0];
         let mut out_shape = in_shape.to_vec();
-        *out_shape.last_mut().unwrap() = out_features;
+        *out_shape
+            .last_mut()
+            .expect("input tensor must have at least one dimension") = out_features;
 
         bytes_to_tensor(
             &result_bytes,
