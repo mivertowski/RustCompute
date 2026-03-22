@@ -14,7 +14,7 @@ bytemuck = { workspace = true }
 thiserror = { workspace = true }
 
 # CUDA support (optional)
-cudarc = { version = "0.18.2", optional = true, features = ["cuda-version-from-build-system"] }
+cudarc = { version = "0.19.3", optional = true, features = ["cuda-version-from-build-system"] }
 
 [dev-dependencies]
 criterion = { workspace = true }

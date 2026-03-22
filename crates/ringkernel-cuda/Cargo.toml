@@ -18,7 +18,7 @@ ringkernel-core = { workspace = true }
 
 # CUDA bindings - auto-detect CUDA version from build system
 # The nvtx feature enables NVTX profiling integration
-cudarc = { version = "0.18.2", optional = true, features = ["cuda-version-from-build-system", "nvtx"] }
+cudarc = { version = "0.19.3", optional = true, features = ["cuda-version-from-build-system", "nvtx"] }
 
 # Async runtime
 tokio = { workspace = true }
