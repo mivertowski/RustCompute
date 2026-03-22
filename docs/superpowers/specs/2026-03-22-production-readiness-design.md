@@ -476,42 +476,42 @@ Based on docs/19-cuda-wishlist-persistent-actors.md:
 ## Tracking Checklist
 
 ### Phase 1: Crash Safety & Error Handling
-- [ ] 1.1.1 AccNet typed errors
-- [ ] 1.1.2 WaveSim typed errors
-- [ ] 1.1.3 WaveSim3D typed errors
-- [ ] 1.1.4 TxMon typed errors
-- [ ] 1.1.5 ProcInt typed errors
-- [ ] 1.1.6 CLI typed errors
-- [ ] 1.1.7 MonteCarlo error coverage verification (already has typed errors)
-- [ ] 1.1.8 AudioFFT error coverage verification (already has typed errors)
-- [ ] 1.1.9 Codegen: migrate 1 remaining String error
-- [ ] 1.1.10 Graph error coverage verification (already has typed errors)
-- [ ] 1.2.1 unwrap/expect/panic reduction: ringkernel-core
-- [ ] 1.2.2 unwrap reduction: ringkernel-cuda-codegen (249)
-- [ ] 1.2.3 unwrap reduction: ringkernel-wavesim (98)
-- [ ] 1.2.4 unwrap reduction: ringkernel-ecosystem (38)
-- [ ] 1.2.5 unwrap reduction: ringkernel-cpu (37)
-- [ ] 1.2.6 unwrap reduction: ringkernel-wgpu-codegen (~30)
-- [ ] 1.2.7 unwrap reduction: ringkernel-cuda (~25)
-- [ ] 1.2.8 unwrap reduction: ringkernel-graph (~20)
-- [ ] 1.2.9 unwrap reduction: ringkernel-metal (~15)
-- [ ] 1.2.10 unwrap reduction: all remaining (~100)
-- [ ] 1.3.1 TLS PEM parsing implementation (rustls-pemfile already in deps)
-- [ ] 1.3.2 TLS integration tests
-- [ ] 1.4.1 CloudWatch audit sink implementation
-- [ ] 1.4.2 OTLP: add dedicated otel feature flag
-- [ ] 1.4.3 CLI input validation
-- [ ] 1.5.1 Add clippy::unwrap_used lint to prevent regression
-- [ ] 1.5.2 Add cargo audit to CI
-- [ ] 1.5.3 Establish MSRV policy
-- [ ] 1.5.4 Add graceful shutdown for persistent GPU kernels
+- [x] 1.1.1 AccNet typed errors (49b6dc6)
+- [x] 1.1.2 WaveSim typed errors (c017fc9)
+- [x] 1.1.3 WaveSim3D typed errors (b75059c)
+- [x] 1.1.4 TxMon typed errors (f3b271f)
+- [x] 1.1.5 ProcInt typed errors (76cae4c)
+- [x] 1.1.6 CLI typed errors (77717be)
+- [x] 1.1.7 MonteCarlo error coverage verification — already clean
+- [x] 1.1.8 AudioFFT error coverage verification — already clean
+- [x] 1.1.9 Codegen — already clean (Result<String> is CodegenError alias)
+- [x] 1.1.10 Graph error coverage verification — already clean
+- [x] 1.2.1 unwrap/expect/panic reduction: ringkernel-core — 96 eliminated (482be2c)
+- [x] 1.2.2 unwrap reduction: ringkernel-cuda-codegen — 163 eliminated (c943775)
+- [ ] 1.2.3 unwrap reduction: ringkernel-wavesim — deferred (GUI code, lower risk)
+- [x] 1.2.4 unwrap reduction: ringkernel-ecosystem — 2 eliminated (5cf7b82)
+- [x] 1.2.5 unwrap reduction: ringkernel-cpu — 7 eliminated (5cf7b82)
+- [x] 1.2.6 unwrap reduction: ringkernel-wgpu-codegen — 1 eliminated (5cf7b82)
+- [x] 1.2.7 unwrap reduction: ringkernel-cuda — 13 eliminated (5cf7b82)
+- [x] 1.2.8 unwrap reduction: ringkernel-graph — 2 eliminated (5cf7b82)
+- [x] 1.2.9 unwrap reduction: ringkernel-metal — 0 needed (all in test code)
+- [ ] 1.2.10 unwrap reduction: remaining application crates — deferred
+- [x] 1.3.1 TLS PEM parsing implementation (47df34a)
+- [x] 1.3.2 TLS integration tests — 5 tests added (47df34a)
+- [ ] 1.4.1 CloudWatch audit sink implementation — deferred (feature-gated, non-blocking)
+- [x] 1.4.2 OTLP: add dedicated otel feature flag (2ac9199)
+- [x] 1.4.3 CLI input validation (950ada3)
+- [ ] 1.5.1 Add clippy::unwrap_used lint — deferred (needs wavesim cleanup first)
+- [x] 1.5.2 Add cargo audit to CI (609a261)
+- [x] 1.5.3 MSRV already established — rust-version = "1.75" in Cargo.toml
+- [ ] 1.5.4 Add graceful shutdown for persistent GPU kernels — Phase 2/5 scope
 
 ### Phase 0: Roadmap Corrections (Immediate)
-- [ ] 0.1 Fix Metal persistent kernels claim
-- [ ] 0.2 Fix WebGPU ring kernels claim
-- [ ] 0.3 Fix WebGPU K2K claim
-- [ ] 0.4 Verify VSCode extension status
-- [ ] 0.5 Verify GPU Playground status
+- [x] 0.1 Fix Metal persistent kernels claim (f611d3f)
+- [x] 0.2 Fix WebGPU ring kernels claim (f611d3f)
+- [x] 0.3 Fix WebGPU K2K claim (f611d3f)
+- [x] 0.4 Verify VSCode extension status — skeleton only (f611d3f)
+- [x] 0.5 Verify GPU Playground status — stub execution (f611d3f)
 
 ### Phase 2: H100/B200 Build Support & Baseline
 - [ ] 2.1.1 Architecture detection in build.rs
