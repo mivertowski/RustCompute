@@ -26,15 +26,17 @@
 A comprehensive audit of RingKernel identified **89 actionable items** across 8 phases. The framework has strong architectural foundations (1,416 tests, SSA-based IR, 3-target codegen) but needs hardening for production use and modernization for H100/B200 GPUs.
 
 **Critical findings:**
-- 1,152 `unwrap()` calls in non-test code (crash risk)
+- ~526 `unwrap()` calls in non-test production code, plus ~13 `expect()` and explicit `panic!` calls (crash risk)
 - PTX targets sm_89 (Ada); H100/B200 features unused
 - cudarc pinned at 0.18.2 (latest: 0.19.3)
 - TLS cert loading is a placeholder (security gap)
-- 781 raw println/eprintln instead of structured logging
+- ~735+ raw println/eprintln instead of structured logging (wavesim: 289, wavesim3d: 182 are worst)
 - Hopper/Blackwell features (DSMEM, TMA, Green Contexts, CLC) not leveraged
 - Roadmap overclaims 100% completion despite Metal scaffold status
 
-**Approach:** 8 phases, each independently deliverable. Phases 1-2 are blockers for H100/B200 validation. Phases 3-4 enable production deployment. Phases 5-6 unlock hardware-native performance. Phases 7-8 expand scope.
+**Approach:** 8 phases, each independently deliverable. Phase 0 (roadmap corrections) is immediate zero-risk. Phases 1-2 are blockers for H100/B200 validation. Phases 3-4 enable production deployment. Phases 5-6 unlock hardware-native performance. Phases 7-8 expand scope.
+
+**Breaking change note:** Replacing `Result<_, String>` with typed errors is a semver-breaking change. Plan for a 0.5.0 release after Phase 1.
 
 ---
 
@@ -52,22 +54,24 @@ A comprehensive audit of RingKernel identified **89 actionable items** across 8 
 
 | ID | Crate | File(s) | Count | Action |
 |----|-------|---------|-------|--------|
-| 1.1.1 | ringkernel-accnet | Multiple source files | 16 | Create `AccNetError` enum with thiserror |
+| 1.1.1 | ringkernel-accnet | Multiple source files | 28 | Create `AccNetError` enum with thiserror |
 | 1.1.2 | ringkernel-wavesim | simulation/*.rs | ~12 | Create `WaveSimError` enum |
 | 1.1.3 | ringkernel-wavesim3d | simulation/*.rs | ~10 | Create `WaveSim3dError` enum |
-| 1.1.4 | ringkernel-txmon | Multiple files | ~8 | Create `TxMonError` enum |
+| 1.1.4 | ringkernel-txmon | Multiple files | 18 | Create `TxMonError` enum |
 | 1.1.5 | ringkernel-procint | Multiple files | ~8 | Create `ProcIntError` enum |
-| 1.1.6 | ringkernel-cli | commands/*.rs | 9 | Create `CliError` enum |
-| 1.1.7 | ringkernel-montecarlo | lib.rs, engines/*.rs | ~6 | Create `MonteCarloError` enum |
-| 1.1.8 | ringkernel-audio-fft | Multiple files | ~5 | Create `AudioFftError` enum |
-| 1.1.9 | ringkernel-codegen | lib.rs | ~4 | Create `CodegenError` enum |
-| 1.1.10 | ringkernel-graph | algorithms/*.rs | ~5 | Create `GraphError` enum |
+| 1.1.6 | ringkernel-cli | commands/*.rs | 9 | Migrate remaining `Result<_, String>` to existing `CliError` |
+| 1.1.7 | ringkernel-montecarlo | — | 0 | Already has `MonteCarloError` — verify coverage of all error paths |
+| 1.1.8 | ringkernel-audio-fft | — | 0 | Already has typed errors — verify coverage |
+| 1.1.9 | ringkernel-codegen | — | 1 | Already has `CodegenError` — migrate remaining String error |
+| 1.1.10 | ringkernel-graph | — | 0 | Already has `GraphError` — verify coverage |
 
-**Pattern:** Each crate gets a `error.rs` with a `thiserror`-derived enum. Public API functions return `Result<T, CrateError>`.
+**Pattern:** Crates without error types get a `error.rs` with a `thiserror`-derived enum. Crates with existing error types get audited for coverage gaps. Public API functions return `Result<T, CrateError>`.
 
-### 1.2 unwrap() Reduction (1,152 -> <200)
+**Note:** Items 1.1.7, 1.1.8, 1.1.10 are verification-only (error types already exist). Item 1.1.6 already has `CliError` — migrate remaining String errors to it.
 
-**Finding:** 1,152 `unwrap()` calls in non-test code. Top offenders:
+### 1.2 unwrap()/expect()/panic!() Reduction (~526 -> <100)
+
+**Finding:** ~526 `unwrap()` calls in non-test production code (original estimate of 1,152 included `#[cfg(test)]` modules). Also audit `expect()` (~13 in core) and explicit `panic!()` calls. Top offenders (non-test only):
 
 | ID | Crate | Count | Strategy |
 |----|-------|-------|----------|
@@ -90,17 +94,47 @@ A comprehensive audit of RingKernel identified **89 actionable items** across 8 
 
 | ID | File | Action |
 |----|------|--------|
-| 1.3.1 | crates/ringkernel-core/src/tls.rs | Implement PEM parsing using rustls-pemfile crate |
-| 1.3.2 | crates/ringkernel-core/Cargo.toml | Add rustls-pemfile dependency (feature-gated under `tls`) |
-| 1.3.3 | crates/ringkernel-core/src/tls.rs | Add integration tests for cert loading |
+| 1.3.1 | crates/ringkernel-core/src/tls.rs | Implement PEM parsing using already-declared rustls-pemfile dependency (line 77 in Cargo.toml) |
+| 1.3.2 | crates/ringkernel-core/src/tls.rs | Add integration tests for cert loading |
+
+**Note:** `rustls-pemfile = "2.1"` is already declared in Cargo.toml under the `tls` feature.
 
 ### 1.4 Critical Stub Completions
 
 | ID | Stub | File | Action |
 |----|------|------|--------|
 | 1.4.1 | CloudWatch audit sink | core/src/audit.rs:1053 | Implement with aws-sdk-cloudwatchlogs (feature-gated) |
-| 1.4.2 | OTLP span export | core/src/observability.rs:2463 | Implement HTTP export via reqwest (feature-gated) |
+| 1.4.2 | OTLP span export | core/src/observability.rs:2463 | Real HTTP impl exists behind `alerting` feature; add dedicated `otel` feature flag so OTLP works without full alerting |
 | 1.4.3 | CLI input validation | cli/src/commands/mod.rs:30 | Add proper input validation, remove unwrap on chars() |
+
+### 1.5 Regression Prevention
+
+| ID | Action |
+|----|--------|
+| 1.5.1 | Add `#![deny(clippy::unwrap_used)]` to all production crates after unwrap reduction (prevents regression) |
+| 1.5.2 | Add `cargo audit` to CI pipeline for dependency vulnerability scanning |
+| 1.5.3 | Establish MSRV (minimum supported Rust version) policy and add `rust-version` to Cargo.toml |
+| 1.5.4 | Add graceful shutdown / SIGTERM handler for persistent GPU kernels (clean resource cleanup) |
+
+### 1.6 Phase 1 Dependencies
+
+- Items 1.2.x (unwrap reduction) depend on 1.1.x (typed errors) per-crate: cannot replace `unwrap()` with `?` without proper error types to propagate into.
+- Complete 1.1 for a crate before starting 1.2 for that same crate.
+
+---
+
+## Phase 0: Roadmap Corrections (Immediate, Zero Risk)
+
+**Goal:** Align documentation claims with reality. Zero code changes.
+**Priority:** Immediate (trust & honesty)
+
+| ID | Item | Current Claim | Reality | Action |
+|----|------|--------------|---------|--------|
+| 0.1 | Metal persistent kernels | Complete | Scaffold only | Mark as "Partial - event-driven only" |
+| 0.2 | WebGPU ring kernels | Complete | Host-emulated | Mark as "Emulated (host-driven)" |
+| 0.3 | WebGPU K2K | Complete | Host-mediated | Mark as "Host-mediated (WGSL limitation)" |
+| 0.4 | VSCode extension | Complete | Verify status | Verify and update |
+| 0.5 | GPU Playground | Complete | Verify status | Verify and update |
 
 ---
 
@@ -115,7 +149,7 @@ A comprehensive audit of RingKernel identified **89 actionable items** across 8 
 |----|------|--------|
 | 2.1.1 | crates/ringkernel-cuda/build.rs | Replace hardcoded `sm_89` with runtime detection or env var `RINGKERNEL_CUDA_ARCH` |
 | 2.1.2 | crates/ringkernel-cuda/build.rs | Add multi-arch compilation: `-gencode arch=compute_75,code=sm_75 ... arch=compute_100,code=sm_100` |
-| 2.1.3 | crates/ringkernel-cuda/src/device.rs | Add `GpuArchitecture::hopper()` preset (sm_90, 228KB shared, 50MB L2, 132 SMs for H100) |
+| 2.1.3 | crates/ringkernel-cuda/src/device.rs | `GpuArchitecture::hopper()` already exists (launch_config/mode.rs:261) — verify specs match H100 |
 | 2.1.4 | crates/ringkernel-cuda/src/device.rs | Add `GpuArchitecture::blackwell()` preset (sm_100, 228KB shared, 126MB L2, est. 192 SMs for B200) |
 | 2.1.5 | crates/ringkernel-cuda/src/device.rs | Add runtime GPU detection via `cuDeviceGetAttribute` to auto-select architecture |
 
@@ -208,8 +242,8 @@ A comprehensive audit of RingKernel identified **89 actionable items** across 8 
 
 | ID | Crate | Gap | Action |
 |----|-------|-----|--------|
-| 4.1.1 | ringkernel-derive | 0 tests | Add integration tests: compile-pass/compile-fail for all proc macros |
-| 4.1.2 | ringkernel-python | 0 tests | Add FFI smoke tests, memory safety tests |
+| 4.1.1 | ringkernel-derive | 39 tests exist (macro_tests.rs) | Add compile-fail tests for error cases; expand edge case coverage |
+| 4.1.2 | ringkernel-python | 48 tests exist (test_core.py) | Add FFI memory safety tests under concurrent access; expand error path coverage |
 | 4.1.3 | ringkernel-metal | 2 ignored tests | Add macOS CI runner or conditional tests |
 | 4.1.4 | ringkernel-ecosystem | Minimal | Add feature combination tests |
 | 4.1.5 | ringkernel-codegen | 3 tests | Add template substitution edge cases |
@@ -238,7 +272,7 @@ A comprehensive audit of RingKernel identified **89 actionable items** across 8 
 
 | ID | Crate | Action |
 |----|-------|--------|
-| 4.4.1 | ringkernel-core | Add `#![deny(missing_docs)]` |
+| 4.4.1 | ringkernel-core | Upgrade from `#![warn(missing_docs)]` to `#![deny(missing_docs)]` — requires documenting all undocumented public items first |
 | 4.4.2 | ringkernel-derive | Add `#![deny(missing_docs)]` |
 | 4.4.3 | ringkernel-cuda | Add `#![deny(missing_docs)]` |
 | 4.4.4 | ringkernel-wgpu | Add `#![deny(missing_docs)]` |
@@ -309,7 +343,7 @@ A comprehensive audit of RingKernel identified **89 actionable items** across 8 
 
 | ID | Action |
 |----|--------|
-| 5.5.1 | Add Green Context creation via CUDA 13.1 runtime API |
+| 5.5.1 | Add Green Context creation via CUDA driver API (`cuGreenCtxCreate`, available since CUDA 12.4, exposed in runtime API since 13.1) |
 | 5.5.2 | Implement SM reservation for persistent actor kernels (e.g., reserve 16 of 132 SMs for actors) |
 | 5.5.3 | Add `GreenContextConfig` to `LaunchOptions` with SM count, priority |
 | 5.5.4 | Implement context isolation: actor kernel runs in dedicated partition, won't be preempted by other work |
@@ -411,20 +445,12 @@ Based on docs/19-cuda-wishlist-persistent-actors.md:
 
 ---
 
-## Phase 8: Roadmap Corrections & Metal Backend
+## Phase 8: Metal & WebGPU Backend Improvements
 
-**Goal:** Align roadmap claims with reality. Improve Metal where possible.
-**Priority:** P3 (honesty & completeness)
+**Goal:** Improve secondary backends where possible.
+**Priority:** P3 (completeness)
 
-### 8.1 Roadmap Corrections
-
-| ID | Item | Current Claim | Reality | Action |
-|----|------|--------------|---------|--------|
-| 8.1.1 | Metal persistent kernels | Complete | Scaffold only | Mark as "Partial - event-driven only" |
-| 8.1.2 | WebGPU ring kernels | Complete | Host-emulated | Mark as "Emulated (host-driven)" |
-| 8.1.3 | WebGPU K2K | Complete | Host-mediated | Mark as "Host-mediated (WGSL limitation)" |
-| 8.1.4 | VSCode extension | Complete | Unclear status | Verify and update |
-| 8.1.5 | GPU Playground | Complete | Unclear status | Verify and update |
+**Note:** Roadmap corrections (formerly 8.1) moved to Phase 0 for immediate execution.
 
 ### 8.2 Metal Backend Improvements
 
@@ -456,11 +482,11 @@ Based on docs/19-cuda-wishlist-persistent-actors.md:
 - [ ] 1.1.4 TxMon typed errors
 - [ ] 1.1.5 ProcInt typed errors
 - [ ] 1.1.6 CLI typed errors
-- [ ] 1.1.7 MonteCarlo typed errors
-- [ ] 1.1.8 AudioFFT typed errors
-- [ ] 1.1.9 Codegen typed errors
-- [ ] 1.1.10 Graph typed errors
-- [ ] 1.2.1 unwrap reduction: ringkernel-core (327)
+- [ ] 1.1.7 MonteCarlo error coverage verification (already has typed errors)
+- [ ] 1.1.8 AudioFFT error coverage verification (already has typed errors)
+- [ ] 1.1.9 Codegen: migrate 1 remaining String error
+- [ ] 1.1.10 Graph error coverage verification (already has typed errors)
+- [ ] 1.2.1 unwrap/expect/panic reduction: ringkernel-core
 - [ ] 1.2.2 unwrap reduction: ringkernel-cuda-codegen (249)
 - [ ] 1.2.3 unwrap reduction: ringkernel-wavesim (98)
 - [ ] 1.2.4 unwrap reduction: ringkernel-ecosystem (38)
@@ -470,17 +496,27 @@ Based on docs/19-cuda-wishlist-persistent-actors.md:
 - [ ] 1.2.8 unwrap reduction: ringkernel-graph (~20)
 - [ ] 1.2.9 unwrap reduction: ringkernel-metal (~15)
 - [ ] 1.2.10 unwrap reduction: all remaining (~100)
-- [ ] 1.3.1 TLS PEM parsing implementation
-- [ ] 1.3.2 rustls-pemfile dependency
-- [ ] 1.3.3 TLS integration tests
+- [ ] 1.3.1 TLS PEM parsing implementation (rustls-pemfile already in deps)
+- [ ] 1.3.2 TLS integration tests
 - [ ] 1.4.1 CloudWatch audit sink implementation
-- [ ] 1.4.2 OTLP span export implementation
+- [ ] 1.4.2 OTLP: add dedicated otel feature flag
 - [ ] 1.4.3 CLI input validation
+- [ ] 1.5.1 Add clippy::unwrap_used lint to prevent regression
+- [ ] 1.5.2 Add cargo audit to CI
+- [ ] 1.5.3 Establish MSRV policy
+- [ ] 1.5.4 Add graceful shutdown for persistent GPU kernels
+
+### Phase 0: Roadmap Corrections (Immediate)
+- [ ] 0.1 Fix Metal persistent kernels claim
+- [ ] 0.2 Fix WebGPU ring kernels claim
+- [ ] 0.3 Fix WebGPU K2K claim
+- [ ] 0.4 Verify VSCode extension status
+- [ ] 0.5 Verify GPU Playground status
 
 ### Phase 2: H100/B200 Build Support & Baseline
 - [ ] 2.1.1 Architecture detection in build.rs
 - [ ] 2.1.2 Multi-arch compilation
-- [ ] 2.1.3 GpuArchitecture::hopper() preset
+- [ ] 2.1.3 Verify GpuArchitecture::hopper() preset (already exists)
 - [ ] 2.1.4 GpuArchitecture::blackwell() preset
 - [ ] 2.1.5 Runtime GPU detection
 - [ ] 2.2.1 cudarc upgrade to 0.19.3
@@ -494,7 +530,7 @@ Based on docs/19-cuda-wishlist-persistent-actors.md:
 - [ ] 2.4.1-2.4.10 Baseline benchmarks (10 items)
 
 ### Phase 3: Observability & Logging
-- [ ] 3.1.1-3.1.10 Replace println/eprintln (781 instances across 10 crate groups)
+- [ ] 3.1.1-3.1.10 Replace println/eprintln (~735+ instances, worst: wavesim 289, wavesim3d 182)
 - [ ] 3.2.1 NVTX real integration
 - [ ] 3.2.2 RenderDoc integration
 - [ ] 3.2.3 Metal System Trace
@@ -534,22 +570,22 @@ Based on docs/19-cuda-wishlist-persistent-actors.md:
 - [ ] 7.3.1-7.3.5 Wishlist workaround improvements (5 items)
 - [ ] 7.4.1-7.4.4 New ecosystem integrations (4 items)
 
-### Phase 8: Roadmap Corrections & Metal
-- [ ] 8.1.1-8.1.5 Roadmap corrections (5 items)
+### Phase 8: Metal & WebGPU Improvements
 - [ ] 8.2.1-8.2.5 Metal improvements (5 items)
 - [ ] 8.3.1-8.3.4 WebGPU improvements (4 items)
 
 ---
 
-**Total items: 89 across 8 phases**
+**Total items: ~100 across 9 phases (Phase 0-8)**
 
 **Recommended execution order:**
-1. Phase 1 (crash safety) — blocking for production
-2. Phase 2 (H100/B200 build) — blocking for hardware validation
-3. Phase 4.1-4.2 (critical tests) — parallel with Phase 2
-4. Phase 3 (observability) — enables production monitoring
-5. Phase 4.3-4.5 (remaining tests, docs, unsafe audit)
-6. Phase 5 (Hopper features) — performance unlock
-7. Phase 8 (roadmap corrections) — honesty
-8. Phase 6 (Blackwell features) — advanced
-9. Phase 7 (generalization) — expansion
+1. **Phase 0** (roadmap corrections) — immediate, zero risk, zero code changes
+2. **Phase 1** (crash safety) — blocking for production
+3. **Phase 2** (H100/B200 build) — blocking for hardware validation
+4. **Phase 4.1-4.2, 4.5** (critical tests, unsafe audit) — parallel with Phase 2
+5. **Phase 3** (observability) — enables production monitoring
+6. **Phase 4.3-4.4** (GPU CI, docs enforcement)
+7. **Phase 5** (Hopper features) — performance unlock
+8. **Phase 6** (Blackwell features) — advanced
+9. **Phase 8** (Metal/WebGPU improvements)
+10. **Phase 7** (generalization & ecosystem) — expansion
