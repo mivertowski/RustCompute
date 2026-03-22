@@ -45,8 +45,9 @@ serde_json = { workspace = true, optional = true }
 toml = { workspace = true, optional = true }
 serde_yaml = { workspace = true, optional = true }
 
-# Cloud storage (optional)
+# Cloud storage / AWS (optional)
 aws-sdk-s3 = { workspace = true, optional = true }
+aws-sdk-cloudwatchlogs = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
 
@@ -86,6 +87,7 @@ default = []
 validation = ["rkyv/validation"]
 config-file = ["serde", "toml", "serde_yaml"]
 cloud-storage = ["aws-sdk-s3", "aws-config", "bytes"]
+cloudwatch = ["aws-sdk-cloudwatchlogs", "aws-config"]
 
 # Enterprise security features
 crypto = ["aes-gcm", "chacha20poly1305", "argon2", "rand", "zeroize", "hkdf", "sha2"]

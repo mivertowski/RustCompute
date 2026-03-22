@@ -86,8 +86,9 @@ serde_json = "1.0"
 toml = "0.8"
 serde_yaml = "0.9"
 
-# Cloud storage (optional)
+# Cloud storage / AWS (optional)
 aws-sdk-s3 = "1.68"
+aws-sdk-cloudwatchlogs = "1.64"
 aws-config = { version = "1.6", features = ["behavior-version-latest"] }
 bytes = "1.9"
 

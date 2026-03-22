@@ -1050,7 +1050,7 @@ impl AuditSink for ElasticsearchSink {
 }
 
 // ============================================================================
-// CLOUDWATCH LOGS SINK (stub - requires aws-sdk-cloudwatchlogs)
+// CLOUDWATCH LOGS SINK
 // ============================================================================
 
 /// Configuration for CloudWatch Logs sink.
@@ -1064,6 +1064,12 @@ pub struct CloudWatchConfig {
     pub region: String,
     /// Batch size before flushing.
     pub batch_size: usize,
+    /// Whether to auto-create the log group and stream if they don't exist.
+    #[cfg(feature = "cloudwatch")]
+    pub auto_create: bool,
+    /// Maximum retries for throttled requests.
+    #[cfg(feature = "cloudwatch")]
+    pub max_retries: u32,
 }
 
 impl Default for CloudWatchConfig {
@@ -1073,27 +1079,110 @@ impl Default for CloudWatchConfig {
             log_stream: "default".to_string(),
             region: "us-east-1".to_string(),
             batch_size: 100,
+            #[cfg(feature = "cloudwatch")]
+            auto_create: true,
+            #[cfg(feature = "cloudwatch")]
+            max_retries: 3,
         }
     }
 }
 
 /// CloudWatch Logs sink for AWS-native audit logging.
 ///
-/// Note: This is a stub implementation. For production use, enable the
-/// `cloudwatch` feature and use the AWS SDK for CloudWatch Logs.
+/// When the `cloudwatch` feature is enabled, this sink uses the AWS SDK to
+/// upload audit events to CloudWatch Logs via the `PutLogEvents` API with
+/// automatic batching and retry on throttling.
+///
+/// When the `cloudwatch` feature is **not** enabled, this acts as a stub that
+/// buffers events but drops them with a warning on flush.
 pub struct CloudWatchSink {
     config: CloudWatchConfig,
     buffer: Mutex<Vec<(u64, String)>>, // (timestamp_ms, message)
-    _sequence_token: Mutex<Option<String>>,
+    #[cfg_attr(not(feature = "cloudwatch"), allow(dead_code))]
+    sequence_token: Mutex<Option<String>>,
+    #[cfg(feature = "cloudwatch")]
+    client: aws_sdk_cloudwatchlogs::Client,
+    #[cfg(feature = "cloudwatch")]
+    initialized: Mutex<bool>,
 }
 
 impl CloudWatchSink {
     /// Create a new CloudWatch Logs sink.
+    ///
+    /// When the `cloudwatch` feature is enabled, this initializes the AWS SDK
+    /// client using the default credential chain (environment variables, AWS
+    /// config files, IAM roles, etc.). The client is created synchronously by
+    /// blocking on the tokio runtime, following the same pattern used by
+    /// [`S3Storage`](crate::cloud_storage::S3Storage).
+    #[cfg(feature = "cloudwatch")]
+    pub fn new(config: CloudWatchConfig) -> Self {
+        let client = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let region = aws_sdk_cloudwatchlogs::config::Region::new(config.region.clone());
+                let sdk_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+                    .region(region)
+                    .load()
+                    .await;
+                aws_sdk_cloudwatchlogs::Client::new(&sdk_config)
+            })
+        });
+
+        Self {
+            config,
+            buffer: Mutex::new(Vec::new()),
+            sequence_token: Mutex::new(None),
+            client,
+            initialized: Mutex::new(false),
+        }
+    }
+
+    /// Create a new CloudWatch Logs sink (stub, without `cloudwatch` feature).
+    #[cfg(not(feature = "cloudwatch"))]
     pub fn new(config: CloudWatchConfig) -> Self {
         Self {
             config,
             buffer: Mutex::new(Vec::new()),
-            _sequence_token: Mutex::new(None),
+            sequence_token: Mutex::new(None),
+        }
+    }
+
+    /// Create a CloudWatch Logs sink with explicit AWS credentials.
+    ///
+    /// This is useful for environments where the default credential chain
+    /// is not configured (e.g., local development, testing).
+    #[cfg(feature = "cloudwatch")]
+    pub fn with_credentials(
+        config: CloudWatchConfig,
+        access_key: impl Into<String>,
+        secret_key: impl Into<String>,
+    ) -> Self {
+        let access_key = access_key.into();
+        let secret_key = secret_key.into();
+        let client = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let region = aws_sdk_cloudwatchlogs::config::Region::new(config.region.clone());
+                let creds = aws_sdk_cloudwatchlogs::config::Credentials::new(
+                    access_key,
+                    secret_key,
+                    None, // session token
+                    None, // expiry
+                    "ringkernel",
+                );
+                let sdk_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+                    .region(region)
+                    .credentials_provider(creds)
+                    .load()
+                    .await;
+                aws_sdk_cloudwatchlogs::Client::new(&sdk_config)
+            })
+        });
+
+        Self {
+            config,
+            buffer: Mutex::new(Vec::new()),
+            sequence_token: Mutex::new(None),
+            client,
+            initialized: Mutex::new(false),
         }
     }
 
@@ -1105,6 +1194,264 @@ impl CloudWatchSink {
     /// Get the current buffer size.
     pub fn buffer_size(&self) -> usize {
         self.buffer.lock().len()
+    }
+
+    /// Ensure the log group and log stream exist, creating them if
+    /// `auto_create` is enabled.
+    #[cfg(feature = "cloudwatch")]
+    fn ensure_log_group_and_stream(&self) -> std::io::Result<()> {
+        {
+            let initialized = self.initialized.lock();
+            if *initialized {
+                return Ok(());
+            }
+        }
+
+        if !self.config.auto_create {
+            let mut initialized = self.initialized.lock();
+            *initialized = true;
+            return Ok(());
+        }
+
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                // Create log group (ignore if it already exists)
+                let create_group_result = self
+                    .client
+                    .create_log_group()
+                    .log_group_name(&self.config.log_group)
+                    .send()
+                    .await;
+
+                if let Err(e) = &create_group_result {
+                    let is_already_exists = e
+                        .as_service_error()
+                        .map(|se| se.is_resource_already_exists_exception())
+                        .unwrap_or(false);
+                    if !is_already_exists {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to create CloudWatch log group: {}", e),
+                        ));
+                    }
+                }
+
+                // Create log stream (ignore if it already exists)
+                let create_stream_result = self
+                    .client
+                    .create_log_stream()
+                    .log_group_name(&self.config.log_group)
+                    .log_stream_name(&self.config.log_stream)
+                    .send()
+                    .await;
+
+                if let Err(e) = &create_stream_result {
+                    let is_already_exists = e
+                        .as_service_error()
+                        .map(|se| se.is_resource_already_exists_exception())
+                        .unwrap_or(false);
+                    if !is_already_exists {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to create CloudWatch log stream: {}", e),
+                        ));
+                    }
+                }
+
+                let mut initialized = self.initialized.lock();
+                *initialized = true;
+                Ok(())
+            })
+        })
+    }
+
+    /// Flush buffered events to CloudWatch Logs using `PutLogEvents`.
+    ///
+    /// Events are sorted by timestamp (required by the API) and sent in a
+    /// single batch. Handles sequence token management and retries on
+    /// throttling (`ThrottlingException`) with exponential backoff.
+    #[cfg(feature = "cloudwatch")]
+    fn flush_to_cloudwatch(&self) -> std::io::Result<()> {
+        let events: Vec<(u64, String)> = {
+            let mut buffer = self.buffer.lock();
+            std::mem::take(&mut *buffer)
+        };
+
+        if events.is_empty() {
+            return Ok(());
+        }
+
+        self.ensure_log_group_and_stream()?;
+
+        // Build CloudWatch InputLogEvent entries, sorted by timestamp
+        // (CloudWatch requires chronological order within a batch).
+        let mut log_events: Vec<aws_sdk_cloudwatchlogs::types::InputLogEvent> = events
+            .into_iter()
+            .map(|(ts, msg)| {
+                aws_sdk_cloudwatchlogs::types::InputLogEvent::builder()
+                    .timestamp(ts as i64)
+                    .message(msg)
+                    .build()
+                    .expect("InputLogEvent builder should not fail with timestamp and message set")
+            })
+            .collect();
+
+        log_events.sort_by_key(|e| e.timestamp());
+
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let mut retries = 0u32;
+
+                loop {
+                    let mut request = self
+                        .client
+                        .put_log_events()
+                        .log_group_name(&self.config.log_group)
+                        .log_stream_name(&self.config.log_stream);
+
+                    // Attach sequence token if we have one
+                    {
+                        let token = self.sequence_token.lock();
+                        if let Some(ref tok) = *token {
+                            request = request.sequence_token(tok);
+                        }
+                    }
+
+                    for event in &log_events {
+                        request = request.log_events(event.clone());
+                    }
+
+                    match request.send().await {
+                        Ok(output) => {
+                            // Store the next sequence token for subsequent calls
+                            let mut token = self.sequence_token.lock();
+                            *token = output.next_sequence_token().map(|s| s.to_string());
+
+                            tracing::debug!(
+                                event_count = log_events.len(),
+                                log_group = %self.config.log_group,
+                                log_stream = %self.config.log_stream,
+                                "Successfully uploaded {} audit events to CloudWatch Logs",
+                                log_events.len(),
+                            );
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            if let Some(service_err) = e.as_service_error() {
+                                // Handle InvalidSequenceTokenException: extract
+                                // the expected token from the structured error and
+                                // retry. Note: modern CloudWatch APIs no longer
+                                // return this, but we handle it for completeness.
+                                if service_err.is_invalid_sequence_token_exception() {
+                                    if let aws_sdk_cloudwatchlogs::operation::put_log_events::PutLogEventsError::InvalidSequenceTokenException(ref inner) = service_err {
+                                        let mut token = self.sequence_token.lock();
+                                        *token = inner.expected_sequence_token().map(|s| s.to_string());
+                                    }
+
+                                    if retries < self.config.max_retries {
+                                        retries += 1;
+                                        continue;
+                                    }
+                                }
+
+                                // Handle DataAlreadyAcceptedException: the batch
+                                // was already ingested. Update the sequence token
+                                // and treat as success.
+                                if service_err.is_data_already_accepted_exception() {
+                                    if let aws_sdk_cloudwatchlogs::operation::put_log_events::PutLogEventsError::DataAlreadyAcceptedException(ref inner) = service_err {
+                                        let mut token = self.sequence_token.lock();
+                                        *token = inner.expected_sequence_token().map(|s| s.to_string());
+                                    }
+                                    tracing::debug!(
+                                        "CloudWatch PutLogEvents: data already accepted, skipping"
+                                    );
+                                    return Ok(());
+                                }
+
+                                // Retry on ServiceUnavailableException with
+                                // exponential backoff.
+                                if service_err.is_service_unavailable_exception()
+                                    && retries < self.config.max_retries
+                                {
+                                    retries += 1;
+                                    let backoff = std::time::Duration::from_millis(
+                                        100 * 2u64.pow(retries),
+                                    );
+                                    tracing::warn!(
+                                        retry = retries,
+                                        backoff_ms = backoff.as_millis() as u64,
+                                        "CloudWatch PutLogEvents service unavailable, retrying"
+                                    );
+                                    tokio::time::sleep(backoff).await;
+                                    continue;
+                                }
+                            }
+
+                            // Check for throttling at the SDK/HTTP level
+                            // (error code "Throttling" or "ThrottlingException").
+                            {
+                                use aws_sdk_cloudwatchlogs::error::ProvideErrorMetadata;
+                                let is_throttled = e
+                                    .as_service_error()
+                                    .and_then(|se| se.code())
+                                    .map(|code| {
+                                        code == "Throttling"
+                                            || code == "ThrottlingException"
+                                            || code == "TooManyRequestsException"
+                                    })
+                                    .unwrap_or(false);
+
+                                if is_throttled && retries < self.config.max_retries {
+                                    retries += 1;
+                                    let backoff = std::time::Duration::from_millis(
+                                        100 * 2u64.pow(retries),
+                                    );
+                                    tracing::warn!(
+                                        retry = retries,
+                                        backoff_ms = backoff.as_millis() as u64,
+                                        "CloudWatch PutLogEvents throttled, retrying"
+                                    );
+                                    tokio::time::sleep(backoff).await;
+                                    continue;
+                                }
+                            }
+
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                format!("CloudWatch PutLogEvents failed: {}", e),
+                            ));
+                        }
+                    }
+                }
+            })
+        })
+    }
+
+    /// Stub flush: drops events with a warning.
+    #[cfg(not(feature = "cloudwatch"))]
+    fn flush_stub(&self) -> std::io::Result<()> {
+        let events: Vec<(u64, String)> = {
+            let mut buffer = self.buffer.lock();
+            std::mem::take(&mut *buffer)
+        };
+
+        if events.is_empty() {
+            return Ok(());
+        }
+
+        // Stub: CloudWatch Logs integration requires aws-sdk-cloudwatchlogs.
+        // Events are dropped with a warning. To implement, add the `cloudwatch`
+        // feature flag and the aws-sdk-cloudwatchlogs dependency.
+        tracing::warn!(
+            event_count = events.len(),
+            log_group = %self.config.log_group,
+            log_stream = %self.config.log_stream,
+            "CloudWatch sink is a stub: {} audit events dropped. \
+             Enable the `cloudwatch` feature for real AWS integration.",
+            events.len(),
+        );
+
+        Ok(())
     }
 }
 
@@ -1132,28 +1479,14 @@ impl AuditSink for CloudWatchSink {
     }
 
     fn flush(&self) -> std::io::Result<()> {
-        let events: Vec<(u64, String)> = {
-            let mut buffer = self.buffer.lock();
-            std::mem::take(&mut *buffer)
-        };
-
-        if events.is_empty() {
-            return Ok(());
+        #[cfg(feature = "cloudwatch")]
+        {
+            return self.flush_to_cloudwatch();
         }
-
-        // Stub: CloudWatch Logs integration requires aws-sdk-cloudwatchlogs.
-        // Events are dropped with a warning. To implement, add the `cloudwatch`
-        // feature flag and the aws-sdk-cloudwatchlogs dependency.
-        tracing::warn!(
-            event_count = events.len(),
-            log_group = %self.config.log_group,
-            log_stream = %self.config.log_stream,
-            "CloudWatch sink is a stub: {} audit events dropped. \
-             Enable the `cloudwatch` feature for real AWS integration.",
-            events.len(),
-        );
-
-        Ok(())
+        #[cfg(not(feature = "cloudwatch"))]
+        {
+            return self.flush_stub();
+        }
     }
 
     fn close(&self) -> std::io::Result<()> {
@@ -1581,8 +1914,8 @@ mod tests {
         assert_eq!(config.batch_size, 100);
     }
 
-    #[test]
-    fn test_cloudwatch_sink_buffering() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_cloudwatch_sink_buffering() {
         let config = CloudWatchConfig {
             batch_size: 5,
             ..Default::default()
