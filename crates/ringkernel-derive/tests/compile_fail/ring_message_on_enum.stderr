@@ -1,0 +1,7 @@
+error: Unsupported shape `enum`. Expected struct with named fields.
+ --> tests/compile_fail/ring_message_on_enum.rs:4:24
+  |
+4 | #[derive(Debug, Clone, RingMessage, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+  |                        ^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `RingMessage` (in Nightly builds, run with -Z macro-backtrace for more info)

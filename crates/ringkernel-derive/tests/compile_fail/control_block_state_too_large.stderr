@@ -1,0 +1,5 @@
+error[E0080]: evaluation panicked: ControlBlockState types must fit in 24 bytes (ControlBlock._reserved size)
+ --> tests/compile_fail/control_block_state_too_large.rs:5:10
+  |
+5 | #[derive(ControlBlockState, Default, Clone, Copy, Debug)]
+  |          ^^^^^^^^^^^^^^^^^ evaluation of `_` failed here

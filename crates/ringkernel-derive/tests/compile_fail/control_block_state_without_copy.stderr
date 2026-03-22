@@ -1,0 +1,51 @@
+error[E0277]: the trait bound `NotCopyableState: std::marker::Copy` is not satisfied
+ --> tests/compile_fail/control_block_state_without_copy.rs:6:8
+  |
+6 | struct NotCopyableState {
+  |        ^^^^^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `std::marker::Copy` is not implemented for `NotCopyableState`
+ --> tests/compile_fail/control_block_state_without_copy.rs:6:1
+  |
+6 | struct NotCopyableState {
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `Pod`
+ --> $CARGO/bytemuck-$VERSION/src/pod.rs
+  |
+  | pub unsafe trait Pod: Zeroable + Copy + 'static {}
+  |                                  ^^^^ required by this bound in `Pod`
+
+error[E0277]: the trait bound `NotCopyableState: std::marker::Copy` is not satisfied
+ --> tests/compile_fail/control_block_state_without_copy.rs:6:8
+  |
+6 | struct NotCopyableState {
+  |        ^^^^^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `std::marker::Copy` is not implemented for `NotCopyableState`
+ --> tests/compile_fail/control_block_state_without_copy.rs:6:1
+  |
+6 | struct NotCopyableState {
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `EmbeddedState`
+ --> $WORKSPACE/crates/ringkernel-core/src/state.rs
+  |
+  | pub trait EmbeddedState: Pod + Zeroable + Default + Copy + Send + Sync + 'static {
+  |                                                     ^^^^ required by this bound in `EmbeddedState`
+
+error[E0277]: the trait bound `NotCopyableState: std::marker::Copy` is not satisfied
+ --> tests/compile_fail/control_block_state_without_copy.rs:6:8
+  |
+6 | struct NotCopyableState {
+  |        ^^^^^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `std::marker::Copy` is not implemented for `NotCopyableState`
+ --> tests/compile_fail/control_block_state_without_copy.rs:6:1
+  |
+6 | struct NotCopyableState {
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `assert_copy`
+ --> tests/compile_fail/control_block_state_without_copy.rs:4:10
+  |
+4 | #[derive(ControlBlockState, Default, Clone, Debug)]
+  |          ^^^^^^^^^^^^^^^^^ required by this bound in `assert_copy`
+  = note: this error originates in the derive macro `ControlBlockState` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -32,3 +32,4 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 rkyv = { workspace = true }
 bytemuck = { workspace = true }
 inventory = { workspace = true }
+trybuild = "1.0"

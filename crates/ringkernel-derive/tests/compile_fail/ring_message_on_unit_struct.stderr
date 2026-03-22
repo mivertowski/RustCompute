@@ -1,0 +1,7 @@
+error: Unsupported shape `no fields`. Expected named fields.
+ --> tests/compile_fail/ring_message_on_unit_struct.rs:4:24
+  |
+4 | #[derive(Debug, Clone, RingMessage)]
+  |                        ^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `RingMessage` (in Nightly builds, run with -Z macro-backtrace for more info)

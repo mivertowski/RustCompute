@@ -1,0 +1,7 @@
+error: Missing field `handler_id`
+ --> tests/compile_fail/persistent_message_missing_handler_id.rs:7:5
+  |
+7 |     PersistentMessage,
+  |     ^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `PersistentMessage` (in Nightly builds, run with -Z macro-backtrace for more info)
