@@ -27,6 +27,7 @@
 //! ```
 
 #![warn(missing_docs)]
+#![warn(clippy::unwrap_used)]
 #![warn(clippy::all)]
 
 pub mod error;

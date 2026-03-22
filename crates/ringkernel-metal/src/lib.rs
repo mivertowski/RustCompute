@@ -30,6 +30,7 @@
 //! ```
 
 #![warn(missing_docs)]
+#![warn(clippy::unwrap_used)]
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
 mod device;

@@ -1,3 +1,4 @@
+#![warn(clippy::unwrap_used)]
 //! WGSL code generation from Rust DSL for RingKernel.
 //!
 //! This crate provides transpilation from a restricted Rust DSL to WGSL (WebGPU Shading Language),

@@ -30,6 +30,7 @@
 //! ```
 
 #![warn(missing_docs)]
+#![warn(clippy::unwrap_used)]
 
 #[cfg(feature = "wgpu")]
 mod adapter;

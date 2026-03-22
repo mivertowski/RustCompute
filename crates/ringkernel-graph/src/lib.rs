@@ -1,3 +1,4 @@
+#![warn(clippy::unwrap_used)]
 //! GPU-accelerated graph algorithm primitives for RingKernel.
 //!
 //! This crate provides high-performance graph algorithms optimized for

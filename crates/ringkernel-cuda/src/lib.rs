@@ -31,6 +31,7 @@
 //! ```
 
 #![warn(missing_docs)]
+#![warn(clippy::unwrap_used)]
 
 #[cfg(feature = "ptx-cache")]
 pub mod compile;

@@ -1,3 +1,4 @@
+#![warn(clippy::unwrap_used)]
 //! CUDA code generation from Rust DSL for RingKernel stencil kernels.
 //!
 //! This crate provides transpilation from a restricted Rust DSL to CUDA C code,

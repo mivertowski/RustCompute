@@ -23,6 +23,7 @@
 //! ```
 
 #![warn(missing_docs)]
+#![warn(clippy::unwrap_used)]
 
 pub mod dsl_common;
 

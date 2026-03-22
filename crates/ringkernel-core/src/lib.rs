@@ -28,6 +28,7 @@
 //! ```
 
 #![warn(missing_docs)]
+#![warn(clippy::unwrap_used)]
 #![warn(clippy::all)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
