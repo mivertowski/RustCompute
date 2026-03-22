@@ -237,10 +237,11 @@ fn test_control_block_queue_pointers() {
 // =============================================================================
 
 /// Simple PTX kernel for testing module loading.
-/// Uses PTX 8.0 / sm_89 for Ada Lovelace GPU compatibility (RTX 40xx series).
+/// Uses PTX 8.0 / sm_75 as the lowest common denominator for cooperative groups.
+/// PTX is forward-compatible, so sm_75 PTX runs on sm_89/sm_90/sm_100.
 const SIMPLE_PTX_KERNEL: &str = r#"
 .version 8.0
-.target sm_89
+.target sm_75
 .address_size 64
 
 .visible .entry simple_kernel(

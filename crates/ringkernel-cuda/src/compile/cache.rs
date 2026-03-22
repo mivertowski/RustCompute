@@ -58,14 +58,14 @@ pub type PtxCacheResult<T> = Result<T, PtxCacheError>;
 /// let cache = PtxCache::new()?;
 /// let source_hash = PtxCache::hash_source(cuda_source);
 ///
-/// // Try to get cached PTX
-/// if let Some(ptx) = cache.get(&source_hash, "sm_86")? {
+/// // Try to get cached PTX (use sm_89, sm_90, sm_100, etc.)
+/// if let Some(ptx) = cache.get(&source_hash, "sm_90")? {
 ///     return Ok(ptx);
 /// }
 ///
 /// // Compile and cache
 /// let ptx = compile_with_nvrtc(cuda_source)?;
-/// cache.put(&source_hash, "sm_86", &ptx)?;
+/// cache.put(&source_hash, "sm_90", &ptx)?;
 /// ```
 #[derive(Debug, Clone)]
 pub struct PtxCache {
@@ -303,7 +303,7 @@ impl PtxCache {
     /// # Arguments
     ///
     /// * `source` - CUDA C source code
-    /// * `compute_cap` - Compute capability string (e.g., "sm_89")
+    /// * `compute_cap` - Compute capability string (e.g., "sm_89", "sm_90", "sm_100")
     ///
     /// # Returns
     ///

@@ -15,6 +15,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/cuda/cooperative_kernels.cu");
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
     println!("cargo:rerun-if-env-changed=CUDA_HOME");
+    println!("cargo:rerun-if-env-changed=RINGKERNEL_CUDA_ARCH");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
@@ -108,21 +109,30 @@ fn compile_cooperative_kernels(nvcc: &Path, out_dir: &Path) -> Result<(), String
     let ptx_file = out_dir.join("cooperative_kernels.ptx");
 
     // Compile with nvcc
-    // Target sm_89 (Ada Lovelace) for RTX 40xx series
-    // CUDA 13.0+ dropped support for sm_70, minimum is now sm_75
-    // PTX is forward-compatible, so sm_89 PTX works on newer GPUs
-    let status = Command::new(nvcc)
-        .args([
-            "-ptx",
-            "-O3",
-            "--generate-line-info",
-            "-arch=sm_89", // Ada Lovelace (RTX 40xx)
-            "-std=c++17",
-            "-w", // Suppress warnings (unused variables in templates)
-            "-o",
-        ])
-        .arg(ptx_file.to_str().unwrap())
-        .arg(cuda_src_path.to_str().unwrap())
+    // Architecture selection priority:
+    // 1. RINGKERNEL_CUDA_ARCH env var (e.g., RINGKERNEL_CUDA_ARCH=sm_90)
+    // 2. -arch=native (CUDA 12+, auto-detects installed GPU)
+    // 3. Multi-arch fallback covering sm_75 through sm_90
+    let arch_args = determine_cuda_arch(nvcc);
+
+    let mut cmd = Command::new(nvcc);
+    cmd.args([
+        "-ptx",
+        "-O3",
+        "--generate-line-info",
+    ]);
+    for arg in &arch_args {
+        cmd.arg(arg);
+    }
+    cmd.args([
+        "-std=c++17",
+        "-w", // Suppress warnings (unused variables in templates)
+        "-o",
+    ]);
+    cmd.arg(ptx_file.to_str().unwrap());
+    cmd.arg(cuda_src_path.to_str().unwrap());
+
+    let status = cmd
         .status()
         .map_err(|e| format!("Failed to execute nvcc: {}", e))?;
 
@@ -148,6 +158,63 @@ fn compile_cooperative_kernels(nvcc: &Path, out_dir: &Path) -> Result<(), String
     .map_err(|e| format!("Failed to write Rust bindings: {}", e))?;
 
     Ok(())
+}
+
+/// Determine CUDA architecture flags for nvcc.
+///
+/// Priority:
+/// 1. `RINGKERNEL_CUDA_ARCH` env var (e.g., `sm_90`)
+/// 2. `-arch=native` (CUDA 12+, auto-detects installed GPU)
+/// 3. Multi-arch fallback: sm_75, sm_80, sm_89, sm_90
+fn determine_cuda_arch(nvcc: &Path) -> Vec<String> {
+    // 1. Check for explicit environment variable
+    if let Ok(arch) = env::var("RINGKERNEL_CUDA_ARCH") {
+        let arch = arch.trim().to_string();
+        println!("cargo:warning=Using RINGKERNEL_CUDA_ARCH={}", arch);
+        // Support both "sm_90" and "-arch=sm_90" forms
+        if arch.starts_with("-arch=") || arch.starts_with("-gencode") {
+            return vec![arch];
+        }
+        return vec![format!("-arch={}", arch)];
+    }
+
+    // 2. Try -arch=native (CUDA 12+ feature, auto-detects installed GPU)
+    if try_native_arch(nvcc) {
+        println!("cargo:warning=Using -arch=native (auto-detected GPU)");
+        return vec!["-arch=native".to_string()];
+    }
+
+    // 3. Fall back to multi-arch covering common architectures
+    println!("cargo:warning=Using multi-arch fallback (sm_75, sm_80, sm_89, sm_90)");
+    vec![
+        "-gencode".to_string(),
+        "arch=compute_75,code=sm_75".to_string(),
+        "-gencode".to_string(),
+        "arch=compute_80,code=sm_80".to_string(),
+        "-gencode".to_string(),
+        "arch=compute_89,code=sm_89".to_string(),
+        "-gencode".to_string(),
+        "arch=compute_90,code=sm_90".to_string(),
+    ]
+}
+
+/// Test whether nvcc supports -arch=native by running a quick dry-run compilation.
+fn try_native_arch(nvcc: &Path) -> bool {
+    // Create a minimal CUDA source to test with
+    let test_src = env::temp_dir().join("ringkernel_arch_test.cu");
+    let _ = fs::write(&test_src, "extern \"C\" __global__ void _test() {}\n");
+
+    let result = Command::new(nvcc)
+        .args(["-ptx", "-arch=native", "-o", "/dev/null"])
+        .arg(&test_src)
+        .output();
+
+    let _ = fs::remove_file(&test_src);
+
+    match result {
+        Ok(output) => output.status.success(),
+        Err(_) => false,
+    }
 }
 
 /// Generate stub when nvcc is not available.

@@ -270,6 +270,36 @@ impl GpuArchitecture {
         }
     }
 
+    /// Blackwell (B200/B100) architecture preset.
+    #[must_use]
+    pub fn blackwell() -> Self {
+        Self {
+            compute_capability: (10, 0),
+            sm_count: 192,
+            max_threads_per_sm: 2048,
+            max_threads_per_block: 1024,
+            warp_size: 32,
+            shared_mem_per_sm: 228 * 1024,        // 228 KB
+            l2_cache_bytes: 128 * 1024 * 1024,    // 128 MB (GB200)
+        }
+    }
+
+    /// Creates an architecture profile from a compute capability version.
+    ///
+    /// Maps major/minor compute capability to the closest known architecture preset.
+    /// Falls back to Ampere for unrecognized compute capabilities.
+    #[must_use]
+    pub fn from_compute_capability(major: u32, minor: u32) -> Self {
+        match (major, minor) {
+            (10, _) => Self::blackwell(),
+            (9, _) => Self::hopper(),
+            (8, 9) => Self::ada(),
+            (8, _) => Self::ampere(),
+            (7, _) => Self::volta(),
+            _ => Self::ampere(), // safe default
+        }
+    }
+
     /// Returns total GPU threads available.
     #[must_use]
     pub fn total_threads(&self) -> u32 {

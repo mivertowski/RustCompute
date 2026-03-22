@@ -226,10 +226,12 @@ pub fn compile_ptx(_cuda_source: &str) -> ringkernel_core::error::Result<String>
 /// PTX kernel source template for persistent ring kernel.
 ///
 /// This is a minimal kernel that immediately marks itself as terminated.
-/// Uses PTX 8.0 / sm_89 for Ada Lovelace GPU compatibility (RTX 40xx series).
+/// Uses PTX 8.0 / sm_75 as the lowest common denominator that supports
+/// cooperative groups. PTX is forward-compatible, so sm_75 PTX runs on
+/// sm_89/sm_90/sm_100 and newer GPUs.
 pub const RING_KERNEL_PTX_TEMPLATE: &str = r#"
 .version 8.0
-.target sm_89
+.target sm_75
 .address_size 64
 
 .visible .entry ring_kernel_main(
