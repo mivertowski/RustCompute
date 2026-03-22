@@ -8,6 +8,8 @@ pub mod profile;
 
 use std::path::Path;
 
+use crate::error::{CliError, CliResult};
+
 /// Parse a comma-separated backend list.
 pub fn parse_backends(backends: &str) -> Vec<String> {
     if backends == "all" {
@@ -22,14 +24,18 @@ pub fn parse_backends(backends: &str) -> Vec<String> {
 }
 
 /// Validate that a project name is valid.
-pub fn validate_project_name(name: &str) -> Result<(), String> {
+pub fn validate_project_name(name: &str) -> CliResult<()> {
     if name.is_empty() {
-        return Err("Project name cannot be empty".to_string());
+        return Err(CliError::InvalidProjectName(
+            "Project name cannot be empty".to_string(),
+        ));
     }
 
     if let Some(c) = name.chars().next() {
         if !c.is_alphabetic() && c != '_' {
-            return Err("Project name must start with a letter or underscore".to_string());
+            return Err(CliError::InvalidProjectName(
+                "Project name must start with a letter or underscore".to_string(),
+            ));
         }
     }
 
@@ -37,15 +43,18 @@ pub fn validate_project_name(name: &str) -> Result<(), String> {
         .chars()
         .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
     {
-        return Err(
+        return Err(CliError::InvalidProjectName(
             "Project name can only contain letters, numbers, underscores, and hyphens".to_string(),
-        );
+        ));
     }
 
     // Reserved names
     let reserved = ["test", "self", "super", "crate", "std", "core", "alloc"];
     if reserved.contains(&name) {
-        return Err(format!("'{}' is a reserved name", name));
+        return Err(CliError::InvalidProjectName(format!(
+            "'{}' is a reserved name",
+            name
+        )));
     }
 
     Ok(())

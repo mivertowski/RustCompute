@@ -33,16 +33,16 @@ pub enum OutputFormat {
 
 impl OutputFormat {
     /// Parse format from string.
-    pub fn from_str(s: &str) -> Result<Self, String> {
+    pub fn from_str(s: &str) -> CliResult<Self> {
         match s.to_lowercase().as_str() {
             "text" => Ok(Self::Text),
             "json" => Ok(Self::Json),
             "chrome" | "trace" | "chrome-trace" => Ok(Self::ChromeTrace),
             "flamegraph" | "flame" | "folded" => Ok(Self::Flamegraph),
-            _ => Err(format!(
+            _ => Err(CliError::Validation(format!(
                 "Unknown format '{}'. Valid options: text, json, chrome-trace, flamegraph",
                 s
-            )),
+            ))),
         }
     }
 }
@@ -165,7 +165,7 @@ pub async fn execute(
     output: Option<&str>,
     detailed: bool,
 ) -> CliResult<()> {
-    let output_format = OutputFormat::from_str(format).map_err(CliError::Validation)?;
+    let output_format = OutputFormat::from_str(format)?;
 
     let config = ProfileConfig {
         kernel: kernel.to_string(),

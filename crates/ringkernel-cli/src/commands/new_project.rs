@@ -23,7 +23,7 @@ pub async fn execute(
     no_git: bool,
 ) -> CliResult<()> {
     // Validate project name
-    validate_project_name(name).map_err(CliError::InvalidProjectName)?;
+    validate_project_name(name)?;
 
     // Determine project path
     let base_path = path.map(Path::new).unwrap_or(Path::new("."));
