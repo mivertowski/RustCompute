@@ -1146,9 +1146,9 @@ impl BlockActorGpuBackend {
         let (cooperative_available, cooperative_kernel) = if config.use_persistent_kernel {
             match Self::try_load_cooperative_kernel(&ctx) {
                 Ok(kernel) => {
-                    println!(
-                        "Cooperative kernel loaded: max {} concurrent blocks",
-                        kernel.max_concurrent_blocks()
+                    tracing::info!(
+                        max_concurrent_blocks = kernel.max_concurrent_blocks(),
+                        "cooperative kernel loaded"
                     );
                     (true, Some(kernel))
                 }

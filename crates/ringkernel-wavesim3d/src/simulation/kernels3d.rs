@@ -462,7 +462,7 @@ mod tests {
             source
         );
 
-        println!("Generated 3D FDTD stencil kernel ({} bytes)", source.len());
+        tracing::debug!(size_bytes = source.len(), "generated 3D FDTD stencil kernel");
     }
 
     #[test]
@@ -497,7 +497,7 @@ mod tests {
             "Missing CELLS_PER_BLOCK constant"
         );
 
-        println!("Generated block actor kernels ({} bytes)", source.len());
+        tracing::debug!(size_bytes = source.len(), "generated block actor kernels");
     }
 
     #[test]
@@ -535,7 +535,7 @@ mod tests {
             source
         );
 
-        println!("Generated ring kernel actors ({} bytes)", source.len());
+        tracing::debug!(size_bytes = source.len(), "generated ring kernel actors");
     }
 
     #[test]

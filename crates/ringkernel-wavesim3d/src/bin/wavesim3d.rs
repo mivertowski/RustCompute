@@ -143,7 +143,7 @@ impl WaveSim3DApp {
 
         // Render
         if let Err(e) = self.renderer.render(&self.engine.grid) {
-            eprintln!("Render error: {}", e);
+            tracing::error!(error = %e, "render failed");
         }
     }
 
