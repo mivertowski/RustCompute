@@ -514,20 +514,20 @@ Based on docs/19-cuda-wishlist-persistent-actors.md:
 - [x] 0.5 Verify GPU Playground status — stub execution (f611d3f)
 
 ### Phase 2: H100/B200 Build Support & Baseline
-- [ ] 2.1.1 Architecture detection in build.rs
-- [ ] 2.1.2 Multi-arch compilation
-- [ ] 2.1.3 Verify GpuArchitecture::hopper() preset (already exists)
-- [ ] 2.1.4 GpuArchitecture::blackwell() preset
-- [ ] 2.1.5 Runtime GPU detection
-- [ ] 2.2.1 cudarc upgrade to 0.19.3
-- [ ] 2.2.2 Fix get_global breaking change
-- [ ] 2.2.3 Fix deprecated memcpy methods
-- [ ] 2.2.4 Cluster launch attribute support
-- [ ] 2.2.5 Update examples and tests
-- [ ] 2.3.1 Enable libcupp_atomics default
-- [ ] 2.3.2 libcu++ codegen support
-- [ ] 2.3.3 Migrate persistent.rs atomics
-- [ ] 2.4.1-2.4.10 Baseline benchmarks (10 items)
+- [x] 2.1.1 Architecture detection in build.rs — 3-tier: env var / native / multi-arch (9ddfb9b)
+- [x] 2.1.2 Multi-arch compilation — sm_75/sm_80/sm_89/sm_90 fallback (9ddfb9b)
+- [x] 2.1.3 Verify GpuArchitecture::hopper() preset — confirmed at mode.rs:259 (9ddfb9b)
+- [x] 2.1.4 GpuArchitecture::blackwell() preset — sm_100, 192 SMs, 128MB L2 (9ddfb9b)
+- [x] 2.1.5 Runtime GPU detection — from_compute_capability() method (9ddfb9b)
+- [ ] 2.2.1 cudarc upgrade to 0.19.3 — requires dedicated session (breaking API changes)
+- [ ] 2.2.2 Fix get_global breaking change — blocked by 2.2.1
+- [ ] 2.2.3 Fix deprecated memcpy methods — blocked by 2.2.1
+- [ ] 2.2.4 Cluster launch attribute support — blocked by 2.2.1
+- [ ] 2.2.5 Update examples and tests — blocked by 2.2.1
+- [x] 2.3.1 Enable libcupp_atomics default — true for H100/B200 (194cbb8)
+- [x] 2.3.2 libcu++ codegen support — already fully implemented in persistent_fdtd.rs
+- [ ] 2.3.3 Migrate persistent.rs atomics — runtime code, needs CUDA hardware to test
+- [ ] 2.4.1-2.4.10 Baseline benchmarks — requires H100/B200 hardware
 
 ### Phase 3: Observability & Logging
 - [ ] 3.1.1-3.1.10 Replace println/eprintln (~735+ instances, worst: wavesim 289, wavesim3d 182)
