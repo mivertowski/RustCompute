@@ -48,8 +48,8 @@ pub struct PersistentFdtdConfig {
     /// Used when the kernel has no work to do, reducing power consumption.
     pub idle_sleep_ns: u32,
     /// Use libcu++ ordered atomics (cuda::atomic_ref) for queue operations.
-    /// Requires CUDA 11.0+ toolkit. When false (default), uses legacy
-    /// __threadfence_system() pairs.
+    /// Requires CUDA 11.0+ toolkit. When false, uses legacy
+    /// __threadfence_system() pairs. Defaults to true for H100/B200 compatibility.
     pub use_libcupp_atomics: bool,
 }
 
@@ -62,7 +62,7 @@ impl Default for PersistentFdtdConfig {
             progress_interval: 100,
             track_energy: true,
             idle_sleep_ns: 1000,
-            use_libcupp_atomics: false,
+            use_libcupp_atomics: true,
         }
     }
 }
@@ -1258,11 +1258,27 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_kernel_default_no_libcupp() {
+    fn test_generate_kernel_default_uses_libcupp() {
         let config = PersistentFdtdConfig::default();
         let code = generate_persistent_fdtd_kernel(&config);
 
-        // Default must NOT include libcu++
+        // Default must include libcu++ ordered atomics
+        assert!(code.contains("#include <cuda/atomic>"));
+        assert!(code.contains("cuda::atomic_ref<uint64_t, cuda::thread_scope_system>"));
+        assert!(code.contains("memory_order_acquire"));
+        assert!(code.contains("memory_order_release"));
+
+        // Must NOT have legacy __threadfence_system()
+        assert!(!code.contains("__threadfence_system()"));
+    }
+
+    #[test]
+    fn test_generate_kernel_legacy_no_libcupp() {
+        let config = PersistentFdtdConfig::default()
+            .with_libcupp_atomics(false);
+        let code = generate_persistent_fdtd_kernel(&config);
+
+        // Must NOT include libcu++
         assert!(!code.contains("#include <cuda/atomic>"));
         assert!(!code.contains("cuda::atomic_ref"));
 
