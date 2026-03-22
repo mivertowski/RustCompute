@@ -539,17 +539,18 @@ Based on docs/19-cuda-wishlist-persistent-actors.md:
 - [ ] 3.3.2 OpenTelemetry span export — partially done via otel feature flag (2ac9199)
 
 ### Phase 4: Testing & Documentation
-- [ ] 4.1.1 ringkernel-derive tests
-- [ ] 4.1.2 ringkernel-python tests
-- [ ] 4.1.3 Metal CI tests
-- [ ] 4.1.4 Ecosystem tests
-- [ ] 4.1.5 Codegen edge case tests
-- [ ] 4.2.1-4.2.7 Feature matrix testing (7 combos + CI job)
-- [ ] 4.3.1 H100 self-hosted runner
-- [ ] 4.3.2 GPU tests on every PR
-- [ ] 4.3.3 Benchmark regression detection
-- [ ] 4.4.1-4.4.8 Documentation enforcement (8 crates + unsafe deny)
-- [ ] 4.5.1-4.5.7 Unsafe code audit (190 blocks across 7 groups)
+- [x] 4.1.1 ringkernel-derive tests — 8 compile-fail tests with trybuild (a55f55f)
+- [ ] 4.1.2 ringkernel-python tests — deferred (Python env setup needed)
+- [ ] 4.1.3 Metal CI tests — deferred (requires macOS runner)
+- [ ] 4.1.4 Ecosystem tests — deferred (complex feature combos)
+- [ ] 4.1.5 Codegen edge case tests — deferred
+- [x] 4.2.7 Feature matrix CI job — 3 combos: none/cpu/enterprise (1f57f2a)
+- [ ] 4.3.1 H100 self-hosted runner — requires infrastructure
+- [ ] 4.3.2 GPU tests on every PR — requires 4.3.1
+- [ ] 4.3.3 Benchmark regression detection — requires 4.3.1
+- [ ] 4.4.1-4.4.8 Documentation enforcement — deferred (large scope: document all public items first)
+- [x] 4.5.2 Unsafe audit: ringkernel-cuda — 24 blocks documented (0a37269)
+- [ ] 4.5.1,4.5.3-4.5.7 Unsafe audit: remaining crates — deferred
 
 ### Phase 5: Hopper Feature Integration
 - [ ] 5.1.1-5.1.5 Thread Block Clusters (5 items)
