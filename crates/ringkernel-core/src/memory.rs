@@ -84,7 +84,8 @@ impl<T: Copy> PinnedMemory<T> {
         }
 
         Ok(Self {
-            ptr: NonNull::new(ptr as *mut T).unwrap(),
+            // SAFETY: ptr is guaranteed non-null by the is_null() check above
+            ptr: NonNull::new(ptr as *mut T).expect("ptr verified non-null above"),
             len: count,
             layout,
             _marker: PhantomData,
@@ -518,7 +519,7 @@ impl StratifiedMemoryPool {
 
     /// Allocate from a specific bucket.
     pub fn allocate_bucket(&self, bucket: SizeBucket) -> StratifiedBuffer<'_> {
-        let pool = self.buckets.get(&bucket).expect("bucket pool exists");
+        let pool = self.buckets.get(&bucket).expect("all SizeBucket variants are inserted in new()");
 
         // Track stats before allocation to capture hit
         let was_cached = pool.current_size() > 0;

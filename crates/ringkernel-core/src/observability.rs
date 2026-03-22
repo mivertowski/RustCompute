@@ -561,7 +561,7 @@ impl PrometheusExporter {
 
             for def in &defs {
                 // Write TYPE and HELP
-                writeln!(output, "# HELP {} {}", def.name, def.help).unwrap();
+                writeln!(output, "# HELP {} {}", def.name, def.help).expect("write to String is infallible");
                 writeln!(
                     output,
                     "# TYPE {} {}",
@@ -573,7 +573,7 @@ impl PrometheusExporter {
                         MetricType::Summary => "summary",
                     }
                 )
-                .unwrap();
+                .expect("write to String is infallible");
 
                 // Write samples for this metric
                 for sample in samples.iter().filter(|s| s.name == def.name) {
@@ -590,7 +590,7 @@ impl PrometheusExporter {
                 "# HELP {} {}",
                 metric.definition.name, metric.definition.help
             )
-            .unwrap();
+            .expect("write to String is infallible");
             writeln!(
                 output,
                 "# TYPE {} {}",
@@ -602,7 +602,7 @@ impl PrometheusExporter {
                     MetricType::Summary => "summary",
                 }
             )
-            .unwrap();
+            .expect("write to String is infallible");
 
             for sample in &metric.samples {
                 Self::write_sample(&mut output, &metric.definition.labels, sample);
@@ -614,7 +614,8 @@ impl PrometheusExporter {
 
     fn write_sample(output: &mut String, labels: &[String], sample: &MetricSample) {
         if labels.is_empty() || sample.label_values.is_empty() {
-            writeln!(output, "{} {}", sample.name, sample.value).unwrap();
+            writeln!(output, "{} {}", sample.name, sample.value)
+                .expect("write to String is infallible");
         } else {
             let label_pairs: Vec<String> = labels
                 .iter()
@@ -628,7 +629,7 @@ impl PrometheusExporter {
                 label_pairs.join(","),
                 sample.value
             )
-            .unwrap();
+            .expect("write to String is infallible");
         }
     }
 
@@ -2006,50 +2007,52 @@ impl GpuMemoryDashboard {
     }
 
     /// Generate Prometheus metrics for GPU memory.
+    ///
+    /// All `writeln!` calls use `expect` because `fmt::Write` for `String` is infallible.
     pub fn prometheus_metrics(&self) -> String {
         let mut output = String::new();
 
         // Total allocated
-        writeln!(output, "# HELP ringkernel_gpu_memory_allocated_bytes Current GPU memory allocated by RingKernel").unwrap();
-        writeln!(output, "# TYPE ringkernel_gpu_memory_allocated_bytes gauge").unwrap();
+        writeln!(output, "# HELP ringkernel_gpu_memory_allocated_bytes Current GPU memory allocated by RingKernel").expect("write to String is infallible");
+        writeln!(output, "# TYPE ringkernel_gpu_memory_allocated_bytes gauge").expect("write to String is infallible");
         writeln!(
             output,
             "ringkernel_gpu_memory_allocated_bytes {}",
             self.total_allocated()
         )
-        .unwrap();
+        .expect("write to String is infallible");
 
         // Peak allocated
         writeln!(
             output,
             "# HELP ringkernel_gpu_memory_peak_bytes Peak GPU memory allocated by RingKernel"
         )
-        .unwrap();
-        writeln!(output, "# TYPE ringkernel_gpu_memory_peak_bytes gauge").unwrap();
+        .expect("write to String is infallible");
+        writeln!(output, "# TYPE ringkernel_gpu_memory_peak_bytes gauge").expect("write to String is infallible");
         writeln!(
             output,
             "ringkernel_gpu_memory_peak_bytes {}",
             self.peak_allocated()
         )
-        .unwrap();
+        .expect("write to String is infallible");
 
         // Allocation count
         writeln!(
             output,
             "# HELP ringkernel_gpu_memory_allocation_count Number of active GPU allocations"
         )
-        .unwrap();
+        .expect("write to String is infallible");
         writeln!(
             output,
             "# TYPE ringkernel_gpu_memory_allocation_count gauge"
         )
-        .unwrap();
+        .expect("write to String is infallible");
         writeln!(
             output,
             "ringkernel_gpu_memory_allocation_count {}",
             self.allocation_count()
         )
-        .unwrap();
+        .expect("write to String is infallible");
 
         // Per-device stats
         let device_stats = self.device_stats.read();
@@ -2059,41 +2062,43 @@ impl GpuMemoryDashboard {
                 "ringkernel_gpu_device_memory_total_bytes{{device=\"{}\"}} {}",
                 device.device_name, device.total_memory
             )
-            .unwrap();
+            .expect("write to String is infallible");
             writeln!(
                 output,
                 "ringkernel_gpu_device_memory_free_bytes{{device=\"{}\"}} {}",
                 device.device_name, device.free_memory
             )
-            .unwrap();
+            .expect("write to String is infallible");
             writeln!(
                 output,
                 "ringkernel_gpu_device_memory_used_bytes{{device=\"{}\"}} {}",
                 device.device_name,
                 device.used_memory()
             )
-            .unwrap();
+            .expect("write to String is infallible");
             writeln!(
                 output,
                 "ringkernel_gpu_device_utilization{{device=\"{}\"}} {:.2}",
                 device.device_name,
                 device.utilization()
             )
-            .unwrap();
+            .expect("write to String is infallible");
         }
 
         output
     }
 
     /// Generate a memory summary report.
+    ///
+    /// All `writeln!` calls use `expect` because `fmt::Write` for `String` is infallible.
     pub fn summary_report(&self) -> String {
         let mut report = String::new();
 
-        writeln!(report, "=== GPU Memory Dashboard ===").unwrap();
-        writeln!(report, "Total Allocated: {} bytes", self.total_allocated()).unwrap();
-        writeln!(report, "Peak Allocated: {} bytes", self.peak_allocated()).unwrap();
-        writeln!(report, "Active Allocations: {}", self.allocation_count()).unwrap();
-        writeln!(report).unwrap();
+        writeln!(report, "=== GPU Memory Dashboard ===").expect("write to String is infallible");
+        writeln!(report, "Total Allocated: {} bytes", self.total_allocated()).expect("write to String is infallible");
+        writeln!(report, "Peak Allocated: {} bytes", self.peak_allocated()).expect("write to String is infallible");
+        writeln!(report, "Active Allocations: {}", self.allocation_count()).expect("write to String is infallible");
+        writeln!(report).expect("write to String is infallible");
 
         // Device summary
         let device_stats = self.device_stats.read();
@@ -2103,27 +2108,27 @@ impl GpuMemoryDashboard {
                 "--- Device {} ({}) ---",
                 device.device_index, device.device_name
             )
-            .unwrap();
+            .expect("write to String is infallible");
             writeln!(
                 report,
                 "  Total: {} MB",
                 device.total_memory / (1024 * 1024)
             )
-            .unwrap();
-            writeln!(report, "  Free: {} MB", device.free_memory / (1024 * 1024)).unwrap();
+            .expect("write to String is infallible");
+            writeln!(report, "  Free: {} MB", device.free_memory / (1024 * 1024)).expect("write to String is infallible");
             writeln!(
                 report,
                 "  RingKernel: {} MB",
                 device.ringkernel_used / (1024 * 1024)
             )
-            .unwrap();
-            writeln!(report, "  Utilization: {:.1}%", device.utilization()).unwrap();
+            .expect("write to String is infallible");
+            writeln!(report, "  Utilization: {:.1}%", device.utilization()).expect("write to String is infallible");
             writeln!(
                 report,
                 "  Pressure: {:?}",
                 self.check_pressure(device.device_index)
             )
-            .unwrap();
+            .expect("write to String is infallible");
         }
 
         // Top allocations by size
@@ -2132,8 +2137,8 @@ impl GpuMemoryDashboard {
         sorted_allocs.sort_by_key(|a| std::cmp::Reverse(a.size));
 
         if !sorted_allocs.is_empty() {
-            writeln!(report).unwrap();
-            writeln!(report, "--- Top 10 Allocations ---").unwrap();
+            writeln!(report).expect("write to String is infallible");
+            writeln!(report, "--- Top 10 Allocations ---").expect("write to String is infallible");
             for (i, alloc) in sorted_allocs.iter().take(10).enumerate() {
                 writeln!(
                     report,
@@ -2143,7 +2148,7 @@ impl GpuMemoryDashboard {
                     alloc.size,
                     alloc.memory_type
                 )
-                .unwrap();
+                .expect("write to String is infallible");
             }
         }
 

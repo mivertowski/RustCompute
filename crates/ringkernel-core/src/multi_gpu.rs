@@ -976,12 +976,10 @@ impl MultiGpuCoordinator {
 
     /// Get best device for communicating with a source kernel.
     pub fn select_device_for_k2k(&self, source_kernel: &KernelId) -> Result<usize> {
-        let source_device = self.get_kernel_device(source_kernel);
-        if source_device.is_none() {
-            return self.select_device(&LaunchOptions::default());
-        }
-
-        let source_idx = source_device.unwrap();
+        let source_idx = match self.get_kernel_device(source_kernel) {
+            Some(idx) => idx,
+            None => return self.select_device(&LaunchOptions::default()),
+        };
         let topo = self.topology();
         let status = self.get_all_status();
 

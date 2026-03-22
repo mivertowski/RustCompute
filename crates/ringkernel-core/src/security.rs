@@ -409,7 +409,7 @@ impl MemoryEncryption {
     pub fn encrypt_region(&self, plaintext: &[u8]) -> EncryptedRegion {
         let start = Instant::now();
 
-        let key = self.active_key.read().unwrap();
+        let key = self.active_key.read().expect("active_key lock poisoned");
         let region_id = self.region_counter.fetch_add(1, Ordering::Relaxed);
 
         // Generate cryptographically secure nonce
@@ -428,27 +428,27 @@ impl MemoryEncryption {
         let ciphertext = match self.config.algorithm {
             EncryptionAlgorithm::Aes256Gcm | EncryptionAlgorithm::Aes128Gcm => {
                 let cipher =
-                    Aes256Gcm::new_from_slice(key.material()).expect("Invalid AES key length");
+                    Aes256Gcm::new_from_slice(key.material()).expect("AES key length must be 32 bytes");
                 let aes_nonce = AesNonce::from_slice(&nonce);
                 cipher
                     .encrypt(aes_nonce, plaintext)
-                    .expect("AES-GCM encryption failed")
+                    .expect("AES-GCM encryption should not fail with valid key and nonce")
             }
             EncryptionAlgorithm::ChaCha20Poly1305 => {
                 let cipher = ChaCha20Poly1305::new_from_slice(key.material())
-                    .expect("Invalid ChaCha20 key length");
+                    .expect("ChaCha20 key length must be 32 bytes");
                 let cha_nonce = ChaNonce::from_slice(&nonce);
                 cipher
                     .encrypt(cha_nonce, plaintext)
-                    .expect("ChaCha20-Poly1305 encryption failed")
+                    .expect("ChaCha20-Poly1305 encryption should not fail with valid key and nonce")
             }
             EncryptionAlgorithm::XChaCha20Poly1305 => {
                 let cipher = XChaCha20Poly1305::new_from_slice(key.material())
-                    .expect("Invalid XChaCha20 key length");
+                    .expect("XChaCha20 key length must be 32 bytes");
                 let x_nonce = XNonce::from_slice(&nonce);
                 cipher
                     .encrypt(x_nonce, plaintext)
-                    .expect("XChaCha20-Poly1305 encryption failed")
+                    .expect("XChaCha20-Poly1305 encryption should not fail with valid key and nonce")
             }
         };
 
@@ -456,7 +456,7 @@ impl MemoryEncryption {
 
         // Update stats
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().expect("stats lock poisoned");
             stats.bytes_encrypted += plaintext.len() as u64;
             stats.encrypt_ops += 1;
             let total_time = stats.avg_encrypt_time_us * (stats.encrypt_ops - 1) as f64;
@@ -486,7 +486,7 @@ impl MemoryEncryption {
     pub fn encrypt_region(&self, plaintext: &[u8]) -> EncryptedRegion {
         let start = Instant::now();
 
-        let key = self.active_key.read().unwrap();
+        let key = self.active_key.read().expect("active_key lock poisoned");
         let region_id = self.region_counter.fetch_add(1, Ordering::Relaxed);
 
         // Generate deterministic nonce (INSECURE - demo only)
@@ -519,7 +519,7 @@ impl MemoryEncryption {
 
         // Update stats
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().expect("stats lock poisoned");
             stats.bytes_encrypted += plaintext.len() as u64;
             stats.encrypt_ops += 1;
             let total_time = stats.avg_encrypt_time_us * (stats.encrypt_ops - 1) as f64;
@@ -544,12 +544,12 @@ impl MemoryEncryption {
         let start = Instant::now();
 
         // Find the appropriate key
-        let key = if region.key_id == self.active_key.read().unwrap().key_id {
-            self.active_key.read().unwrap().clone()
+        let key = if region.key_id == self.active_key.read().expect("active_key lock poisoned").key_id {
+            self.active_key.read().expect("active_key lock poisoned").clone()
         } else {
             self.previous_keys
                 .read()
-                .unwrap()
+                .expect("previous_keys lock poisoned")
                 .get(&region.key_id)
                 .cloned()
                 .ok_or_else(|| format!("Key {} not found", region.key_id))?
@@ -595,7 +595,7 @@ impl MemoryEncryption {
 
         // Update stats
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().expect("stats lock poisoned");
             stats.bytes_decrypted += plaintext.len() as u64;
             stats.decrypt_ops += 1;
             let total_time = stats.avg_decrypt_time_us * (stats.decrypt_ops - 1) as f64;
@@ -614,12 +614,12 @@ impl MemoryEncryption {
         let start = Instant::now();
 
         // Find the appropriate key
-        let key = if region.key_id == self.active_key.read().unwrap().key_id {
-            self.active_key.read().unwrap().clone()
+        let key = if region.key_id == self.active_key.read().expect("active_key lock poisoned").key_id {
+            self.active_key.read().expect("active_key lock poisoned").clone()
         } else {
             self.previous_keys
                 .read()
-                .unwrap()
+                .expect("previous_keys lock poisoned")
                 .get(&region.key_id)
                 .cloned()
                 .ok_or_else(|| format!("Key {} not found", region.key_id))?
@@ -643,7 +643,7 @@ impl MemoryEncryption {
 
         // Update stats
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().expect("stats lock poisoned");
             stats.bytes_decrypted += plaintext.len() as u64;
             stats.decrypt_ops += 1;
             let total_time = stats.avg_decrypt_time_us * (stats.decrypt_ops - 1) as f64;
@@ -656,8 +656,8 @@ impl MemoryEncryption {
 
     /// Rotate encryption keys.
     pub fn rotate_keys(&self) {
-        let mut active = self.active_key.write().unwrap();
-        let mut previous = self.previous_keys.write().unwrap();
+        let mut active = self.active_key.write().expect("active_key lock poisoned");
+        let mut previous = self.previous_keys.write().expect("previous_keys lock poisoned");
 
         // Move current key to previous
         let old_key = active.clone();
@@ -668,10 +668,10 @@ impl MemoryEncryption {
         *active = EncryptionKey::new(new_key_id, self.config.algorithm);
 
         // Update rotation time
-        *self.last_rotation.write().unwrap() = Instant::now();
+        *self.last_rotation.write().expect("last_rotation lock poisoned") = Instant::now();
 
         // Update stats
-        self.stats.write().unwrap().key_rotations += 1;
+        self.stats.write().expect("stats lock poisoned").key_rotations += 1;
 
         // Clean up old keys (keep last 10)
         while previous.len() > 10 {
@@ -683,18 +683,18 @@ impl MemoryEncryption {
 
     /// Check if key rotation is needed.
     pub fn needs_rotation(&self) -> bool {
-        let last = *self.last_rotation.read().unwrap();
+        let last = *self.last_rotation.read().expect("last_rotation lock poisoned");
         last.elapsed() >= self.config.key_rotation_interval
     }
 
     /// Get encryption statistics.
     pub fn stats(&self) -> EncryptionStats {
-        self.stats.read().unwrap().clone()
+        self.stats.read().expect("stats lock poisoned").clone()
     }
 
     /// Get the current key ID.
     pub fn current_key_id(&self) -> u64 {
-        self.active_key.read().unwrap().key_id
+        self.active_key.read().expect("active_key lock poisoned").key_id
     }
 
     /// Get the configuration.
@@ -1107,12 +1107,12 @@ impl KernelSandbox {
     /// Apply sandbox to a kernel.
     pub fn apply_to_kernel(&mut self, kernel_id: KernelId) {
         self.kernel_id = Some(kernel_id);
-        *self.start_time.write().unwrap() = Some(Instant::now());
+        *self.start_time.write().expect("start_time lock poisoned") = Some(Instant::now());
     }
 
     /// Check memory usage against limits.
     pub fn check_memory(&self, bytes: u64) -> Result<(), SandboxViolation> {
-        self.stats.write().unwrap().total_checks += 1;
+        self.stats.write().expect("stats lock poisoned").total_checks += 1;
 
         if bytes > self.policy.limits.max_memory_bytes {
             let violation = SandboxViolation {
@@ -1131,15 +1131,15 @@ impl KernelSandbox {
             return Err(violation);
         }
 
-        self.stats.write().unwrap().current_memory_usage = bytes;
+        self.stats.write().expect("stats lock poisoned").current_memory_usage = bytes;
         Ok(())
     }
 
     /// Check execution time against limits.
     pub fn check_execution_time(&self) -> Result<(), SandboxViolation> {
-        self.stats.write().unwrap().total_checks += 1;
+        self.stats.write().expect("stats lock poisoned").total_checks += 1;
 
-        if let Some(start) = *self.start_time.read().unwrap() {
+        if let Some(start) = *self.start_time.read().expect("start_time lock poisoned") {
             let elapsed = start.elapsed();
             if elapsed > self.policy.limits.max_execution_time {
                 let violation = SandboxViolation {
@@ -1163,7 +1163,7 @@ impl KernelSandbox {
 
     /// Check K2K destination against policy.
     pub fn check_k2k(&self, destination: &str) -> Result<(), SandboxViolation> {
-        self.stats.write().unwrap().total_checks += 1;
+        self.stats.write().expect("stats lock poisoned").total_checks += 1;
 
         if !self.policy.is_k2k_allowed(destination) {
             let violation = SandboxViolation {
@@ -1185,7 +1185,7 @@ impl KernelSandbox {
 
     /// Check if checkpointing is allowed.
     pub fn check_checkpoint(&self) -> Result<(), SandboxViolation> {
-        self.stats.write().unwrap().total_checks += 1;
+        self.stats.write().expect("stats lock poisoned").total_checks += 1;
 
         if !self.policy.can_checkpoint {
             let violation = SandboxViolation {
@@ -1205,7 +1205,7 @@ impl KernelSandbox {
 
     /// Check if migration is allowed.
     pub fn check_migration(&self) -> Result<(), SandboxViolation> {
-        self.stats.write().unwrap().total_checks += 1;
+        self.stats.write().expect("stats lock poisoned").total_checks += 1;
 
         if !self.policy.can_migrate {
             let violation = SandboxViolation {
@@ -1228,12 +1228,12 @@ impl KernelSandbox {
         self.message_count.fetch_add(1, Ordering::Relaxed);
 
         // Check rate every second
-        let mut last_check = self.last_rate_check.write().unwrap();
+        let mut last_check = self.last_rate_check.write().expect("last_rate_check lock poisoned");
         if last_check.elapsed() >= Duration::from_secs(1) {
             let count = self.message_count.swap(0, Ordering::Relaxed) as u32;
             *last_check = Instant::now();
 
-            self.stats.write().unwrap().current_message_rate = count;
+            self.stats.write().expect("stats lock poisoned").current_message_rate = count;
 
             if count > self.policy.limits.max_messages_per_sec {
                 let violation = SandboxViolation {
@@ -1257,21 +1257,21 @@ impl KernelSandbox {
 
     /// Record a violation.
     fn record_violation(&self, violation: SandboxViolation) {
-        let mut stats = self.stats.write().unwrap();
+        let mut stats = self.stats.write().expect("stats lock poisoned");
         stats.violations_detected += 1;
         stats.operations_blocked += 1;
 
-        self.violations.write().unwrap().push(violation);
+        self.violations.write().expect("violations lock poisoned").push(violation);
     }
 
     /// Get all recorded violations.
     pub fn violations(&self) -> Vec<SandboxViolation> {
-        self.violations.read().unwrap().clone()
+        self.violations.read().expect("violations lock poisoned").clone()
     }
 
     /// Get sandbox statistics.
     pub fn stats(&self) -> SandboxStats {
-        self.stats.read().unwrap().clone()
+        self.stats.read().expect("stats lock poisoned").clone()
     }
 
     /// Get the policy.
@@ -1281,8 +1281,8 @@ impl KernelSandbox {
 
     /// Reset statistics and violations.
     pub fn reset(&self) {
-        *self.stats.write().unwrap() = SandboxStats::default();
-        self.violations.write().unwrap().clear();
+        *self.stats.write().expect("stats lock poisoned") = SandboxStats::default();
+        self.violations.write().expect("violations lock poisoned").clear();
         self.message_count.store(0, Ordering::Relaxed);
     }
 }
@@ -1293,7 +1293,7 @@ impl fmt::Debug for KernelSandbox {
             .field("policy", &self.policy)
             .field("kernel_id", &self.kernel_id)
             .field("stats", &self.stats())
-            .field("violations_count", &self.violations.read().unwrap().len())
+            .field("violations_count", &self.violations.read().map(|v| v.len()).unwrap_or(0))
             .finish()
     }
 }
@@ -1666,7 +1666,7 @@ impl ComplianceReporter {
             id: format!(
                 "RPT-{}",
                 now.duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
+                    .expect("system time should be after UNIX epoch")
                     .as_secs()
             ),
             title: format!("{} Compliance Report", self.organization),

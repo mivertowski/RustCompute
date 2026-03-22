@@ -203,17 +203,19 @@ impl CheckpointHeader {
 
     /// Deserialize from bytes.
     pub fn from_bytes(bytes: &[u8; 64]) -> Self {
+        // All slice-to-array conversions below are infallible because the input
+        // is a fixed-size [u8; 64] and all subslice ranges are compile-time constants.
         Self {
-            magic: u64::from_le_bytes(bytes[0..8].try_into().unwrap()),
-            version: u32::from_le_bytes(bytes[8..12].try_into().unwrap()),
-            header_size: u32::from_le_bytes(bytes[12..16].try_into().unwrap()),
-            total_size: u64::from_le_bytes(bytes[16..24].try_into().unwrap()),
-            chunk_count: u32::from_le_bytes(bytes[24..28].try_into().unwrap()),
-            compression: u32::from_le_bytes(bytes[28..32].try_into().unwrap()),
-            checksum: u32::from_le_bytes(bytes[32..36].try_into().unwrap()),
-            flags: u32::from_le_bytes(bytes[36..40].try_into().unwrap()),
-            created_at: u64::from_le_bytes(bytes[40..48].try_into().unwrap()),
-            _reserved: bytes[48..56].try_into().unwrap(),
+            magic: u64::from_le_bytes(bytes[0..8].try_into().expect("slice is exactly 8 bytes")),
+            version: u32::from_le_bytes(bytes[8..12].try_into().expect("slice is exactly 4 bytes")),
+            header_size: u32::from_le_bytes(bytes[12..16].try_into().expect("slice is exactly 4 bytes")),
+            total_size: u64::from_le_bytes(bytes[16..24].try_into().expect("slice is exactly 8 bytes")),
+            chunk_count: u32::from_le_bytes(bytes[24..28].try_into().expect("slice is exactly 4 bytes")),
+            compression: u32::from_le_bytes(bytes[28..32].try_into().expect("slice is exactly 4 bytes")),
+            checksum: u32::from_le_bytes(bytes[32..36].try_into().expect("slice is exactly 4 bytes")),
+            flags: u32::from_le_bytes(bytes[36..40].try_into().expect("slice is exactly 4 bytes")),
+            created_at: u64::from_le_bytes(bytes[40..48].try_into().expect("slice is exactly 8 bytes")),
+            _reserved: bytes[48..56].try_into().expect("slice is exactly 8 bytes"),
         }
     }
 }
@@ -269,12 +271,14 @@ impl ChunkHeader {
 
     /// Deserialize from bytes.
     pub fn from_bytes(bytes: &[u8; 32]) -> Self {
+        // All slice-to-array conversions below are infallible because the input
+        // is a fixed-size [u8; 32] and all subslice ranges are compile-time constants.
         Self {
-            chunk_type: u32::from_le_bytes(bytes[0..4].try_into().unwrap()),
-            flags: u32::from_le_bytes(bytes[4..8].try_into().unwrap()),
-            uncompressed_size: u64::from_le_bytes(bytes[8..16].try_into().unwrap()),
-            compressed_size: u64::from_le_bytes(bytes[16..24].try_into().unwrap()),
-            chunk_id: u64::from_le_bytes(bytes[24..32].try_into().unwrap()),
+            chunk_type: u32::from_le_bytes(bytes[0..4].try_into().expect("slice is exactly 4 bytes")),
+            flags: u32::from_le_bytes(bytes[4..8].try_into().expect("slice is exactly 4 bytes")),
+            uncompressed_size: u64::from_le_bytes(bytes[8..16].try_into().expect("slice is exactly 8 bytes")),
+            compressed_size: u64::from_le_bytes(bytes[16..24].try_into().expect("slice is exactly 8 bytes")),
+            chunk_id: u64::from_le_bytes(bytes[24..32].try_into().expect("slice is exactly 8 bytes")),
         }
     }
 }
@@ -402,7 +406,8 @@ impl CheckpointMetadata {
                     "Unexpected end of metadata".to_string(),
                 ));
             }
-            let val = u32::from_le_bytes(bytes[*off..*off + 4].try_into().unwrap());
+            // Bounds checked above, so the 4-byte slice conversion is infallible
+            let val = u32::from_le_bytes(bytes[*off..*off + 4].try_into().expect("bounds checked 4-byte slice"));
             *off += 4;
             Ok(val)
         };
@@ -414,7 +419,8 @@ impl CheckpointMetadata {
                     "Unexpected end of metadata".to_string(),
                 ));
             }
-            let val = u64::from_le_bytes(bytes[*off..*off + 8].try_into().unwrap());
+            // Bounds checked above, so the 8-byte slice conversion is infallible
+            let val = u64::from_le_bytes(bytes[*off..*off + 8].try_into().expect("bounds checked 8-byte slice"));
             *off += 8;
             Ok(val)
         };
@@ -645,8 +651,8 @@ impl Checkpoint {
             ));
         }
 
-        // Read header
-        let header = CheckpointHeader::from_bytes(bytes[0..64].try_into().unwrap());
+        // Read header - slice is exactly 64 bytes (checked above)
+        let header = CheckpointHeader::from_bytes(bytes[0..64].try_into().expect("input validated to be >= 64 bytes"));
         header.validate()?;
 
         // Verify checksum
@@ -666,8 +672,9 @@ impl Checkpoint {
                 "Missing metadata length".to_string(),
             ));
         }
+        // Bounds checked above, so the 4-byte slice conversion is infallible
         let metadata_len =
-            u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
+            u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("bounds checked 4-byte slice")) as usize;
         offset += 4;
 
         // Read metadata
@@ -688,8 +695,9 @@ impl Checkpoint {
                 ));
             }
 
+            // Bounds checked above, so the 32-byte slice conversion is infallible
             let chunk_header =
-                ChunkHeader::from_bytes(bytes[offset..offset + 32].try_into().unwrap());
+                ChunkHeader::from_bytes(bytes[offset..offset + 32].try_into().expect("bounds checked 32-byte slice"));
             offset += 32;
 
             let data_len = chunk_header.compressed_size as usize;

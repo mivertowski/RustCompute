@@ -173,7 +173,7 @@ impl RegressionReport {
         self.entries
             .iter()
             .filter(|e| e.status == RegressionStatus::Regressed)
-            .min_by(|a, b| a.percent_change.partial_cmp(&b.percent_change).unwrap())
+            .min_by(|a, b| a.percent_change.partial_cmp(&b.percent_change).unwrap_or(std::cmp::Ordering::Equal))
     }
 
     /// Returns the best improvement (largest positive change).
@@ -182,7 +182,7 @@ impl RegressionReport {
         self.entries
             .iter()
             .filter(|e| e.status == RegressionStatus::Improved)
-            .max_by(|a, b| a.percent_change.partial_cmp(&b.percent_change).unwrap())
+            .max_by(|a, b| a.percent_change.partial_cmp(&b.percent_change).unwrap_or(std::cmp::Ordering::Equal))
     }
 
     /// Generates a summary string.

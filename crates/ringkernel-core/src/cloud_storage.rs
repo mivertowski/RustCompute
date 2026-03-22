@@ -251,9 +251,9 @@ impl S3Storage {
 
         // Add storage class if specified
         if let Some(ref class) = self.config.storage_class {
-            // StorageClass::from_str returns Result<StorageClass, Infallible>
-            // which always succeeds, so we can just unwrap
-            let storage_class: aws_sdk_s3::types::StorageClass = class.parse().unwrap();
+            // StorageClass::from_str always succeeds (unknown values become Unknown variant)
+            let storage_class: aws_sdk_s3::types::StorageClass = class.parse()
+                .expect("StorageClass parsing is infallible");
             request = request.storage_class(storage_class);
         }
 
