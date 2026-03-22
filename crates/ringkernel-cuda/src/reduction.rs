@@ -128,7 +128,9 @@ impl<T: ReductionScalar> ReductionBuffer<T> {
         let size_bytes = num_slots * std::mem::size_of::<T>();
         let mut host_ptr: *mut c_void = ptr::null_mut();
 
-        // Allocate pinned mapped memory
+        // SAFETY: cuMemHostAlloc allocates pinned host memory accessible by GPU.
+        // The pointer is valid until cuMemFreeHost is called in Drop.
+        // We check the return code and only use the pointer on success.
         unsafe {
             let result = cuda_sys::cuMemHostAlloc(
                 &mut host_ptr,
@@ -146,6 +148,9 @@ impl<T: ReductionScalar> ReductionBuffer<T> {
 
         // Get device pointer for GPU access
         let mut device_ptr: u64 = 0;
+        // SAFETY: host_ptr was successfully allocated by cuMemHostAlloc above with
+        // CU_MEMHOSTALLOC_DEVICEMAP, so cuMemHostGetDevicePointer_v2 can retrieve
+        // the corresponding device-visible pointer. On failure we free host_ptr.
         unsafe {
             let result = cuda_sys::cuMemHostGetDevicePointer_v2(&mut device_ptr, host_ptr, 0);
 
@@ -222,6 +227,8 @@ impl<T: ReductionScalar> ReductionBuffer<T> {
 
         // Use volatile writes for GPU visibility
         for i in 0..self.num_slots {
+            // SAFETY: host_ptr points to pinned mapped memory with num_slots elements.
+            // Index i is in bounds (0..num_slots). Volatile write ensures GPU visibility.
             unsafe {
                 ptr::write_volatile(self.host_ptr.add(i), identity);
             }
@@ -250,7 +257,8 @@ impl<T: ReductionScalar> ReductionBuffer<T> {
         // Memory fence before reading
         fence(Ordering::SeqCst);
 
-        // Volatile read for GPU visibility
+        // SAFETY: slot is bounds-checked above (slot < num_slots). host_ptr points to
+        // pinned mapped memory. Volatile read ensures we see the latest GPU writes.
         let value = unsafe { ptr::read_volatile(self.host_ptr.add(slot)) };
 
         Ok(value)
@@ -267,6 +275,8 @@ impl<T: ReductionScalar> ReductionBuffer<T> {
         let mut result = T::identity(self.op);
 
         for i in 0..self.num_slots {
+            // SAFETY: i is in bounds (0..num_slots). host_ptr points to valid pinned
+            // mapped memory. Volatile read ensures visibility of GPU atomic writes.
             let value = unsafe { ptr::read_volatile(self.host_ptr.add(i)) };
             result = T::combine(result, value, self.op);
         }
@@ -299,6 +309,8 @@ impl<T: ReductionScalar> ReductionBuffer<T> {
             return Err(RingKernelError::InvalidIndex(slot));
         }
 
+        // SAFETY: slot is bounds-checked above (slot < num_slots). host_ptr points to
+        // valid pinned mapped memory. Volatile write ensures GPU visibility.
         unsafe {
             ptr::write_volatile(self.host_ptr.add(slot), value);
         }
@@ -323,6 +335,9 @@ impl<T: ReductionScalar> Drop for ReductionBuffer<T> {
         // Ensure device context is active
         let _ = self.device.inner();
 
+        // SAFETY: host_ptr was allocated by cuMemHostAlloc in with_slots() and has not
+        // been freed yet. The device context is active (ensured above). After this call,
+        // host_ptr is invalid and must not be used.
         unsafe {
             let _ = cuda_sys::cuMemFreeHost(self.host_ptr as *mut c_void);
         }

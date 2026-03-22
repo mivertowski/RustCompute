@@ -104,7 +104,10 @@ impl DirectPtxModule {
 
         let mut module: cuda_sys::CUmodule = ptr::null_mut();
 
-        // Load the PTX using driver API
+        // SAFETY: cuModuleLoadData loads a PTX module from a null-terminated string.
+        // ptx_cstring is a valid CString (null-terminated, no interior nulls).
+        // The CUDA context is active (ensured by device.inner() above).
+        // We check the return code and only use the module handle on success.
         unsafe {
             let result = cuda_sys::cuModuleLoadData(&mut module, ptx_cstring.as_ptr() as *const _);
 
@@ -131,6 +134,9 @@ impl DirectPtxModule {
 
         let mut func: cuda_sys::CUfunction = ptr::null_mut();
 
+        // SAFETY: self.module is a valid CUmodule loaded by cuModuleLoadData.
+        // name_cstring is a valid null-terminated function name. We check the
+        // return code and only use the function handle on success.
         unsafe {
             let result =
                 cuda_sys::cuModuleGetFunction(&mut func, self.module, name_cstring.as_ptr());
@@ -149,7 +155,9 @@ impl DirectPtxModule {
 
 impl Drop for DirectPtxModule {
     fn drop(&mut self) {
-        // Unload the module (ignore errors during cleanup)
+        // SAFETY: self.module was loaded by cuModuleLoadData and has not been unloaded
+        // yet. This is the Drop impl so it runs exactly once. Errors are ignored
+        // during cleanup as the CUDA context may already be destroyed.
         unsafe {
             let _ = cuda_sys::cuModuleUnload(self.module);
         }
@@ -230,6 +238,9 @@ impl DirectCooperativeKernel {
         // Query max blocks per SM
         let mut max_blocks_per_sm: i32 = 0;
 
+        // SAFETY: func is a valid CUfunction handle obtained from cuModuleGetFunction.
+        // block_size is a valid thread count. We check the return code before using
+        // the output value.
         unsafe {
             let result = cuda_sys::cuOccupancyMaxActiveBlocksPerMultiprocessor(
                 &mut max_blocks_per_sm,
@@ -339,6 +350,8 @@ impl DirectCooperativeKernel {
 
     /// Synchronize after launch.
     pub fn synchronize(&self) -> Result<()> {
+        // SAFETY: cuCtxSynchronize blocks until all work on the current CUDA context
+        // completes. The context is valid because the parent module keeps it alive.
         unsafe {
             let result = cuda_sys::cuCtxSynchronize();
             if result != cuda_sys::CUresult::CUDA_SUCCESS {
@@ -371,7 +384,9 @@ impl DirectCooperativeKernel {
         // Use default stream (null)
         let stream: cuda_sys::CUstream = ptr::null_mut();
 
-        // Call standard (non-cooperative) launch
+        // SAFETY: self.func is a valid CUfunction. kernel_params contains valid
+        // pointers matching the kernel signature (caller's responsibility per the
+        // unsafe fn contract). Grid/block dims are within CUDA limits.
         let result = cuda_sys::cuLaunchKernel(
             self.func,
             config.grid_dim.0,
@@ -501,7 +516,9 @@ mod tests {
         let ptrs = params.as_param_ptrs();
         assert_eq!(ptrs.len(), 4);
 
-        // Verify pointers point to correct values
+        // SAFETY: Each pointer in ptrs was created from &mut params.field, which
+        // is a valid, properly aligned u64. params is still alive, so the pointers
+        // are valid for reads.
         unsafe {
             assert_eq!(*(ptrs[0] as *const u64), 0x1000);
             assert_eq!(*(ptrs[1] as *const u64), 0x2000);

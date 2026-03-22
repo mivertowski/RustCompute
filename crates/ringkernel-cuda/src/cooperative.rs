@@ -206,6 +206,10 @@ impl CooperativeKernel {
         // Get raw CUfunction handle for raw parameter cooperative launch.
         // CudaFunction.cu_function is pub(crate) in cudarc 0.18, so we extract it via transmute.
         // This is version-dependent but cudarc's internal layout is: { cu_function: CUfunction, ... }
+        // SAFETY: CudaFunction's first field is CUfunction (a raw pointer). We use a
+        // repr(C) mirror struct to read only that first field via transmute. This is
+        // version-dependent on cudarc's internal layout (verified for cudarc 0.18.2).
+        // The resulting CUfunction handle is valid for the lifetime of the module.
         let cu_func = unsafe {
             #[repr(C)]
             struct CudaFunctionRepr {

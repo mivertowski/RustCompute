@@ -112,7 +112,9 @@ impl<T: Copy + Send + Sync> CudaMappedBuffer<T> {
         let size_bytes = len * std::mem::size_of::<T>();
         let mut host_ptr: *mut c_void = ptr::null_mut();
 
-        // Allocate pinned mapped memory
+        // SAFETY: cuMemHostAlloc allocates pinned host memory accessible by GPU.
+        // The pointer is valid until cuMemFreeHost is called in Drop.
+        // We check the return code and only use the pointer on success.
         unsafe {
             let result = cuda_sys::cuMemHostAlloc(
                 &mut host_ptr,
@@ -130,6 +132,9 @@ impl<T: Copy + Send + Sync> CudaMappedBuffer<T> {
 
         // Get device pointer for this mapped memory
         let mut device_ptr: u64 = 0;
+        // SAFETY: host_ptr was successfully allocated by cuMemHostAlloc above with
+        // CU_MEMHOSTALLOC_DEVICEMAP, so cuMemHostGetDevicePointer_v2 can retrieve
+        // the corresponding device-visible pointer. On failure we free host_ptr.
         unsafe {
             let result = cuda_sys::cuMemHostGetDevicePointer_v2(
                 &mut device_ptr,
@@ -147,7 +152,8 @@ impl<T: Copy + Send + Sync> CudaMappedBuffer<T> {
             }
         }
 
-        // Zero-initialize
+        // SAFETY: host_ptr was successfully allocated with size_bytes above.
+        // write_bytes zeroes the entire allocation, which is valid for all Copy types.
         unsafe {
             ptr::write_bytes(host_ptr as *mut u8, 0, size_bytes);
         }
@@ -222,6 +228,8 @@ impl<T: Copy + Send + Sync> CudaMappedBuffer<T> {
     #[inline]
     pub fn read(&self, index: usize) -> Option<T> {
         if index < self.len {
+            // SAFETY: index is bounds-checked above. host_ptr points to pinned mapped
+            // memory with self.len elements. Volatile read ensures GPU write visibility.
             unsafe { Some(ptr::read_volatile(self.host_ptr.add(index))) }
         } else {
             None
@@ -234,6 +242,8 @@ impl<T: Copy + Send + Sync> CudaMappedBuffer<T> {
     #[inline]
     pub fn write(&self, index: usize, value: T) -> bool {
         if index < self.len {
+            // SAFETY: index is bounds-checked above. host_ptr points to pinned mapped
+            // memory with self.len elements. Volatile write ensures GPU visibility.
             unsafe {
                 ptr::write_volatile(self.host_ptr.add(index), value);
             }
@@ -270,6 +280,9 @@ impl<T: Copy + Send + Sync> Drop for CudaMappedBuffer<T> {
         // Ensure device context is active before freeing
         let _ = self.device.inner();
 
+        // SAFETY: host_ptr was allocated by cuMemHostAlloc in CudaMappedBuffer::new()
+        // and has not been freed yet. The device context is active (ensured above).
+        // After this call, host_ptr is invalid and must not be used.
         unsafe {
             let _ = cuda_sys::cuMemFreeHost(self.host_ptr as *mut c_void);
         }
@@ -1147,6 +1160,9 @@ impl PersistentSimulation {
         }
 
         // Upload to device
+        // SAFETY: routes is a valid Vec<K2KRouteEntry> with total_blocks elements.
+        // K2KRouteEntry is repr(C) and Copy, so reinterpreting as bytes is safe.
+        // The slice length matches the total byte size of the routing table.
         let routes_bytes = unsafe {
             std::slice::from_raw_parts(
                 routes.as_ptr() as *const u8,
@@ -1219,7 +1235,10 @@ impl PersistentSimulation {
             halo_ptr: self.halo_buffers.device_ptr(),
         };
 
-        // Launch kernel (cooperative or fallback)
+        // SAFETY: All device pointers in params point to valid CUDA allocations that
+        // outlive the kernel execution (owned by self). The grid/block dimensions are
+        // validated against cooperative limits above. The kernel function was loaded
+        // from valid PTX via DirectCooperativeKernel::from_ptx.
         unsafe {
             if use_cooperative {
                 kernel.launch_cooperative_params(&config, &mut params)?;
@@ -1300,6 +1319,8 @@ impl PersistentSimulation {
             &self.pressure_b
         };
 
+        // SAFETY: output is a valid mutable f32 slice. Reinterpreting as a byte slice
+        // is safe because f32 has no invalid bit patterns and the byte length matches.
         let bytes = unsafe {
             std::slice::from_raw_parts_mut(
                 output.as_mut_ptr() as *mut u8,
@@ -1518,6 +1539,9 @@ mod tests {
         let ptrs = params.as_param_ptrs();
         assert_eq!(ptrs.len(), 9);
 
+        // SAFETY: Each pointer in ptrs was created from &mut params.field, which
+        // is a valid, properly aligned u64. params is still alive, so the pointers
+        // are valid for reads.
         unsafe {
             assert_eq!(*(ptrs[0] as *const u64), 0x1000);
             assert_eq!(*(ptrs[8] as *const u64), 0x9000);
