@@ -8,11 +8,10 @@ fn main() -> eframe::Result<()> {
     // Initialize logging
     env_logger::init();
 
-    println!("╔══════════════════════════════════════════════════════════════╗");
-    println!("║     RingKernel Process Intelligence - GPU-Accelerated PM     ║");
-    println!("╚══════════════════════════════════════════════════════════════╝");
-    println!();
-    println!("Starting GUI...");
+    tracing::info!("╔══════════════════════════════════════════════════════════════╗");
+    tracing::info!("║     RingKernel Process Intelligence - GPU-Accelerated PM     ║");
+    tracing::info!("╚══════════════════════════════════════════════════════════════╝");
+    tracing::info!("Starting GUI...");
 
     // Run the application
     ProcessIntelligenceApp::new().run()
