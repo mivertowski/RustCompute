@@ -97,22 +97,13 @@ pub fn save_stereo_wav<P: AsRef<Path>>(
 }
 
 /// Error type for WAV operations.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum WavError {
+    #[error("WAV read error: {0}")]
     ReadError(String),
+    #[error("WAV write error: {0}")]
     WriteError(String),
 }
-
-impl std::fmt::Display for WavError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WavError::ReadError(msg) => write!(f, "WAV read error: {}", msg),
-            WavError::WriteError(msg) => write!(f, "WAV write error: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for WavError {}
 
 /// Audio configuration for the simulation.
 #[derive(Debug, Clone)]

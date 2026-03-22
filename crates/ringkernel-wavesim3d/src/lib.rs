@@ -71,12 +71,14 @@
 //! - [`visualization`]: 3D rendering and camera controls
 
 pub mod audio;
+pub mod error;
 pub mod gui;
 pub mod simulation;
 pub mod visualization;
 
 /// Re-exports for convenient access.
 pub mod prelude {
+    pub use crate::error::WaveSim3dError;
     pub use crate::audio::{
         AudioConfig, AudioSource, AudioSystem, BinauralMicrophone, BinauralProcessor,
         SourceManager, SourceType, VirtualHead,

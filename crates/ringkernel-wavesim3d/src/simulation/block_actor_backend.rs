@@ -36,30 +36,19 @@ pub const BLOCK_SIZE: usize = 8;
 pub const CELLS_PER_BLOCK: usize = BLOCK_SIZE * BLOCK_SIZE * BLOCK_SIZE; // 512
 
 /// Error types for the block actor backend.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum BlockActorError {
+    #[error("Block actor device error: {0}")]
     DeviceError(String),
+    #[error("Block actor compile error: {0}")]
     CompileError(String),
+    #[error("Block actor launch error: {0}")]
     LaunchError(String),
+    #[error("Block actor memory error: {0}")]
     MemoryError(String),
+    #[error("Block actor grid size error: {0}")]
     GridSizeError(String),
 }
-
-impl std::fmt::Display for BlockActorError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BlockActorError::DeviceError(msg) => write!(f, "Block actor device error: {}", msg),
-            BlockActorError::CompileError(msg) => write!(f, "Block actor compile error: {}", msg),
-            BlockActorError::LaunchError(msg) => write!(f, "Block actor launch error: {}", msg),
-            BlockActorError::MemoryError(msg) => write!(f, "Block actor memory error: {}", msg),
-            BlockActorError::GridSizeError(msg) => {
-                write!(f, "Block actor grid size error: {}", msg)
-            }
-        }
-    }
-}
-
-impl std::error::Error for BlockActorError {}
 
 /// Face direction for inter-block communication.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

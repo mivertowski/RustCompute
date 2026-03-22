@@ -10,26 +10,17 @@ use cudarc::driver::{
 use std::sync::Arc;
 
 /// GPU error types.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum GpuError {
+    #[error("GPU device error: {0}")]
     DeviceError(String),
+    #[error("GPU compile error: {0}")]
     CompileError(String),
+    #[error("GPU launch error: {0}")]
     LaunchError(String),
+    #[error("GPU memory error: {0}")]
     MemoryError(String),
 }
-
-impl std::fmt::Display for GpuError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            GpuError::DeviceError(msg) => write!(f, "GPU device error: {}", msg),
-            GpuError::CompileError(msg) => write!(f, "GPU compile error: {}", msg),
-            GpuError::LaunchError(msg) => write!(f, "GPU launch error: {}", msg),
-            GpuError::MemoryError(msg) => write!(f, "GPU memory error: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for GpuError {}
 
 /// CUDA kernel source for 3D FDTD.
 const FDTD_3D_KERNEL: &str = r#"

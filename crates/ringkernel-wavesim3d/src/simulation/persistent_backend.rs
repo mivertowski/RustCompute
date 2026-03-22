@@ -55,38 +55,33 @@ use std::time::Duration;
 use super::grid3d::SimulationGrid3D;
 
 /// Error type for persistent backend operations.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum PersistentBackendError {
     /// CUDA device creation failed.
+    #[error("CUDA device error: {0}")]
     DeviceError(String),
     /// Simulation creation failed.
+    #[error("Simulation error: {0}")]
     SimulationError(String),
     /// Kernel compilation failed.
+    #[error("Kernel compilation error: {0}")]
     CompilationError(String),
     /// Kernel launch failed.
+    #[error("Kernel launch error: {0}")]
     LaunchError(String),
     /// Command send failed.
+    #[error("Command error: {0}")]
     CommandError(String),
     /// Pressure readback failed.
+    #[error("Readback error: {0}")]
     ReadbackError(String),
+    /// NVCC invocation failed.
+    #[error("nvcc error: {0}")]
+    NvccError(String),
+    /// File I/O error during PTX compilation.
+    #[error("PTX I/O error: {0}")]
+    PtxIoError(#[from] std::io::Error),
 }
-
-impl std::fmt::Display for PersistentBackendError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PersistentBackendError::DeviceError(s) => write!(f, "CUDA device error: {}", s),
-            PersistentBackendError::SimulationError(s) => write!(f, "Simulation error: {}", s),
-            PersistentBackendError::CompilationError(s) => {
-                write!(f, "Kernel compilation error: {}", s)
-            }
-            PersistentBackendError::LaunchError(s) => write!(f, "Kernel launch error: {}", s),
-            PersistentBackendError::CommandError(s) => write!(f, "Command error: {}", s),
-            PersistentBackendError::ReadbackError(s) => write!(f, "Readback error: {}", s),
-        }
-    }
-}
-
-impl std::error::Error for PersistentBackendError {}
 
 /// Configuration for the persistent backend.
 #[derive(Debug, Clone)]
@@ -238,8 +233,7 @@ impl PersistentBackend {
         let cuda_code = generate_persistent_fdtd_kernel(&kernel_config);
 
         // Compile to PTX using nvcc
-        let ptx = compile_cuda_to_ptx(&cuda_code, config.use_cooperative)
-            .map_err(|e| PersistentBackendError::CompilationError(e))?;
+        let ptx = compile_cuda_to_ptx(&cuda_code, config.use_cooperative)?;
 
         // Create persistent simulation
         let simulation = PersistentSimulation::new(&device, sim_config)
@@ -452,14 +446,16 @@ impl Drop for PersistentBackend {
 }
 
 /// Compile CUDA code to PTX using nvcc.
-fn compile_cuda_to_ptx(cuda_code: &str, use_cooperative: bool) -> Result<String, String> {
+fn compile_cuda_to_ptx(
+    cuda_code: &str,
+    use_cooperative: bool,
+) -> Result<String, PersistentBackendError> {
     // Write to temp file
     let temp_dir = std::env::temp_dir();
     let cuda_file = temp_dir.join("persistent_fdtd_wavesim.cu");
     let ptx_file = temp_dir.join("persistent_fdtd_wavesim.ptx");
 
-    std::fs::write(&cuda_file, cuda_code)
-        .map_err(|e| format!("Failed to write CUDA file: {}", e))?;
+    std::fs::write(&cuda_file, cuda_code)?;
 
     // Compile with nvcc
     // Use -arch=native to automatically detect the GPU architecture
@@ -480,16 +476,16 @@ fn compile_cuda_to_ptx(cuda_code: &str, use_cooperative: bool) -> Result<String,
     let output = Command::new("nvcc")
         .args(&args)
         .output()
-        .map_err(|e| format!("Failed to run nvcc: {}", e))?;
+        .map_err(|e| PersistentBackendError::NvccError(format!("Failed to run nvcc: {}", e)))?;
 
     if !output.status.success() {
-        return Err(format!(
+        return Err(PersistentBackendError::NvccError(format!(
             "nvcc compilation failed:\n{}",
             String::from_utf8_lossy(&output.stderr)
-        ));
+        )));
     }
 
-    std::fs::read_to_string(&ptx_file).map_err(|e| format!("Failed to read PTX: {}", e))
+    Ok(std::fs::read_to_string(&ptx_file)?)
 }
 
 #[cfg(test)]

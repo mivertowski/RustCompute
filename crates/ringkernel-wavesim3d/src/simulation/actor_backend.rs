@@ -49,36 +49,27 @@ use cudarc::driver::{
 use cudarc::nvrtc;
 
 /// Error types for the actor backend.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ActorError {
     /// GPU device error.
+    #[error("Actor device error: {0}")]
     DeviceError(String),
     /// Kernel compilation error.
+    #[error("Actor compile error: {0}")]
     CompileError(String),
     /// Kernel launch error.
+    #[error("Actor launch error: {0}")]
     LaunchError(String),
     /// Memory allocation error.
+    #[error("Actor memory error: {0}")]
     MemoryError(String),
     /// Message routing error.
+    #[error("Actor routing error: {0}")]
     RoutingError(String),
     /// Synchronization error.
+    #[error("Actor sync error: {0}")]
     SyncError(String),
 }
-
-impl std::fmt::Display for ActorError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ActorError::DeviceError(msg) => write!(f, "Actor device error: {}", msg),
-            ActorError::CompileError(msg) => write!(f, "Actor compile error: {}", msg),
-            ActorError::LaunchError(msg) => write!(f, "Actor launch error: {}", msg),
-            ActorError::MemoryError(msg) => write!(f, "Actor memory error: {}", msg),
-            ActorError::RoutingError(msg) => write!(f, "Actor routing error: {}", msg),
-            ActorError::SyncError(msg) => write!(f, "Actor sync error: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for ActorError {}
 
 // ============================================================================
 // Actor Message Types

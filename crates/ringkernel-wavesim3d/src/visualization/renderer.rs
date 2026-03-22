@@ -713,23 +713,14 @@ impl Renderer3D {
 }
 
 /// Renderer error types.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RendererError {
+    #[error("Surface error: {0}")]
     SurfaceError(String),
+    #[error("Adapter error: {0}")]
     AdapterError(String),
+    #[error("Device error: {0}")]
     DeviceError(String),
+    #[error("Shader error: {0}")]
     ShaderError(String),
 }
-
-impl std::fmt::Display for RendererError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RendererError::SurfaceError(msg) => write!(f, "Surface error: {}", msg),
-            RendererError::AdapterError(msg) => write!(f, "Adapter error: {}", msg),
-            RendererError::DeviceError(msg) => write!(f, "Device error: {}", msg),
-            RendererError::ShaderError(msg) => write!(f, "Shader error: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for RendererError {}
