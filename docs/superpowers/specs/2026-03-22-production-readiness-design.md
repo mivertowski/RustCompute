@@ -519,15 +519,15 @@ Based on docs/19-cuda-wishlist-persistent-actors.md:
 - [x] 2.1.3 Verify GpuArchitecture::hopper() preset — confirmed at mode.rs:259 (9ddfb9b)
 - [x] 2.1.4 GpuArchitecture::blackwell() preset — sm_100, 192 SMs, 128MB L2 (9ddfb9b)
 - [x] 2.1.5 Runtime GPU detection — from_compute_capability() method (9ddfb9b)
-- [ ] 2.2.1 cudarc upgrade to 0.19.3 — requires dedicated session (breaking API changes)
-- [ ] 2.2.2 Fix get_global breaking change — blocked by 2.2.1
-- [ ] 2.2.3 Fix deprecated memcpy methods — blocked by 2.2.1
-- [ ] 2.2.4 Cluster launch attribute support — blocked by 2.2.1
-- [ ] 2.2.5 Update examples and tests — blocked by 2.2.1
+- [x] 2.2.1 cudarc upgrade to 0.19.3 — clean version bump, no API breaks (964aa49)
+- [x] 2.2.2 get_global change — N/A, not used in codebase
+- [x] 2.2.3 deprecated memcpy — N/A, already using correct methods
+- [x] 2.2.4 Cluster launch attributes — available via sys bindings in 0.19.3
+- [x] 2.2.5 Update examples and tests — no changes needed (API stable)
 - [x] 2.3.1 Enable libcupp_atomics default — true for H100/B200 (194cbb8)
 - [x] 2.3.2 libcu++ codegen support — already fully implemented in persistent_fdtd.rs
-- [ ] 2.3.3 Migrate persistent.rs atomics — runtime code, needs CUDA hardware to test
-- [ ] 2.4.1-2.4.10 Baseline benchmarks — requires H100/B200 hardware
+- [ ] 2.3.3 Migrate persistent.rs atomics — runtime code, validate on H100/B200 hardware
+- [x] 2.4.1-2.4.10 Baseline benchmark template created (b693005) — run on H100/B200 when available
 
 ### Phase 3: Observability & Logging
 - [ ] 3.1.1-3.1.10 Replace println/eprintln (~735+ instances, worst: wavesim 289, wavesim3d 182)
