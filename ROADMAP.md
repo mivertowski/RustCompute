@@ -10,16 +10,20 @@ Transform GPU computing from batch-oriented kernel launches to a true actor-base
 
 ## Implementation Status Summary
 
-> Last updated: January 2026
+> Last updated: March 2026
 
 | Phase | Implemented | Partial | Missing | Completion |
 |-------|-------------|---------|---------|------------|
-| **Phase 1: Foundation** | 12 | 0 | 0 | 100% |
+| **Phase 1: Foundation** | 7 | 5 | 0 | 79% |
 | **Phase 2: Code Generation** | 10 | 0 | 0 | 100% |
-| **Phase 3: Enterprise** | 16 | 0 | 0 | 100% |
+| **Phase 3: Enterprise** | 14 | 2 | 0 | 94% |
 | **Phase 4: Ecosystem** | 11 | 0 | 0 | 100% |
-| **Phase 5: Developer Experience** | 12 | 0 | 0 | 100% |
-| **Overall** | **61** | **0** | **0** | **100%** |
+| **Phase 5: Developer Experience** | 8 | 2 | 2 | 75% |
+| **Overall** | **50** | **9** | **2** | **90%** |
+
+**Note (March 2026 audit):** Counts corrected to reflect actual implementation status.
+Metal backend (3 partial), WebGPU persistence (2 partial), VSCode extension (skeleton),
+GPU Playground (stub execution), profiler stubs (2 partial).
 
 **Legend**: ✅ Complete | ⚠️ Partial | 🎯 Planned | ❌ Not Started
 
@@ -247,10 +251,10 @@ impl MultiGpuRuntime {
 
 | Feature | Priority | Status | Description |
 |---------|----------|--------|-------------|
-| **GPU Profiler Integration** | P0 | ✅ Done | NVTX, RenderDoc, Metal stubs with `GpuProfilerManager` |
+| **GPU Profiler Integration** | P0 | ⚠️ Partial | `GpuProfilerManager` exists; NVTX/RenderDoc/Metal are stubs returning "not available" |
 | **Message Tracing** | P0 | ✅ Done | `ObservabilityContext` with spans |
 | **GPU Memory Dashboard** | P1 | ✅ Done | `GpuMemoryDashboard` with allocation tracking, pressure alerts, Prometheus/Grafana |
-| **Kernel Debugger** | P2 | ✅ Done | Integrated via GPU Playground and VSCode extension |
+| **Kernel Debugger** | P2 | ⚠️ Partial | Depends on GPU Playground and VSCode extension (both partial) |
 
 **Tracing Integration**:
 ```rust
@@ -357,8 +361,8 @@ impl GpuArrowOps for Float64Array {
 | Tool | Priority | Status | Description |
 |------|----------|--------|-------------|
 | **ringkernel-cli** | P0 | ✅ Done | `new`, `init`, `codegen`, `check` commands |
-| **VSCode Extension** | P1 | ✅ Done | `vscode-ringkernel` with snippets, transpilation, kernel profiling, memory dashboard |
-| **GPU Playground** | P1 | ✅ Done | `ringkernel-playground` web-based kernel development environment |
+| **VSCode Extension** | P1 | ⚠️ Partial | `vscode-ringkernel` skeleton: snippets exist, but profiling/memory dashboard show hardcoded values, not compiled |
+| **GPU Playground** | P1 | ⚠️ Partial | `ringkernel-playground` server scaffold: transpile API works, but execute returns mock data, no frontend |
 | **Benchmark Suite** | P1 | ✅ Done | txmon, wavesim3d benchmarks |
 
 **CLI Commands**:
@@ -433,8 +437,8 @@ ringkernel check --backends all
 | **Code Generation Tests** | 280+ | 500+ | ✅ |
 | **Ecosystem Integrations** | 15+ (SSE, WS, Actix, Tower, Axum, gRPC, Arrow, Polars, Candle, PyTorch, ONNX, HuggingFace, GraphQL, Enterprise, ML) | 15+ | ✅ |
 | **Documentation Coverage** | ~95% | 95%+ | ✅ |
-| **Test Count** | 700+ | 800+ | ✅ |
-| **Roadmap Completion** | 100% | 100% | ✅ |
+| **Test Count** | 1,416+ | 800+ | ✅ |
+| **Roadmap Completion** | 90% (50 done, 9 partial, 2 missing) | 100% | ⚠️ |
 
 ---
 
