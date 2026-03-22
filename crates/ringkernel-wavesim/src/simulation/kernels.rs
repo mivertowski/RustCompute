@@ -833,7 +833,7 @@ mod tests {
         assert!(generated.contains("laplacian"));
         assert!(generated.contains("* damping"));
 
-        println!("Generated fdtd_tile_step:\n{}", generated);
+        tracing::debug!(cuda_source = %generated, "generated fdtd_tile_step");
     }
 
     #[test]
@@ -913,7 +913,7 @@ mod tests {
             boundary
         );
 
-        println!("Generated extract_halo:\n{}", extract);
+        tracing::debug!(cuda_source = %extract, "generated extract_halo");
     }
 
     #[test]
@@ -946,10 +946,7 @@ mod tests {
             packed_count
         );
 
-        println!(
-            "Successfully generated {} tile kernels and {} packed kernels",
-            tile_count, packed_count
-        );
+        tracing::debug!(tile_count, packed_count, "successfully generated kernels");
     }
 
     #[test]
@@ -990,7 +987,7 @@ mod tests {
             source
         );
 
-        println!("Generated actor tile kernel ({} bytes)", source.len());
+        tracing::debug!(size_bytes = source.len(), "generated actor tile kernel");
     }
 
     #[test]
@@ -1071,6 +1068,6 @@ mod tests {
             "Missing message processing"
         );
 
-        println!("Actor kernel ring structure verified");
+        tracing::debug!("actor kernel ring structure verified");
     }
 }

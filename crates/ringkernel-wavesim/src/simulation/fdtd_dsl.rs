@@ -283,7 +283,7 @@ mod tests {
             "Should have correct buffer width (16 + 2*1)"
         );
 
-        println!("Generated CUDA:\n{}", source);
+        tracing::debug!(cuda_source = %source, "generated CUDA source");
     }
 
     #[test]
