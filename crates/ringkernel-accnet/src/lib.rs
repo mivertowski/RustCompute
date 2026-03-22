@@ -61,10 +61,13 @@
 pub mod actors;
 pub mod analytics;
 pub mod cuda;
+pub mod error;
 pub mod fabric;
 pub mod gui;
 pub mod kernels;
 pub mod models;
+
+pub use error::{AccNetError, Result};
 
 /// Prelude for convenient imports.
 pub mod prelude {

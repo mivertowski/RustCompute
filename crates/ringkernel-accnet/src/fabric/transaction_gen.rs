@@ -95,7 +95,7 @@ impl GeneratorConfig {
     }
 
     /// Validate that method ratios sum to ~1.0.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> crate::Result<()> {
         let total = self.method_a_ratio
             + self.method_b_ratio
             + self.method_c_ratio
@@ -103,7 +103,9 @@ impl GeneratorConfig {
             + self.method_e_ratio;
 
         if (total - 1.0).abs() > 0.01 {
-            return Err(format!("Method ratios must sum to 1.0, got {}", total));
+            return Err(crate::AccNetError::Validation(
+                format!("method ratios must sum to 1.0, got {}", total),
+            ));
         }
         Ok(())
     }

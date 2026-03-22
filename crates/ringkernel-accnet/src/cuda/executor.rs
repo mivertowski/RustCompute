@@ -8,6 +8,7 @@ use std::time::Instant;
 use cudarc::driver::LaunchAsync;
 use ringkernel_cuda::{CudaDevice, StencilKernelLoader};
 
+use crate::error::{AccNetError, Result};
 use crate::models::AccountingNetwork;
 
 /// GPU-accelerated analysis executor.
@@ -86,15 +87,15 @@ pub struct BenchmarkResults {
 
 impl GpuExecutor {
     /// Create a new GPU executor.
-    pub fn new() -> Result<Self, String> {
+    pub fn new() -> Result<Self> {
         // Check if CUDA is available
         if !ringkernel_cuda::is_cuda_available() {
-            return Err("CUDA is not available on this system".to_string());
+            return Err(AccNetError::CudaUnavailable);
         }
 
         // Create device
         let device =
-            CudaDevice::new(0).map_err(|e| format!("Failed to create CUDA device: {}", e))?;
+            CudaDevice::new(0).map_err(|e| AccNetError::DeviceCreation(e.to_string()))?;
 
         let device_name = device.name().to_string();
         let compute_capability = device.compute_capability();
@@ -123,7 +124,7 @@ impl GpuExecutor {
     }
 
     /// Compile all analysis kernels.
-    pub fn compile_kernels(&mut self) -> Result<(), String> {
+    pub fn compile_kernels(&mut self) -> Result<()> {
         // Generate kernel code
         let kernels = super::codegen::GeneratedKernels::generate()?;
 
@@ -152,12 +153,15 @@ impl GpuExecutor {
     }
 
     /// Compile a single kernel from CUDA source.
-    fn compile_kernel(&self, name: &str, cuda_source: &str) -> Result<(), String> {
+    fn compile_kernel(&self, name: &str, cuda_source: &str) -> Result<()> {
         let cuda_device = self.device.inner();
 
         // Compile CUDA source to PTX using NVRTC
         let ptx = cudarc::nvrtc::compile_ptx(cuda_source)
-            .map_err(|e| format!("NVRTC compilation failed for '{}': {}", name, e))?;
+            .map_err(|e| AccNetError::NvrtcCompilation {
+                kernel: name.to_string(),
+                reason: e.to_string(),
+            })?;
 
         // Create static strings for module registration
         let module_name: &'static str = Box::leak(format!("{}_module", name).into_boxed_str());
@@ -166,13 +170,16 @@ impl GpuExecutor {
         // Load the PTX module
         cuda_device
             .load_ptx(ptx, module_name, &[func_name])
-            .map_err(|e| format!("Failed to load PTX for '{}': {}", name, e))?;
+            .map_err(|e| AccNetError::PtxLoad {
+                kernel: name.to_string(),
+                reason: e.to_string(),
+            })?;
 
         Ok(())
     }
 
     /// Run GPU analysis on the network.
-    pub fn analyze(&self, network: &AccountingNetwork) -> Result<GpuAnalysisResult, String> {
+    pub fn analyze(&self, network: &AccountingNetwork) -> Result<GpuAnalysisResult> {
         let start = Instant::now();
         let cuda_device = self.device.inner();
 
@@ -214,7 +221,7 @@ impl GpuExecutor {
         // Synchronize to ensure all GPU work is done
         cuda_device
             .synchronize()
-            .map_err(|e| format!("GPU synchronize failed: {}", e))?;
+            .map_err(|e| AccNetError::GpuSync(e.to_string()))?;
 
         result.execution_time_us = start.elapsed().as_micros() as u64;
 
@@ -226,7 +233,7 @@ impl GpuExecutor {
         &self,
         network: &AccountingNetwork,
         kernel: &CompiledKernel,
-    ) -> Result<Vec<f32>, String> {
+    ) -> Result<Vec<f32>> {
         let cuda_device = self.device.inner();
         let n = network.accounts.len();
 
@@ -256,30 +263,30 @@ impl GpuExecutor {
         // Allocate GPU memory
         let d_balance_debit = cuda_device
             .htod_copy(balance_debit)
-            .map_err(|e| format!("Failed to copy balance_debit: {}", e))?;
+            .map_err(|e| AccNetError::HostToDevice { field: "balance_debit".into(), reason: e.to_string() })?;
         let d_balance_credit = cuda_device
             .htod_copy(balance_credit)
-            .map_err(|e| format!("Failed to copy balance_credit: {}", e))?;
+            .map_err(|e| AccNetError::HostToDevice { field: "balance_credit".into(), reason: e.to_string() })?;
         let d_risk_scores = cuda_device
             .htod_copy(risk_scores)
-            .map_err(|e| format!("Failed to copy risk_scores: {}", e))?;
+            .map_err(|e| AccNetError::HostToDevice { field: "risk_scores".into(), reason: e.to_string() })?;
         let d_inflow_counts = cuda_device
             .htod_copy(inflow_counts)
-            .map_err(|e| format!("Failed to copy inflow_counts: {}", e))?;
+            .map_err(|e| AccNetError::HostToDevice { field: "inflow_counts".into(), reason: e.to_string() })?;
         let d_outflow_counts = cuda_device
             .htod_copy(outflow_counts)
-            .map_err(|e| format!("Failed to copy outflow_counts: {}", e))?;
+            .map_err(|e| AccNetError::HostToDevice { field: "outflow_counts".into(), reason: e.to_string() })?;
 
         // Allocate output buffer
         // SAFETY: cudarc's alloc returns properly aligned device memory. The size
         // is computed from the input data and checked by the caller.
         let d_suspense_scores = unsafe { cuda_device.alloc::<f32>(n) }
-            .map_err(|e| format!("Failed to allocate suspense_scores: {}", e))?;
+            .map_err(|e| AccNetError::GpuAlloc { field: "suspense_scores".into(), reason: e.to_string() })?;
 
         // Get kernel function
         let func = cuda_device
             .get_func(kernel.module_name, kernel.function_name)
-            .ok_or_else(|| format!("Kernel function '{}' not found", kernel.function_name))?;
+            .ok_or_else(|| AccNetError::KernelNotFound(kernel.function_name.to_string()))?;
 
         // Calculate grid dimensions
         let block_size = 256u32;
@@ -309,12 +316,12 @@ impl GpuExecutor {
                 ),
             )
         }
-        .map_err(|e| format!("Kernel launch failed: {}", e))?;
+        .map_err(|e| AccNetError::KernelLaunch(e.to_string()))?;
 
         // Copy results back
         let suspense_scores = cuda_device
             .dtoh_sync_copy(&d_suspense_scores)
-            .map_err(|e| format!("Failed to copy results: {}", e))?;
+            .map_err(|e| AccNetError::DeviceToHost(e.to_string()))?;
 
         Ok(suspense_scores)
     }
@@ -324,7 +331,7 @@ impl GpuExecutor {
         &self,
         network: &AccountingNetwork,
         kernel: &CompiledKernel,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>> {
         let cuda_device = self.device.inner();
         let n_flows = network.flows.len();
 
@@ -348,24 +355,24 @@ impl GpuExecutor {
         // Allocate GPU memory
         let d_flow_source = cuda_device
             .htod_copy(flow_source)
-            .map_err(|e| format!("Failed to copy flow_source: {}", e))?;
+            .map_err(|e| AccNetError::HostToDevice { field: "flow_source".into(), reason: e.to_string() })?;
         let d_flow_target = cuda_device
             .htod_copy(flow_target)
-            .map_err(|e| format!("Failed to copy flow_target: {}", e))?;
+            .map_err(|e| AccNetError::HostToDevice { field: "flow_target".into(), reason: e.to_string() })?;
         let d_account_types = cuda_device
             .htod_copy(account_types)
-            .map_err(|e| format!("Failed to copy account_types: {}", e))?;
+            .map_err(|e| AccNetError::HostToDevice { field: "account_types".into(), reason: e.to_string() })?;
 
         // Allocate output buffer
         // SAFETY: cudarc's alloc returns properly aligned device memory. The size
         // is computed from the input data and checked by the caller.
         let d_violation_flags = unsafe { cuda_device.alloc::<u8>(n_flows) }
-            .map_err(|e| format!("Failed to allocate violation_flags: {}", e))?;
+            .map_err(|e| AccNetError::GpuAlloc { field: "violation_flags".into(), reason: e.to_string() })?;
 
         // Get kernel function
         let func = cuda_device
             .get_func(kernel.module_name, kernel.function_name)
-            .ok_or_else(|| format!("Kernel function '{}' not found", kernel.function_name))?;
+            .ok_or_else(|| AccNetError::KernelNotFound(kernel.function_name.to_string()))?;
 
         // Calculate grid dimensions
         let block_size = 256u32;
@@ -393,12 +400,12 @@ impl GpuExecutor {
                 ),
             )
         }
-        .map_err(|e| format!("Kernel launch failed: {}", e))?;
+        .map_err(|e| AccNetError::KernelLaunch(e.to_string()))?;
 
         // Copy results back
         let violations = cuda_device
             .dtoh_sync_copy(&d_violation_flags)
-            .map_err(|e| format!("Failed to copy results: {}", e))?;
+            .map_err(|e| AccNetError::DeviceToHost(e.to_string()))?;
 
         Ok(violations)
     }
@@ -408,7 +415,7 @@ impl GpuExecutor {
         &self,
         network: &AccountingNetwork,
         kernel: &CompiledKernel,
-    ) -> Result<[u32; 9], String> {
+    ) -> Result<[u32; 9]> {
         let cuda_device = self.device.inner();
         let n_flows = network.flows.len();
 
@@ -422,17 +429,17 @@ impl GpuExecutor {
         // Allocate GPU memory
         let d_amounts = cuda_device
             .htod_copy(amounts)
-            .map_err(|e| format!("Failed to copy amounts: {}", e))?;
+            .map_err(|e| AccNetError::HostToDevice { field: "amounts".into(), reason: e.to_string() })?;
 
         // Allocate and zero-initialize digit counts
         let d_digit_counts = cuda_device
             .htod_copy(vec![0u32; 9])
-            .map_err(|e| format!("Failed to allocate digit_counts: {}", e))?;
+            .map_err(|e| AccNetError::HostToDevice { field: "digit_counts".into(), reason: e.to_string() })?;
 
         // Get kernel function
         let func = cuda_device
             .get_func(kernel.module_name, kernel.function_name)
-            .ok_or_else(|| format!("Kernel function '{}' not found", kernel.function_name))?;
+            .ok_or_else(|| AccNetError::KernelNotFound(kernel.function_name.to_string()))?;
 
         // Calculate grid dimensions
         let block_size = 256u32;
@@ -449,12 +456,12 @@ impl GpuExecutor {
         // are valid and allocated with sufficient size. Grid/block dimensions are
         // computed to cover the input data.
         unsafe { func.launch(cfg, (&d_amounts, &d_digit_counts, n_flows as i32)) }
-            .map_err(|e| format!("Kernel launch failed: {}", e))?;
+            .map_err(|e| AccNetError::KernelLaunch(e.to_string()))?;
 
         // Copy results back
         let counts_vec = cuda_device
             .dtoh_sync_copy(&d_digit_counts)
-            .map_err(|e| format!("Failed to copy results: {}", e))?;
+            .map_err(|e| AccNetError::DeviceToHost(e.to_string()))?;
 
         let mut counts = [0u32; 9];
         counts.copy_from_slice(&counts_vec);
@@ -463,7 +470,7 @@ impl GpuExecutor {
     }
 
     /// Run benchmarks comparing CPU vs GPU performance.
-    pub fn run_benchmarks(&self, network: &AccountingNetwork) -> Result<BenchmarkResults, String> {
+    pub fn run_benchmarks(&self, network: &AccountingNetwork) -> Result<BenchmarkResults> {
         let mut kernels = Vec::new();
         let mut total_gpu_time = 0u64;
 
@@ -475,7 +482,7 @@ impl GpuExecutor {
             }
             self.device
                 .synchronize()
-                .map_err(|e| format!("Sync failed: {}", e))?;
+                .map_err(|e| AccNetError::GpuSync(e.to_string()))?;
             let elapsed = start.elapsed().as_micros() as u64 / 10;
 
             let n = network.accounts.len();
@@ -501,7 +508,7 @@ impl GpuExecutor {
                 }
                 self.device
                     .synchronize()
-                    .map_err(|e| format!("Sync failed: {}", e))?;
+                    .map_err(|e| AccNetError::GpuSync(e.to_string()))?;
                 let elapsed = start.elapsed().as_micros() as u64 / 10;
 
                 let n = network.flows.len();
@@ -528,7 +535,7 @@ impl GpuExecutor {
                 }
                 self.device
                     .synchronize()
-                    .map_err(|e| format!("Sync failed: {}", e))?;
+                    .map_err(|e| AccNetError::GpuSync(e.to_string()))?;
                 let elapsed = start.elapsed().as_micros() as u64 / 10;
 
                 let n = network.flows.len();

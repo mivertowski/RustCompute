@@ -75,20 +75,18 @@ impl AnomalyInjectionConfig {
     }
 
     /// Validate that probability distributions sum correctly.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> crate::Result<()> {
         let fraud_total: f64 = self.fraud_patterns.iter().map(|p| p.probability).sum();
         if (fraud_total - 1.0).abs() > 0.01 {
-            return Err(format!(
-                "Fraud pattern probabilities must sum to 1.0, got {}",
-                fraud_total
+            return Err(crate::AccNetError::Validation(
+                format!("fraud pattern probabilities must sum to 1.0, got {}", fraud_total),
             ));
         }
 
         let gaap_total: f64 = self.gaap_violations.iter().map(|v| v.probability).sum();
         if (gaap_total - 1.0).abs() > 0.01 {
-            return Err(format!(
-                "GAAP violation probabilities must sum to 1.0, got {}",
-                gaap_total
+            return Err(crate::AccNetError::Validation(
+                format!("GAAP violation probabilities must sum to 1.0, got {}", gaap_total),
             ));
         }
 

@@ -2,6 +2,7 @@
 //!
 //! Transpiles accounting network analysis kernels from Rust DSL to CUDA C.
 
+use crate::error::{AccNetError, Result};
 use ringkernel_cuda_codegen::transpile_global_kernel;
 
 /// Generated CUDA code for accounting network kernels.
@@ -16,7 +17,7 @@ pub struct GeneratedKernels {
 
 impl GeneratedKernels {
     /// Generate all CUDA kernels.
-    pub fn generate() -> Result<Self, String> {
+    pub fn generate() -> Result<Self> {
         Ok(Self {
             suspense_detection: generate_suspense_detection_kernel()?,
             gaap_violation: generate_gaap_violation_kernel()?,
@@ -27,7 +28,7 @@ impl GeneratedKernels {
 
 /// Generate suspense account detection kernel.
 /// Each thread processes one account.
-fn generate_suspense_detection_kernel() -> Result<String, String> {
+fn generate_suspense_detection_kernel() -> Result<String> {
     let kernel_fn: syn::ItemFn = syn::parse_quote! {
         fn suspense_detection(
             balance_debit: &[f64],
@@ -88,12 +89,15 @@ fn generate_suspense_detection_kernel() -> Result<String, String> {
     };
 
     transpile_global_kernel(&kernel_fn)
-        .map_err(|e| format!("Failed to transpile suspense_detection: {}", e))
+        .map_err(|e| AccNetError::CodeGen {
+            kernel: "suspense_detection".into(),
+            reason: e.to_string(),
+        })
 }
 
 /// Generate GAAP violation detection kernel.
 /// Each thread processes one flow and checks for violations.
-fn generate_gaap_violation_kernel() -> Result<String, String> {
+fn generate_gaap_violation_kernel() -> Result<String> {
     let kernel_fn: syn::ItemFn = syn::parse_quote! {
         fn gaap_violation(
             flow_source: &[u16],
@@ -132,12 +136,15 @@ fn generate_gaap_violation_kernel() -> Result<String, String> {
     };
 
     transpile_global_kernel(&kernel_fn)
-        .map_err(|e| format!("Failed to transpile gaap_violation: {}", e))
+        .map_err(|e| AccNetError::CodeGen {
+            kernel: "gaap_violation".into(),
+            reason: e.to_string(),
+        })
 }
 
 /// Generate Benford's Law analysis kernel.
 /// Each thread processes one amount and atomically updates digit counts.
-fn generate_benford_analysis_kernel() -> Result<String, String> {
+fn generate_benford_analysis_kernel() -> Result<String> {
     let kernel_fn: syn::ItemFn = syn::parse_quote! {
         fn benford_analysis(
             amounts: &[f64],
@@ -176,12 +183,15 @@ fn generate_benford_analysis_kernel() -> Result<String, String> {
     };
 
     transpile_global_kernel(&kernel_fn)
-        .map_err(|e| format!("Failed to transpile benford_analysis: {}", e))
+        .map_err(|e| AccNetError::CodeGen {
+            kernel: "benford_analysis".into(),
+            reason: e.to_string(),
+        })
 }
 
 /// Generate PageRank initialization kernel (sets initial values).
 #[allow(dead_code)]
-fn generate_pagerank_init_kernel() -> Result<String, String> {
+fn generate_pagerank_init_kernel() -> Result<String> {
     let kernel_fn: syn::ItemFn = syn::parse_quote! {
         fn pagerank_init(
             pagerank: &mut [f32],
@@ -195,7 +205,10 @@ fn generate_pagerank_init_kernel() -> Result<String, String> {
     };
 
     transpile_global_kernel(&kernel_fn)
-        .map_err(|e| format!("Failed to transpile pagerank_init: {}", e))
+        .map_err(|e| AccNetError::CodeGen {
+            kernel: "pagerank_init".into(),
+            reason: e.to_string(),
+        })
 }
 
 #[cfg(test)]

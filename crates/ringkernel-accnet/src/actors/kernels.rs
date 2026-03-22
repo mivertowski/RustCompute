@@ -3,6 +3,7 @@
 //! Uses ringkernel-cuda-codegen to generate persistent ring kernels
 //! that process messages in a continuous loop on the GPU.
 
+use crate::error::{AccNetError, Result};
 use ringkernel_cuda_codegen::{transpile_ring_kernel, RingKernelConfig};
 
 /// Generated CUDA kernel code for all analytics actors.
@@ -23,7 +24,7 @@ pub struct AnalyticsKernels {
 
 impl AnalyticsKernels {
     /// Generate all analytics kernels.
-    pub fn generate() -> Result<Self, String> {
+    pub fn generate() -> Result<Self> {
         Ok(Self {
             pagerank: generate_pagerank_kernel()?,
             fraud_detector: generate_fraud_detector_kernel()?,
@@ -39,7 +40,7 @@ impl AnalyticsKernels {
 ///
 /// This kernel computes PageRank scores using power iteration.
 /// It processes PageRankRequest messages and sends PageRankResponse.
-fn generate_pagerank_kernel() -> Result<String, String> {
+fn generate_pagerank_kernel() -> Result<String> {
     let handler: syn::ItemFn = syn::parse_quote! {
         fn pagerank_step(
             ctx: &RingContext,
@@ -98,13 +99,16 @@ fn generate_pagerank_kernel() -> Result<String, String> {
         .with_k2k(true);
 
     transpile_ring_kernel(&handler, &config)
-        .map_err(|e| format!("Failed to generate pagerank kernel: {}", e))
+        .map_err(|e| AccNetError::CodeGen {
+            kernel: "pagerank".into(),
+            reason: e.to_string(),
+        })
 }
 
 /// Generate the fraud detection ring kernel.
 ///
 /// Detects fraud patterns: circular flows, velocity anomalies, round amounts.
-fn generate_fraud_detector_kernel() -> Result<String, String> {
+fn generate_fraud_detector_kernel() -> Result<String> {
     let handler: syn::ItemFn = syn::parse_quote! {
         fn detect_fraud(
             ctx: &RingContext,
@@ -184,11 +188,14 @@ fn generate_fraud_detector_kernel() -> Result<String, String> {
         .with_k2k(true);
 
     transpile_ring_kernel(&handler, &config)
-        .map_err(|e| format!("Failed to generate fraud detector kernel: {}", e))
+        .map_err(|e| AccNetError::CodeGen {
+            kernel: "fraud_detector".into(),
+            reason: e.to_string(),
+        })
 }
 
 /// Generate the GAAP validation ring kernel.
-fn generate_gaap_validator_kernel() -> Result<String, String> {
+fn generate_gaap_validator_kernel() -> Result<String> {
     let handler: syn::ItemFn = syn::parse_quote! {
         fn validate_gaap(
             ctx: &RingContext,
@@ -257,11 +264,14 @@ fn generate_gaap_validator_kernel() -> Result<String, String> {
         .with_k2k(true);
 
     transpile_ring_kernel(&handler, &config)
-        .map_err(|e| format!("Failed to generate GAAP validator kernel: {}", e))
+        .map_err(|e| AccNetError::CodeGen {
+            kernel: "gaap_validator".into(),
+            reason: e.to_string(),
+        })
 }
 
 /// Generate the Benford analysis ring kernel.
-fn generate_benford_analyzer_kernel() -> Result<String, String> {
+fn generate_benford_analyzer_kernel() -> Result<String> {
     let handler: syn::ItemFn = syn::parse_quote! {
         fn analyze_benford(
             ctx: &RingContext,
@@ -310,11 +320,14 @@ fn generate_benford_analyzer_kernel() -> Result<String, String> {
         .with_k2k(true);
 
     transpile_ring_kernel(&handler, &config)
-        .map_err(|e| format!("Failed to generate Benford analyzer kernel: {}", e))
+        .map_err(|e| AccNetError::CodeGen {
+            kernel: "benford_analyzer".into(),
+            reason: e.to_string(),
+        })
 }
 
 /// Generate the suspense detection ring kernel.
-fn generate_suspense_detector_kernel() -> Result<String, String> {
+fn generate_suspense_detector_kernel() -> Result<String> {
     let handler: syn::ItemFn = syn::parse_quote! {
         fn detect_suspense(
             ctx: &RingContext,
@@ -381,14 +394,17 @@ fn generate_suspense_detector_kernel() -> Result<String, String> {
         .with_k2k(true);
 
     transpile_ring_kernel(&handler, &config)
-        .map_err(|e| format!("Failed to generate suspense detector kernel: {}", e))
+        .map_err(|e| AccNetError::CodeGen {
+            kernel: "suspense_detector".into(),
+            reason: e.to_string(),
+        })
 }
 
 /// Generate the results aggregator ring kernel.
 ///
 /// This kernel aggregates results from all analytics kernels and
 /// prepares the final AnalyticsResult message for the host.
-fn generate_results_aggregator_kernel() -> Result<String, String> {
+fn generate_results_aggregator_kernel() -> Result<String> {
     let handler: syn::ItemFn = syn::parse_quote! {
         fn aggregate_results(
             ctx: &RingContext,
@@ -443,7 +459,10 @@ fn generate_results_aggregator_kernel() -> Result<String, String> {
         .with_k2k(true);
 
     transpile_ring_kernel(&handler, &config)
-        .map_err(|e| format!("Failed to generate results aggregator kernel: {}", e))
+        .map_err(|e| AccNetError::CodeGen {
+            kernel: "results_aggregator".into(),
+            reason: e.to_string(),
+        })
 }
 
 #[cfg(test)]

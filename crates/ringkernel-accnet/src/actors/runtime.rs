@@ -10,6 +10,8 @@ use std::collections::HashMap;
 #[cfg(feature = "cuda")]
 use std::sync::Arc;
 
+#[cfg(feature = "cuda")]
+use crate::error::AccNetError;
 use crate::models::AccountingNetwork;
 
 use super::coordinator::{AnalyticsCoordinator, CoordinatorConfig, CoordinatorStats};
@@ -267,13 +269,13 @@ impl GpuActorRuntime {
         &mut self,
         network: &AccountingNetwork,
         result: &mut GpuAnalyticsResult,
-    ) -> Result<(), String> {
+    ) -> crate::Result<()> {
         use cudarc::driver::*;
 
         let device = match &self.cuda_device {
             Some(d) => d.clone(),
             None => {
-                let d = CudaDevice::new(0).map_err(|e| e.to_string())?;
+                let d = CudaDevice::new(0).map_err(|e| AccNetError::DeviceCreation(e.to_string()))?;
                 self.cuda_device = Some(d.clone());
                 d
             }
@@ -325,7 +327,7 @@ impl GpuActorRuntime {
         &self,
         _device: &Arc<cudarc::driver::CudaDevice>,
         network: &AccountingNetwork,
-    ) -> Result<Vec<f64>, String> {
+    ) -> crate::Result<Vec<f64>> {
         // For now, use CPU implementation until ring kernel infrastructure is ready
         // The ring kernel code is generated but requires the full RingKernel runtime
         Ok(network.compute_pagerank(
@@ -339,7 +341,7 @@ impl GpuActorRuntime {
         &self,
         _device: &Arc<cudarc::driver::CudaDevice>,
         network: &AccountingNetwork,
-    ) -> Result<(u32, Vec<u32>), String> {
+    ) -> crate::Result<(u32, Vec<u32>)> {
         let n_flows = network.flows.len();
         let mut flags = vec![0u32; n_flows];
         let mut count = 0u32;
@@ -378,7 +380,7 @@ impl GpuActorRuntime {
         &self,
         _device: &Arc<cudarc::driver::CudaDevice>,
         network: &AccountingNetwork,
-    ) -> Result<(u32, Vec<u32>), String> {
+    ) -> crate::Result<(u32, Vec<u32>)> {
         let n_flows = network.flows.len();
         let mut flags = vec![0u32; n_flows];
         let mut count = 0u32;
@@ -415,7 +417,7 @@ impl GpuActorRuntime {
         &self,
         _device: &Arc<cudarc::driver::CudaDevice>,
         network: &AccountingNetwork,
-    ) -> Result<([u32; 9], f32, bool), String> {
+    ) -> crate::Result<([u32; 9], f32, bool)> {
         let mut counts = [0u32; 9];
 
         for flow in &network.flows {
@@ -457,7 +459,7 @@ impl GpuActorRuntime {
         &self,
         _device: &Arc<cudarc::driver::CudaDevice>,
         network: &AccountingNetwork,
-    ) -> Result<(u32, Vec<f32>), String> {
+    ) -> crate::Result<(u32, Vec<f32>)> {
         let n_accounts = network.accounts.len();
         let mut scores = vec![0.0f32; n_accounts];
         let mut count = 0u32;
