@@ -98,6 +98,23 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  # Feature matrix: test key feature combinations that work without GPU hardware
+  feature-matrix:
+    name: Feature Matrix
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features:
+          - ""                    # no optional features
+          - "cpu"                 # CPU backend only
+          - "enterprise"          # enterprise features
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check with features '${{ matrix.features }}'
+        run: cargo check --workspace --features "${{ matrix.features }}"
+
   # Minimum Supported Rust Version check
   msrv:
     name: MSRV (1.75)
