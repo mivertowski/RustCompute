@@ -88,6 +88,16 @@ jobs:
       - name: Build with CPU features
         run: cargo build --workspace --features cpu
 
+  # Dependency security audit
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
   # Minimum Supported Rust Version check
   msrv:
     name: MSRV (1.75)
