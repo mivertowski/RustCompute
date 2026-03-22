@@ -45,17 +45,17 @@ fn main() {
                 backend.set_params(c2, damping);
 
                 // Inject impulse at center
-                backend.inject_impulse(size / 2, size / 2, 1.0).unwrap();
+                backend.inject_impulse(size / 2, size / 2, 1.0).expect("CUDA impulse injection failed");
 
                 // Warmup (10 steps)
                 for _ in 0..10 {
-                    backend.step().unwrap();
+                    backend.step().expect("CUDA step failed");
                 }
-                backend.synchronize().unwrap();
+                backend.synchronize().expect("CUDA synchronize failed");
 
                 // Benchmark
                 let start = Instant::now();
-                backend.step_batch(steps).unwrap();
+                backend.step_batch(steps).expect("CUDA batch step failed");
                 let elapsed = start.elapsed();
 
                 let total_ms = elapsed.as_secs_f64() * 1000.0;
@@ -159,14 +159,14 @@ fn main() {
         cuda_backend.set_params(c2, damping);
         cuda_backend
             .inject_impulse(size / 2, size / 2, 1.0)
-            .unwrap();
+            .expect("CUDA impulse injection failed");
         for _ in 0..10 {
-            cuda_backend.step().unwrap();
+            cuda_backend.step().expect("CUDA step failed");
         }
-        cuda_backend.synchronize().unwrap();
+        cuda_backend.synchronize().expect("CUDA synchronize failed");
 
         let cuda_start = Instant::now();
-        cuda_backend.step_batch(steps).unwrap();
+        cuda_backend.step_batch(steps).expect("CUDA batch step failed");
         let cuda_elapsed = cuda_start.elapsed();
         let cuda_steps_per_sec = steps as f64 / cuda_elapsed.as_secs_f64();
 
@@ -201,18 +201,18 @@ fn main() {
         cuda_backend.set_params(c2, damping);
         cuda_backend
             .inject_impulse(size / 2, size / 2, 1.0)
-            .unwrap();
+            .expect("CUDA impulse injection failed");
 
         // Run steps
         for _ in 0..verify_steps {
             cpu_grid.step();
-            cuda_backend.step().unwrap();
+            cuda_backend.step().expect("CUDA step failed");
         }
-        cuda_backend.synchronize().unwrap();
+        cuda_backend.synchronize().expect("CUDA synchronize failed");
 
         // Compare
         let cpu_pressure = cpu_grid.pressure_slice();
-        let cuda_pressure = cuda_backend.read_pressure_grid().unwrap();
+        let cuda_pressure = cuda_backend.read_pressure_grid().expect("CUDA pressure grid read failed");
 
         let mut max_diff = 0.0f32;
         let mut total_diff = 0.0f32;

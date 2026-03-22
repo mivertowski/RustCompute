@@ -436,7 +436,7 @@ impl ProcessEventGenerator {
             _ => {
                 // Normal distribution around base duration
                 let std_dev = base_duration as f32 * 0.3;
-                let dist = Normal::new(base_duration as f64, std_dev as f64).unwrap();
+                let dist = Normal::new(base_duration as f64, std_dev as f64).expect("valid normal distribution params: positive std_dev");
                 dist.sample(&mut self.rng).max(1000.0) as u32
             }
         };
@@ -569,7 +569,7 @@ impl ProcessEventGenerator {
                 let base_duration = activity.expected_duration_ms;
                 // Add some variance to duration
                 let std_dev = base_duration as f32 * 0.3;
-                let dist = Normal::new(base_duration as f64, std_dev as f64).unwrap();
+                let dist = Normal::new(base_duration as f64, std_dev as f64).expect("valid normal distribution params: positive std_dev");
                 let duration = dist.sample(&mut self.rng).max(1000.0) as u32;
 
                 parallel_states.push(ParallelActivityState {

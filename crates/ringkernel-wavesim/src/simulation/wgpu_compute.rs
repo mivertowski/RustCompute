@@ -779,11 +779,11 @@ impl TileGpuBackend for WgpuTileBackend {
         let buffer_slice = staging.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
+            tx.send(result).expect("map_async callback channel send failed");
         });
         let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         rx.recv()
-            .unwrap()
+            .expect("map_async callback channel recv failed")
             .map_err(|e| RingKernelError::TransferFailed(format!("Map failed: {:?}", e)))?;
 
         let data = buffer_slice.get_mapped_range();
@@ -955,11 +955,11 @@ impl TileGpuBackend for WgpuTileBackend {
         let buffer_slice = staging.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
+            tx.send(result).expect("map_async callback channel send failed");
         });
         let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         rx.recv()
-            .unwrap()
+            .expect("map_async callback channel recv failed")
             .map_err(|e| RingKernelError::TransferFailed(format!("Map failed: {:?}", e)))?;
 
         let data = buffer_slice.get_mapped_range();

@@ -239,7 +239,7 @@ impl KernelExecutor {
         let cuda_source = source.source.clone();
 
         if self.kernel_cache.contains_key(&kernel_name) {
-            return Ok(self.kernel_cache.get(&kernel_name).unwrap());
+            return Ok(self.kernel_cache.get(&kernel_name).expect("kernel_cache contains_key just confirmed"));
         }
 
         #[cfg(feature = "cuda")]
@@ -281,7 +281,7 @@ impl KernelExecutor {
         };
 
         self.kernel_cache.insert(kernel_name.clone(), compiled);
-        Ok(self.kernel_cache.get(&kernel_name).unwrap())
+        Ok(self.kernel_cache.get(&kernel_name).expect("kernel just inserted into cache"))
     }
 
     /// Get compiled kernel count.

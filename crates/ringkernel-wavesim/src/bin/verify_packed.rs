@@ -41,21 +41,21 @@ async fn main() {
     cpu_grid.inject_impulse(size / 2, size / 2, 1.0);
     cuda_backend
         .inject_impulse(size / 2, size / 2, 1.0)
-        .unwrap();
+        .expect("CUDA impulse injection failed");
 
     println!("Running {} steps and comparing...", steps);
     println!();
 
     // Run steps and compare periodically
     for step in 1..=steps {
-        cpu_grid.step().await.unwrap();
-        cuda_backend.step().unwrap();
+        cpu_grid.step().await.expect("CPU grid step failed");
+        cuda_backend.step().expect("CUDA step failed");
 
         if step % 20 == 0 || step == 1 || step == steps {
-            cuda_backend.synchronize().unwrap();
+            cuda_backend.synchronize().expect("CUDA synchronize failed");
 
             let cpu_pressure = cpu_grid.get_pressure_grid();
-            let cuda_pressure = cuda_backend.read_pressure_grid().unwrap();
+            let cuda_pressure = cuda_backend.read_pressure_grid().expect("CUDA pressure grid read failed");
 
             let mut max_diff = 0.0f32;
             let mut total_diff = 0.0f32;
@@ -89,9 +89,9 @@ async fn main() {
     println!();
 
     // Final detailed comparison
-    cuda_backend.synchronize().unwrap();
+    cuda_backend.synchronize().expect("CUDA synchronize failed");
     let cpu_pressure = cpu_grid.get_pressure_grid();
-    let cuda_pressure = cuda_backend.read_pressure_grid().unwrap();
+    let cuda_pressure = cuda_backend.read_pressure_grid().expect("CUDA pressure grid read failed");
 
     let mut max_diff = 0.0f32;
     let mut total_diff = 0.0f32;

@@ -502,7 +502,7 @@ impl TransactionGenerator {
             let mean = ((min.ln() + max.ln()) / 2.0).exp();
             let std_dev = (max / min).ln() / 4.0;
             let dist = LogNormal::new(mean.ln(), std_dev)
-                .unwrap_or_else(|_| LogNormal::new(0.0, 1.0).unwrap());
+                .unwrap_or_else(|_| LogNormal::new(0.0, 1.0).expect("fallback LogNormal(0,1) params are valid"));
             let raw: f64 = self.rng.sample(dist);
             raw.clamp(min, max)
         } else {
@@ -525,7 +525,7 @@ impl TransactionGenerator {
 
         // Generate random split points
         let mut points: Vec<f64> = (0..parts - 1).map(|_| self.rng.gen::<f64>()).collect();
-        points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        points.sort_by(|a, b| a.partial_cmp(b).expect("split points should not be NaN"));
 
         // Convert to amounts
         let mut amounts = Vec::with_capacity(parts);

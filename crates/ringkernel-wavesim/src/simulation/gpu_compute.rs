@@ -339,10 +339,10 @@ impl TileGpuCompute {
         let buffer_slice = self.staging_buffer.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
+            tx.send(result).expect("map_async callback channel send failed");
         });
         let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        rx.recv().unwrap().expect("Failed to map staging buffer");
+        rx.recv().expect("map_async callback channel recv failed").expect("Failed to map staging buffer");
 
         let data = buffer_slice.get_mapped_range();
         let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
@@ -602,10 +602,10 @@ impl TileGpuComputePool {
         let buffer_slice = tile_buffers.staging.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
+            tx.send(result).expect("map_async callback channel send failed");
         });
         let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        rx.recv().unwrap().expect("Failed to map staging buffer");
+        rx.recv().expect("map_async callback channel recv failed").expect("Failed to map staging buffer");
 
         let data = buffer_slice.get_mapped_range();
         let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();

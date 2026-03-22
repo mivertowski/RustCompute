@@ -387,10 +387,10 @@ impl TxMonitorPipeline {
         // Set up K2K routes
         backend
             .add_k2k_route("tx_validator", "pattern_detector")
-            .unwrap();
+            .expect("K2K route tx_validator->pattern_detector setup failed");
         backend
             .add_k2k_route("pattern_detector", "alert_aggregator")
-            .unwrap();
+            .expect("K2K route pattern_detector->alert_aggregator setup failed");
 
         Self {
             backend,
@@ -404,15 +404,15 @@ impl TxMonitorPipeline {
     pub fn start(&mut self) -> Result<(), TxMonError> {
         self.backend
             .get_kernel_mut(self.validator_idx)
-            .unwrap()
+            .expect("validator kernel index valid")
             .activate()?;
         self.backend
             .get_kernel_mut(self.pattern_detector_idx)
-            .unwrap()
+            .expect("pattern_detector kernel index valid")
             .activate()?;
         self.backend
             .get_kernel_mut(self.aggregator_idx)
-            .unwrap()
+            .expect("aggregator kernel index valid")
             .activate()?;
         Ok(())
     }
@@ -421,24 +421,24 @@ impl TxMonitorPipeline {
     pub fn stop(&mut self) -> Result<(), TxMonError> {
         self.backend
             .get_kernel_mut(self.validator_idx)
-            .unwrap()
+            .expect("validator kernel index valid")
             .terminate()?;
         self.backend
             .get_kernel_mut(self.pattern_detector_idx)
-            .unwrap()
+            .expect("pattern_detector kernel index valid")
             .terminate()?;
         self.backend
             .get_kernel_mut(self.aggregator_idx)
-            .unwrap()
+            .expect("aggregator kernel index valid")
             .terminate()?;
         Ok(())
     }
 
     /// Get pipeline statistics.
     pub fn stats(&self) -> PipelineStats {
-        let validator = self.backend.get_kernel(self.validator_idx).unwrap();
-        let pattern = self.backend.get_kernel(self.pattern_detector_idx).unwrap();
-        let aggregator = self.backend.get_kernel(self.aggregator_idx).unwrap();
+        let validator = self.backend.get_kernel(self.validator_idx).expect("validator kernel index valid");
+        let pattern = self.backend.get_kernel(self.pattern_detector_idx).expect("pattern_detector kernel index valid");
+        let aggregator = self.backend.get_kernel(self.aggregator_idx).expect("aggregator kernel index valid");
 
         PipelineStats {
             validator_processed: validator.messages_processed(),

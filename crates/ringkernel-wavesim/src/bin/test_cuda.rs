@@ -48,7 +48,7 @@ async fn main() {
     println!("Running {} simulation steps...", steps);
 
     for i in 0..steps {
-        cpu_grid.step().await.unwrap();
+        cpu_grid.step().await.expect("CPU grid step failed");
         cuda_grid.step_cuda_persistent().expect("CUDA step failed");
 
         if (i + 1) % 5 == 0 {

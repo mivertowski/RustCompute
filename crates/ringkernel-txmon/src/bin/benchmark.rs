@@ -147,7 +147,7 @@ fn main() {
     println!();
 
     // Sort by TPS
-    results.sort_by(|a, b| b.tps.partial_cmp(&a.tps).unwrap());
+    results.sort_by(|a, b| b.tps.partial_cmp(&a.tps).expect("TPS values should not be NaN"));
 
     let baseline_tps = results
         .iter()

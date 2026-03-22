@@ -95,8 +95,8 @@ impl KPITracker {
             return;
         }
 
-        let (first_time, _) = self.throughput_samples.front().unwrap();
-        let (last_time, _) = self.throughput_samples.back().unwrap();
+        let (first_time, _) = self.throughput_samples.front().expect("len >= 2 checked above");
+        let (last_time, _) = self.throughput_samples.back().expect("len >= 2 checked above");
         let elapsed = last_time.duration_since(*first_time).as_secs_f64();
 
         if elapsed > 0.0 {

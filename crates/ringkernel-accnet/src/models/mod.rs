@@ -157,7 +157,7 @@ impl HybridTimestamp {
         use std::time::{SystemTime, UNIX_EPOCH};
         let physical = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("system clock before UNIX epoch")
             .as_millis() as u64;
         Self {
             physical,
@@ -171,7 +171,7 @@ impl HybridTimestamp {
         use std::time::{SystemTime, UNIX_EPOCH};
         let physical = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("system clock before UNIX epoch")
             .as_millis() as u64;
         Self {
             physical,

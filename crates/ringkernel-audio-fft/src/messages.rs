@@ -94,7 +94,7 @@ impl RingMessage for AudioFrame {
     fn deserialize(bytes: &[u8]) -> ringkernel_core::error::Result<Self> {
         // SAFETY: We trust the serialized data from our own FFT processing
         let archived = unsafe { rkyv::archived_root::<Self>(bytes) };
-        Ok(archived.deserialize(&mut rkyv::Infallible).unwrap())
+        Ok(archived.deserialize(&mut rkyv::Infallible).expect("rkyv::Infallible deserialization cannot fail"))
     }
 }
 
@@ -241,7 +241,7 @@ impl RingMessage for FrequencyBin {
     fn deserialize(bytes: &[u8]) -> ringkernel_core::error::Result<Self> {
         // SAFETY: We trust the serialized data from our own FFT processing
         let archived = unsafe { rkyv::archived_root::<Self>(bytes) };
-        Ok(archived.deserialize(&mut rkyv::Infallible).unwrap())
+        Ok(archived.deserialize(&mut rkyv::Infallible).expect("rkyv::Infallible deserialization cannot fail"))
     }
 }
 
@@ -297,7 +297,7 @@ impl RingMessage for NeighborData {
     fn deserialize(bytes: &[u8]) -> ringkernel_core::error::Result<Self> {
         // SAFETY: We trust the serialized data from our own FFT processing
         let archived = unsafe { rkyv::archived_root::<Self>(bytes) };
-        Ok(archived.deserialize(&mut rkyv::Infallible).unwrap())
+        Ok(archived.deserialize(&mut rkyv::Infallible).expect("rkyv::Infallible deserialization cannot fail"))
     }
 }
 
@@ -372,7 +372,7 @@ impl RingMessage for SeparatedBin {
     fn deserialize(bytes: &[u8]) -> ringkernel_core::error::Result<Self> {
         // SAFETY: We trust the serialized data from our own FFT processing
         let archived = unsafe { rkyv::archived_root::<Self>(bytes) };
-        Ok(archived.deserialize(&mut rkyv::Infallible).unwrap())
+        Ok(archived.deserialize(&mut rkyv::Infallible).expect("rkyv::Infallible deserialization cannot fail"))
     }
 }
 
@@ -414,7 +414,7 @@ impl RingMessage for BinControl {
     fn deserialize(bytes: &[u8]) -> ringkernel_core::error::Result<Self> {
         // SAFETY: We trust the serialized data from our own FFT processing
         let archived = unsafe { rkyv::archived_root::<Self>(bytes) };
-        Ok(archived.deserialize(&mut rkyv::Infallible).unwrap())
+        Ok(archived.deserialize(&mut rkyv::Infallible).expect("rkyv::Infallible deserialization cannot fail"))
     }
 }
 
@@ -447,7 +447,7 @@ impl RingMessage for FrameComplete {
     fn deserialize(bytes: &[u8]) -> ringkernel_core::error::Result<Self> {
         // SAFETY: We trust the serialized data from our own FFT processing
         let archived = unsafe { rkyv::archived_root::<Self>(bytes) };
-        Ok(archived.deserialize(&mut rkyv::Infallible).unwrap())
+        Ok(archived.deserialize(&mut rkyv::Infallible).expect("rkyv::Infallible deserialization cannot fail"))
     }
 }
 

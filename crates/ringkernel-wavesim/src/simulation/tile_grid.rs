@@ -907,36 +907,36 @@ impl TileKernelGrid {
         for (tx, ty) in self.tiles.keys() {
             if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
                 // Extract halos based on tile's neighbors
-                let tile = self.tiles.get(&(*tx, *ty)).unwrap();
+                let tile = self.tiles.get(&(*tx, *ty)).expect("tile key exists in own iterator");
 
-                if tile.neighbor_north.is_some() {
+                if let Some(ref neighbor) = tile.neighbor_north {
                     let halo = state.backend.extract_halo(buffers, Edge::North)?;
                     halo_messages.push((
-                        tile.neighbor_north.clone().unwrap(),
+                        neighbor.clone(),
                         HaloDirection::South,
                         halo,
                     ));
                 }
-                if tile.neighbor_south.is_some() {
+                if let Some(ref neighbor) = tile.neighbor_south {
                     let halo = state.backend.extract_halo(buffers, Edge::South)?;
                     halo_messages.push((
-                        tile.neighbor_south.clone().unwrap(),
+                        neighbor.clone(),
                         HaloDirection::North,
                         halo,
                     ));
                 }
-                if tile.neighbor_west.is_some() {
+                if let Some(ref neighbor) = tile.neighbor_west {
                     let halo = state.backend.extract_halo(buffers, Edge::West)?;
                     halo_messages.push((
-                        tile.neighbor_west.clone().unwrap(),
+                        neighbor.clone(),
                         HaloDirection::East,
                         halo,
                     ));
                 }
-                if tile.neighbor_east.is_some() {
+                if let Some(ref neighbor) = tile.neighbor_east {
                     let halo = state.backend.extract_halo(buffers, Edge::East)?;
                     halo_messages.push((
-                        tile.neighbor_east.clone().unwrap(),
+                        neighbor.clone(),
                         HaloDirection::West,
                         halo,
                     ));
@@ -967,7 +967,7 @@ impl TileKernelGrid {
         // Phase 3: Apply boundary conditions for domain edge tiles
         // Tiles without neighbors on certain edges need boundary conditions applied
         for (tx, ty) in self.tiles.keys() {
-            let tile = self.tiles.get(&(*tx, *ty)).unwrap();
+            let tile = self.tiles.get(&(*tx, *ty)).expect("tile key exists in own iterator");
             if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
                 // Apply absorbing boundary for edges without neighbors
                 if tile.neighbor_north.is_none() {
@@ -1013,7 +1013,7 @@ impl TileKernelGrid {
 
         // Phase 5: Swap buffers (pointer swap only, no data movement)
         // NOTE: We need mutable access to state for this
-        let state = self.wgpu_persistent.as_mut().unwrap();
+        let state = self.wgpu_persistent.as_mut().expect("wgpu_persistent state must be initialized before swap");
         for buffers in state.tile_buffers.values_mut() {
             state.backend.swap_buffers(buffers);
         }
@@ -1042,36 +1042,36 @@ impl TileKernelGrid {
 
         for (tx, ty) in self.tiles.keys() {
             if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
-                let tile = self.tiles.get(&(*tx, *ty)).unwrap();
+                let tile = self.tiles.get(&(*tx, *ty)).expect("tile key exists in own iterator");
 
-                if tile.neighbor_north.is_some() {
+                if let Some(ref neighbor) = tile.neighbor_north {
                     let halo = state.backend.extract_halo(buffers, Edge::North)?;
                     halo_messages.push((
-                        tile.neighbor_north.clone().unwrap(),
+                        neighbor.clone(),
                         HaloDirection::South,
                         halo,
                     ));
                 }
-                if tile.neighbor_south.is_some() {
+                if let Some(ref neighbor) = tile.neighbor_south {
                     let halo = state.backend.extract_halo(buffers, Edge::South)?;
                     halo_messages.push((
-                        tile.neighbor_south.clone().unwrap(),
+                        neighbor.clone(),
                         HaloDirection::North,
                         halo,
                     ));
                 }
-                if tile.neighbor_west.is_some() {
+                if let Some(ref neighbor) = tile.neighbor_west {
                     let halo = state.backend.extract_halo(buffers, Edge::West)?;
                     halo_messages.push((
-                        tile.neighbor_west.clone().unwrap(),
+                        neighbor.clone(),
                         HaloDirection::East,
                         halo,
                     ));
                 }
-                if tile.neighbor_east.is_some() {
+                if let Some(ref neighbor) = tile.neighbor_east {
                     let halo = state.backend.extract_halo(buffers, Edge::East)?;
                     halo_messages.push((
-                        tile.neighbor_east.clone().unwrap(),
+                        neighbor.clone(),
                         HaloDirection::West,
                         halo,
                     ));
@@ -1108,7 +1108,7 @@ impl TileKernelGrid {
         state.backend.synchronize()?;
 
         // Phase 4: Swap buffers
-        let state = self.cuda_persistent.as_mut().unwrap();
+        let state = self.cuda_persistent.as_mut().expect("cuda_persistent state must be initialized before swap");
         for buffers in state.tile_buffers.values_mut() {
             state.backend.swap_buffers(buffers);
         }

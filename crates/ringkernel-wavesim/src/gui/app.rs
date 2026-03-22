@@ -449,7 +449,7 @@ impl WaveSimApp {
                         self.engine = SimulationEngine::CudaPacked(backend.clone());
                         // Read initial state
                         let pressure = {
-                            let b = backend.lock().unwrap();
+                            let b = backend.lock().expect("CUDA backend lock poisoned");
                             b.read_pressure_grid()
                                 .unwrap_or_else(|_| vec![0.0; self.cell_count])
                         };
@@ -509,7 +509,7 @@ impl WaveSimApp {
                                 let amp = self.impulse_amplitude;
                                 return Task::perform(
                                     async move {
-                                        let b = backend.lock().unwrap();
+                                        let b = backend.lock().expect("CUDA backend lock poisoned");
                                         let _ = b.inject_impulse(gx, gy, amp);
                                         let pressure = b.read_pressure_grid().unwrap_or_default();
                                         (pressure, 0u32)
@@ -835,7 +835,7 @@ impl WaveSimApp {
 
                 Task::perform(
                     async move {
-                        let mut b = backend.lock().unwrap();
+                        let mut b = backend.lock().expect("CUDA backend lock poisoned");
                         // Run many steps per frame for CUDA Packed (it's fast!)
                         let steps = 100u32;
                         if let Err(e) = b.step_batch(steps) {

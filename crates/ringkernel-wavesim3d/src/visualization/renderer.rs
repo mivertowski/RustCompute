@@ -197,7 +197,7 @@ impl Renderer3D {
         // for the duration of the renderer's lifetime.
         let surface = unsafe {
             instance
-                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(window).unwrap())
+                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(window).expect("window surface handle creation failed"))
                 .map_err(|e| RendererError::SurfaceError(e.to_string()))?
         };
 

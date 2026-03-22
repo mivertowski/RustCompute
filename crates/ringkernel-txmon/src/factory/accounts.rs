@@ -47,7 +47,7 @@ impl AccountGenerator {
         };
 
         // Risk score based on level
-        profile.risk_score = match CustomerRiskLevel::from_u8(profile.risk_level).unwrap() {
+        profile.risk_score = match CustomerRiskLevel::from_u8(profile.risk_level).expect("risk_level was just assigned a valid CustomerRiskLevel variant") {
             CustomerRiskLevel::Low => self.rng.gen_range(5..30),
             CustomerRiskLevel::Medium => self.rng.gen_range(30..60),
             CustomerRiskLevel::High => self.rng.gen_range(60..85),
@@ -99,7 +99,7 @@ impl AccountGenerator {
         // Created timestamp (random time in past year)
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .expect("system clock before UNIX epoch")
             .as_millis() as u64;
         let one_year_ms = 365 * 24 * 60 * 60 * 1000;
         profile.created_ts = now_ms - self.rng.gen_range(0..one_year_ms);
