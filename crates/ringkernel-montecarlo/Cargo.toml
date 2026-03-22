@@ -13,6 +13,7 @@ ringkernel-core = { version = "0.4.2", path = "../ringkernel-core" }
 bytemuck = { workspace = true }
 rand = "0.8"
 thiserror = { workspace = true }
+tracing = { workspace = true }
 
 # CUDA support (optional)
 cudarc = { version = "0.19.3", optional = true, features = ["cuda-version-from-build-system"] }

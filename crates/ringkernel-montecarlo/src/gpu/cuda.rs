@@ -470,7 +470,7 @@ mod tests {
 
     fn skip_if_no_cuda() -> bool {
         if !is_cuda_available() {
-            println!("Skipping test: CUDA not available");
+            tracing::info!("Skipping test: CUDA not available");
             return true;
         }
         false

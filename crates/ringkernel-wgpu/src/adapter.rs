@@ -141,6 +141,6 @@ mod tests {
     #[ignore] // May not have GPU in CI
     async fn test_adapter_creation() {
         let adapter = WgpuAdapter::new().await.unwrap();
-        println!("Adapter: {} ({:?})", adapter.name(), adapter.backend());
+        tracing::info!(name = %adapter.name(), backend = ?adapter.backend(), "Created adapter");
     }
 }

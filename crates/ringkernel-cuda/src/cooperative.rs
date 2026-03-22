@@ -390,13 +390,13 @@ pub mod kernels {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tracing::info;
 
     #[test]
     fn test_cooperative_support_detection() {
         let has_support = has_cooperative_support();
         let message = cooperative_build_message();
-        println!("Cooperative support: {}", has_support);
-        println!("Build message: {}", message);
+        info!(has_support, %message, "Cooperative support detection");
 
         // If we have support, PTX should not be empty
         if has_support {
@@ -416,7 +416,7 @@ mod tests {
     #[ignore] // Requires CUDA hardware
     fn test_cooperative_kernel_loading() {
         if !has_cooperative_support() {
-            println!("Skipping: cooperative support not available");
+            info!("Skipping: cooperative support not available");
             return;
         }
 
@@ -425,7 +425,7 @@ mod tests {
         // Check compute capability
         let (major, _minor) = device.compute_capability();
         if major < 6 {
-            println!("Skipping: device doesn't support cooperative groups");
+            info!("Skipping: device doesn't support cooperative groups");
             return;
         }
 
@@ -434,11 +434,14 @@ mod tests {
 
         match kernel {
             Ok(k) => {
-                println!("Loaded cooperative kernel: {}", k.func_name());
-                println!("Max concurrent blocks: {}", k.max_concurrent_blocks());
+                info!(
+                    func_name = k.func_name(),
+                    max_concurrent_blocks = k.max_concurrent_blocks(),
+                    "Loaded cooperative kernel"
+                );
             }
             Err(e) => {
-                println!("Failed to load: {}", e);
+                tracing::warn!(%e, "Failed to load cooperative kernel");
             }
         }
     }

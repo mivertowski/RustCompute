@@ -252,6 +252,7 @@ pub fn enumerate_devices() -> Result<Vec<CudaDeviceInfo>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tracing::info;
 
     #[test]
     #[ignore] // Requires CUDA hardware
@@ -259,12 +260,11 @@ mod tests {
         // This test requires CUDA hardware
         if let Ok(devices) = enumerate_devices() {
             for device in &devices {
-                println!(
-                    "Device {}: {} (CC {}.{})",
-                    device.ordinal,
-                    device.name,
-                    device.compute_capability.0,
-                    device.compute_capability.1
+                info!(
+                    ordinal = device.ordinal,
+                    name = %device.name,
+                    compute_capability = %format!("{}.{}", device.compute_capability.0, device.compute_capability.1),
+                    "Enumerated CUDA device"
                 );
             }
         }
