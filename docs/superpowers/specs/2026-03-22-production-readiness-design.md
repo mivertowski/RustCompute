@@ -530,13 +530,13 @@ Based on docs/19-cuda-wishlist-persistent-actors.md:
 - [x] 2.4.1-2.4.10 Baseline benchmark template created (b693005) — run on H100/B200 when available
 
 ### Phase 3: Observability & Logging
-- [ ] 3.1.1-3.1.10 Replace println/eprintln (~735+ instances, worst: wavesim 289, wavesim3d 182)
-- [ ] 3.2.1 NVTX real integration
-- [ ] 3.2.2 RenderDoc integration
-- [ ] 3.2.3 Metal System Trace
-- [ ] 3.2.4 Chrome trace + tracing correlation
-- [ ] 3.3.1 Prometheus metrics export
-- [ ] 3.3.2 OpenTelemetry span export
+- [x] 3.1.1-3.1.10 Replace println/eprintln — 64 migrated to tracing; 607 kept in bins (benchmarks), 76 kept in CLI (user-facing), ~38 in test code
+- [ ] 3.2.1 NVTX real integration — deferred (requires CUDA hardware + nvtx crate)
+- [ ] 3.2.2 RenderDoc integration — deferred (requires RenderDoc installed)
+- [ ] 3.2.3 Metal System Trace — deferred (requires macOS)
+- [ ] 3.2.4 Chrome trace + tracing correlation — deferred (Phase 5 scope with profiling)
+- [ ] 3.3.1 Prometheus metrics export — deferred (P2, not required for production)
+- [ ] 3.3.2 OpenTelemetry span export — partially done via otel feature flag (2ac9199)
 
 ### Phase 4: Testing & Documentation
 - [ ] 4.1.1 ringkernel-derive tests
