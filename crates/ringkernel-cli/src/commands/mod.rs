@@ -27,8 +27,10 @@ pub fn validate_project_name(name: &str) -> Result<(), String> {
         return Err("Project name cannot be empty".to_string());
     }
 
-    if !name.chars().next().unwrap().is_alphabetic() && !name.starts_with('_') {
-        return Err("Project name must start with a letter or underscore".to_string());
+    if let Some(c) = name.chars().next() {
+        if !c.is_alphabetic() && c != '_' {
+            return Err("Project name must start with a letter or underscore".to_string());
+        }
     }
 
     if !name
