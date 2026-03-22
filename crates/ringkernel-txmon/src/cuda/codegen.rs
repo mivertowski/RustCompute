@@ -3,6 +3,8 @@
 //! This module generates CUDA C source code from Rust DSL using
 //! the ringkernel-cuda-codegen transpiler.
 
+use crate::error::TxMonError;
+
 #[cfg(feature = "cuda-codegen")]
 use ringkernel_cuda_codegen::{
     transpile_global_kernel, transpile_ring_kernel, transpile_stencil_kernel, RingKernelConfig,
@@ -33,7 +35,7 @@ pub enum KernelType {
 
 /// Generate all CUDA kernels for transaction monitoring.
 #[cfg(feature = "cuda-codegen")]
-pub fn generate_all_kernels() -> Result<Vec<GeneratedKernel>, String> {
+pub fn generate_all_kernels() -> Result<Vec<GeneratedKernel>, TxMonError> {
     Ok(vec![
         generate_batch_kernel()?,
         generate_ring_kernel()?,
@@ -47,7 +49,7 @@ pub fn generate_all_kernels() -> Result<Vec<GeneratedKernel>, String> {
 /// Each thread processes one transaction independently.
 /// Best for maximum throughput on large batches.
 #[cfg(feature = "cuda-codegen")]
-pub fn generate_batch_kernel() -> Result<GeneratedKernel, String> {
+pub fn generate_batch_kernel() -> Result<GeneratedKernel, TxMonError> {
     let kernel_fn: syn::ItemFn = parse_quote! {
         fn monitor_transaction_batch(
             transactions: &[GpuTransaction],
@@ -163,8 +165,10 @@ pub fn generate_batch_kernel() -> Result<GeneratedKernel, String> {
         }
     };
 
-    let cuda_source = transpile_global_kernel(&kernel_fn)
-        .map_err(|e| format!("Failed to transpile batch kernel: {}", e))?;
+    let cuda_source = transpile_global_kernel(&kernel_fn).map_err(|e| TxMonError::Transpile {
+        kernel: "monitor_transaction_batch",
+        reason: e.to_string(),
+    })?;
 
     Ok(GeneratedKernel {
         name: "monitor_transaction_batch".to_string(),
@@ -178,7 +182,7 @@ pub fn generate_batch_kernel() -> Result<GeneratedKernel, String> {
 /// Persistent kernel that continuously processes transactions with
 /// HLC timestamps for causal ordering and K2K messaging.
 #[cfg(feature = "cuda-codegen")]
-pub fn generate_ring_kernel() -> Result<GeneratedKernel, String> {
+pub fn generate_ring_kernel() -> Result<GeneratedKernel, TxMonError> {
     let handler_fn: syn::ItemFn = parse_quote! {
         fn process_transaction(ctx: &RingContext, tx: &GpuTransaction) -> GpuAlert {
             let tid = ctx.global_thread_id();
@@ -226,8 +230,11 @@ pub fn generate_ring_kernel() -> Result<GeneratedKernel, String> {
         .with_hlc(true)
         .with_k2k(true);
 
-    let cuda_source = transpile_ring_kernel(&handler_fn, &config)
-        .map_err(|e| format!("Failed to transpile ring kernel: {}", e))?;
+    let cuda_source =
+        transpile_ring_kernel(&handler_fn, &config).map_err(|e| TxMonError::Transpile {
+            kernel: "ring_kernel_tx_monitor",
+            reason: e.to_string(),
+        })?;
 
     Ok(GeneratedKernel {
         name: "ring_kernel_tx_monitor".to_string(),
@@ -244,7 +251,7 @@ pub fn generate_ring_kernel() -> Result<GeneratedKernel, String> {
 ///
 /// Detects velocity anomalies by examining neighborhood patterns.
 #[cfg(feature = "cuda-codegen")]
-pub fn generate_velocity_stencil_kernel() -> Result<GeneratedKernel, String> {
+pub fn generate_velocity_stencil_kernel() -> Result<GeneratedKernel, TxMonError> {
     let stencil_fn: syn::ItemFn = parse_quote! {
         fn detect_velocity_anomaly(
             tx_counts: &[u32],
@@ -283,8 +290,11 @@ pub fn generate_velocity_stencil_kernel() -> Result<GeneratedKernel, String> {
         .with_tile_size(16, 16)
         .with_halo(1);
 
-    let cuda_source = transpile_stencil_kernel(&stencil_fn, &config)
-        .map_err(|e| format!("Failed to transpile velocity stencil: {}", e))?;
+    let cuda_source =
+        transpile_stencil_kernel(&stencil_fn, &config).map_err(|e| TxMonError::Transpile {
+            kernel: "detect_velocity_anomaly",
+            reason: e.to_string(),
+        })?;
 
     Ok(GeneratedKernel {
         name: "detect_velocity_anomaly".to_string(),
@@ -298,7 +308,7 @@ pub fn generate_velocity_stencil_kernel() -> Result<GeneratedKernel, String> {
 /// Detects circular trading and layering patterns by analyzing
 /// the transaction network as a 2D adjacency structure.
 #[cfg(feature = "cuda-codegen")]
-pub fn generate_network_pattern_stencil_kernel() -> Result<GeneratedKernel, String> {
+pub fn generate_network_pattern_stencil_kernel() -> Result<GeneratedKernel, TxMonError> {
     let stencil_fn: syn::ItemFn = parse_quote! {
         fn detect_circular_pattern(
             network: &[NetworkCell],
@@ -357,8 +367,11 @@ pub fn generate_network_pattern_stencil_kernel() -> Result<GeneratedKernel, Stri
         .with_tile_size(16, 16)
         .with_halo(1);
 
-    let cuda_source = transpile_stencil_kernel(&stencil_fn, &config)
-        .map_err(|e| format!("Failed to transpile network pattern stencil: {}", e))?;
+    let cuda_source =
+        transpile_stencil_kernel(&stencil_fn, &config).map_err(|e| TxMonError::Transpile {
+            kernel: "detect_circular_pattern",
+            reason: e.to_string(),
+        })?;
 
     Ok(GeneratedKernel {
         name: "detect_circular_pattern".to_string(),
@@ -466,28 +479,28 @@ struct NetworkCell {
 }
 
 #[cfg(not(feature = "cuda-codegen"))]
-pub fn generate_all_kernels() -> Result<Vec<GeneratedKernel>, String> {
-    Err("CUDA codegen feature not enabled. Build with --features cuda-codegen".to_string())
+pub fn generate_all_kernels() -> Result<Vec<GeneratedKernel>, TxMonError> {
+    Err(TxMonError::CodegenNotEnabled)
 }
 
 #[cfg(not(feature = "cuda-codegen"))]
-pub fn generate_batch_kernel() -> Result<GeneratedKernel, String> {
-    Err("CUDA codegen feature not enabled".to_string())
+pub fn generate_batch_kernel() -> Result<GeneratedKernel, TxMonError> {
+    Err(TxMonError::CodegenNotEnabled)
 }
 
 #[cfg(not(feature = "cuda-codegen"))]
-pub fn generate_ring_kernel() -> Result<GeneratedKernel, String> {
-    Err("CUDA codegen feature not enabled".to_string())
+pub fn generate_ring_kernel() -> Result<GeneratedKernel, TxMonError> {
+    Err(TxMonError::CodegenNotEnabled)
 }
 
 #[cfg(not(feature = "cuda-codegen"))]
-pub fn generate_velocity_stencil_kernel() -> Result<GeneratedKernel, String> {
-    Err("CUDA codegen feature not enabled".to_string())
+pub fn generate_velocity_stencil_kernel() -> Result<GeneratedKernel, TxMonError> {
+    Err(TxMonError::CodegenNotEnabled)
 }
 
 #[cfg(not(feature = "cuda-codegen"))]
-pub fn generate_network_pattern_stencil_kernel() -> Result<GeneratedKernel, String> {
-    Err("CUDA codegen feature not enabled".to_string())
+pub fn generate_network_pattern_stencil_kernel() -> Result<GeneratedKernel, TxMonError> {
+    Err(TxMonError::CodegenNotEnabled)
 }
 
 // Note: The codegen tests are integration tests that require specific

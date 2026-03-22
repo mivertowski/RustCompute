@@ -26,6 +26,7 @@
 //! Uses GridPos for spatial pattern detection in transaction networks. Detects circular
 //! trading, velocity anomalies, and coordinated activity patterns.
 
+pub mod error;
 pub mod factory;
 pub mod gui;
 pub mod monitoring;
@@ -34,6 +35,7 @@ pub mod types;
 #[cfg(feature = "cuda-codegen")]
 pub mod cuda;
 
+pub use error::TxMonError;
 pub use factory::{FactoryState, GeneratorConfig, TransactionGenerator};
 pub use monitoring::{MonitoringConfig, MonitoringEngine};
 pub use types::{

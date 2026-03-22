@@ -55,6 +55,7 @@
 //! - Multi-stage processing pipelines
 //! - Complex inter-kernel coordination
 
+use crate::error::{KernelStateError, TxMonError};
 use bytemuck::Zeroable;
 
 /// Configuration for ring kernel backend.
@@ -175,33 +176,33 @@ impl RingKernelHandle {
     }
 
     /// Activate the kernel.
-    pub fn activate(&mut self) -> Result<(), String> {
+    pub fn activate(&mut self) -> Result<(), TxMonError> {
         match self.state {
             KernelState::Created | KernelState::Paused => {
                 self.control.is_active = 1;
                 self.state = KernelState::Active;
                 Ok(())
             }
-            KernelState::Active => Err("Kernel already active".to_string()),
+            KernelState::Active => Err(KernelStateError::AlreadyActive.into()),
             KernelState::Terminating | KernelState::Terminated => {
-                Err("Cannot activate terminated kernel".to_string())
+                Err(KernelStateError::Terminated.into())
             }
         }
     }
 
     /// Pause the kernel (stops processing but doesn't terminate).
-    pub fn pause(&mut self) -> Result<(), String> {
+    pub fn pause(&mut self) -> Result<(), TxMonError> {
         if self.state == KernelState::Active {
             self.control.is_active = 0;
             self.state = KernelState::Paused;
             Ok(())
         } else {
-            Err("Kernel not active".to_string())
+            Err(KernelStateError::NotActive.into())
         }
     }
 
     /// Request kernel termination.
-    pub fn terminate(&mut self) -> Result<(), String> {
+    pub fn terminate(&mut self) -> Result<(), TxMonError> {
         match self.state {
             KernelState::Terminated => Ok(()),
             _ => {
@@ -300,7 +301,7 @@ impl RingKernelBackend {
     }
 
     /// Add a K2K route between kernels.
-    pub fn add_k2k_route(&mut self, source: &str, target: &str) -> Result<u32, String> {
+    pub fn add_k2k_route(&mut self, source: &str, target: &str) -> Result<u32, TxMonError> {
         let route_id = self.k2k_routes.len() as u32;
         self.k2k_routes.push(K2KRoute {
             source_kernel_id: source.to_string(),
@@ -400,7 +401,7 @@ impl TxMonitorPipeline {
     }
 
     /// Start the pipeline.
-    pub fn start(&mut self) -> Result<(), String> {
+    pub fn start(&mut self) -> Result<(), TxMonError> {
         self.backend
             .get_kernel_mut(self.validator_idx)
             .unwrap()
@@ -417,7 +418,7 @@ impl TxMonitorPipeline {
     }
 
     /// Stop the pipeline.
-    pub fn stop(&mut self) -> Result<(), String> {
+    pub fn stop(&mut self) -> Result<(), TxMonError> {
         self.backend
             .get_kernel_mut(self.validator_idx)
             .unwrap()

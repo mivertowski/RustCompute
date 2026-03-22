@@ -24,6 +24,7 @@ iced = { version = "0.14", features = ["tokio"] }
 tokio = { workspace = true }
 
 # Utilities
+thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
