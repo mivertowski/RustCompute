@@ -25,8 +25,11 @@
 //! cargo run -p ringkernel-wavesim --bin wavesim
 //! ```
 
+pub mod error;
 pub mod gui;
 pub mod simulation;
+
+pub use error::{WaveSimError, Result};
 
 pub use gui::WaveSimApp;
 pub use simulation::{AcousticParams, CellState, Direction, SimulationGrid};

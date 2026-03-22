@@ -169,10 +169,10 @@ pub enum Message {
     /// Compute backend changed.
     ComputeBackendChanged(ComputeBackend),
     /// Backend switch completed (for GPU actor mode).
-    BackendSwitched(Result<Arc<Mutex<KernelGrid>>, String>),
+    BackendSwitched(std::result::Result<Arc<Mutex<KernelGrid>>, crate::WaveSimError>),
     /// CUDA Packed backend switch completed.
     #[cfg(feature = "cuda")]
-    CudaPackedSwitched(Result<Arc<std::sync::Mutex<CudaPackedBackend>>, String>),
+    CudaPackedSwitched(std::result::Result<Arc<std::sync::Mutex<CudaPackedBackend>>, crate::WaveSimError>),
 
     /// User clicked on the canvas (left click).
     CanvasClick(f32, f32),
@@ -628,7 +628,7 @@ impl WaveSimApp {
                         let params = AcousticParams::new(speed, cell_size);
                         match KernelGrid::new(width, height, params, legacy_backend).await {
                             Ok(grid) => Ok(Arc::new(Mutex::new(grid))),
-                            Err(e) => Err(format!("{:?}", e)),
+                            Err(e) => Err(crate::WaveSimError::BackendSwitch(format!("{:?}", e))),
                         }
                     },
                     Message::BackendSwitched,
@@ -659,7 +659,7 @@ impl WaveSimApp {
                         backend.set_params(c2, damping);
                         Ok(Arc::new(std::sync::Mutex::new(backend)))
                     }
-                    Err(e) => Err(format!("{:?}", e)),
+                    Err(e) => Err(crate::WaveSimError::GpuBackendCreation(format!("{:?}", e))),
                 }
             },
             Message::CudaPackedSwitched,
