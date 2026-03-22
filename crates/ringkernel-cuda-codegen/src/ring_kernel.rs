@@ -45,6 +45,7 @@
 use std::fmt::Write;
 
 use crate::reduction_intrinsics::ReductionOp;
+use crate::Result;
 
 /// Configuration for global reductions in a ring kernel.
 ///
@@ -297,260 +298,235 @@ impl RingKernelConfig {
     }
 
     /// Generate CUDA kernel signature.
-    pub fn generate_signature(&self) -> String {
+    pub fn generate_signature(&self) -> Result<String> {
         let mut sig = String::new();
 
-        writeln!(sig, "extern \"C\" __global__ void {}(", self.kernel_name()).unwrap();
-        writeln!(sig, "    ControlBlock* __restrict__ control,").unwrap();
-        writeln!(sig, "    unsigned char* __restrict__ input_buffer,").unwrap();
-        writeln!(sig, "    unsigned char* __restrict__ output_buffer,").unwrap();
+        writeln!(sig, "extern \"C\" __global__ void {}(", self.kernel_name())?;
+        writeln!(sig, "    ControlBlock* __restrict__ control,")?;
+        writeln!(sig, "    unsigned char* __restrict__ input_buffer,")?;
+        writeln!(sig, "    unsigned char* __restrict__ output_buffer,")?;
 
         if self.enable_k2k {
-            writeln!(sig, "    K2KRoutingTable* __restrict__ k2k_routes,").unwrap();
-            writeln!(sig, "    unsigned char* __restrict__ k2k_inbox,").unwrap();
-            writeln!(sig, "    unsigned char* __restrict__ k2k_outbox,").unwrap();
+            writeln!(sig, "    K2KRoutingTable* __restrict__ k2k_routes,")?;
+            writeln!(sig, "    unsigned char* __restrict__ k2k_inbox,")?;
+            writeln!(sig, "    unsigned char* __restrict__ k2k_outbox,")?;
         }
 
-        write!(sig, "    void* __restrict__ shared_state").unwrap();
-        write!(sig, "\n)").unwrap();
+        write!(sig, "    void* __restrict__ shared_state")?;
+        write!(sig, "\n)")?;
 
-        sig
+        Ok(sig)
     }
 
     /// Generate the kernel preamble (thread setup, variable declarations).
-    pub fn generate_preamble(&self, indent: &str) -> String {
+    pub fn generate_preamble(&self, indent: &str) -> Result<String> {
         let mut code = String::new();
 
         // Thread identification
-        writeln!(code, "{}// Thread identification", indent).unwrap();
+        writeln!(code, "{}// Thread identification", indent)?;
         writeln!(
             code,
             "{}int tid = threadIdx.x + blockIdx.x * blockDim.x;",
             indent
-        )
-        .unwrap();
-        writeln!(code, "{}int lane_id = threadIdx.x % 32;", indent).unwrap();
-        writeln!(code, "{}int warp_id = threadIdx.x / 32;", indent).unwrap();
-        writeln!(code).unwrap();
+        )?;
+        writeln!(code, "{}int lane_id = threadIdx.x % 32;", indent)?;
+        writeln!(code, "{}int warp_id = threadIdx.x / 32;", indent)?;
+        writeln!(code)?;
 
         // Kernel ID constant
-        writeln!(code, "{}// Kernel identity", indent).unwrap();
+        writeln!(code, "{}// Kernel identity", indent)?;
         writeln!(
             code,
             "{}const unsigned long long KERNEL_ID = {}ULL;",
             indent, self.kernel_id_num
-        )
-        .unwrap();
+        )?;
         writeln!(
             code,
             "{}const unsigned long long HLC_NODE_ID = {}ULL;",
             indent, self.hlc_node_id
-        )
-        .unwrap();
-        writeln!(code).unwrap();
+        )?;
+        writeln!(code)?;
 
         // Message size constants
-        writeln!(code, "{}// Message buffer constants", indent).unwrap();
+        writeln!(code, "{}// Message buffer constants", indent)?;
         if self.use_envelope_format {
             // With envelope format, MSG_SIZE is envelope size (header + payload)
             writeln!(
                 code,
                 "{}const unsigned int PAYLOAD_SIZE = {};  // User payload size",
                 indent, self.message_size
-            )
-            .unwrap();
+            )?;
             writeln!(
                 code,
                 "{}const unsigned int MSG_SIZE = MESSAGE_HEADER_SIZE + PAYLOAD_SIZE;  // Full envelope",
                 indent
-            )
-            .unwrap();
+            )?;
             writeln!(
                 code,
                 "{}const unsigned int RESP_PAYLOAD_SIZE = {};",
                 indent, self.response_size
-            )
-            .unwrap();
+            )?;
             writeln!(
                 code,
                 "{}const unsigned int RESP_SIZE = MESSAGE_HEADER_SIZE + RESP_PAYLOAD_SIZE;",
                 indent
-            )
-            .unwrap();
+            )?;
         } else {
             // Legacy: raw message data
             writeln!(
                 code,
                 "{}const unsigned int MSG_SIZE = {};",
                 indent, self.message_size
-            )
-            .unwrap();
+            )?;
             writeln!(
                 code,
                 "{}const unsigned int RESP_SIZE = {};",
                 indent, self.response_size
-            )
-            .unwrap();
+            )?;
         }
         writeln!(
             code,
             "{}const unsigned int QUEUE_MASK = {};",
             indent,
             self.queue_capacity - 1
-        )
-        .unwrap();
-        writeln!(code).unwrap();
+        )?;
+        writeln!(code)?;
 
         // HLC state (if enabled)
         if self.enable_hlc {
-            writeln!(code, "{}// HLC clock state", indent).unwrap();
-            writeln!(code, "{}unsigned long long hlc_physical = 0;", indent).unwrap();
-            writeln!(code, "{}unsigned long long hlc_logical = 0;", indent).unwrap();
-            writeln!(code).unwrap();
+            writeln!(code, "{}// HLC clock state", indent)?;
+            writeln!(code, "{}unsigned long long hlc_physical = 0;", indent)?;
+            writeln!(code, "{}unsigned long long hlc_logical = 0;", indent)?;
+            writeln!(code)?;
         }
 
-        code
+        Ok(code)
     }
 
     /// Generate the persistent message loop header.
-    pub fn generate_loop_header(&self, indent: &str) -> String {
+    pub fn generate_loop_header(&self, indent: &str) -> Result<String> {
         let mut code = String::new();
 
-        writeln!(code, "{}// Persistent message processing loop", indent).unwrap();
-        writeln!(code, "{}while (true) {{", indent).unwrap();
-        writeln!(code, "{}    // Check for termination signal", indent).unwrap();
+        writeln!(code, "{}// Persistent message processing loop", indent)?;
+        writeln!(code, "{}while (true) {{", indent)?;
+        writeln!(code, "{}    // Check for termination signal", indent)?;
         writeln!(
             code,
             "{}    if (atomicAdd(&control->should_terminate, 0) != 0) {{",
             indent
-        )
-        .unwrap();
-        writeln!(code, "{}        break;", indent).unwrap();
-        writeln!(code, "{}    }}", indent).unwrap();
-        writeln!(code).unwrap();
+        )?;
+        writeln!(code, "{}        break;", indent)?;
+        writeln!(code, "{}    }}", indent)?;
+        writeln!(code)?;
 
         // Check if active
-        writeln!(code, "{}    // Check if kernel is active", indent).unwrap();
+        writeln!(code, "{}    // Check if kernel is active", indent)?;
         writeln!(
             code,
             "{}    if (atomicAdd(&control->is_active, 0) == 0) {{",
             indent
-        )
-        .unwrap();
+        )?;
         if self.idle_sleep_ns > 0 {
             writeln!(
                 code,
                 "{}        __nanosleep({});",
                 indent, self.idle_sleep_ns
-            )
-            .unwrap();
+            )?;
         }
-        writeln!(code, "{}        continue;", indent).unwrap();
-        writeln!(code, "{}    }}", indent).unwrap();
-        writeln!(code).unwrap();
+        writeln!(code, "{}        continue;", indent)?;
+        writeln!(code, "{}    }}", indent)?;
+        writeln!(code)?;
 
         // Check for messages
-        writeln!(code, "{}    // Check input queue for messages", indent).unwrap();
+        writeln!(code, "{}    // Check input queue for messages", indent)?;
         writeln!(
             code,
             "{}    unsigned long long head = atomicAdd(&control->input_head, 0);",
             indent
-        )
-        .unwrap();
+        )?;
         writeln!(
             code,
             "{}    unsigned long long tail = atomicAdd(&control->input_tail, 0);",
             indent
-        )
-        .unwrap();
-        writeln!(code).unwrap();
-        writeln!(code, "{}    if (head == tail) {{", indent).unwrap();
-        writeln!(code, "{}        // No messages, yield", indent).unwrap();
+        )?;
+        writeln!(code)?;
+        writeln!(code, "{}    if (head == tail) {{", indent)?;
+        writeln!(code, "{}        // No messages, yield", indent)?;
         if self.idle_sleep_ns > 0 {
             writeln!(
                 code,
                 "{}        __nanosleep({});",
                 indent, self.idle_sleep_ns
-            )
-            .unwrap();
+            )?;
         }
-        writeln!(code, "{}        continue;", indent).unwrap();
-        writeln!(code, "{}    }}", indent).unwrap();
-        writeln!(code).unwrap();
+        writeln!(code, "{}        continue;", indent)?;
+        writeln!(code, "{}    }}", indent)?;
+        writeln!(code)?;
 
         // Calculate message pointer
-        writeln!(code, "{}    // Get message from queue", indent).unwrap();
+        writeln!(code, "{}    // Get message from queue", indent)?;
         writeln!(
             code,
             "{}    unsigned int msg_idx = (unsigned int)(tail & QUEUE_MASK);",
             indent
-        )
-        .unwrap();
+        )?;
         writeln!(
             code,
             "{}    unsigned char* envelope_ptr = &input_buffer[msg_idx * MSG_SIZE];",
             indent
-        )
-        .unwrap();
+        )?;
 
         if self.use_envelope_format {
             // Envelope format: parse header and get payload pointer
-            writeln!(code).unwrap();
-            writeln!(code, "{}    // Parse message envelope", indent).unwrap();
+            writeln!(code)?;
+            writeln!(code, "{}    // Parse message envelope", indent)?;
             writeln!(
                 code,
                 "{}    MessageHeader* msg_header = message_get_header(envelope_ptr);",
                 indent
-            )
-            .unwrap();
+            )?;
             writeln!(
                 code,
                 "{}    unsigned char* msg_ptr = message_get_payload(envelope_ptr);",
                 indent
-            )
-            .unwrap();
-            writeln!(code).unwrap();
-            writeln!(code, "{}    // Validate message (skip invalid)", indent).unwrap();
+            )?;
+            writeln!(code)?;
+            writeln!(code, "{}    // Validate message (skip invalid)", indent)?;
             writeln!(
                 code,
                 "{}    if (!message_header_validate(msg_header)) {{",
                 indent
-            )
-            .unwrap();
+            )?;
             writeln!(
                 code,
                 "{}        atomicAdd(&control->input_tail, 1);",
                 indent
-            )
-            .unwrap();
+            )?;
             writeln!(
                 code,
                 "{}        atomicAdd(&control->last_error, 1);  // Track errors",
                 indent
-            )
-            .unwrap();
-            writeln!(code, "{}        continue;", indent).unwrap();
-            writeln!(code, "{}    }}", indent).unwrap();
+            )?;
+            writeln!(code, "{}        continue;", indent)?;
+            writeln!(code, "{}    }}", indent)?;
 
             // Update HLC from incoming message timestamp
             if self.enable_hlc {
-                writeln!(code).unwrap();
-                writeln!(code, "{}    // Update HLC from message timestamp", indent).unwrap();
+                writeln!(code)?;
+                writeln!(code, "{}    // Update HLC from message timestamp", indent)?;
                 writeln!(
                     code,
                     "{}    if (msg_header->timestamp.physical > hlc_physical) {{",
                     indent
-                )
-                .unwrap();
+                )?;
                 writeln!(
                     code,
                     "{}        hlc_physical = msg_header->timestamp.physical;",
                     indent
-                )
-                .unwrap();
-                writeln!(code, "{}        hlc_logical = 0;", indent).unwrap();
-                writeln!(code, "{}    }}", indent).unwrap();
-                writeln!(code, "{}    hlc_logical++;", indent).unwrap();
+                )?;
+                writeln!(code, "{}        hlc_logical = 0;", indent)?;
+                writeln!(code, "{}    }}", indent)?;
+                writeln!(code, "{}    hlc_logical++;", indent)?;
             }
         } else {
             // Legacy raw format
@@ -558,84 +534,79 @@ impl RingKernelConfig {
                 code,
                 "{}    unsigned char* msg_ptr = envelope_ptr;  // Raw message data",
                 indent
-            )
-            .unwrap();
+            )?;
         }
-        writeln!(code).unwrap();
+        writeln!(code)?;
 
-        code
+        Ok(code)
     }
 
     /// Generate message processing completion code.
-    pub fn generate_message_complete(&self, indent: &str) -> String {
+    pub fn generate_message_complete(&self, indent: &str) -> Result<String> {
         let mut code = String::new();
 
-        writeln!(code).unwrap();
-        writeln!(code, "{}    // Mark message as processed", indent).unwrap();
-        writeln!(code, "{}    atomicAdd(&control->input_tail, 1);", indent).unwrap();
+        writeln!(code)?;
+        writeln!(code, "{}    // Mark message as processed", indent)?;
+        writeln!(code, "{}    atomicAdd(&control->input_tail, 1);", indent)?;
         writeln!(
             code,
             "{}    atomicAdd(&control->messages_processed, 1);",
             indent
-        )
-        .unwrap();
+        )?;
 
         if self.enable_hlc {
-            writeln!(code).unwrap();
-            writeln!(code, "{}    // Update HLC", indent).unwrap();
-            writeln!(code, "{}    hlc_logical++;", indent).unwrap();
+            writeln!(code)?;
+            writeln!(code, "{}    // Update HLC", indent)?;
+            writeln!(code, "{}    hlc_logical++;", indent)?;
         }
 
-        code
+        Ok(code)
     }
 
     /// Generate the loop footer (end of while loop).
-    pub fn generate_loop_footer(&self, indent: &str) -> String {
+    pub fn generate_loop_footer(&self, indent: &str) -> Result<String> {
         let mut code = String::new();
 
-        writeln!(code, "{}    __syncthreads();", indent).unwrap();
-        writeln!(code, "{}}}", indent).unwrap();
+        writeln!(code, "{}    __syncthreads();", indent)?;
+        writeln!(code, "{}}}", indent)?;
 
-        code
+        Ok(code)
     }
 
     /// Generate kernel epilogue (termination marking).
-    pub fn generate_epilogue(&self, indent: &str) -> String {
+    pub fn generate_epilogue(&self, indent: &str) -> Result<String> {
         let mut code = String::new();
 
-        writeln!(code).unwrap();
-        writeln!(code, "{}// Mark kernel as terminated", indent).unwrap();
-        writeln!(code, "{}if (tid == 0) {{", indent).unwrap();
+        writeln!(code)?;
+        writeln!(code, "{}// Mark kernel as terminated", indent)?;
+        writeln!(code, "{}if (tid == 0) {{", indent)?;
 
         if self.enable_hlc {
-            writeln!(code, "{}    // Store final HLC state", indent).unwrap();
+            writeln!(code, "{}    // Store final HLC state", indent)?;
             writeln!(
                 code,
                 "{}    control->hlc_state.physical = hlc_physical;",
                 indent
-            )
-            .unwrap();
+            )?;
             writeln!(
                 code,
                 "{}    control->hlc_state.logical = hlc_logical;",
                 indent
-            )
-            .unwrap();
+            )?;
         }
 
         writeln!(
             code,
             "{}    atomicExch(&control->has_terminated, 1);",
             indent
-        )
-        .unwrap();
-        writeln!(code, "{}}}", indent).unwrap();
+        )?;
+        writeln!(code, "{}}}", indent)?;
 
-        code
+        Ok(code)
     }
 
     /// Generate complete kernel wrapper (without handler body).
-    pub fn generate_kernel_wrapper(&self, handler_placeholder: &str) -> String {
+    pub fn generate_kernel_wrapper(&self, handler_placeholder: &str) -> Result<String> {
         let mut code = String::new();
 
         // Struct definitions
@@ -659,34 +630,34 @@ impl RingKernelConfig {
         }
 
         // Kernel signature
-        code.push_str(&self.generate_signature());
+        code.push_str(&self.generate_signature()?);
         code.push_str(" {\n");
 
         // Preamble
-        code.push_str(&self.generate_preamble("    "));
+        code.push_str(&self.generate_preamble("    ")?);
 
         // Message loop
-        code.push_str(&self.generate_loop_header("    "));
+        code.push_str(&self.generate_loop_header("    ")?);
 
         // Handler placeholder
-        writeln!(code, "        // === USER HANDLER CODE ===").unwrap();
+        writeln!(code, "        // === USER HANDLER CODE ===")?;
         for line in handler_placeholder.lines() {
-            writeln!(code, "        {}", line).unwrap();
+            writeln!(code, "        {}", line)?;
         }
-        writeln!(code, "        // === END HANDLER CODE ===").unwrap();
+        writeln!(code, "        // === END HANDLER CODE ===")?;
 
         // Message completion
-        code.push_str(&self.generate_message_complete("    "));
+        code.push_str(&self.generate_message_complete("    ")?);
 
         // Loop footer
-        code.push_str(&self.generate_loop_footer("    "));
+        code.push_str(&self.generate_loop_footer("    ")?);
 
         // Epilogue
-        code.push_str(&self.generate_epilogue("    "));
+        code.push_str(&self.generate_epilogue("    ")?);
 
         code.push_str("}\n");
 
-        code
+        Ok(code)
     }
 }
 
@@ -1431,7 +1402,7 @@ impl CudaDispatchTable {
 ///         break;
 /// }
 /// ```
-pub fn generate_handler_dispatch_code(table: &CudaDispatchTable, indent: &str) -> String {
+pub fn generate_handler_dispatch_code(table: &CudaDispatchTable, indent: &str) -> Result<String> {
     let mut code = String::new();
 
     if table.is_empty() {
@@ -1439,22 +1410,20 @@ pub fn generate_handler_dispatch_code(table: &CudaDispatchTable, indent: &str) -
             code,
             "{}// No handlers registered - dispatch table empty",
             indent
-        )
-        .unwrap();
-        return code;
+        )?;
+        return Ok(code);
     }
 
-    writeln!(code, "{}// Handler dispatch based on handler_id", indent).unwrap();
+    writeln!(code, "{}// Handler dispatch based on handler_id", indent)?;
     writeln!(
         code,
         "{}uint32_t handler_id = msg->{};",
         indent, table.handler_id_field
-    )
-    .unwrap();
-    writeln!(code, "{}switch (handler_id) {{", indent).unwrap();
+    )?;
+    writeln!(code, "{}switch (handler_id) {{", indent)?;
 
     for handler in &table.handlers {
-        writeln!(code, "{}    case {}: {{", indent, handler.handler_id).unwrap();
+        writeln!(code, "{}    case {}: {{", indent, handler.handler_id)?;
 
         // Add comment with handler info
         if !handler.message_type_name.is_empty() {
@@ -1462,17 +1431,16 @@ pub fn generate_handler_dispatch_code(table: &CudaDispatchTable, indent: &str) -
                 code,
                 "{}        // Handler: {} (type_id: {})",
                 indent, handler.message_type_name, handler.message_type_id
-            )
-            .unwrap();
+            )?;
         } else {
-            writeln!(code, "{}        // Handler: {}", indent, handler.func_name).unwrap();
+            writeln!(code, "{}        // Handler: {}", indent, handler.func_name)?;
         }
 
         // Generate handler code
         if let Some(body) = &handler.cuda_body {
             // Inline the handler body
             for line in body.lines() {
-                writeln!(code, "{}        {}", indent, line).unwrap();
+                writeln!(code, "{}        {}", indent, line)?;
             }
         } else {
             // Generate function call
@@ -1481,29 +1449,27 @@ pub fn generate_handler_dispatch_code(table: &CudaDispatchTable, indent: &str) -
                     code,
                     "{}        {}(msg, state, response);",
                     indent, handler.func_name
-                )
-                .unwrap();
+                )?;
             } else {
-                writeln!(code, "{}        {}(msg, state);", indent, handler.func_name).unwrap();
+                writeln!(code, "{}        {}(msg, state);", indent, handler.func_name)?;
             }
         }
 
-        writeln!(code, "{}        break;", indent).unwrap();
-        writeln!(code, "{}    }}", indent).unwrap();
+        writeln!(code, "{}        break;", indent)?;
+        writeln!(code, "{}    }}", indent)?;
     }
 
     // Default case for unknown handlers
-    writeln!(code, "{}    default:", indent).unwrap();
+    writeln!(code, "{}    default:", indent)?;
     writeln!(
         code,
         "{}        atomicAdd(&ctrl->{}, 1);",
         indent, table.unknown_counter_field
-    )
-    .unwrap();
-    writeln!(code, "{}        break;", indent).unwrap();
-    writeln!(code, "{}}}", indent).unwrap();
+    )?;
+    writeln!(code, "{}        break;", indent)?;
+    writeln!(code, "{}}}", indent)?;
 
-    code
+    Ok(code)
 }
 
 /// Generate the ExtendedH2KMessage struct for handler dispatch.
@@ -1542,7 +1508,7 @@ struct __align__(64) ExtendedH2KMessage {
 pub fn generate_multi_handler_kernel(
     config: &RingKernelConfig,
     table: &CudaDispatchTable,
-) -> String {
+) -> Result<String> {
     let mut code = String::new();
 
     // Struct definitions
@@ -1569,37 +1535,36 @@ pub fn generate_multi_handler_kernel(
     }
 
     // Kernel signature
-    code.push_str(&config.generate_signature());
+    code.push_str(&config.generate_signature()?);
     code.push_str(" {\n");
 
     // Preamble
-    code.push_str(&config.generate_preamble("    "));
+    code.push_str(&config.generate_preamble("    ")?);
 
     // Message loop
-    code.push_str(&config.generate_loop_header("    "));
+    code.push_str(&config.generate_loop_header("    ")?);
 
     // Handler dispatch
-    writeln!(code, "        // === MULTI-HANDLER DISPATCH ===").unwrap();
+    writeln!(code, "        // === MULTI-HANDLER DISPATCH ===")?;
     writeln!(
         code,
         "        ExtendedH2KMessage* msg = (ExtendedH2KMessage*)(input_buffer + (msg_idx * MSG_SIZE));"
-    )
-    .unwrap();
-    code.push_str(&generate_handler_dispatch_code(table, "        "));
-    writeln!(code, "        // === END DISPATCH ===").unwrap();
+    )?;
+    code.push_str(&generate_handler_dispatch_code(table, "        ")?);
+    writeln!(code, "        // === END DISPATCH ===")?;
 
     // Message completion
-    code.push_str(&config.generate_message_complete("    "));
+    code.push_str(&config.generate_message_complete("    ")?);
 
     // Loop footer
-    code.push_str(&config.generate_loop_footer("    "));
+    code.push_str(&config.generate_loop_footer("    ")?);
 
     // Epilogue
-    code.push_str(&config.generate_epilogue("    "));
+    code.push_str(&config.generate_epilogue("    ")?);
 
     code.push_str("}\n");
 
-    code
+    Ok(code)
 }
 
 #[cfg(test)]
@@ -1634,7 +1599,7 @@ mod tests {
     #[test]
     fn test_kernel_signature() {
         let config = RingKernelConfig::new("test");
-        let sig = config.generate_signature();
+        let sig = config.generate_signature().unwrap();
 
         assert!(sig.contains("extern \"C\" __global__ void ring_kernel_test"));
         assert!(sig.contains("ControlBlock* __restrict__ control"));
@@ -1646,7 +1611,7 @@ mod tests {
     #[test]
     fn test_kernel_signature_with_k2k() {
         let config = RingKernelConfig::new("k2k_test").with_k2k(true);
-        let sig = config.generate_signature();
+        let sig = config.generate_signature().unwrap();
 
         assert!(sig.contains("K2KRoutingTable"));
         assert!(sig.contains("k2k_inbox"));
@@ -1656,7 +1621,7 @@ mod tests {
     #[test]
     fn test_preamble_generation() {
         let config = RingKernelConfig::new("test").with_hlc(true);
-        let preamble = config.generate_preamble("    ");
+        let preamble = config.generate_preamble("    ").unwrap();
 
         assert!(preamble.contains("int tid = threadIdx.x + blockIdx.x * blockDim.x"));
         assert!(preamble.contains("int lane_id"));
@@ -1669,7 +1634,7 @@ mod tests {
     #[test]
     fn test_loop_header() {
         let config = RingKernelConfig::new("test");
-        let header = config.generate_loop_header("    ");
+        let header = config.generate_loop_header("    ").unwrap();
 
         assert!(header.contains("while (true)"));
         assert!(header.contains("should_terminate"));
@@ -1682,7 +1647,7 @@ mod tests {
     #[test]
     fn test_epilogue() {
         let config = RingKernelConfig::new("test").with_hlc(true);
-        let epilogue = config.generate_epilogue("    ");
+        let epilogue = config.generate_epilogue("    ").unwrap();
 
         assert!(epilogue.contains("has_terminated"));
         assert!(epilogue.contains("hlc_state.physical"));
@@ -1709,7 +1674,7 @@ mod tests {
             .with_block_size(128)
             .with_hlc(true);
 
-        let kernel = config.generate_kernel_wrapper("// Process message here");
+        let kernel = config.generate_kernel_wrapper("// Process message here").unwrap();
 
         assert!(kernel.contains("struct __align__(128) ControlBlock"));
         assert!(kernel.contains("extern \"C\" __global__ void ring_kernel_example"));
@@ -1800,7 +1765,7 @@ mod tests {
             .with_k2k(true)
             .with_hlc(true);
 
-        let kernel = config.generate_kernel_wrapper("// K2K handler code");
+        let kernel = config.generate_kernel_wrapper("// K2K handler code").unwrap();
 
         // Check K2K-specific components
         assert!(
@@ -1994,7 +1959,7 @@ mod tests {
     #[test]
     fn test_generate_handler_dispatch_code_empty() {
         let table = CudaDispatchTable::new();
-        let code = generate_handler_dispatch_code(&table, "    ");
+        let code = generate_handler_dispatch_code(&table, "    ").unwrap();
 
         assert!(code.contains("No handlers registered"));
         assert!(!code.contains("switch"));
@@ -2006,7 +1971,7 @@ mod tests {
             CudaHandlerInfo::new(1, "handle_fraud").with_message_type("FraudCheck", 1001),
         );
 
-        let code = generate_handler_dispatch_code(&table, "    ");
+        let code = generate_handler_dispatch_code(&table, "    ").unwrap();
 
         assert!(code.contains("switch (handler_id)"));
         assert!(code.contains("case 1:"));
@@ -2030,7 +1995,7 @@ mod tests {
                 CudaHandlerInfo::new(5, "handle_pattern").with_message_type("Pattern", 1005),
             );
 
-        let code = generate_handler_dispatch_code(&table, "    ");
+        let code = generate_handler_dispatch_code(&table, "    ").unwrap();
 
         assert!(code.contains("case 1:"));
         assert!(code.contains("case 2:"));
@@ -2047,7 +2012,7 @@ mod tests {
                 .with_cuda_body("int result = msg->payload[0] * 2;\nresponse->result = result;"),
         );
 
-        let code = generate_handler_dispatch_code(&table, "    ");
+        let code = generate_handler_dispatch_code(&table, "    ").unwrap();
 
         assert!(code.contains("case 1:"));
         assert!(code.contains("int result = msg->payload[0] * 2;"));
@@ -2080,7 +2045,7 @@ mod tests {
             .with_handler(CudaHandlerInfo::new(1, "handle_fraud"))
             .with_handler(CudaHandlerInfo::new(2, "handle_aggregate"));
 
-        let code = generate_multi_handler_kernel(&config, &table);
+        let code = generate_multi_handler_kernel(&config, &table).unwrap();
 
         // Should contain struct definitions
         assert!(code.contains("struct __align__(128) ControlBlock"));

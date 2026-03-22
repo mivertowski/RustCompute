@@ -98,6 +98,10 @@ pub enum TranspileError {
     /// Type mapping failure.
     #[error("Type error: {0}")]
     Type(String),
+
+    /// Code generation formatting failure.
+    #[error("Format error: {0}")]
+    Format(#[from] std::fmt::Error),
 }
 
 /// Result type for transpilation operations.
@@ -560,7 +564,7 @@ mod tests {
             fields: vec![("result".to_string(), "float".to_string())],
         });
 
-        let structs = registry.generate_structs();
+        let structs = registry.generate_structs().unwrap();
         assert!(structs.contains("struct InputMsg"));
         assert!(structs.contains("struct OutputMsg"));
         assert!(structs.contains("unsigned long long id"));

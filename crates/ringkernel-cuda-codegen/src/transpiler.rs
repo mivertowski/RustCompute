@@ -250,25 +250,25 @@ impl CudaTranspiler {
                 .trim_start_matches("mut ")
                 .trim();
             if !type_name.is_empty() && type_name != "f32" && type_name != "i32" {
-                writeln!(output, "// Message type: {}", type_name).unwrap();
+                writeln!(output, "// Message type: {}", type_name)?;
             }
         }
 
         if let Some(ref ret_type) = handler_sig.return_type {
             if ret_type.is_struct {
-                writeln!(output, "// Response type: {}", ret_type.rust_type).unwrap();
+                writeln!(output, "// Response type: {}", ret_type.rust_type)?;
             }
         }
 
         // Generate kernel signature
-        output.push_str(&config.generate_signature());
+        output.push_str(&config.generate_signature()?);
         output.push_str(" {\n");
 
         // Generate preamble
-        output.push_str(&config.generate_preamble("    "));
+        output.push_str(&config.generate_preamble("    ")?);
 
         // Generate message loop header
-        output.push_str(&config.generate_loop_header("    "));
+        output.push_str(&config.generate_loop_header("    ")?);
 
         // Generate message deserialization if handler has message param
         if let Some(ref msg_param) = handler_sig.message_param {
@@ -283,28 +283,24 @@ impl CudaTranspiler {
                     writeln!(
                         output,
                         "        // Message deserialization (envelope format)"
-                    )
-                    .unwrap();
+                    )?;
                     writeln!(
                         output,
                         "        // msg_header contains: message_id, correlation_id, source_kernel, timestamp"
-                    )
-                    .unwrap();
+                    )?;
                     writeln!(
                         output,
                         "        {}* {} = ({}*)msg_ptr;",
                         type_name, msg_param.name, type_name
-                    )
-                    .unwrap();
+                    )?;
                 } else {
                     // Raw format
-                    writeln!(output, "        // Message deserialization (raw format)").unwrap();
+                    writeln!(output, "        // Message deserialization (raw format)")?;
                     writeln!(
                         output,
                         "        {}* {} = ({}*)msg_ptr;",
                         type_name, msg_param.name, type_name
-                    )
-                    .unwrap();
+                    )?;
                 }
                 output.push('\n');
             }
@@ -315,83 +311,75 @@ impl CudaTranspiler {
         let handler_body = self.transpile_block(&handler.block)?;
 
         // Insert handler code with proper indentation
-        writeln!(output, "        // === USER HANDLER CODE ===").unwrap();
+        writeln!(output, "        // === USER HANDLER CODE ===")?;
         for line in handler_body.lines() {
             if !line.trim().is_empty() {
                 // Add extra indent for being inside the loop
-                writeln!(output, "    {}", line).unwrap();
+                writeln!(output, "    {}", line)?;
             }
         }
-        writeln!(output, "        // === END HANDLER CODE ===").unwrap();
+        writeln!(output, "        // === END HANDLER CODE ===")?;
 
         // Generate response serialization if handler returns a value
         if let Some(ref ret_type) = handler_sig.return_type {
-            writeln!(output).unwrap();
+            writeln!(output)?;
             if config.use_envelope_format {
                 // Envelope format: create full response envelope with header
                 writeln!(
                     output,
                     "        // Response serialization (envelope format)"
-                )
-                .unwrap();
+                )?;
                 writeln!(
                     output,
                     "        unsigned long long _out_idx = atomicAdd(&control->output_head, 1) & control->output_mask;"
-                )
-                .unwrap();
+                )?;
                 writeln!(
                     output,
                     "        unsigned char* resp_envelope = &output_buffer[_out_idx * RESP_SIZE];"
-                )
-                .unwrap();
+                )?;
                 writeln!(
                     output,
                     "        MessageHeader* resp_header = (MessageHeader*)resp_envelope;"
-                )
-                .unwrap();
-                writeln!(output, "        message_create_response_header(").unwrap();
-                writeln!(output, "            resp_header, msg_header, KERNEL_ID,").unwrap();
+                )?;
+                writeln!(output, "        message_create_response_header(")?;
+                writeln!(output, "            resp_header, msg_header, KERNEL_ID,")?;
                 writeln!(
                     output,
                     "            sizeof({}), hlc_physical, hlc_logical, HLC_NODE_ID",
                     ret_type.cuda_type
-                )
-                .unwrap();
-                writeln!(output, "        );").unwrap();
+                )?;
+                writeln!(output, "        );")?;
                 writeln!(
                     output,
                     "        memcpy(resp_envelope + MESSAGE_HEADER_SIZE, &response, sizeof({}));",
                     ret_type.cuda_type
-                )
-                .unwrap();
-                writeln!(output, "        __threadfence();").unwrap();
+                )?;
+                writeln!(output, "        __threadfence();")?;
             } else {
                 // Raw format
-                writeln!(output, "        // Response serialization (raw format)").unwrap();
+                writeln!(output, "        // Response serialization (raw format)")?;
                 if ret_type.is_struct {
                     writeln!(
                         output,
                         "        unsigned long long _out_idx = atomicAdd(&control->output_head, 1) & control->output_mask;"
-                    )
-                    .unwrap();
+                    )?;
                     writeln!(
                         output,
                         "        memcpy(&output_buffer[_out_idx * RESP_SIZE], &response, sizeof({}));",
                         ret_type.cuda_type
-                    )
-                    .unwrap();
+                    )?;
                 }
             }
         }
 
         // Generate message completion
-        output.push_str(&config.generate_message_complete("    "));
+        output.push_str(&config.generate_message_complete("    ")?);
 
         // Generate loop footer
-        output.push_str(&config.generate_loop_footer("    "));
+        output.push_str(&config.generate_loop_footer("    ")?);
 
         // Generate epilogue
-        output.push_str(&config.generate_epilogue("    "));
+        output.push_str(&config.generate_epilogue("    ")?);
 
         output.push_str("}\n");
 
@@ -977,11 +965,13 @@ impl CudaTranspiler {
         if let Some(Stmt::Expr(Expr::Return(ret), _)) = if_expr.then_branch.stmts.first() {
             if if_expr.then_branch.stmts.len() == 1 && if_expr.else_branch.is_none() {
                 // Simple early return: if (cond) return;
-                if ret.expr.is_none() {
-                    return Ok(format!("if ({cond}) return"));
+                match &ret.expr {
+                    None => return Ok(format!("if ({cond}) return")),
+                    Some(expr) => {
+                        let ret_val = self.transpile_expr(expr)?;
+                        return Ok(format!("if ({cond}) return {ret_val}"));
+                    }
                 }
-                let ret_val = self.transpile_expr(ret.expr.as_ref().unwrap())?;
-                return Ok(format!("if ({cond}) return {ret_val}"));
             }
         }
 

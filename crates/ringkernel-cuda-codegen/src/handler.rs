@@ -293,25 +293,26 @@ impl Default for HandlerCodegenConfig {
 ///
 /// This generates code to cast the input buffer pointer to the message type.
 /// When envelope format is used, msg_ptr points to the payload (after header).
-pub fn generate_message_deser(message_type: &str, config: &HandlerCodegenConfig) -> String {
+pub fn generate_message_deser(
+    message_type: &str,
+    config: &HandlerCodegenConfig,
+) -> Result<String> {
     let mut code = String::new();
     let indent = &config.indent;
 
-    writeln!(code, "{}// Deserialize message from buffer", indent).unwrap();
+    writeln!(code, "{}// Deserialize message from buffer", indent)?;
     writeln!(
         code,
         "{}// msg_ptr points to payload data (after MessageHeader when using envelopes)",
         indent
-    )
-    .unwrap();
+    )?;
     writeln!(
         code,
         "{}{}* {} = ({}*)msg_ptr;",
         indent, message_type, config.message_var, message_type
-    )
-    .unwrap();
+    )?;
 
-    code
+    Ok(code)
 }
 
 /// Generate message deserialization code for envelope format with header access.
@@ -320,80 +321,75 @@ pub fn generate_message_deser(message_type: &str, config: &HandlerCodegenConfig)
 pub fn generate_envelope_message_deser(
     message_type: &str,
     config: &HandlerCodegenConfig,
-) -> String {
+) -> Result<String> {
     let mut code = String::new();
     let indent = &config.indent;
 
-    writeln!(code, "{}// Message envelope deserialization", indent).unwrap();
+    writeln!(code, "{}// Message envelope deserialization", indent)?;
     writeln!(
         code,
         "{}// msg_header provides: message_id, correlation_id, source_kernel, timestamp, etc.",
         indent
-    )
-    .unwrap();
+    )?;
     writeln!(
         code,
         "{}{}* {} = ({}*)msg_ptr;  // Typed payload",
         indent, message_type, config.message_var, message_type
-    )
-    .unwrap();
-    writeln!(code).unwrap();
-    writeln!(code, "{}// Access header fields:", indent).unwrap();
+    )?;
+    writeln!(code)?;
+    writeln!(code, "{}// Access header fields:", indent)?;
     writeln!(
         code,
         "{}// - msg_header->message_id     (unique message ID)",
         indent
-    )
-    .unwrap();
+    )?;
     writeln!(
         code,
         "{}// - msg_header->correlation_id (for request-response matching)",
         indent
-    )
-    .unwrap();
+    )?;
     writeln!(
         code,
         "{}// - msg_header->source_kernel  (sender kernel ID, 0 = host)",
         indent
-    )
-    .unwrap();
+    )?;
     writeln!(
         code,
         "{}// - msg_header->timestamp      (HLC timestamp of send)",
         indent
-    )
-    .unwrap();
+    )?;
 
-    code
+    Ok(code)
 }
 
 /// Generate response serialization code (legacy raw format).
 ///
 /// This generates code to copy the response to the output buffer.
-pub fn generate_response_ser(response_type: &str, config: &HandlerCodegenConfig) -> String {
+pub fn generate_response_ser(
+    response_type: &str,
+    config: &HandlerCodegenConfig,
+) -> Result<String> {
     let mut code = String::new();
     let indent = &config.indent;
 
-    writeln!(code).unwrap();
+    writeln!(code)?;
     writeln!(
         code,
         "{}// Serialize response to output buffer (raw format)",
         indent
-    )
-    .unwrap();
+    )?;
     writeln!(
         code,
         "{}unsigned long long _out_idx = atomicAdd(&control->output_head, 1) & control->output_mask;",
         indent
-    ).unwrap();
+    )?;
     writeln!(
         code,
         "{}memcpy(&output_buffer[_out_idx * RESP_SIZE], &{}, sizeof({}));",
         indent, config.response_var, response_type
-    )
-    .unwrap();
+    )?;
 
-    code
+    Ok(code)
 }
 
 /// Generate response serialization code for envelope format.
@@ -403,103 +399,93 @@ pub fn generate_response_ser(response_type: &str, config: &HandlerCodegenConfig)
 pub fn generate_envelope_response_ser(
     response_type: &str,
     config: &HandlerCodegenConfig,
-) -> String {
+) -> Result<String> {
     let mut code = String::new();
     let indent = &config.indent;
 
-    writeln!(code).unwrap();
+    writeln!(code)?;
     writeln!(
         code,
         "{}// Serialize response envelope to output buffer",
         indent
-    )
-    .unwrap();
+    )?;
     writeln!(
         code,
         "{}unsigned long long _out_idx = atomicAdd(&control->output_head, 1) & control->output_mask;",
         indent
-    ).unwrap();
+    )?;
     writeln!(
         code,
         "{}unsigned char* resp_envelope = &output_buffer[_out_idx * RESP_SIZE];",
         indent
-    )
-    .unwrap();
-    writeln!(code).unwrap();
+    )?;
+    writeln!(code)?;
     writeln!(
         code,
         "{}// Build response header from request header",
         indent
-    )
-    .unwrap();
+    )?;
     writeln!(
         code,
         "{}MessageHeader* resp_header = (MessageHeader*)resp_envelope;",
         indent
-    )
-    .unwrap();
-    writeln!(code, "{}message_create_response_header(", indent).unwrap();
-    writeln!(code, "{}    resp_header,", indent).unwrap();
+    )?;
+    writeln!(code, "{}message_create_response_header(", indent)?;
+    writeln!(code, "{}    resp_header,", indent)?;
     writeln!(
         code,
         "{}    msg_header,              // Request header (for correlation)",
         indent
-    )
-    .unwrap();
+    )?;
     writeln!(
         code,
         "{}    KERNEL_ID,               // This kernel's ID",
         indent
-    )
-    .unwrap();
+    )?;
     writeln!(
         code,
         "{}    sizeof({}),   // Payload size",
         indent, response_type
-    )
-    .unwrap();
+    )?;
     writeln!(
         code,
         "{}    hlc_physical,            // Current HLC",
         indent
-    )
-    .unwrap();
-    writeln!(code, "{}    hlc_logical,", indent).unwrap();
-    writeln!(code, "{}    HLC_NODE_ID", indent).unwrap();
-    writeln!(code, "{});", indent).unwrap();
-    writeln!(code).unwrap();
-    writeln!(code, "{}// Copy response payload after header", indent).unwrap();
+    )?;
+    writeln!(code, "{}    hlc_logical,", indent)?;
+    writeln!(code, "{}    HLC_NODE_ID", indent)?;
+    writeln!(code, "{});", indent)?;
+    writeln!(code)?;
+    writeln!(code, "{}// Copy response payload after header", indent)?;
     writeln!(
         code,
         "{}memcpy(resp_envelope + MESSAGE_HEADER_SIZE, &{}, sizeof({}));",
         indent, config.response_var, response_type
-    )
-    .unwrap();
-    writeln!(code).unwrap();
+    )?;
+    writeln!(code)?;
     writeln!(
         code,
         "{}__threadfence();  // Ensure write is visible",
         indent
-    )
-    .unwrap();
+    )?;
 
-    code
+    Ok(code)
 }
 
 /// Generate a CUDA struct definition from field information.
 pub fn generate_cuda_struct(
     name: &str,
     fields: &[(String, String)], // (field_name, cuda_type)
-) -> String {
+) -> Result<String> {
     let mut code = String::new();
 
-    writeln!(code, "struct {} {{", name).unwrap();
+    writeln!(code, "struct {} {{", name)?;
     for (field_name, cuda_type) in fields {
-        writeln!(code, "    {} {};", cuda_type, field_name).unwrap();
+        writeln!(code, "    {} {};", cuda_type, field_name)?;
     }
-    writeln!(code, "}};").unwrap();
+    writeln!(code, "}};")? ;
 
-    code
+    Ok(code)
 }
 
 /// Message type information for code generation.
@@ -538,7 +524,7 @@ impl MessageTypeInfo {
     }
 
     /// Generate CUDA struct definition.
-    pub fn to_cuda_struct(&self) -> String {
+    pub fn to_cuda_struct(&self) -> Result<String> {
         generate_cuda_struct(&self.name, &self.fields)
     }
 }
@@ -569,20 +555,20 @@ impl MessageTypeRegistry {
     }
 
     /// Generate all struct definitions.
-    pub fn generate_structs(&self) -> String {
+    pub fn generate_structs(&self) -> Result<String> {
         let mut code = String::new();
 
         for msg in &self.messages {
-            code.push_str(&msg.to_cuda_struct());
+            code.push_str(&msg.to_cuda_struct()?);
             code.push('\n');
         }
 
         for resp in &self.responses {
-            code.push_str(&resp.to_cuda_struct());
+            code.push_str(&resp.to_cuda_struct()?);
             code.push('\n');
         }
 
-        code
+        Ok(code)
     }
 }
 
@@ -718,7 +704,7 @@ mod tests {
     #[test]
     fn test_message_deser_generation() {
         let config = HandlerCodegenConfig::default();
-        let code = generate_message_deser("MyMessage", &config);
+        let code = generate_message_deser("MyMessage", &config).unwrap();
 
         assert!(code.contains("MyMessage* msg"));
         assert!(code.contains("(MyMessage*)msg_ptr"));
@@ -727,7 +713,7 @@ mod tests {
     #[test]
     fn test_response_ser_generation() {
         let config = HandlerCodegenConfig::default();
-        let code = generate_response_ser("MyResponse", &config);
+        let code = generate_response_ser("MyResponse", &config).unwrap();
 
         assert!(code.contains("memcpy"));
         assert!(code.contains("output_buffer"));
@@ -741,7 +727,7 @@ mod tests {
             ("value".to_string(), "float".to_string()),
         ];
 
-        let code = generate_cuda_struct("MyMessage", &fields);
+        let code = generate_cuda_struct("MyMessage", &fields).unwrap();
 
         assert!(code.contains("struct MyMessage"));
         assert!(code.contains("unsigned long long id"));
@@ -755,7 +741,7 @@ mod tests {
         assert_eq!(info.size, 4);
         assert_eq!(info.fields.len(), 1);
 
-        let cuda = info.to_cuda_struct();
+        let cuda = info.to_cuda_struct().unwrap();
         assert!(cuda.contains("struct FloatMsg"));
         assert!(cuda.contains("float value"));
     }
@@ -806,7 +792,7 @@ mod tests {
             fields: vec![("result".to_string(), "float".to_string())],
         });
 
-        let structs = registry.generate_structs();
+        let structs = registry.generate_structs().unwrap();
         assert!(structs.contains("struct Request"));
         assert!(structs.contains("struct Response"));
     }
