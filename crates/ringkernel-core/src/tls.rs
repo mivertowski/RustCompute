@@ -598,16 +598,37 @@ impl CertificateStore {
     /// Parse PEM data into a certificate entry.
     fn parse_pem(
         &self,
-        _cert_pem: &[u8],
-        _key_pem: &[u8],
+        cert_pem: &[u8],
+        key_pem: &[u8],
         cert_path: Option<PathBuf>,
         key_path: Option<PathBuf>,
     ) -> TlsResult<CertificateEntry> {
-        // Note: Full implementation would use rustls-pemfile to parse PEM data
-        // For now, create a placeholder entry
+        // Parse certificate chain from PEM
+        let mut cert_reader = std::io::BufReader::new(cert_pem);
+        let cert_chain: Vec<Vec<u8>> = rustls_pemfile::certs(&mut cert_reader)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| TlsError::InvalidCertificate(format!("failed to parse PEM certificates: {}", e)))?
+            .into_iter()
+            .map(|cert| cert.as_ref().to_vec())
+            .collect();
+
+        if cert_chain.is_empty() {
+            return Err(TlsError::InvalidCertificate(
+                "no certificates found in PEM data".to_string(),
+            ));
+        }
+
+        // Parse private key from PEM
+        let mut key_reader = std::io::BufReader::new(key_pem);
+        let key_der = rustls_pemfile::private_key(&mut key_reader)
+            .map_err(|e| TlsError::InvalidKey(format!("failed to parse PEM private key: {}", e)))?
+            .ok_or_else(|| TlsError::InvalidKey("no private key found in PEM data".to_string()))?;
+
+        let private_key = key_der.secret_der().to_vec();
+
         Ok(CertificateEntry {
-            cert_chain: Vec::new(),
-            private_key: Vec::new(),
+            cert_chain,
+            private_key,
             info: CertificateInfo::empty(),
             loaded_at: Instant::now(),
             cert_path,
@@ -1009,6 +1030,28 @@ pub struct TlsSessionInfo {
 mod tests {
     use super::*;
 
+    // A self-signed EC (P-256) test certificate and private key in PEM format.
+    // CN=test.example.com, valid for testing only.
+    const TEST_CERT_PEM: &[u8] = b"-----BEGIN CERTIFICATE-----
+MIIBjDCCATGgAwIBAgIUKx5arkX02wU6K6ZaZuJKkvmsyxUwCgYIKoZIzj0EAwIw
+GzEZMBcGA1UEAwwQdGVzdC5leGFtcGxlLmNvbTAeFw0yNjAzMjIxMzMxMTlaFw0y
+NzAzMjIxMzMxMTlaMBsxGTAXBgNVBAMMEHRlc3QuZXhhbXBsZS5jb20wWTATBgcq
+hkjOPQIBBggqhkjOPQMBBwNCAATQ53Ffqqz+dOXzbehwpNUZwvxBz+57Q6dN6Hss
+6AZVQNPb0p2kopZi4mWDdddvRl15HMQcvxPEvpCS40bsnSSjo1MwUTAdBgNVHQ4E
+FgQUudazZTYT5WRdStSHkh01XOuoGFgwHwYDVR0jBBgwFoAUudazZTYT5WRdStSH
+kh01XOuoGFgwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNJADBGAiEA1yMV
+LqCH0Gy47NKRIoDcjMQ4IiI3FxzVFRyUWYtzzm8CIQCse+XYscW83nzwwMcKFIpE
+dGbEOiAMWUMGz+i/mQ/3Ew==
+-----END CERTIFICATE-----
+";
+
+    const TEST_KEY_PEM: &[u8] = b"-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg4SFL/bx9mWu+RdUH
+yDlOh7MUUBkDaBFkucSH6sK7EtKhRANCAATQ53Ffqqz+dOXzbehwpNUZwvxBz+57
+Q6dN6Hss6AZVQNPb0p2kopZi4mWDdddvRl15HMQcvxPEvpCS40bsnSSj
+-----END PRIVATE KEY-----
+";
+
     #[test]
     fn test_tls_version() {
         assert_eq!(TlsVersion::Tls12.as_str(), "TLS 1.2");
@@ -1138,8 +1181,8 @@ mod tests {
     #[test]
     fn test_tls_acceptor_stats() {
         let config = TlsConfig::server()
-            .with_cert(vec![1])
-            .with_key(vec![2])
+            .with_cert(TEST_CERT_PEM.to_vec())
+            .with_key(TEST_KEY_PEM.to_vec())
             .build()
             .unwrap();
 
@@ -1180,5 +1223,78 @@ mod tests {
         assert!(config.is_mtls());
         assert_eq!(config.client_auth, ClientAuth::Required);
         assert!(config.ca_certs.is_some());
+    }
+
+    #[test]
+    fn test_parse_pem_valid_cert_and_key() {
+        let store = CertificateStore::new();
+        store.load_pem(TEST_CERT_PEM, TEST_KEY_PEM).unwrap();
+
+        let entry = store.current().expect("certificate should be loaded");
+        assert!(!entry.cert_chain.is_empty(), "cert_chain should not be empty");
+        assert_eq!(entry.cert_chain.len(), 1, "should have exactly one certificate");
+        assert!(!entry.private_key.is_empty(), "private_key should not be empty");
+        assert!(!entry.cert_chain[0].is_empty(), "DER certificate bytes should not be empty");
+    }
+
+    #[test]
+    fn test_parse_pem_no_certificates() {
+        let store = CertificateStore::new();
+        // Pass key PEM where cert PEM is expected (no certificates in it)
+        let result = store.load_pem(TEST_KEY_PEM, TEST_KEY_PEM);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            TlsError::InvalidCertificate(msg) => {
+                assert!(msg.contains("no certificates found"), "unexpected message: {}", msg);
+            }
+            other => panic!("expected InvalidCertificate, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_pem_no_private_key() {
+        let store = CertificateStore::new();
+        // Pass cert PEM where key PEM is expected (no private key in it)
+        let result = store.load_pem(TEST_CERT_PEM, TEST_CERT_PEM);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            TlsError::InvalidKey(msg) => {
+                assert!(msg.contains("no private key found"), "unexpected message: {}", msg);
+            }
+            other => panic!("expected InvalidKey, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_pem_garbage_input() {
+        let store = CertificateStore::new();
+        let garbage = b"this is not PEM data at all";
+        let result = store.load_pem(garbage, TEST_KEY_PEM);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            TlsError::InvalidCertificate(msg) => {
+                assert!(msg.contains("no certificates found"), "unexpected message: {}", msg);
+            }
+            other => panic!("expected InvalidCertificate, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_pem_certificate_rotation() {
+        let store = CertificateStore::new();
+
+        // Load initial certificate
+        store.load_pem(TEST_CERT_PEM, TEST_KEY_PEM).unwrap();
+        let first = store.current().expect("first cert should be loaded");
+        assert!(store.previous().is_none(), "no previous cert yet");
+
+        // Load again (simulates rotation)
+        store.load_pem(TEST_CERT_PEM, TEST_KEY_PEM).unwrap();
+        let second = store.current().expect("second cert should be loaded");
+        let prev = store.previous().expect("previous cert should exist after rotation");
+
+        // Both should have the same DER data (same PEM input)
+        assert_eq!(first.cert_chain, second.cert_chain);
+        assert_eq!(first.cert_chain, prev.cert_chain);
     }
 }
