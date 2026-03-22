@@ -2454,13 +2454,13 @@ impl OtlpExporter {
 
     /// Send spans to the OTLP endpoint.
     fn send_spans(&self, spans: &[Span]) -> OtlpExportResult {
-        // Without the alerting feature (reqwest), we can only buffer spans
-        #[cfg(not(feature = "alerting"))]
+        // Without the alerting/otel feature (reqwest), we can only buffer spans
+        #[cfg(not(any(feature = "alerting", feature = "otel")))]
         {
             tracing::debug!(
                 span_count = spans.len(),
                 endpoint = %self.config.endpoint,
-                "OTLP stub: would export spans (enable 'alerting' feature for HTTP export)"
+                "OTLP stub: would export spans (enable 'alerting' or 'otel' feature for HTTP export)"
             );
             OtlpExportResult {
                 spans_exported: spans.len(),
@@ -2471,14 +2471,14 @@ impl OtlpExporter {
             }
         }
 
-        #[cfg(feature = "alerting")]
+        #[cfg(any(feature = "alerting", feature = "otel"))]
         {
             self.send_spans_http(spans)
         }
     }
 
-    /// Send spans via HTTP (requires alerting feature).
-    #[cfg(feature = "alerting")]
+    /// Send spans via HTTP (requires alerting or otel feature).
+    #[cfg(any(feature = "alerting", feature = "otel"))]
     fn send_spans_http(&self, spans: &[Span]) -> OtlpExportResult {
         let payload = self.build_otlp_json(spans);
 
@@ -2551,7 +2551,7 @@ impl OtlpExporter {
     }
 
     /// Build OTLP JSON payload.
-    #[cfg(feature = "alerting")]
+    #[cfg(any(feature = "alerting", feature = "otel"))]
     fn build_otlp_json(&self, spans: &[Span]) -> String {
         use std::fmt::Write;
 
@@ -2610,7 +2610,7 @@ impl OtlpExporter {
     }
 
     /// Convert a span to OTLP JSON format.
-    #[cfg(feature = "alerting")]
+    #[cfg(any(feature = "alerting", feature = "otel"))]
     fn span_to_json(&self, json: &mut String, span: &Span) {
         use std::fmt::Write;
 
@@ -2706,7 +2706,7 @@ impl OtlpExporter {
 }
 
 /// Helper to escape JSON strings.
-#[cfg(feature = "alerting")]
+#[cfg(any(feature = "alerting", feature = "otel"))]
 fn escape_json_str(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
@@ -2716,7 +2716,7 @@ fn escape_json_str(s: &str) -> String {
 }
 
 /// Convert AttributeValue to OTLP JSON format.
-#[cfg(feature = "alerting")]
+#[cfg(any(feature = "alerting", feature = "otel"))]
 fn attribute_value_to_json(value: &AttributeValue) -> String {
     match value {
         AttributeValue::String(s) => format!(r#"{{"stringValue":"{}"}}"#, escape_json_str(s)),

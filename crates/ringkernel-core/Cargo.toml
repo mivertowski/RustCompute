@@ -94,6 +94,9 @@ rate-limiting = ["governor"]
 alerting = ["reqwest"]
 tls = ["rustls", "rustls-pemfile", "webpki-roots"]
 
+# OpenTelemetry OTLP export (HTTP) without full alerting
+otel = ["reqwest"]
+
 # Combined enterprise feature
 enterprise = ["crypto", "auth", "rate-limiting", "alerting", "tls"]
 
