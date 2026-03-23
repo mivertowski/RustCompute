@@ -7,15 +7,20 @@
 
 RingKernel is a GPU-native persistent actor model framework for Rust. A comprehensive production readiness initiative is underway. Phases 0-4 are complete (crash safety, H100/B200 build support, observability, testing). This VM session handles GPU-dependent work.
 
+## Primary Goal
+
+**Produce paper-quality evidence that the GPU-native persistent actor paradigm provides fundamental performance advantages over traditional kernel-launch models.** All benchmarks must follow the academic methodology in `docs/benchmarks/METHODOLOGY.md` with statistical rigor (confidence intervals, effect sizes, significance testing).
+
 ## Key Documents
 
 Read these first:
 1. **`CLAUDE.md`** — Project architecture, build commands, API patterns, gotchas
-2. **`docs/superpowers/specs/2026-03-22-production-readiness-design.md`** — Master spec with checklist (check what's done vs pending)
-3. **`docs/superpowers/plans/2026-03-22-production-readiness-phase2.md`** — Phase 2 plan (benchmarks)
-4. **`docs/superpowers/plans/2026-03-22-production-readiness-phases3-8.md`** — Phases 5-8 plans
-5. **`docs/benchmarks/h100-b200-baseline.md`** — Benchmark template to fill in
+2. **`docs/benchmarks/METHODOLOGY.md`** — Academic benchmark methodology (statistical protocol, experiments, data export)
+3. **`docs/benchmarks/h100-b200-baseline.md`** — Paper-ready benchmark template to fill in (8 experiments + 3 applications)
+4. **`docs/superpowers/specs/2026-03-22-production-readiness-design.md`** — Master spec with checklist
+5. **`docs/superpowers/plans/2026-03-22-production-readiness-phases3-8.md`** — Phases 5-8 plans
 6. **`docs/19-cuda-wishlist-persistent-actors.md`** — CUDA wishlist driving Phase 5-6
+7. **`crates/ringkernel/benches/academic_harness.rs`** — Statistical harness (CI, Cohen's d, CSV/JSON export)
 
 ## What's Already Done (Phases 0-4)
 
@@ -36,9 +41,14 @@ cargo test --workspace --release
 ```
 Verify the 97 previously-ignored GPU tests now pass.
 
-### Task 2: Run Baseline Benchmarks (Phase 2.4)
-Fill in `docs/benchmarks/h100-b200-baseline.md` with actual numbers:
+### Task 2: Run Academic Benchmark Suite
+**This is the most important task.** Results must be paper-quality.
+
 ```bash
+# Full automated suite (produces CSV, JSON, Criterion reports)
+./scripts/run-academic-benchmarks.sh
+
+# Or run individual experiments manually:
 # Lock clocks first
 sudo nvidia-smi -lgc $(nvidia-smi --query-gpu=clocks.max.graphics --format=csv,noheader,nounits)
 sudo nvidia-smi -c EXCLUSIVE_PROCESS
