@@ -8,29 +8,31 @@ nav_order: 2
 
 ## Current Status
 
-RingKernel is under active development. The core runtime, CPU backend, CUDA backend, and WebGPU backend are functional with verified GPU execution.
+RingKernel v1.0.0 is a CUDA-focused persistent GPU actor framework. The core runtime, CPU backend, and NVIDIA CUDA backend are production-quality with H100-verified performance.
 
 **Working today:**
 - Runtime creation and kernel lifecycle management
-- CPU backend (fully functional)
-- CUDA backend (verified with real PTX kernels, ~93B elements/sec)
-- WebGPU backend (cross-platform via wgpu)
+- CPU backend (fully functional, testing and development fallback)
+- CUDA backend (persistent kernels, cooperative groups, H100 Hopper features)
+- Thread Block Clusters with DSMEM messaging (Hopper SM 9.0)
+- cluster.sync() for intra-GPC synchronization (2.98x faster than grid.sync())
+- Green Contexts for SM partitioning
+- Async memory pools (116.9x faster than cuMemAlloc)
+- Lock-free SPSC/MPSC queues (55 ns per message, 0.05% CV over 60 seconds)
+- Actor lifecycle on GPU (create, destroy, restart, supervise)
 - Message passing infrastructure (queues, serialization, HLC timestamps)
 - Pub/Sub messaging with topic wildcards
-- K2K (kernel-to-kernel) direct messaging
-- Telemetry and metrics collection
-- Rust-to-CUDA transpiler (ringkernel-cuda-codegen)
-- Rust-to-WGSL transpiler (ringkernel-wgpu-codegen)
-- Size-stratified memory pools with pressure handling (v0.3.0)
-- Global reduction primitives with multi-phase execution (v0.3.0)
-- Multi-kernel dispatch with domain-based routing (v0.3.0)
-- Queue tiering for throughput-based capacity selection (v0.3.0)
+- K2K (kernel-to-kernel) direct messaging via device memory and DSMEM
+- Telemetry and metrics collection with NVTX profiling
+- Rust-to-CUDA transpiler with 155+ intrinsics (ringkernel-cuda-codegen)
+- Size-stratified memory pools with pressure handling
+- Global reduction primitives with multi-phase execution
+- Multi-kernel dispatch with domain-based routing
+- Queue tiering for throughput-based capacity selection
+- Enterprise features (auth, rate limiting, TLS, multi-tenancy)
 - 20+ working examples
-- 5 showcase applications: WaveSim, WaveSim3D, TxMon, AccNet, ProcInt
-- 825+ tests across the workspace
-
-**In progress:**
-- Metal backend (scaffolded)
+- 4 showcase applications: WaveSim, TxMon, AccNet, ProcInt
+- 1,496+ tests across the workspace
 
 ## DotCompute Ring Kernel Architecture
 
@@ -53,50 +55,29 @@ The Ring Kernel system implements a **GPU-native actor model** with persistent s
 ## System Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         HOST (CPU) SIDE                                  │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│  ┌─────────────────┐    ┌──────────────────┐    ┌───────────────────┐   │
-│  │  Application    │───▶│ RingKernelRuntime│───▶│  Message Bridge   │   │
-│  │  (async/await)  │    │  (lifecycle mgmt)│    │  (Host↔GPU DMA)   │   │
-│  └─────────────────┘    └──────────────────┘    └─────────┬─────────┘   │
-│                                │                          │              │
-│                         ┌──────┴──────┐                   │              │
-│                         ▼             ▼                   ▼              │
-│                 ┌───────────┐  ┌───────────┐    ┌─────────────────┐     │
-│                 │  Launch   │  │ Terminate │    │  Serialization  │     │
-│                 │  Options  │  │  Handler  │    │  (rkyv/zerocopy)│     │
-│                 └───────────┘  └───────────┘    └─────────────────┘     │
-│                                                                          │
-├──────────────────────────────────PCIe────────────────────────────────────┤
-│                                                                          │
-│                         DEVICE (GPU) SIDE                                │
-│                                                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │                    PERSISTENT KERNEL                             │    │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │    │
-│  │  │ Control     │  │ Input Queue │  │ Message Handler         │  │    │
-│  │  │ Block       │  │ (lock-free) │  │ (user-defined logic)    │  │    │
-│  │  │ (128 bytes) │  │             │  │                         │  │    │
-│  │  │ - is_active │  │ head ──────▶│  │ process(ctx, msg) {     │  │    │
-│  │  │ - terminate │  │ tail ◀──────│  │   ctx.sync_threads();   │  │    │
-│  │  │ - msg_count │  │ buffer[]    │  │   // GPU computation    │  │    │
-│  │  │ - errors    │  │             │  │   ctx.enqueue_output(); │  │    │
-│  │  └─────────────┘  └─────────────┘  │ }                       │  │    │
-│  │                                     └─────────────────────────┘  │    │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │    │
-│  │  │ Telemetry   │  │Output Queue │  │ K2K Messaging           │  │    │
-│  │  │ Buffer      │  │ (lock-free) │  │ (kernel-to-kernel)      │  │    │
-│  │  │ (64 bytes)  │  │             │  │                         │  │    │
-│  │  │ - processed │  │ head ◀──────│  │ send_to_kernel("other") │  │    │
-│  │  │ - latency   │  │ tail ──────▶│  │ recv_from_kernel()      │  │    │
-│  │  │ - errors    │  │ buffer[]    │  │                         │  │    │
-│  │  └─────────────┘  └─────────────┘  └─────────────────────────┘  │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                                                                          │
-└─────────────────────────────────────────────────────────────────────────┘
+Host (CPU)                              Device (GPU)
++----------------------------+          +------------------------------------+
+|  Application (async)       |          |  Supervisor (Block 0)              |
+|  ActorSupervisor           |<- DMA -->|  Actor Pool (Blocks 1-N)           |
+|  ActorRegistry             |          |    +- Control Block (256B each)    |
+|  FlowController            |          |    +- H2K/K2H Queues              |
+|  DeadLetterQueue           |          |    +- Inter-Actor Buffers          |
+|  MemoryPressureMonitor     |          |    +- K2K Routes (device mem)      |
++----------------------------+          |  grid.sync() / cluster.sync()      |
+                                        |  DSMEM (Hopper clusters)           |
+                                        +------------------------------------+
 ```
+
+### Hopper Architecture Features
+
+RingKernel leverages H100/Hopper-specific hardware capabilities:
+
+- **Thread Block Clusters**: Groups of thread blocks co-located on the same GPC, enabling DSMEM-based communication without global memory
+- **Distributed Shared Memory (DSMEM)**: Direct shared memory access between blocks in a cluster (~30 cycle latency vs ~400 cycles for global memory)
+- **cluster.sync()**: Intra-GPC synchronization at 0.628 us/sync (2.98x faster than grid.sync())
+- **Green Contexts**: SM partitioning for persistent actor isolation
+- **TMA (Tensor Memory Accelerator)**: Hardware-accelerated bulk data movement
+- **Async Memory Pools**: Stream-ordered allocation at 878 ns (116.9x faster than cuMemAlloc)
 
 ---
 
@@ -105,25 +86,25 @@ The Ring Kernel system implements a **GPU-native actor model** with persistent s
 Kernels follow a deterministic state machine. By default, kernels auto-activate on launch.
 
 ```
-        ┌──────────┐
-        │ Launched │
-        └────┬─────┘
-             │ activate()
-             ▼
-        ┌──────────┐
-   ┌────│  Active  │────┐
-   │    └────┬─────┘    │
-   │         │          │ deactivate() / suspend()
-   │         │          ▼
-   │         │    ┌────────────┐
-   │         │    │Deactivated │
-   │         │    └─────┬──────┘
-   │         │          │
-   │         │ terminate()
-   │         ▼          │
-   │    ┌──────────┐    │
-   └───▶│Terminated│◀───┘
-        └──────────┘
+        +-----------+
+        | Launched  |
+        +-----+-----+
+              | activate()
+              v
+        +-----------+
+   +----+  Active   +----+
+   |    +-----+-----+    |
+   |          |           | deactivate() / suspend()
+   |          |           v
+   |          |    +-----------+
+   |          |    |Deactivated|
+   |          |    +-----+-----+
+   |          |          |
+   |          | terminate()
+   |          v          |
+   |    +-----------+    |
+   +--->+Terminated +<---+
+        +-----------+
 ```
 
 ### API Usage
@@ -155,7 +136,7 @@ kernel.terminate().await?;
 
 ## Message Flow
 
-### Host → GPU (Input)
+### Host -> GPU (Input)
 
 ```
 1. Application calls kernel.send(message)
@@ -165,7 +146,7 @@ kernel.terminate().await?;
 5. Kernel dequeues and processes
 ```
 
-### GPU → Host (Output)
+### GPU -> Host (Output)
 
 ```
 1. Kernel calls ctx.enqueue_output(response)
@@ -175,7 +156,7 @@ kernel.terminate().await?;
 5. Future resolved, application receives response
 ```
 
-### GPU → GPU (K2K Messaging)
+### GPU -> GPU (K2K Messaging)
 
 ```
 1. Kernel A calls ctx.send_to_kernel("B", msg)
@@ -183,6 +164,15 @@ kernel.terminate().await?;
 3. Message copied to Kernel B's K2K queue
 4. Kernel B calls ctx.try_receive_from_kernel("A")
 5. Direct GPU memory access (no PCIe)
+```
+
+### Intra-Cluster K2K (Hopper DSMEM)
+
+```
+1. Actor A writes to distributed shared memory
+2. cluster.sync() ensures visibility
+3. Actor B reads from DSMEM (~30 cycle latency)
+4. No global memory traffic required
 ```
 
 ---
@@ -243,25 +233,23 @@ pub struct TelemetryBuffer {
 
 ## Backend Abstraction
 
-RingKernel supports multiple GPU backends through the `Backend` enum:
+RingKernel supports two GPU backends through the `Backend` enum:
 
 | Backend | Platform | Status | Notes |
 |---------|----------|--------|-------|
-| **CPU** | All | **Working** | Full functionality, ideal for development |
-| **CUDA** | Linux, Windows | **Working** | Verified GPU execution, requires CUDA toolkit |
-| **Metal** | macOS, iOS | Scaffolded | API defined, implementation pending |
-| **WebGPU** | Cross-platform | **Working** | Via wgpu (Vulkan, Metal, DX12) |
+| **CPU** | All | **Stable** | Full functionality, ideal for development and testing |
+| **CUDA** | Linux, Windows | **Stable, H100-verified** | Persistent kernels, cooperative groups, Hopper features |
 
 ### Backend Selection
 
 ```rust
 // Auto-detect best available backend
 let runtime = RingKernel::builder()
-    .backend(Backend::Auto)  // CUDA → Metal → WebGPU → CPU
+    .backend(Backend::Auto)  // CUDA -> CPU
     .build()
     .await?;
 
-// Force specific backend
+// Force CUDA backend
 let runtime = RingKernel::builder()
     .backend(Backend::Cuda)
     .build()
@@ -271,10 +259,13 @@ let runtime = RingKernel::builder()
 println!("Using backend: {:?}", runtime.backend());
 ```
 
-### Performance (CUDA backend, RTX 2000 Ada)
+### Performance (CUDA backend, H100 NVL)
 
-- Vector operations: ~75M elements/sec
-- Memory bandwidth: 7.6 GB/s HtoD, 1.4 GB/s DtoH
+- Persistent actor injection: 55 ns (8,698x faster than cuLaunchKernel)
+- Lock-free queue throughput: 13.83 Mmsg/s (64B payload)
+- Sustained throughput: 5.54 Mops/s over 60 seconds (CV 0.05%)
+- Cluster sync: 0.628 us (2.98x faster than grid.sync())
+- Async memory alloc: 878 ns (116.9x faster than cuMemAlloc)
 
 ---
 
