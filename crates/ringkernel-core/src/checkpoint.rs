@@ -1083,6 +1083,475 @@ impl CheckpointBuilder {
 }
 
 // ============================================================================
+// Checkpoint Configuration
+// ============================================================================
+
+/// Configuration for periodic actor state checkpointing.
+///
+/// Controls how often snapshots are taken, how many are retained,
+/// and where they are stored.
+#[derive(Debug, Clone)]
+pub struct CheckpointConfig {
+    /// Interval between periodic snapshots.
+    pub interval: Duration,
+    /// Maximum number of checkpoints to retain per kernel.
+    /// When exceeded, the oldest checkpoint is deleted.
+    /// A value of 0 means unlimited retention.
+    pub max_snapshots: usize,
+    /// Storage path for file-based checkpoints.
+    pub storage_path: PathBuf,
+    /// Whether checkpointing is enabled.
+    pub enabled: bool,
+    /// Prefix for checkpoint names (e.g., "actor_0").
+    pub name_prefix: String,
+}
+
+impl Default for CheckpointConfig {
+    fn default() -> Self {
+        Self {
+            interval: Duration::from_secs(30),
+            max_snapshots: 5,
+            storage_path: PathBuf::from("/tmp/ringkernel/checkpoints"),
+            enabled: true,
+            name_prefix: "checkpoint".to_string(),
+        }
+    }
+}
+
+impl CheckpointConfig {
+    /// Create a new checkpoint config with the given interval.
+    pub fn new(interval: Duration) -> Self {
+        Self {
+            interval,
+            ..Default::default()
+        }
+    }
+
+    /// Set the maximum number of retained snapshots.
+    pub fn with_max_snapshots(mut self, max: usize) -> Self {
+        self.max_snapshots = max;
+        self
+    }
+
+    /// Set the storage path.
+    pub fn with_storage_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.storage_path = path.as_ref().to_path_buf();
+        self
+    }
+
+    /// Set the name prefix for checkpoint files.
+    pub fn with_name_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.name_prefix = prefix.into();
+        self
+    }
+
+    /// Enable or disable checkpointing.
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+}
+
+// ============================================================================
+// Snapshot Request / Response (backend-agnostic protocol)
+// ============================================================================
+
+/// A request to snapshot a specific actor's state.
+///
+/// This is the backend-agnostic representation of a snapshot command.
+/// The CUDA backend maps this to an H2K `SnapshotActor` message.
+#[derive(Debug, Clone)]
+pub struct SnapshotRequest {
+    /// Unique ID for this snapshot request (used for correlation).
+    pub request_id: u64,
+    /// Actor slot index to snapshot.
+    pub actor_slot: u32,
+    /// Offset in snapshot buffer (backend-specific).
+    pub buffer_offset: u32,
+    /// Timestamp when this request was issued.
+    pub issued_at: SystemTime,
+}
+
+/// A completed snapshot response from the device.
+///
+/// The CUDA backend maps this from a K2H `SnapshotComplete` message.
+#[derive(Debug, Clone)]
+pub struct SnapshotResponse {
+    /// The request ID this responds to.
+    pub request_id: u64,
+    /// Actor slot that was snapshotted.
+    pub actor_slot: u32,
+    /// Whether the snapshot succeeded.
+    pub success: bool,
+    /// Snapshot data (copied from device/mapped memory by the backend).
+    pub data: Vec<u8>,
+    /// Simulation step at snapshot time.
+    pub step: u64,
+}
+
+// ============================================================================
+// Checkpoint Manager
+// ============================================================================
+
+/// Tracks the state of a pending snapshot request.
+#[derive(Debug, Clone)]
+struct PendingSnapshot {
+    /// The original request.
+    request: SnapshotRequest,
+    /// Kernel ID this snapshot belongs to.
+    kernel_id: String,
+    /// Kernel type for metadata.
+    kernel_type: String,
+}
+
+/// Manages periodic checkpointing for persistent GPU actors.
+///
+/// The `CheckpointManager` orchestrates the checkpoint lifecycle:
+///
+/// 1. Periodically determines when a snapshot is due
+/// 2. Issues `SnapshotRequest`s (caller sends as H2K commands)
+/// 3. Processes `SnapshotResponse`s (caller feeds from K2H responses)
+/// 4. Persists completed checkpoints to storage
+/// 5. Enforces retention policy (deletes old checkpoints)
+///
+/// # Usage
+///
+/// ```ignore
+/// use ringkernel_core::checkpoint::{CheckpointConfig, CheckpointManager};
+/// use std::time::Duration;
+///
+/// let config = CheckpointConfig::new(Duration::from_secs(10))
+///     .with_max_snapshots(3)
+///     .with_storage_path("/tmp/checkpoints");
+///
+/// let mut manager = CheckpointManager::new(config);
+/// manager.register_actor(0, "wave_sim_0", "fdtd_3d");
+///
+/// // In your poll loop:
+/// for request in manager.poll_due_snapshots() {
+///     // Send as H2K SnapshotActor command
+///     h2k_queue.send(H2KMessage::snapshot_actor(
+///         request.request_id,
+///         request.actor_slot,
+///         request.buffer_offset,
+///     ));
+/// }
+///
+/// // When K2H SnapshotComplete arrives:
+/// manager.complete_snapshot(SnapshotResponse { ... })?;
+/// ```
+pub struct CheckpointManager {
+    /// Configuration.
+    config: CheckpointConfig,
+    /// Storage backend.
+    storage: Box<dyn CheckpointStorage>,
+    /// Registered actors: slot -> (kernel_id, kernel_type).
+    actors: HashMap<u32, (String, String)>,
+    /// Last snapshot time per actor slot.
+    last_snapshot: HashMap<u32, std::time::Instant>,
+    /// Pending snapshot requests awaiting completion.
+    pending: HashMap<u64, PendingSnapshot>,
+    /// Next request ID counter.
+    next_request_id: u64,
+    /// Ordered list of checkpoint names per actor (oldest first) for retention.
+    checkpoint_history: HashMap<u32, Vec<String>>,
+    /// Total snapshots completed (lifetime counter).
+    total_completed: u64,
+    /// Total snapshots failed (lifetime counter).
+    total_failed: u64,
+}
+
+impl CheckpointManager {
+    /// Create a new checkpoint manager with file storage at the configured path.
+    pub fn new(config: CheckpointConfig) -> Self {
+        let storage = Box::new(FileStorage::new(&config.storage_path));
+        Self {
+            config,
+            storage,
+            actors: HashMap::new(),
+            last_snapshot: HashMap::new(),
+            pending: HashMap::new(),
+            next_request_id: 1,
+            checkpoint_history: HashMap::new(),
+            total_completed: 0,
+            total_failed: 0,
+        }
+    }
+
+    /// Create a checkpoint manager with a custom storage backend.
+    pub fn with_storage(config: CheckpointConfig, storage: Box<dyn CheckpointStorage>) -> Self {
+        Self {
+            config,
+            storage,
+            actors: HashMap::new(),
+            last_snapshot: HashMap::new(),
+            pending: HashMap::new(),
+            next_request_id: 1,
+            checkpoint_history: HashMap::new(),
+            total_completed: 0,
+            total_failed: 0,
+        }
+    }
+
+    /// Register an actor for periodic checkpointing.
+    pub fn register_actor(
+        &mut self,
+        actor_slot: u32,
+        kernel_id: impl Into<String>,
+        kernel_type: impl Into<String>,
+    ) {
+        self.actors
+            .insert(actor_slot, (kernel_id.into(), kernel_type.into()));
+    }
+
+    /// Unregister an actor from checkpointing.
+    pub fn unregister_actor(&mut self, actor_slot: u32) {
+        self.actors.remove(&actor_slot);
+        self.last_snapshot.remove(&actor_slot);
+    }
+
+    /// Check if checkpointing is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.config.enabled
+    }
+
+    /// Get the checkpoint configuration.
+    pub fn config(&self) -> &CheckpointConfig {
+        &self.config
+    }
+
+    /// Get the number of pending snapshot requests.
+    pub fn pending_count(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// Get total completed snapshots.
+    pub fn total_completed(&self) -> u64 {
+        self.total_completed
+    }
+
+    /// Get total failed snapshots.
+    pub fn total_failed(&self) -> u64 {
+        self.total_failed
+    }
+
+    /// Poll for actors that are due for a snapshot.
+    ///
+    /// Returns a list of `SnapshotRequest`s that should be sent to the device
+    /// as H2K `SnapshotActor` commands.
+    ///
+    /// Each actor is only requested once per interval, and only if no prior
+    /// request for that actor is still pending.
+    pub fn poll_due_snapshots(&mut self) -> Vec<SnapshotRequest> {
+        if !self.config.enabled {
+            return Vec::new();
+        }
+
+        let now = std::time::Instant::now();
+        let interval = self.config.interval;
+        let mut requests = Vec::new();
+
+        // Collect actor slots that are due (to avoid borrow conflict)
+        let due_slots: Vec<u32> = self
+            .actors
+            .keys()
+            .filter(|slot| {
+                // Skip if there's already a pending request for this actor
+                let has_pending = self
+                    .pending
+                    .values()
+                    .any(|p| p.request.actor_slot == **slot);
+                if has_pending {
+                    return false;
+                }
+
+                // Check if interval has elapsed since last snapshot
+                match self.last_snapshot.get(slot) {
+                    Some(last) => now.duration_since(*last) >= interval,
+                    None => true, // Never snapshotted, due immediately
+                }
+            })
+            .copied()
+            .collect();
+
+        for slot in due_slots {
+            let request_id = self.next_request_id;
+            self.next_request_id += 1;
+
+            let request = SnapshotRequest {
+                request_id,
+                actor_slot: slot,
+                buffer_offset: 0, // Backend fills in actual offset
+                issued_at: SystemTime::now(),
+            };
+
+            if let Some((kernel_id, kernel_type)) = self.actors.get(&slot) {
+                self.pending.insert(
+                    request_id,
+                    PendingSnapshot {
+                        request: request.clone(),
+                        kernel_id: kernel_id.clone(),
+                        kernel_type: kernel_type.clone(),
+                    },
+                );
+            }
+
+            requests.push(request);
+        }
+
+        requests
+    }
+
+    /// Process a completed snapshot response from the device.
+    ///
+    /// If the snapshot succeeded, the data is persisted to storage and
+    /// the retention policy is enforced.
+    ///
+    /// Returns the checkpoint name on success.
+    pub fn complete_snapshot(&mut self, response: SnapshotResponse) -> Result<Option<String>> {
+        let pending = match self.pending.remove(&response.request_id) {
+            Some(p) => p,
+            None => {
+                // Unknown request ID -- may have been cancelled or already completed
+                return Ok(None);
+            }
+        };
+
+        // Record the snapshot time regardless of success
+        self.last_snapshot
+            .insert(pending.request.actor_slot, std::time::Instant::now());
+
+        if !response.success {
+            self.total_failed += 1;
+            return Err(RingKernelError::InvalidCheckpoint(format!(
+                "Snapshot failed for actor slot {}",
+                response.actor_slot
+            )));
+        }
+
+        // Build a checkpoint from the snapshot data
+        let checkpoint = CheckpointBuilder::new(&pending.kernel_id, &pending.kernel_type)
+            .step(response.step)
+            .custom("actor_slot", pending.request.actor_slot.to_string())
+            .custom(
+                "snapshot_request_id",
+                pending.request.request_id.to_string(),
+            )
+            .device_memory("actor_state", response.data)
+            .build();
+
+        // Generate checkpoint name
+        let name = format!(
+            "{}_{}_step_{}",
+            self.config.name_prefix, pending.request.actor_slot, response.step
+        );
+
+        // Persist to storage
+        self.storage.save(&checkpoint, &name)?;
+        self.total_completed += 1;
+
+        // Track in history for retention
+        let history = self
+            .checkpoint_history
+            .entry(pending.request.actor_slot)
+            .or_default();
+        history.push(name.clone());
+
+        // Enforce retention policy
+        if self.config.max_snapshots > 0 {
+            while history.len() > self.config.max_snapshots {
+                let oldest = history.remove(0);
+                if let Err(e) = self.storage.delete(&oldest) {
+                    tracing::warn!(
+                        checkpoint = oldest,
+                        error = %e,
+                        "Failed to delete old checkpoint during retention cleanup"
+                    );
+                }
+            }
+        }
+
+        Ok(Some(name))
+    }
+
+    /// Manually request a snapshot for a specific actor, bypassing the interval timer.
+    ///
+    /// This is useful for on-demand snapshots (e.g., before a risky operation)
+    /// or in tests. Returns `None` if the actor is not registered.
+    pub fn request_snapshot(&mut self, actor_slot: u32) -> Option<SnapshotRequest> {
+        let (kernel_id, kernel_type) = self.actors.get(&actor_slot)?.clone();
+
+        let request_id = self.next_request_id;
+        self.next_request_id += 1;
+
+        let request = SnapshotRequest {
+            request_id,
+            actor_slot,
+            buffer_offset: 0,
+            issued_at: SystemTime::now(),
+        };
+
+        self.pending.insert(
+            request_id,
+            PendingSnapshot {
+                request: request.clone(),
+                kernel_id,
+                kernel_type,
+            },
+        );
+
+        Some(request)
+    }
+
+    /// Cancel a pending snapshot request.
+    ///
+    /// Returns true if the request was found and cancelled.
+    pub fn cancel_pending(&mut self, request_id: u64) -> bool {
+        self.pending.remove(&request_id).is_some()
+    }
+
+    /// Cancel all pending snapshot requests.
+    pub fn cancel_all_pending(&mut self) {
+        self.pending.clear();
+    }
+
+    /// Load the most recent checkpoint for an actor.
+    pub fn load_latest(&self, actor_slot: u32) -> Result<Option<Checkpoint>> {
+        if let Some(history) = self.checkpoint_history.get(&actor_slot) {
+            if let Some(latest_name) = history.last() {
+                return self.storage.load(latest_name).map(Some);
+            }
+        }
+
+        // Fallback: scan storage for checkpoints matching this actor's prefix
+        let prefix = format!("{}_{}_", self.config.name_prefix, actor_slot);
+        let all = self.storage.list()?;
+        let matching: Vec<_> = all.iter().filter(|n| n.starts_with(&prefix)).collect();
+
+        if let Some(latest) = matching.last() {
+            return self.storage.load(latest).map(Some);
+        }
+
+        Ok(None)
+    }
+
+    /// List all checkpoint names for an actor.
+    pub fn list_checkpoints(&self, actor_slot: u32) -> Result<Vec<String>> {
+        let prefix = format!("{}_{}_", self.config.name_prefix, actor_slot);
+        let all = self.storage.list()?;
+        Ok(all
+            .into_iter()
+            .filter(|n| n.starts_with(&prefix))
+            .collect())
+    }
+
+    /// Get a reference to the storage backend.
+    pub fn storage(&self) -> &dyn CheckpointStorage {
+        &*self.storage
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -1207,5 +1676,413 @@ mod tests {
         let chunks = restored.get_chunks(ChunkType::DeviceMemory);
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks[0].data.len(), 100_000);
+    }
+
+    // ========================================================================
+    // CheckpointConfig tests
+    // ========================================================================
+
+    #[test]
+    fn test_checkpoint_config_defaults() {
+        let config = CheckpointConfig::default();
+        assert_eq!(config.interval, Duration::from_secs(30));
+        assert_eq!(config.max_snapshots, 5);
+        assert!(config.enabled);
+        assert_eq!(config.name_prefix, "checkpoint");
+    }
+
+    #[test]
+    fn test_checkpoint_config_builder() {
+        let config = CheckpointConfig::new(Duration::from_secs(10))
+            .with_max_snapshots(3)
+            .with_storage_path("/var/checkpoints")
+            .with_name_prefix("actor")
+            .with_enabled(false);
+
+        assert_eq!(config.interval, Duration::from_secs(10));
+        assert_eq!(config.max_snapshots, 3);
+        assert_eq!(config.storage_path, PathBuf::from("/var/checkpoints"));
+        assert_eq!(config.name_prefix, "actor");
+        assert!(!config.enabled);
+    }
+
+    // ========================================================================
+    // CheckpointManager tests
+    // ========================================================================
+
+    #[test]
+    fn test_manager_disabled() {
+        let config = CheckpointConfig::new(Duration::from_millis(1)).with_enabled(false);
+        let mut manager =
+            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        manager.register_actor(0, "kernel_0", "test");
+
+        // Should return no requests when disabled
+        let requests = manager.poll_due_snapshots();
+        assert!(requests.is_empty());
+    }
+
+    #[test]
+    fn test_manager_register_and_poll() {
+        let config = CheckpointConfig::new(Duration::from_millis(1));
+        let mut manager =
+            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        manager.register_actor(0, "sim_0", "fdtd_3d");
+        manager.register_actor(1, "sim_1", "fdtd_3d");
+
+        // First poll: both actors are due immediately (never snapshotted)
+        let requests = manager.poll_due_snapshots();
+        assert_eq!(requests.len(), 2);
+
+        // Verify request fields
+        let slots: Vec<u32> = requests.iter().map(|r| r.actor_slot).collect();
+        assert!(slots.contains(&0));
+        assert!(slots.contains(&1));
+
+        // Request IDs should be unique
+        assert_ne!(requests[0].request_id, requests[1].request_id);
+    }
+
+    #[test]
+    fn test_manager_no_duplicate_pending() {
+        let config = CheckpointConfig::new(Duration::from_millis(1));
+        let mut manager =
+            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        manager.register_actor(0, "sim_0", "fdtd_3d");
+
+        // First poll: actor is due
+        let requests = manager.poll_due_snapshots();
+        assert_eq!(requests.len(), 1);
+
+        // Second poll: actor already has a pending request
+        let requests2 = manager.poll_due_snapshots();
+        assert!(requests2.is_empty());
+    }
+
+    #[test]
+    fn test_manager_complete_snapshot() {
+        let config = CheckpointConfig::new(Duration::from_secs(3600))
+            .with_name_prefix("test");
+        let mut manager =
+            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        manager.register_actor(0, "sim_0", "fdtd_3d");
+
+        // Generate a snapshot request
+        let requests = manager.poll_due_snapshots();
+        assert_eq!(requests.len(), 1);
+        let req = &requests[0];
+
+        // Complete the snapshot
+        let response = SnapshotResponse {
+            request_id: req.request_id,
+            actor_slot: 0,
+            success: true,
+            data: vec![1, 2, 3, 4, 5],
+            step: 1000,
+        };
+
+        let name = manager.complete_snapshot(response).unwrap();
+        assert!(name.is_some());
+        let name = name.unwrap();
+        assert_eq!(name, "test_0_step_1000");
+
+        // Verify checkpoint was persisted
+        assert!(manager.storage().exists(&name));
+
+        // Load and verify
+        let loaded = manager.storage().load(&name).unwrap();
+        assert_eq!(loaded.metadata.kernel_id, "sim_0");
+        assert_eq!(loaded.metadata.kernel_type, "fdtd_3d");
+        assert_eq!(loaded.metadata.current_step, 1000);
+
+        assert_eq!(manager.total_completed(), 1);
+        assert_eq!(manager.total_failed(), 0);
+    }
+
+    #[test]
+    fn test_manager_failed_snapshot() {
+        let config = CheckpointConfig::new(Duration::from_secs(3600));
+        let mut manager =
+            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        manager.register_actor(0, "sim_0", "fdtd_3d");
+
+        let requests = manager.poll_due_snapshots();
+        let req = &requests[0];
+
+        let response = SnapshotResponse {
+            request_id: req.request_id,
+            actor_slot: 0,
+            success: false,
+            data: Vec::new(),
+            step: 500,
+        };
+
+        let result = manager.complete_snapshot(response);
+        assert!(result.is_err());
+        assert_eq!(manager.total_failed(), 1);
+        assert_eq!(manager.total_completed(), 0);
+    }
+
+    #[test]
+    fn test_manager_retention_policy() {
+        let config = CheckpointConfig::new(Duration::from_secs(3600))
+            .with_max_snapshots(2)
+            .with_name_prefix("ret");
+        let storage = Box::new(MemoryStorage::new());
+        let mut manager = CheckpointManager::with_storage(config, storage);
+        manager.register_actor(0, "sim_0", "test");
+
+        // Create 3 snapshots using manual requests (bypasses interval timer)
+        for step in [100u64, 200, 300] {
+            let req = manager.request_snapshot(0).unwrap();
+
+            let response = SnapshotResponse {
+                request_id: req.request_id,
+                actor_slot: 0,
+                success: true,
+                data: vec![step as u8],
+                step,
+            };
+            manager.complete_snapshot(response).unwrap();
+        }
+
+        // Oldest checkpoint (step 100) should have been deleted
+        assert!(!manager.storage().exists("ret_0_step_100"));
+        // Steps 200 and 300 should remain
+        assert!(manager.storage().exists("ret_0_step_200"));
+        assert!(manager.storage().exists("ret_0_step_300"));
+
+        assert_eq!(manager.total_completed(), 3);
+    }
+
+    #[test]
+    fn test_manager_unknown_response() {
+        let config = CheckpointConfig::new(Duration::from_secs(3600));
+        let mut manager =
+            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+
+        // Response with unknown request_id
+        let response = SnapshotResponse {
+            request_id: 9999,
+            actor_slot: 0,
+            success: true,
+            data: vec![1, 2, 3],
+            step: 100,
+        };
+
+        let result = manager.complete_snapshot(response).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_manager_cancel_pending() {
+        let config = CheckpointConfig::new(Duration::from_millis(1));
+        let mut manager =
+            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        manager.register_actor(0, "sim_0", "test");
+
+        let requests = manager.poll_due_snapshots();
+        assert_eq!(manager.pending_count(), 1);
+
+        let cancelled = manager.cancel_pending(requests[0].request_id);
+        assert!(cancelled);
+        assert_eq!(manager.pending_count(), 0);
+    }
+
+    #[test]
+    fn test_manager_cancel_all_pending() {
+        let config = CheckpointConfig::new(Duration::from_millis(1));
+        let mut manager =
+            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        manager.register_actor(0, "sim_0", "test");
+        manager.register_actor(1, "sim_1", "test");
+
+        let _requests = manager.poll_due_snapshots();
+        assert_eq!(manager.pending_count(), 2);
+
+        manager.cancel_all_pending();
+        assert_eq!(manager.pending_count(), 0);
+    }
+
+    #[test]
+    fn test_manager_load_latest() {
+        let config = CheckpointConfig::new(Duration::from_secs(3600))
+            .with_name_prefix("lat");
+        let mut manager =
+            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        manager.register_actor(0, "sim_0", "test");
+
+        // No checkpoints yet
+        let latest = manager.load_latest(0).unwrap();
+        assert!(latest.is_none());
+
+        // Create two checkpoints using manual requests
+        for step in [100u64, 200] {
+            let req = manager.request_snapshot(0).unwrap();
+            let response = SnapshotResponse {
+                request_id: req.request_id,
+                actor_slot: 0,
+                success: true,
+                data: vec![step as u8],
+                step,
+            };
+            manager.complete_snapshot(response).unwrap();
+        }
+
+        // Latest should be step 200
+        let latest = manager.load_latest(0).unwrap().unwrap();
+        assert_eq!(latest.metadata.current_step, 200);
+    }
+
+    #[test]
+    fn test_manager_list_checkpoints() {
+        let config = CheckpointConfig::new(Duration::from_secs(3600))
+            .with_max_snapshots(10)
+            .with_name_prefix("list");
+        let mut manager =
+            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        manager.register_actor(0, "sim_0", "test");
+        manager.register_actor(1, "sim_1", "test");
+
+        // Create checkpoints for both actors using manual requests
+        for step in [100u64, 200] {
+            for actor_slot in [0u32, 1] {
+                let req = manager.request_snapshot(actor_slot).unwrap();
+                let response = SnapshotResponse {
+                    request_id: req.request_id,
+                    actor_slot,
+                    success: true,
+                    data: vec![step as u8],
+                    step,
+                };
+                manager.complete_snapshot(response).unwrap();
+            }
+        }
+
+        let actor0_checkpoints = manager.list_checkpoints(0).unwrap();
+        let actor1_checkpoints = manager.list_checkpoints(1).unwrap();
+
+        assert_eq!(actor0_checkpoints.len(), 2);
+        assert_eq!(actor1_checkpoints.len(), 2);
+
+        // Actor 0's checkpoints should only contain its own
+        for name in &actor0_checkpoints {
+            assert!(name.starts_with("list_0_"));
+        }
+        // Actor 1's checkpoints should only contain its own
+        for name in &actor1_checkpoints {
+            assert!(name.starts_with("list_1_"));
+        }
+    }
+
+    #[test]
+    fn test_manager_unregister_actor() {
+        let config = CheckpointConfig::new(Duration::from_millis(1));
+        let mut manager =
+            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        manager.register_actor(0, "sim_0", "test");
+
+        let requests = manager.poll_due_snapshots();
+        assert_eq!(requests.len(), 1);
+
+        // Unregister and poll again
+        manager.unregister_actor(0);
+        // Complete the pending request first
+        manager.cancel_all_pending();
+
+        let requests = manager.poll_due_snapshots();
+        assert!(requests.is_empty());
+    }
+
+    #[test]
+    fn test_snapshot_request_response_roundtrip() {
+        // Test that the request/response types work correctly
+        let request = SnapshotRequest {
+            request_id: 42,
+            actor_slot: 7,
+            buffer_offset: 4096,
+            issued_at: SystemTime::now(),
+        };
+
+        assert_eq!(request.request_id, 42);
+        assert_eq!(request.actor_slot, 7);
+        assert_eq!(request.buffer_offset, 4096);
+
+        let response = SnapshotResponse {
+            request_id: 42,
+            actor_slot: 7,
+            success: true,
+            data: vec![0xDE, 0xAD, 0xBE, 0xEF],
+            step: 5000,
+        };
+
+        assert_eq!(response.request_id, request.request_id);
+        assert_eq!(response.actor_slot, request.actor_slot);
+        assert!(response.success);
+        assert_eq!(response.step, 5000);
+    }
+
+    #[test]
+    fn test_manager_interval_respected() {
+        // Use a long interval so second poll returns nothing
+        let config = CheckpointConfig::new(Duration::from_secs(3600));
+        let mut manager =
+            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        manager.register_actor(0, "sim_0", "test");
+
+        // First poll: due immediately
+        let requests = manager.poll_due_snapshots();
+        assert_eq!(requests.len(), 1);
+
+        // Complete the snapshot
+        let response = SnapshotResponse {
+            request_id: requests[0].request_id,
+            actor_slot: 0,
+            success: true,
+            data: vec![1],
+            step: 100,
+        };
+        manager.complete_snapshot(response).unwrap();
+
+        // Second poll: not due yet (interval is 1 hour)
+        let requests = manager.poll_due_snapshots();
+        assert!(requests.is_empty());
+    }
+
+    #[test]
+    fn test_file_storage_roundtrip() {
+        // Use a temp directory for file storage
+        let tmp_dir = std::env::temp_dir().join("ringkernel_checkpoint_test");
+
+        let config = CheckpointConfig::new(Duration::from_millis(1))
+            .with_storage_path(&tmp_dir)
+            .with_name_prefix("file_test");
+        let mut manager = CheckpointManager::new(config);
+        manager.register_actor(0, "file_kernel", "test_type");
+
+        let requests = manager.poll_due_snapshots();
+        assert_eq!(requests.len(), 1);
+
+        let response = SnapshotResponse {
+            request_id: requests[0].request_id,
+            actor_slot: 0,
+            success: true,
+            data: vec![10, 20, 30, 40, 50],
+            step: 42,
+        };
+
+        let name = manager.complete_snapshot(response).unwrap().unwrap();
+
+        // Verify the file exists on disk
+        let file_path = tmp_dir.join(format!("{}.rkcp", name));
+        assert!(file_path.exists());
+
+        // Load it back
+        let loaded = manager.load_latest(0).unwrap().unwrap();
+        assert_eq!(loaded.metadata.kernel_id, "file_kernel");
+        assert_eq!(loaded.metadata.current_step, 42);
+
+        // Clean up
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 }
