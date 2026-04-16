@@ -7,13 +7,10 @@ on:
       backend:
         description: 'GPU backend to test'
         required: true
-        default: 'all'
+        default: 'cuda'
         type: choice
         options:
-          - all
           - cuda
-          - wgpu
-          - metal
   # Run on PRs with GPU label
   pull_request:
     types: [labeled]
@@ -28,7 +25,7 @@ jobs:
     name: CUDA Tests
     if: |
       github.event_name == 'workflow_dispatch' &&
-      (github.event.inputs.backend == 'all' || github.event.inputs.backend == 'cuda')
+      github.event.inputs.backend == 'cuda'
       || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'gpu-test'))
     runs-on: [self-hosted, gpu, cuda]
     timeout-minutes: 30
@@ -65,65 +62,6 @@ jobs:
       - name: Run TxMon GPU benchmark
         run: |
           cargo run -p ringkernel-txmon --bin txmon-benchmark --release --features cuda-codegen -- --quick
-        continue-on-error: true
-
-  # WebGPU Tests - can run on any runner with Vulkan/DX12/Metal support
-  wgpu-tests:
-    name: WebGPU Tests
-    if: |
-      github.event_name == 'workflow_dispatch' &&
-      (github.event.inputs.backend == 'all' || github.event.inputs.backend == 'wgpu')
-      || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'gpu-test'))
-    runs-on: [self-hosted, gpu]
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "gpu-wgpu"
-
-      - name: Run WGSL codegen tests
-        run: cargo test -p ringkernel-wgpu-codegen --all-features
-
-      - name: Run WebGPU backend tests
-        run: cargo test -p ringkernel-wgpu --features wgpu-tests -- --ignored
-        continue-on-error: true
-
-  # Metal Tests - macOS only
-  metal-tests:
-    name: Metal Tests
-    if: |
-      github.event_name == 'workflow_dispatch' &&
-      (github.event.inputs.backend == 'all' || github.event.inputs.backend == 'metal')
-      || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'gpu-test'))
-    runs-on: macos-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "gpu-metal"
-
-      - name: Check Metal availability
-        run: |
-          system_profiler SPDisplaysDataType | grep -i metal || echo "Metal info not available"
-
-      - name: Run Metal backend tests
-        run: cargo test -p ringkernel-metal --features metal
-        continue-on-error: true
-
-      - name: Build Metal examples
-        run: cargo build -p ringkernel --examples --features metal
         continue-on-error: true
 
   # CPU Backend GPU Mock Tests - runs on all platforms
@@ -173,7 +111,7 @@ jobs:
   # Summary report
   summary:
     name: Test Summary
-    needs: [cuda-tests, wgpu-tests, metal-tests, cpu-mock-tests]
+    needs: [cuda-tests, cpu-mock-tests]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -184,6 +122,4 @@ jobs:
           echo "| Backend | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| CUDA | ${{ needs.cuda-tests.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| WebGPU | ${{ needs.wgpu-tests.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Metal | ${{ needs.metal-tests.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| CPU Mock | ${{ needs.cpu-mock-tests.result }} |" >> $GITHUB_STEP_SUMMARY

@@ -16,10 +16,10 @@
 #
 # The publishing order respects the dependency graph:
 #   Tier 1 (no deps):       core, ir
-#   Tier 2 (core deps):     codegen, cpu, cuda, wgpu, metal, ecosystem, audio-fft, graph, montecarlo
-#   Tier 3 (codegen deps):  cuda-codegen, wgpu-codegen, derive, cli
+#   Tier 2 (core deps):     codegen, cpu, cuda, ecosystem, audio-fft, graph, montecarlo
+#   Tier 3 (codegen deps):  cuda-codegen, derive, cli
 #   Tier 4 (main crate):    ringkernel
-#   Tier 5 (apps):          wavesim, txmon, accnet, procint, wavesim3d
+#   Tier 5 (apps):          wavesim, txmon, accnet, procint
 #
 
 set -e
@@ -101,8 +101,6 @@ CRATES=(
     "ringkernel-codegen"     # depends on: core
     "ringkernel-cpu"         # depends on: core
     "ringkernel-cuda"        # depends on: core
-    "ringkernel-wgpu"        # depends on: core
-    "ringkernel-metal"       # depends on: core
     "ringkernel-ecosystem"   # depends on: core
     "ringkernel-audio-fft"   # depends on: core
     "ringkernel-graph"       # depends on: core
@@ -110,19 +108,17 @@ CRATES=(
 
     # Tier 3: Depends on codegen or other Tier 2 crates
     "ringkernel-cuda-codegen"  # depends on: codegen
-    "ringkernel-wgpu-codegen"  # depends on: codegen
     "ringkernel-derive"        # depends on: core, cuda-codegen (optional)
-    "ringkernel-cli"           # depends on: ir, cuda-codegen (optional), wgpu-codegen (optional)
+    "ringkernel-cli"           # depends on: ir, cuda-codegen (optional)
 
     # Tier 4: Main crate (depends on most others)
-    "ringkernel"             # depends on: core, derive, cpu, cuda, wgpu, metal, codegen
+    "ringkernel"             # depends on: core, derive, cpu, cuda, codegen
 
     # Tier 5: Application crates (depend on main crate)
     "ringkernel-wavesim"     # depends on: ringkernel, core, derive, cuda, cuda-codegen
     "ringkernel-txmon"       # depends on: ringkernel, core, cuda, cuda-codegen
     "ringkernel-accnet"      # depends on: core, derive, cpu, cuda-codegen
     "ringkernel-procint"     # depends on: core, derive, cpu, cuda-codegen
-    "ringkernel-wavesim3d"   # depends on: ringkernel, core, derive, cuda, cuda-codegen
 )
 
 # Tier 1 crates can be verified independently (no internal deps)

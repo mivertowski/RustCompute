@@ -7,7 +7,7 @@
 //!
 //! The runtime module provides the central abstractions for managing GPU kernels:
 //!
-//! - [`RingKernelRuntime`] - The main trait implemented by backends (CPU, CUDA, Metal, WebGPU)
+//! - [`RingKernelRuntime`] - The main trait implemented by backends (CPU, CUDA)
 //! - [`KernelHandle`] - A handle for interacting with launched kernels
 //! - [`LaunchOptions`] - Configuration options for kernel launches
 //! - [`KernelState`] - Lifecycle states (Created → Launched → Active → Terminated)
@@ -67,7 +67,7 @@
 //! ```ignore
 //! use ringkernel_core::runtime::{RuntimeBuilder, Backend};
 //!
-//! // Auto-select: CUDA → Metal → WebGPU → CPU
+//! // Auto-select: CUDA → CPU
 //! let builder = RuntimeBuilder::new().backend(Backend::Auto);
 //!
 //! // Force CPU for testing
@@ -197,9 +197,11 @@ pub enum Backend {
     Cpu,
     /// NVIDIA CUDA backend.
     Cuda,
-    /// Apple Metal backend.
+    /// Reserved for future Apple Metal backend (not currently implemented).
+    #[doc(hidden)]
     Metal,
-    /// WebGPU cross-platform backend.
+    /// Reserved for future WebGPU cross-platform backend (not currently implemented).
+    #[doc(hidden)]
     Wgpu,
     /// Automatically select best available backend.
     #[default]
@@ -395,7 +397,7 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Backend-agnostic runtime trait for kernel management.
 ///
-/// This trait is implemented by each backend (CPU, CUDA, Metal, WebGPU)
+/// This trait is implemented by each backend (CPU, CUDA)
 /// to provide kernel lifecycle management and message passing.
 #[async_trait]
 pub trait RingKernelRuntime: Send + Sync {

@@ -275,7 +275,7 @@ jobs:
             { file: '11-ecosystem.md', title: 'Ecosystem Integration' },
             { file: '12-migration.md', title: 'Migration Guide' },
             { file: '13-cuda-codegen.md', title: 'CUDA Codegen' },
-            { file: '14-wgpu-codegen.md', title: 'WGSL Codegen' },
+            // WGSL codegen guide removed for v1.0.0 (WebGPU backend not shipped)
             { file: '15-showcase-applications.md', title: 'Showcase Applications' },
           ];
 
@@ -697,7 +697,7 @@ jobs:
                               </div>
                               <div class="feature-card">
                                   <h3><span class="icon">&#x1F4BB;</span> Multi-Backend Support</h3>
-                                  <p>Target CPU, CUDA, WebGPU, or Metal with a unified API.</p>
+                                  <p>Target CPU or CUDA with a unified API.</p>
                               </div>
                               <div class="feature-card">
                                   <h3><span class="icon">&#x1F3AF;</span> Proc Macro DSL</h3>
@@ -755,18 +755,6 @@ jobs:
                                       <td>Linux, Windows</td>
                                       <td>NVIDIA GPU, CUDA 12.x</td>
                                   </tr>
-                                  <tr>
-                                      <td><strong>WebGPU</strong></td>
-                                      <td class="status-stable">Stable</td>
-                                      <td>All</td>
-                                      <td>Vulkan/Metal/DX12 capable GPU</td>
-                                  </tr>
-                                  <tr>
-                                      <td><strong>Metal</strong></td>
-                                      <td class="status-planned">Planned</td>
-                                      <td>macOS, iOS</td>
-                                      <td>-</td>
-                                  </tr>
                               </tbody>
                           </table>
                       </div>
@@ -802,7 +790,7 @@ jobs:
                               </a>
                               <a href="./guide/05-gpu-backends.html" class="doc-link">
                                   <h4>GPU Backends</h4>
-                                  <p>Backend implementations: CPU, CUDA, WebGPU, Metal.</p>
+                                  <p>Backend implementations: CPU, CUDA.</p>
                               </a>
                               <a href="./guide/06-serialization.html" class="doc-link">
                                   <h4>Serialization</h4>
@@ -836,10 +824,6 @@ jobs:
                                   <h4>CUDA Codegen</h4>
                                   <p>Rust to CUDA transpiler documentation.</p>
                               </a>
-                              <a href="./guide/14-wgpu-codegen.html" class="doc-link">
-                                  <h4>WGSL Codegen</h4>
-                                  <p>Rust to WGSL transpiler documentation.</p>
-                              </a>
                               <a href="./guide/15-showcase-applications.html" class="doc-link">
                                   <h4>Showcase Applications</h4>
                                   <p>WaveSim, TxMon, and AccNet demos with screenshots.</p>
@@ -867,10 +851,6 @@ jobs:
                               <a href="./api/ringkernel_cuda/index.html" class="doc-link">
                                   <h4>ringkernel-cuda</h4>
                                   <p>NVIDIA CUDA backend</p>
-                              </a>
-                              <a href="./api/ringkernel_wgpu/index.html" class="doc-link">
-                                  <h4>ringkernel-wgpu</h4>
-                                  <p>WebGPU cross-platform backend</p>
                               </a>
                           </div>
                       </div>
