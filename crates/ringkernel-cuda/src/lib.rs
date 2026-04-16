@@ -40,6 +40,8 @@ pub mod cooperative;
 #[cfg(feature = "cuda")]
 mod device;
 #[cfg(feature = "cuda")]
+pub mod hopper;
+#[cfg(feature = "cuda")]
 pub mod driver_api;
 #[cfg(feature = "cuda")]
 pub mod k2k_gpu;

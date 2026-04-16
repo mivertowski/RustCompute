@@ -77,8 +77,9 @@ echo "  Results dir:  ${RUN_DIR}"
 # ─── Build ────────────────────────────────────────────────────────────
 echo ""
 echo "[Build] Compiling with CUDA (release)..."
-cargo build --workspace --features cuda --release 2>&1 | tail -1
+cargo build --workspace --features cuda --release --exclude ringkernel-txmon 2>&1 | tail -1
 cargo build -p ringkernel-cuda --features "cuda,cooperative" --release 2>&1 | tail -1
+cargo build -p ringkernel-txmon --release --features cuda-codegen 2>&1 | tail -1
 
 # ─── Warmup ───────────────────────────────────────────────────────────
 echo ""
