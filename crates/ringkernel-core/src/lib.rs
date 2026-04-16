@@ -61,6 +61,7 @@ pub mod hlc;
 pub mod hybrid;
 pub mod k2k;
 pub mod memory;
+pub mod memory_pressure;
 pub mod message;
 pub mod multi_gpu;
 pub mod observability;
