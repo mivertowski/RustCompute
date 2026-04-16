@@ -225,7 +225,7 @@ fn generate_cuda_kernel(kernel: &KernelInfo) -> CliResult<String> {
         use ringkernel_cuda_codegen::{transpile_ring_kernel, RingKernelConfig};
 
         let config =
-            RingKernelConfig::new(&kernel.name).with_block_size(kernel.block_size as usize);
+            RingKernelConfig::new(&kernel.name).with_block_size(kernel.block_size);
 
         match transpile_ring_kernel(&kernel.function, &config) {
             Ok(code) => return Ok(code),
