@@ -354,8 +354,40 @@ pub struct PersistentControlBlock {
     /// K2K messages received.
     pub k2k_messages_received: u64,
 
-    /// Reserved for future use (15 u64s = 120 bytes to reach 256 total).
-    pub _reserved: [u64; 15],
+    // === Actor Lifecycle (Phase B) ===
+    /// Actor state (see ActorState enum: 0=Dormant, 2=Active, etc.).
+    pub actor_state: u32,
+    /// Parent actor block index (0 = root / no parent).
+    pub parent_actor: u32,
+    /// Number of restarts for this actor.
+    pub restart_count: u32,
+    /// Padding.
+    pub _pad2: u32,
+    /// Last heartbeat timestamp (nanoseconds since kernel start).
+    pub last_heartbeat_ns: u64,
+
+    // === Backpressure / Flow Control ===
+    /// Input queue pressure: 0-255 (0=empty, 255=full).
+    /// Producer should check this before enqueue. If > backpressure_threshold,
+    /// the producer should slow down or apply rate limiting.
+    pub queue_pressure: u32,
+    /// Backpressure threshold (0-255). Default 200 (~78% full).
+    pub backpressure_threshold: u32,
+    /// Messages dropped due to queue full (overflow counter).
+    pub messages_dropped: u64,
+
+    // === Per-Actor Metrics ===
+    /// Cumulative processing time in nanoseconds (for latency computation).
+    pub total_processing_ns: u64,
+    /// Maximum single-message processing time in nanoseconds.
+    pub max_processing_ns: u64,
+    /// Current input queue depth (for monitoring).
+    pub input_queue_depth: u32,
+    /// Current output queue depth.
+    pub output_queue_depth: u32,
+
+    /// Reserved for future use (7 u64s = 56 bytes to reach 256 total).
+    pub _reserved: [u64; 7],
 }
 
 impl Default for PersistentControlBlock {
@@ -382,7 +414,19 @@ impl Default for PersistentControlBlock {
             messages_processed: 0,
             k2k_messages_sent: 0,
             k2k_messages_received: 0,
-            _reserved: [0; 15],
+            actor_state: 0, // Dormant
+            parent_actor: 0,
+            restart_count: 0,
+            _pad2: 0,
+            last_heartbeat_ns: 0,
+            queue_pressure: 0,
+            backpressure_threshold: 200, // ~78% full = start backpressure
+            messages_dropped: 0,
+            total_processing_ns: 0,
+            max_processing_ns: 0,
+            input_queue_depth: 0,
+            output_queue_depth: 0,
+            _reserved: [0; 7],
         }
     }
 }
@@ -411,6 +455,24 @@ pub enum SimCommand {
     SetSource = 6,
     /// Query current progress.
     GetProgress = 7,
+
+    // === Actor Lifecycle Commands (Phase B) ===
+
+    /// Create (activate) an actor in the specified block slot.
+    /// param1: actor slot index (block ID), param2: parent actor slot (0 = no parent).
+    CreateActor = 16,
+    /// Destroy (deactivate) an actor in the specified block slot.
+    /// param1: actor slot index.
+    DestroyActor = 17,
+    /// Restart an actor: destroy + reinitialize + activate.
+    /// param1: actor slot index.
+    RestartActor = 18,
+    /// Heartbeat request: ask an actor to confirm liveness.
+    /// param1: actor slot index. Actor should respond via K2H.
+    HeartbeatRequest = 19,
+    /// Snapshot actor state to mapped memory for checkpointing.
+    /// param1: actor slot index, param2: snapshot buffer offset.
+    SnapshotActor = 20,
 }
 
 /// H2K message structure (host → kernel command).
@@ -497,6 +559,69 @@ impl H2KMessage {
             ..Default::default()
         }
     }
+
+    // === Actor Lifecycle Commands ===
+
+    /// Create (activate) an actor in a specific block slot.
+    ///
+    /// The supervisor (block 0) processes this command and activates the
+    /// dormant block by setting its control block `is_active = 1`.
+    pub fn create_actor(cmd_id: u64, actor_slot: u32, parent_slot: u32) -> Self {
+        Self {
+            cmd: SimCommand::CreateActor as u32,
+            cmd_id,
+            param1: actor_slot as u64,
+            param2: parent_slot,
+            ..Default::default()
+        }
+    }
+
+    /// Destroy (deactivate) an actor.
+    ///
+    /// The supervisor sets the target block's `should_terminate = 1`,
+    /// waits for it to drain, then marks it dormant.
+    pub fn destroy_actor(cmd_id: u64, actor_slot: u32) -> Self {
+        Self {
+            cmd: SimCommand::DestroyActor as u32,
+            cmd_id,
+            param1: actor_slot as u64,
+            ..Default::default()
+        }
+    }
+
+    /// Restart an actor (destroy + reinitialize + create).
+    pub fn restart_actor(cmd_id: u64, actor_slot: u32) -> Self {
+        Self {
+            cmd: SimCommand::RestartActor as u32,
+            cmd_id,
+            param1: actor_slot as u64,
+            ..Default::default()
+        }
+    }
+
+    /// Request a heartbeat from an actor.
+    ///
+    /// The target actor should respond with a K2H Ack message
+    /// containing its current state and message count.
+    pub fn heartbeat_request(cmd_id: u64, actor_slot: u32) -> Self {
+        Self {
+            cmd: SimCommand::HeartbeatRequest as u32,
+            cmd_id,
+            param1: actor_slot as u64,
+            ..Default::default()
+        }
+    }
+
+    /// Snapshot an actor's state to mapped memory for checkpointing.
+    pub fn snapshot_actor(cmd_id: u64, actor_slot: u32, buffer_offset: u32) -> Self {
+        Self {
+            cmd: SimCommand::SnapshotActor as u32,
+            cmd_id,
+            param1: actor_slot as u64,
+            param2: buffer_offset,
+            ..Default::default()
+        }
+    }
 }
 
 /// Response type from kernel to host.
@@ -513,6 +638,21 @@ pub enum ResponseType {
     Terminated = 3,
     /// Energy measurement.
     Energy = 4,
+
+    // === Actor Lifecycle Responses ===
+
+    /// Actor created successfully. param1 = actor slot.
+    ActorCreated = 16,
+    /// Actor destroyed. param1 = actor slot.
+    ActorDestroyed = 17,
+    /// Actor restarted. param1 = actor slot.
+    ActorRestarted = 18,
+    /// Actor heartbeat response. param1 = actor slot, param2 = messages_processed.
+    Heartbeat = 19,
+    /// Actor failed. param1 = actor slot, param2 = error code.
+    ActorFailed = 20,
+    /// Actor state snapshot complete. param1 = actor slot.
+    SnapshotComplete = 21,
 }
 
 /// K2H message structure (kernel → host response).
