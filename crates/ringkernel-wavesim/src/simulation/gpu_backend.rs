@@ -1,6 +1,6 @@
 //! Unified GPU backend trait for tile-based FDTD simulation.
 //!
-//! This module provides an abstraction layer over CUDA and WGPU backends,
+//! This module provides an abstraction layer over GPU backends (currently CUDA),
 //! enabling GPU-resident state with minimal host transfers.
 //!
 //! ## Design
@@ -95,7 +95,7 @@ impl FdtdParams {
     }
 }
 
-/// Unified trait for GPU backends (CUDA and WGPU).
+/// Unified trait for GPU backends (currently CUDA).
 ///
 /// Implementations must provide GPU-resident tile buffers with:
 /// - Double-buffered pressure (ping-pong)
@@ -172,7 +172,7 @@ pub trait TileGpuBackend: Send + Sync {
 
 /// GPU buffers for a single tile.
 ///
-/// Uses generic Buffer type to support both CUDA and WGPU backends.
+/// Uses generic Buffer type to support multiple GPU backends.
 pub struct TileGpuBuffers<B> {
     /// Current pressure buffer (18x18 with halos).
     pub pressure_a: B,

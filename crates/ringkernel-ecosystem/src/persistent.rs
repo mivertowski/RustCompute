@@ -9,7 +9,7 @@
 //! ```text
 //! ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
 //! │ Web Framework   │────>│ PersistentHandle │────>│ GPU Kernel      │
-//! │ (Actix/Axum)    │     │ (trait)          │     │ (CUDA/Metal)    │
+//! │ (Actix/Axum)    │     │ (trait)          │     │ (CUDA)          │
 //! └─────────────────┘     └──────────────────┘     └─────────────────┘
 //!        │                       │                        │
 //!   HTTP/WS Request        send_command()          Mapped Memory
@@ -388,7 +388,7 @@ impl PersistentConfig {
 ///
 /// This trait abstracts the persistent kernel infrastructure, allowing
 /// ecosystem integrations to work with any backend that supports persistent
-/// execution (CUDA now, potentially Metal/WebGPU in future).
+/// execution (CUDA).
 ///
 /// # Performance
 ///

@@ -44,17 +44,11 @@ use ringkernel_core::runtime::KernelId;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-// Legacy GPU compute (upload/download per step)
-#[cfg(feature = "wgpu")]
-use super::gpu_compute::{init_wgpu, TileBuffers, TileGpuComputePool};
-
-// New GPU-persistent backends using unified trait
+// GPU-persistent backends using unified trait
 #[cfg(feature = "cuda")]
 use super::cuda_compute::CudaTileBackend;
-#[cfg(any(feature = "wgpu", feature = "cuda"))]
+#[cfg(feature = "cuda")]
 use super::gpu_backend::{BoundaryCondition, Edge, FdtdParams, TileGpuBackend, TileGpuBuffers};
-#[cfg(feature = "wgpu")]
-use super::wgpu_compute::{WgpuBuffer, WgpuTileBackend};
 
 /// Default tile size (16x16 cells per tile).
 pub const DEFAULT_TILE_SIZE: u32 = 16;
@@ -502,26 +496,6 @@ impl TileActor {
     }
 }
 
-/// GPU compute resources for tile-based FDTD (wgpu feature only).
-/// This is the legacy mode with upload/download per step.
-#[cfg(feature = "wgpu")]
-struct GpuComputeResources {
-    /// Shared compute pool for all tiles.
-    pool: TileGpuComputePool,
-    /// Per-tile GPU buffers.
-    tile_buffers: HashMap<(u32, u32), TileBuffers>,
-}
-
-/// GPU-persistent state using WGPU backend.
-/// Pressure stays GPU-resident, only halos are transferred.
-#[cfg(feature = "wgpu")]
-struct WgpuPersistentState {
-    /// WGPU backend.
-    backend: WgpuTileBackend,
-    /// Per-tile GPU buffers.
-    tile_buffers: HashMap<(u32, u32), TileGpuBuffers<WgpuBuffer>>,
-}
-
 /// GPU-persistent state using CUDA backend.
 /// Pressure stays GPU-resident, only halos are transferred.
 #[cfg(feature = "cuda")]
@@ -535,8 +509,6 @@ struct CudaPersistentState {
 /// Which GPU backend is active for persistent state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GpuPersistentBackend {
-    /// WGPU (WebGPU) backend.
-    Wgpu,
     /// CUDA (NVIDIA) backend.
     Cuda,
 }
@@ -569,16 +541,6 @@ pub struct TileKernelGrid {
     /// RingKernel runtime (for kernel handle management).
     #[allow(dead_code)]
     runtime: Arc<RingKernel>,
-
-    /// Legacy GPU compute pool for tile FDTD (optional, requires wgpu feature).
-    /// This mode uploads/downloads full buffers each step.
-    #[cfg(feature = "wgpu")]
-    gpu_compute: Option<GpuComputeResources>,
-
-    /// GPU-persistent WGPU state (optional).
-    /// Pressure stays GPU-resident, only halos are transferred.
-    #[cfg(feature = "wgpu")]
-    wgpu_persistent: Option<WgpuPersistentState>,
 
     /// GPU-persistent CUDA state (optional).
     /// Pressure stays GPU-resident, only halos are transferred.
@@ -661,10 +623,6 @@ impl TileKernelGrid {
             params,
             backend,
             runtime,
-            #[cfg(feature = "wgpu")]
-            gpu_compute: None,
-            #[cfg(feature = "wgpu")]
-            wgpu_persistent: None,
             #[cfg(feature = "cuda")]
             cuda_persistent: None,
         })
@@ -707,126 +665,6 @@ impl TileKernelGrid {
         Ok(())
     }
 
-    /// Enable GPU compute for tile FDTD acceleration.
-    ///
-    /// This initializes WGPU resources and creates GPU buffers for each tile.
-    /// Once enabled, use `step_gpu()` for GPU-accelerated simulation steps.
-    #[cfg(feature = "wgpu")]
-    pub async fn enable_gpu_compute(&mut self) -> Result<()> {
-        let (device, queue) = init_wgpu().await?;
-        let pool = TileGpuComputePool::new(device, queue, self.tile_size)?;
-
-        // Create GPU buffers for each tile
-        let mut tile_buffers = HashMap::new();
-        for tile_coords in self.tiles.keys() {
-            let buffers = pool.create_tile_buffers();
-            tile_buffers.insert(*tile_coords, buffers);
-        }
-
-        let num_tiles = tile_buffers.len();
-        self.gpu_compute = Some(GpuComputeResources { pool, tile_buffers });
-
-        tracing::info!(
-            "GPU compute enabled for TileKernelGrid: {} tiles with GPU buffers",
-            num_tiles
-        );
-
-        Ok(())
-    }
-
-    /// Check if GPU compute is enabled.
-    #[cfg(feature = "wgpu")]
-    pub fn is_gpu_enabled(&self) -> bool {
-        self.gpu_compute.is_some()
-    }
-
-    /// Perform one simulation step using GPU compute for FDTD.
-    ///
-    /// This is the hybrid approach:
-    /// - K2K messaging handles halo exchange between tiles (actor model showcase)
-    /// - GPU compute shaders handle FDTD for tile interiors (parallel compute)
-    #[cfg(feature = "wgpu")]
-    pub async fn step_gpu(&mut self) -> Result<()> {
-        let gpu = self.gpu_compute.as_ref().ok_or_else(|| {
-            ringkernel_core::error::RingKernelError::BackendError(
-                "GPU compute not enabled. Call enable_gpu_compute() first.".to_string(),
-            )
-        })?;
-
-        let c2 = self.params.courant_number().powi(2);
-        let damping = 1.0 - self.params.damping;
-
-        // Phase 1: All tiles send halo data to neighbors (K2K)
-        for tile in self.tiles.values() {
-            tile.send_halos().await?;
-        }
-
-        // Phase 2: All tiles receive halo data from neighbors (K2K)
-        for tile in self.tiles.values_mut() {
-            tile.receive_halos();
-        }
-
-        // Phase 3: GPU compute FDTD for all tile interiors
-        // Each tile dispatches to GPU and reads back results
-        for ((tx, ty), tile) in self.tiles.iter_mut() {
-            if let Some(buffers) = gpu.tile_buffers.get(&(*tx, *ty)) {
-                // Get tile's pressure buffer (with halos already applied from K2K)
-                let pressure = &tile.pressure;
-                let pressure_prev = &tile.pressure_prev;
-
-                // Dispatch GPU compute
-                let result = gpu
-                    .pool
-                    .compute_fdtd(buffers, pressure, pressure_prev, c2, damping);
-
-                // Copy results back to tile's pressure_prev buffer
-                tile.pressure_prev.copy_from_slice(&result);
-            } else {
-                // Fallback to CPU if no GPU buffers (shouldn't happen)
-                tile.compute_fdtd(c2, damping);
-            }
-        }
-
-        // Phase 4: All tiles swap buffers
-        for tile in self.tiles.values_mut() {
-            tile.swap_buffers();
-        }
-
-        Ok(())
-    }
-
-    /// Enable GPU-persistent WGPU compute.
-    ///
-    /// This mode keeps pressure state GPU-resident and only transfers halos
-    /// for K2K communication. Much faster than the legacy mode which uploads
-    /// and downloads full buffers each step.
-    #[cfg(feature = "wgpu")]
-    pub async fn enable_wgpu_persistent(&mut self) -> Result<()> {
-        let backend = WgpuTileBackend::new(self.tile_size).await?;
-
-        // Create GPU buffers for each tile and upload initial state
-        let mut tile_buffers = HashMap::new();
-        for ((tx, ty), tile) in &self.tiles {
-            let buffers = backend.create_tile_buffers(self.tile_size)?;
-            // Upload initial state (all zeros typically)
-            backend.upload_initial_state(&buffers, &tile.pressure, &tile.pressure_prev)?;
-            tile_buffers.insert((*tx, *ty), buffers);
-        }
-
-        let num_tiles = tile_buffers.len();
-        self.wgpu_persistent = Some(WgpuPersistentState {
-            backend,
-            tile_buffers,
-        });
-
-        tracing::info!(
-            "WGPU GPU-persistent compute enabled for TileKernelGrid: {} tiles",
-            num_tiles
-        );
-
-        Ok(())
-    }
-
     /// Enable GPU-persistent CUDA compute.
     ///
     /// This mode keeps pressure state GPU-resident and only transfers halos
@@ -860,10 +698,6 @@ impl TileKernelGrid {
 
     /// Check if GPU-persistent mode is enabled.
     pub fn is_gpu_persistent_enabled(&self) -> bool {
-        #[cfg(feature = "wgpu")]
-        if self.wgpu_persistent.is_some() {
-            return true;
-        }
         #[cfg(feature = "cuda")]
         if self.cuda_persistent.is_some() {
             return true;
@@ -877,148 +711,7 @@ impl TileKernelGrid {
         if self.cuda_persistent.is_some() {
             return Some(GpuPersistentBackend::Cuda);
         }
-        #[cfg(feature = "wgpu")]
-        if self.wgpu_persistent.is_some() {
-            return Some(GpuPersistentBackend::Wgpu);
-        }
         None
-    }
-
-    /// Perform one simulation step using GPU-persistent WGPU compute.
-    ///
-    /// State stays GPU-resident. Only halos are transferred for K2K messaging.
-    #[cfg(feature = "wgpu")]
-    pub fn step_wgpu_persistent(&mut self) -> Result<()> {
-        let state = self.wgpu_persistent.as_ref().ok_or_else(|| {
-            ringkernel_core::error::RingKernelError::BackendError(
-                "WGPU persistent compute not enabled. Call enable_wgpu_persistent() first."
-                    .to_string(),
-            )
-        })?;
-
-        let c2 = self.params.courant_number().powi(2);
-        let damping = 1.0 - self.params.damping;
-        let fdtd_params = FdtdParams::new(self.tile_size, c2, damping);
-
-        // Phase 1: Extract halos from GPU and send via K2K
-        // Build halo messages for all tiles
-        let mut halo_messages: Vec<(KernelId, HaloDirection, Vec<f32>)> = Vec::new();
-
-        for (tx, ty) in self.tiles.keys() {
-            if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
-                // Extract halos based on tile's neighbors
-                let tile = self.tiles.get(&(*tx, *ty)).expect("tile key exists in own iterator");
-
-                if let Some(ref neighbor) = tile.neighbor_north {
-                    let halo = state.backend.extract_halo(buffers, Edge::North)?;
-                    halo_messages.push((
-                        neighbor.clone(),
-                        HaloDirection::South,
-                        halo,
-                    ));
-                }
-                if let Some(ref neighbor) = tile.neighbor_south {
-                    let halo = state.backend.extract_halo(buffers, Edge::South)?;
-                    halo_messages.push((
-                        neighbor.clone(),
-                        HaloDirection::North,
-                        halo,
-                    ));
-                }
-                if let Some(ref neighbor) = tile.neighbor_west {
-                    let halo = state.backend.extract_halo(buffers, Edge::West)?;
-                    halo_messages.push((
-                        neighbor.clone(),
-                        HaloDirection::East,
-                        halo,
-                    ));
-                }
-                if let Some(ref neighbor) = tile.neighbor_east {
-                    let halo = state.backend.extract_halo(buffers, Edge::East)?;
-                    halo_messages.push((
-                        neighbor.clone(),
-                        HaloDirection::West,
-                        halo,
-                    ));
-                }
-            }
-        }
-
-        // Phase 2: Inject halos into GPU buffers
-        // Group messages by destination tile
-        for (dest_id, direction, halo_data) in halo_messages {
-            // Find the tile coords from kernel ID
-            for (tx, ty) in self.tiles.keys() {
-                if TileActor::tile_kernel_id(*tx, *ty) == dest_id {
-                    if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
-                        let edge = match direction {
-                            HaloDirection::North => Edge::North,
-                            HaloDirection::South => Edge::South,
-                            HaloDirection::East => Edge::East,
-                            HaloDirection::West => Edge::West,
-                        };
-                        state.backend.inject_halo(buffers, edge, &halo_data)?;
-                    }
-                    break;
-                }
-            }
-        }
-
-        // Phase 3: Apply boundary conditions for domain edge tiles
-        // Tiles without neighbors on certain edges need boundary conditions applied
-        for (tx, ty) in self.tiles.keys() {
-            let tile = self.tiles.get(&(*tx, *ty)).expect("tile key exists in own iterator");
-            if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
-                // Apply absorbing boundary for edges without neighbors
-                if tile.neighbor_north.is_none() {
-                    state.backend.apply_boundary(
-                        buffers,
-                        Edge::North,
-                        BoundaryCondition::Absorbing,
-                    )?;
-                }
-                if tile.neighbor_south.is_none() {
-                    state.backend.apply_boundary(
-                        buffers,
-                        Edge::South,
-                        BoundaryCondition::Absorbing,
-                    )?;
-                }
-                if tile.neighbor_west.is_none() {
-                    state.backend.apply_boundary(
-                        buffers,
-                        Edge::West,
-                        BoundaryCondition::Absorbing,
-                    )?;
-                }
-                if tile.neighbor_east.is_none() {
-                    state.backend.apply_boundary(
-                        buffers,
-                        Edge::East,
-                        BoundaryCondition::Absorbing,
-                    )?;
-                }
-            }
-        }
-
-        // Phase 4: Compute FDTD on GPU for all tiles
-        for (tx, ty) in self.tiles.keys() {
-            if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
-                state.backend.fdtd_step(buffers, &fdtd_params)?;
-            }
-        }
-
-        // Synchronize
-        state.backend.synchronize()?;
-
-        // Phase 5: Swap buffers (pointer swap only, no data movement)
-        // NOTE: We need mutable access to state for this
-        let state = self.wgpu_persistent.as_mut().expect("wgpu_persistent state must be initialized before swap");
-        for buffers in state.tile_buffers.values_mut() {
-            state.backend.swap_buffers(buffers);
-        }
-
-        Ok(())
     }
 
     /// Perform one simulation step using GPU-persistent CUDA compute.
@@ -1116,42 +809,6 @@ impl TileKernelGrid {
         Ok(())
     }
 
-    /// Read pressure grid from GPU for visualization.
-    ///
-    /// This is the only time we transfer full tile data from GPU to host.
-    /// Call this only when you need to render the simulation.
-    #[cfg(feature = "wgpu")]
-    pub fn read_pressure_from_wgpu(&self) -> Result<Vec<Vec<f32>>> {
-        let state = self.wgpu_persistent.as_ref().ok_or_else(|| {
-            ringkernel_core::error::RingKernelError::BackendError(
-                "WGPU persistent compute not enabled.".to_string(),
-            )
-        })?;
-
-        let mut grid = vec![vec![0.0; self.width as usize]; self.height as usize];
-
-        for ((tx, ty), buffers) in &state.tile_buffers {
-            let interior = state.backend.read_interior_pressure(buffers)?;
-
-            // Copy tile interior to grid
-            let tile_start_x = tx * self.tile_size;
-            let tile_start_y = ty * self.tile_size;
-
-            for ly in 0..self.tile_size {
-                for lx in 0..self.tile_size {
-                    let gx = tile_start_x + lx;
-                    let gy = tile_start_y + ly;
-                    if gx < self.width && gy < self.height {
-                        grid[gy as usize][gx as usize] =
-                            interior[(ly * self.tile_size + lx) as usize];
-                    }
-                }
-            }
-        }
-
-        Ok(grid)
-    }
-
     /// Read pressure grid from CUDA for visualization.
     #[cfg(feature = "cuda")]
     pub fn read_pressure_from_cuda(&self) -> Result<Vec<Vec<f32>>> {
@@ -1182,37 +839,6 @@ impl TileKernelGrid {
         }
 
         Ok(grid)
-    }
-
-    /// Upload a pressure impulse to GPU-persistent state.
-    ///
-    /// For GPU-persistent mode, we need to upload the impulse to the GPU.
-    #[cfg(feature = "wgpu")]
-    pub fn inject_impulse_wgpu(&mut self, x: u32, y: u32, amplitude: f32) -> Result<()> {
-        if x >= self.width || y >= self.height {
-            return Ok(());
-        }
-
-        let (tile_x, tile_y, local_x, local_y) = self.global_to_tile_coords(x, y);
-
-        // First, update the CPU tile (for consistency)
-        if let Some(tile) = self.tiles.get_mut(&(tile_x, tile_y)) {
-            let current = tile.get_pressure(local_x, local_y);
-            tile.set_pressure(local_x, local_y, current + amplitude);
-
-            // Then upload to GPU
-            if let Some(state) = &self.wgpu_persistent {
-                if let Some(buffers) = state.tile_buffers.get(&(tile_x, tile_y)) {
-                    state.backend.upload_initial_state(
-                        buffers,
-                        &tile.pressure,
-                        &tile.pressure_prev,
-                    )?;
-                }
-            }
-        }
-
-        Ok(())
     }
 
     /// Upload a pressure impulse to CUDA GPU-persistent state.
@@ -1501,79 +1127,4 @@ mod tests {
         assert!(energy.is_finite(), "Energy should be finite");
     }
 
-    #[cfg(feature = "wgpu")]
-    #[tokio::test]
-    #[ignore] // May not have GPU
-    async fn test_tile_grid_gpu_step() {
-        let params = AcousticParams::new(343.0, 1.0);
-        let mut grid = TileKernelGrid::with_tile_size(32, 32, params, Backend::Cpu, 16)
-            .await
-            .unwrap();
-
-        // Enable GPU compute
-        grid.enable_gpu_compute().await.unwrap();
-        assert!(grid.is_gpu_enabled());
-
-        // Inject impulse at center
-        grid.inject_impulse(16, 16, 1.0);
-
-        // Run several steps using GPU
-        for _ in 0..10 {
-            grid.step_gpu().await.unwrap();
-        }
-
-        // Wave should have propagated
-        let pressure_grid = grid.get_pressure_grid();
-        let neighbor_pressure = pressure_grid[16][17];
-        assert!(
-            neighbor_pressure.abs() > 0.0,
-            "Wave should have propagated to neighbor (GPU compute)"
-        );
-    }
-
-    #[cfg(feature = "wgpu")]
-    #[tokio::test]
-    #[ignore] // May not have GPU
-    async fn test_tile_grid_gpu_matches_cpu() {
-        let params = AcousticParams::new(343.0, 1.0);
-
-        // Create two grids - one CPU, one GPU
-        let mut grid_cpu = TileKernelGrid::with_tile_size(32, 32, params.clone(), Backend::Cpu, 16)
-            .await
-            .unwrap();
-        let mut grid_gpu = TileKernelGrid::with_tile_size(32, 32, params, Backend::Cpu, 16)
-            .await
-            .unwrap();
-
-        grid_gpu.enable_gpu_compute().await.unwrap();
-
-        // Inject same impulse
-        grid_cpu.inject_impulse(16, 16, 1.0);
-        grid_gpu.inject_impulse(16, 16, 1.0);
-
-        // Run same number of steps
-        for _ in 0..5 {
-            grid_cpu.step().await.unwrap();
-            grid_gpu.step_gpu().await.unwrap();
-        }
-
-        // Results should match closely
-        let cpu_grid = grid_cpu.get_pressure_grid();
-        let gpu_grid = grid_gpu.get_pressure_grid();
-
-        for y in 0..32 {
-            for x in 0..32 {
-                let diff = (cpu_grid[y][x] - gpu_grid[y][x]).abs();
-                assert!(
-                    diff < 1e-4,
-                    "CPU/GPU mismatch at ({},{}): cpu={}, gpu={}, diff={}",
-                    x,
-                    y,
-                    cpu_grid[y][x],
-                    gpu_grid[y][x],
-                    diff
-                );
-            }
-        }
-    }
 }

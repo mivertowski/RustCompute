@@ -13,8 +13,8 @@
 //! # Create a new project with persistent actor template
 //! ringkernel new my-gpu-app --template persistent-actor
 //!
-//! # Generate CUDA and WGSL code from kernel file
-//! ringkernel codegen src/kernels/processor.rs --backend cuda,wgsl
+//! # Generate CUDA code from kernel file
+//! ringkernel codegen src/kernels/processor.rs --backend cuda
 //!
 //! # Check all kernels for backend compatibility
 //! ringkernel check --backends all
@@ -89,7 +89,7 @@ enum Commands {
         /// Source file containing kernel definitions
         file: String,
 
-        /// Target backends (comma-separated: cuda,wgsl,msl)
+        /// Target backend (cuda)
         #[arg(short, long, default_value = "cuda")]
         backend: String,
 

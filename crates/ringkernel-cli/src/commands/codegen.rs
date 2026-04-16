@@ -104,8 +104,6 @@ pub async fn execute(
 
                 let extension = match backend_name.as_str() {
                     "cuda" => "cu",
-                    "wgsl" => "wgsl",
-                    "msl" => "metal",
                     _ => "txt",
                 };
 
@@ -211,8 +209,6 @@ fn parse_ring_kernel_attr(attr: &syn::Attribute, fn_name: &syn::Ident) -> (Strin
 fn generate_kernel_code(kernel: &KernelInfo, backend: &str) -> CliResult<String> {
     match backend {
         "cuda" => generate_cuda_kernel(kernel),
-        "wgsl" => generate_wgsl_kernel(kernel),
-        "msl" => generate_msl_kernel(kernel),
         _ => Err(CliError::InvalidBackend(backend.to_string())),
     }
 }
@@ -254,58 +250,3 @@ __global__ void {}(/* parameters */) {{
     }
 }
 
-/// Generate WGSL kernel code.
-fn generate_wgsl_kernel(kernel: &KernelInfo) -> CliResult<String> {
-    #[cfg(feature = "wgpu")]
-    {
-        use ringkernel_wgpu_codegen::transpile_global_kernel;
-
-        match transpile_global_kernel(&kernel.function) {
-            Ok(code) => return Ok(code),
-            Err(e) => return Err(CliError::CodegenError(e.to_string())),
-        }
-    }
-
-    #[cfg(not(feature = "wgpu"))]
-    {
-        // Fallback: generate a placeholder
-        Ok(format!(
-            r#"// Generated WGSL kernel: {}
-// Mode: {}
-// Block size: {}
-
-// Note: Full WGSL codegen requires the 'wgpu' feature.
-// Enable with: ringkernel-cli --features wgpu
-
-@compute @workgroup_size({}, 1, 1)
-fn {}(@builtin(global_invocation_id) gid: vec3<u32>) {{
-    let tid = gid.x;
-    // Kernel implementation
-}}
-"#,
-            kernel.name, kernel.mode, kernel.block_size, kernel.block_size, kernel.name
-        ))
-    }
-}
-
-/// Generate MSL kernel code.
-fn generate_msl_kernel(kernel: &KernelInfo) -> CliResult<String> {
-    // MSL codegen via ringkernel-ir
-    Ok(format!(
-        r#"// Generated Metal Shading Language kernel: {}
-// Mode: {}
-// Block size: {}
-
-#include <metal_stdlib>
-using namespace metal;
-
-kernel void {}(
-    device float* data [[buffer(0)]],
-    uint tid [[thread_position_in_grid]]
-) {{
-    // Kernel implementation
-}}
-"#,
-        kernel.name, kernel.mode, kernel.block_size, kernel.name
-    ))
-}

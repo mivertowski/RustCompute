@@ -166,6 +166,7 @@ pub async fn execute(path: &str, backends: &str, detailed: bool) -> CliResult<()
 
 /// Compatibility issue severity.
 #[derive(Debug, PartialEq)]
+#[allow(dead_code)]
 enum Severity {
     Error,
     Warning,
@@ -207,66 +208,12 @@ fn analyze_file(
             for attr in &func.attrs {
                 if attr.path().is_ident("ring_kernel") {
                     let name = func.sig.ident.to_string();
-                    let mut compatibility: std::collections::HashMap<String, bool> =
+                    let compatibility: std::collections::HashMap<String, bool> =
                         backends.iter().map(|b| (b.clone(), true)).collect();
                     let mut issues = Vec::new();
 
                     // Check for features that might not be compatible
                     let analysis = analyze_kernel_features(func);
-
-                    // Check WGSL compatibility
-                    if backends.contains(&"wgsl".to_string()) {
-                        if analysis.uses_f64 {
-                            compatibility.insert("wgsl".to_string(), false);
-                            issues.push(CompatibilityIssue {
-                                file: file_path.to_path_buf(),
-                                line: 0, // Line info not available without span-locations
-                                kernel_name: name.clone(),
-                                message: "Uses f64 (not supported in WGSL)".to_string(),
-                                severity: Severity::Error,
-                                suggestion: Some("Convert f64 to f32 or use emulation".to_string()),
-                            });
-                        }
-
-                        if analysis.uses_64bit_atomics {
-                            issues.push(CompatibilityIssue {
-                                file: file_path.to_path_buf(),
-                                line: 0,
-                                kernel_name: name.clone(),
-                                message: "Uses 64-bit atomics (emulated in WGSL)".to_string(),
-                                severity: Severity::Warning,
-                                suggestion: Some("Performance may be reduced".to_string()),
-                            });
-                        }
-
-                        if analysis.uses_cooperative_groups {
-                            compatibility.insert("wgsl".to_string(), false);
-                            issues.push(CompatibilityIssue {
-                                file: file_path.to_path_buf(),
-                                line: 0,
-                                kernel_name: name.clone(),
-                                message: "Uses cooperative groups (not available in WGSL)"
-                                    .to_string(),
-                                severity: Severity::Error,
-                                suggestion: Some(
-                                    "Remove grid-wide synchronization or use workgroup sync"
-                                        .to_string(),
-                                ),
-                            });
-                        }
-                    }
-
-                    // Check MSL compatibility
-                    if backends.contains(&"msl".to_string()) && analysis.uses_cooperative_groups {
-                        issues.push(CompatibilityIssue {
-                            file: file_path.to_path_buf(),
-                            line: 0,
-                            kernel_name: name.clone(),
-                            message: "Uses cooperative groups (limited in Metal)".to_string(),
-                            severity: Severity::Warning,
-                            suggestion: Some("Use threadgroup_barrier instead".to_string()),
-                        });
-                    }
 
                     if detailed && issues.is_empty() {
                         // Add info about features used
@@ -298,6 +245,7 @@ fn analyze_file(
 
 /// Features detected in a kernel.
 #[derive(Debug, Default)]
+#[allow(dead_code)]
 struct KernelFeatures {
     uses_f64: bool,
     uses_64bit_atomics: bool,

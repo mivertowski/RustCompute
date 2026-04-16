@@ -148,8 +148,6 @@ fn generate_cargo_toml(
         "backends": backends,
         "features": features,
         "has_cuda": backends.contains(&"cuda".to_string()),
-        "has_wgpu": backends.contains(&"wgpu".to_string()),
-        "has_metal": backends.contains(&"msl".to_string()),
     });
 
     let content = handlebars.render("cargo_toml", &data)?;
@@ -179,7 +177,6 @@ fn generate_source_files(
         "template": template,
         "backends": backends,
         "has_cuda": backends.contains(&"cuda".to_string()),
-        "has_wgpu": backends.contains(&"wgpu".to_string()),
         "is_persistent": template == "persistent-actor" || template == "persistent",
     });
 

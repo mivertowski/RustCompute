@@ -6,11 +6,8 @@ members = [
     "crates/ringkernel-derive",
     "crates/ringkernel-cpu",
     "crates/ringkernel-cuda",
-    "crates/ringkernel-wgpu",
-    "crates/ringkernel-metal",
     "crates/ringkernel-codegen",
     "crates/ringkernel-cuda-codegen",
-    "crates/ringkernel-wgpu-codegen",
     "crates/ringkernel-ir",
     "crates/ringkernel-ecosystem",
     "crates/ringkernel-cli",
@@ -19,12 +16,16 @@ members = [
     "crates/ringkernel-txmon",
     "crates/ringkernel-accnet",
     "crates/ringkernel-procint",
-    "crates/ringkernel-wavesim3d",
     "crates/ringkernel-montecarlo",
     "crates/ringkernel-graph",
     "crates/ringkernel-python",
     "tutorials",
 ]
+# Removed from v1.0.0 (scaffolded backends, not production-ready):
+# "crates/ringkernel-wgpu"        — WebGPU: no persistent kernel support
+# "crates/ringkernel-wgpu-codegen" — WGSL: 17 unimplemented intrinsics
+# "crates/ringkernel-metal"       — Metal: no persistent kernel support
+# "crates/ringkernel-wavesim3d"   — Hard dependency on wgpu for rendering
 
 [workspace.package]
 version = "0.4.2"
@@ -35,7 +36,7 @@ repository = "https://github.com/mivertowski/RustCompute"
 homepage = "https://github.com/mivertowski/RustCompute"
 documentation = "https://docs.rs/ringkernel"
 description = "GPU-native persistent actor model framework - Rust port of DotCompute Ring Kernel"
-keywords = ["gpu", "actor", "cuda", "wgpu", "distributed"]
+keywords = ["gpu", "actor", "cuda", "persistent-kernel", "distributed"]
 categories = ["concurrency", "asynchronous", "hardware-support"]
 rust-version = "1.75"
 

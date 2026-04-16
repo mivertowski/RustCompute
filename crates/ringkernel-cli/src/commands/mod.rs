@@ -13,7 +13,7 @@ use crate::error::{CliError, CliResult};
 /// Parse a comma-separated backend list.
 pub fn parse_backends(backends: &str) -> Vec<String> {
     if backends == "all" {
-        vec!["cuda".to_string(), "wgsl".to_string(), "msl".to_string()]
+        vec!["cuda".to_string()]
     } else {
         backends
             .split(',')

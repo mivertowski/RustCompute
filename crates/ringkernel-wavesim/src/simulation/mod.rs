@@ -19,12 +19,6 @@ mod simd;
 // GPU backend abstraction and implementations
 pub mod gpu_backend;
 
-#[cfg(feature = "wgpu")]
-mod gpu_compute;
-
-#[cfg(feature = "wgpu")]
-pub mod wgpu_compute;
-
 #[cfg(feature = "cuda")]
 pub mod cuda_compute;
 
@@ -44,12 +38,6 @@ pub use tile_grid::{
 
 // GPU backend trait and types
 pub use gpu_backend::{BoundaryCondition, Edge, FdtdParams, TileGpuBackend, TileGpuBuffers};
-
-#[cfg(feature = "wgpu")]
-pub use gpu_compute::{init_wgpu, TileBuffers, TileFdtdParams, TileGpuCompute, TileGpuComputePool};
-
-#[cfg(feature = "wgpu")]
-pub use wgpu_compute::WgpuTileBackend;
 
 #[cfg(feature = "cuda")]
 pub use cuda_compute::CudaTileBackend;
