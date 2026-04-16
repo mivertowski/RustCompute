@@ -14,10 +14,12 @@ use ringkernel_core::runtime::{
     Backend, KernelHandle, KernelHandleInner, KernelId, LaunchOptions, RingKernelRuntime,
     RuntimeMetrics,
 };
+use ringkernel_core::types::KernelMode;
 
 use crate::device::CudaDevice;
 use crate::kernel::CudaKernel;
 use crate::memory::CudaMemoryPool;
+use crate::persistent::{PersistentSimulation, PersistentSimulationConfig};
 use crate::RING_KERNEL_PTX_TEMPLATE;
 
 /// CUDA runtime for RingKernel.
@@ -237,33 +239,112 @@ impl RingKernelRuntime for CudaRuntime {
             .as_ref()
             .map(|broker| broker.register(id.clone()));
 
+        // Check if this is a persistent cooperative launch
+        let use_persistent_sim =
+            options.mode == KernelMode::Persistent && options.cooperative;
+
         // Create kernel
         let auto_activate = options.auto_activate;
-        let mut kernel = CudaKernel::new(kernel_id, id_num, self.device.clone(), options)?;
+        let mut kernel = CudaKernel::new(
+            kernel_id,
+            id_num,
+            self.device.clone(),
+            options.clone(),
+        )?;
 
-        // Load PTX (using template for now)
-        kernel.load_ptx(RING_KERNEL_PTX_TEMPLATE)?;
+        if use_persistent_sim {
+            // Persistent cooperative mode: create a PersistentSimulation and
+            // attach it to the kernel. The simulation handles mapped memory
+            // allocation, H2K/K2H queues, and cooperative kernel launch.
+            let h2k_cap = options.input_queue_capacity.next_power_of_two();
+            let k2h_cap = options.output_queue_capacity.next_power_of_two();
 
-        let kernel = Arc::new(kernel);
-        self.kernels.write().insert(id.clone(), Arc::clone(&kernel));
-        self.total_launched.fetch_add(1, Ordering::Relaxed);
+            let sim_config = PersistentSimulationConfig::for_actor(
+                options.grid_size,
+                options.block_size,
+                h2k_cap,
+                k2h_cap,
+                true, // cooperative
+            );
 
-        // Auto-activate: starts actual GPU execution via cuLaunchKernel.
-        // This matches the CPU runtime behavior and makes the trait contract
-        // truthful — launch() with auto_activate=true (the default) produces
-        // a running kernel, not just a loaded one.
-        if auto_activate {
-            kernel.activate().await?;
+            let sim = PersistentSimulation::new(&self.device, sim_config)?;
+
+            // Determine PTX and function name for the persistent kernel.
+            // Use cooperative kernel PTX from build.rs if available.
+            #[cfg(feature = "cooperative")]
+            let (ptx, func_name) = {
+                let coop_ptx = crate::cooperative::cooperative_kernel_ptx();
+                if coop_ptx.is_empty() {
+                    // Fallback: use the template PTX (immediate termination)
+                    tracing::warn!(
+                        "Cooperative PTX not available (nvcc not found at build time), \
+                         falling back to template PTX"
+                    );
+                    (RING_KERNEL_PTX_TEMPLATE.to_string(), "ring_kernel_main".to_string())
+                } else {
+                    (coop_ptx.to_string(), "coop_persistent_fdtd".to_string())
+                }
+            };
+            #[cfg(not(feature = "cooperative"))]
+            let (ptx, func_name) = {
+                // Without cooperative feature, use template PTX
+                tracing::warn!(
+                    "Cooperative feature not enabled, persistent simulation will use template PTX"
+                );
+                (RING_KERNEL_PTX_TEMPLATE.to_string(), "ring_kernel_main".to_string())
+            };
+
+            // Still load PTX for the CudaKernel's module/function fields
+            // (needed for state transition to Launched)
+            kernel.load_ptx(RING_KERNEL_PTX_TEMPLATE)?;
+
+            let kernel = Arc::new(kernel);
+
+            // Attach persistent simulation and PTX to the kernel
+            kernel.set_persistent_sim(sim);
+            kernel.set_persistent_ptx(ptx, func_name);
+
+            self.kernels.write().insert(id.clone(), Arc::clone(&kernel));
+            self.total_launched.fetch_add(1, Ordering::Relaxed);
+
+            if auto_activate {
+                kernel.activate().await?;
+            }
+
+            tracing::info!(
+                kernel_id = %kernel_id,
+                k2k = %self.is_k2k_enabled(),
+                auto_activate = %auto_activate,
+                persistent_cooperative = true,
+                "Launched CUDA kernel with PersistentSimulation"
+            );
+
+            Ok(KernelHandle::new(id, kernel))
+        } else {
+            // Standard path: load template PTX
+            kernel.load_ptx(RING_KERNEL_PTX_TEMPLATE)?;
+
+            let kernel = Arc::new(kernel);
+            self.kernels.write().insert(id.clone(), Arc::clone(&kernel));
+            self.total_launched.fetch_add(1, Ordering::Relaxed);
+
+            // Auto-activate: starts actual GPU execution via cuLaunchKernel.
+            // This matches the CPU runtime behavior and makes the trait contract
+            // truthful — launch() with auto_activate=true (the default) produces
+            // a running kernel, not just a loaded one.
+            if auto_activate {
+                kernel.activate().await?;
+            }
+
+            tracing::info!(
+                kernel_id = %kernel_id,
+                k2k = %self.is_k2k_enabled(),
+                auto_activate = %auto_activate,
+                "Launched CUDA kernel"
+            );
+
+            Ok(KernelHandle::new(id, kernel))
         }
-
-        tracing::info!(
-            kernel_id = %kernel_id,
-            k2k = %self.is_k2k_enabled(),
-            auto_activate = %auto_activate,
-            "Launched CUDA kernel"
-        );
-
-        Ok(KernelHandle::new(id, kernel))
     }
 
     fn get_kernel(&self, kernel_id: &KernelId) -> Option<KernelHandle> {

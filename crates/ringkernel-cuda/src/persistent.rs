@@ -1058,6 +1058,48 @@ impl PersistentSimulationConfig {
         }
     }
 
+    /// Create a minimal config for a generic actor kernel.
+    ///
+    /// This sets up the PersistentSimulation with only the essentials needed
+    /// for message passing (H2K/K2H queues, control block). Simulation-specific
+    /// fields (pressure grids, halo buffers, acoustic parameters) use minimal
+    /// sizes since they are not used by generic actor kernels.
+    ///
+    /// # Arguments
+    ///
+    /// * `grid_size` - Number of GPU blocks (actors)
+    /// * `block_size` - Threads per block
+    /// * `h2k_capacity` - Host-to-kernel queue capacity (must be power of 2)
+    /// * `k2h_capacity` - Kernel-to-host queue capacity (must be power of 2)
+    /// * `cooperative` - Whether to use cooperative launch
+    pub fn for_actor(
+        grid_size: u32,
+        block_size: u32,
+        h2k_capacity: usize,
+        k2h_capacity: usize,
+        cooperative: bool,
+    ) -> Self {
+        // PersistentSimulation derives threads_per_block from tile_size product
+        // and num_blocks from grid_size / tile_size. To get:
+        //   - num_blocks = grid_size blocks
+        //   - threads_per_block = block_size threads per block
+        // we set tile_size = (block_size, 1, 1) and
+        // grid_size = (grid_size * block_size, 1, 1) so that
+        // num_blocks = grid_size * block_size / block_size = grid_size.
+        let gs = grid_size as usize;
+        let bs = block_size as usize;
+        Self {
+            grid_size: (gs * bs, 1, 1),
+            tile_size: (bs, 1, 1),
+            speed_of_sound: 0.0,
+            cell_size: 1.0,
+            damping: 0.0,
+            h2k_capacity,
+            k2h_capacity,
+            use_cooperative: cooperative,
+        }
+    }
+
     /// Set tile size.
     pub fn with_tile_size(mut self, tx: usize, ty: usize, tz: usize) -> Self {
         self.tile_size = (tx, ty, tz);
@@ -1414,6 +1456,13 @@ impl PersistentSimulation {
                 "Failed to read control block".to_string(),
             ))
         }
+    }
+
+    /// Send a raw H2K command to the kernel.
+    ///
+    /// This provides direct access to the H2K queue for generic actor messaging.
+    pub fn send_h2k(&self, msg: H2KMessage) -> Result<u64> {
+        self.h2k_queue.send(msg)
     }
 
     /// Inject an impulse at the given position.

@@ -1,10 +1,10 @@
-error[E0277]: the trait bound `NotCopyableState: Copy` is not satisfied
+error[E0277]: the trait bound `NotCopyableState: std::marker::Copy` is not satisfied
  --> tests/compile_fail/control_block_state_without_copy.rs:6:8
   |
 6 | struct NotCopyableState {
   |        ^^^^^^^^^^^^^^^^ unsatisfied trait bound
   |
-help: the trait `Copy` is not implemented for `NotCopyableState`
+help: the trait `std::marker::Copy` is not implemented for `NotCopyableState`
  --> tests/compile_fail/control_block_state_without_copy.rs:6:1
   |
 6 | struct NotCopyableState {
@@ -15,13 +15,13 @@ note: required by a bound in `Pod`
   | pub unsafe trait Pod: Zeroable + Copy + 'static {}
   |                                  ^^^^ required by this bound in `Pod`
 
-error[E0277]: the trait bound `NotCopyableState: Copy` is not satisfied
+error[E0277]: the trait bound `NotCopyableState: std::marker::Copy` is not satisfied
  --> tests/compile_fail/control_block_state_without_copy.rs:6:8
   |
 6 | struct NotCopyableState {
   |        ^^^^^^^^^^^^^^^^ unsatisfied trait bound
   |
-help: the trait `Copy` is not implemented for `NotCopyableState`
+help: the trait `std::marker::Copy` is not implemented for `NotCopyableState`
  --> tests/compile_fail/control_block_state_without_copy.rs:6:1
   |
 6 | struct NotCopyableState {
@@ -32,13 +32,13 @@ note: required by a bound in `EmbeddedState`
   | pub trait EmbeddedState: Pod + Zeroable + Default + Copy + Send + Sync + 'static {
   |                                                     ^^^^ required by this bound in `EmbeddedState`
 
-error[E0277]: the trait bound `NotCopyableState: Copy` is not satisfied
+error[E0277]: the trait bound `NotCopyableState: std::marker::Copy` is not satisfied
  --> tests/compile_fail/control_block_state_without_copy.rs:6:8
   |
 6 | struct NotCopyableState {
   |        ^^^^^^^^^^^^^^^^ unsatisfied trait bound
   |
-help: the trait `Copy` is not implemented for `NotCopyableState`
+help: the trait `std::marker::Copy` is not implemented for `NotCopyableState`
  --> tests/compile_fail/control_block_state_without_copy.rs:6:1
   |
 6 | struct NotCopyableState {

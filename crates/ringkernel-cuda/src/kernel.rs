@@ -22,6 +22,7 @@ use ringkernel_core::types::KernelMode;
 use crate::device::CudaDevice;
 use crate::k2k_gpu::CudaK2KBuffers;
 use crate::memory::{CudaControlBlock, CudaMessageQueue};
+use crate::persistent::PersistentSimulation;
 
 /// CUDA kernel handle.
 pub struct CudaKernel {
@@ -69,6 +70,15 @@ pub struct CudaKernel {
     unclaimed_messages: Mutex<VecDeque<MessageEnvelope>>,
     /// K2K route slot allocator (tracks which slots are in use).
     k2k_used_slots: Mutex<u8>,
+    /// Persistent simulation (when mode == Persistent && cooperative == true).
+    /// Uses Mutex because PersistentSimulation is not Send/Sync (raw pointers)
+    /// and CudaKernel is wrapped in Arc.
+    persistent_sim: Mutex<Option<PersistentSimulation>>,
+    /// PTX source for persistent cooperative kernel launch.
+    /// Stored at construction time, consumed by activate() -> sim.start().
+    persistent_ptx: Mutex<Option<String>>,
+    /// Function name for persistent cooperative kernel.
+    persistent_func_name: Mutex<Option<String>>,
 }
 
 impl CudaKernel {
@@ -110,6 +120,9 @@ impl CudaKernel {
             pending_correlations: Mutex::new(HashMap::new()),
             unclaimed_messages: Mutex::new(VecDeque::new()),
             k2k_used_slots: Mutex::new(0),
+            persistent_sim: Mutex::new(None),
+            persistent_ptx: Mutex::new(None),
+            persistent_func_name: Mutex::new(None),
         })
     }
 
@@ -162,6 +175,64 @@ impl CudaKernel {
             let mut used_slots = self.k2k_used_slots.lock();
             *used_slots &= !(1 << slot);
         }
+    }
+
+    /// Set the persistent simulation for cooperative persistent mode.
+    ///
+    /// When a PersistentSimulation is attached, `activate()` will call
+    /// `sim.start()` instead of the template-based `launch_kernel()`.
+    pub fn set_persistent_sim(&self, sim: PersistentSimulation) {
+        *self.persistent_sim.lock() = Some(sim);
+    }
+
+    /// Check if this kernel has a persistent simulation attached.
+    pub fn has_persistent_sim(&self) -> bool {
+        self.persistent_sim.lock().is_some()
+    }
+
+    /// Set PTX and function name for persistent cooperative launch.
+    ///
+    /// These are consumed by `activate()` when starting the persistent simulation.
+    pub fn set_persistent_ptx(&self, ptx: String, func_name: String) {
+        *self.persistent_ptx.lock() = Some(ptx);
+        *self.persistent_func_name.lock() = Some(func_name);
+    }
+
+    /// Send a command via the persistent simulation's H2K queue.
+    ///
+    /// Returns the command ID on success. Only available when a persistent
+    /// simulation is attached (cooperative persistent mode).
+    pub fn send_h2k(
+        &self,
+        msg: crate::persistent::H2KMessage,
+    ) -> Result<u64> {
+        let sim = self.persistent_sim.lock();
+        match sim.as_ref() {
+            Some(sim) => sim.send_h2k(msg),
+            None => Err(RingKernelError::BackendError(
+                "No persistent simulation attached".to_string(),
+            )),
+        }
+    }
+
+    /// Poll for responses from the persistent simulation's K2H queue.
+    ///
+    /// Returns all available K2H messages. Only available when a persistent
+    /// simulation is attached (cooperative persistent mode).
+    pub fn poll_k2h(&self) -> Vec<crate::persistent::K2HMessage> {
+        let sim = self.persistent_sim.lock();
+        match sim.as_ref() {
+            Some(sim) => sim.poll_responses(),
+            None => Vec::new(),
+        }
+    }
+
+    /// Get statistics from the persistent simulation.
+    ///
+    /// Returns None if no persistent simulation is attached.
+    pub fn persistent_stats(&self) -> Option<crate::persistent::PersistentSimulationStats> {
+        let sim = self.persistent_sim.lock();
+        sim.as_ref().map(|s| s.stats())
     }
 
     /// Load and compile the kernel PTX.
@@ -325,7 +396,41 @@ impl KernelHandleInner for CudaKernel {
 
         // Launch the GPU kernel if this is the first activation
         if current_state == KernelState::Launched {
-            self.launch_kernel().await?;
+            if self.has_persistent_sim() {
+                // Persistent cooperative mode: start via PersistentSimulation
+                let ptx = self.persistent_ptx.lock().take().ok_or_else(|| {
+                    RingKernelError::LaunchFailed(
+                        "No PTX set for persistent cooperative kernel".to_string(),
+                    )
+                })?;
+                let func_name =
+                    self.persistent_func_name.lock().take().ok_or_else(|| {
+                        RingKernelError::LaunchFailed(
+                            "No function name set for persistent cooperative kernel".to_string(),
+                        )
+                    })?;
+
+                // Start the persistent simulation (launches cooperative kernel on GPU)
+                let mut sim = self.persistent_sim.lock();
+                if let Some(ref mut sim) = *sim {
+                    sim.start(&ptx, &func_name)?;
+                    tracing::info!(
+                        kernel_id = %self.id,
+                        func_name = %func_name,
+                        "Started persistent cooperative kernel via PersistentSimulation"
+                    );
+                } else {
+                    return Err(RingKernelError::LaunchFailed(
+                        "PersistentSimulation was removed before activation".to_string(),
+                    ));
+                }
+
+                // Mark GPU as launched
+                self.gpu_launched.store(true, Ordering::Release);
+            } else {
+                // Standard template-based launch
+                self.launch_kernel().await?;
+            }
         }
 
         *self.state.write() = KernelState::Active;
@@ -358,32 +463,49 @@ impl KernelHandleInner for CudaKernel {
     }
 
     async fn terminate(&self) -> Result<()> {
-        // Request termination via control block
-        {
-            let cb_lock = self.control_block.write();
-            let mut cb = cb_lock.read()?;
-            cb.should_terminate = 1;
-            cb_lock.write(&cb)?;
-        }
-
         *self.state.write() = KernelState::Terminating;
 
-        // Only wait for kernel to terminate if it was actually launched on GPU
-        if self.gpu_launched.load(Ordering::Acquire) {
-            // Wait for kernel to terminate (with timeout)
-            let start = Instant::now();
-            let timeout = Duration::from_secs(5);
-
-            while start.elapsed() < timeout {
-                let cb = self.control_block.read().read()?;
-                if cb.has_terminated() {
-                    break;
+        // If we have a persistent simulation, shut it down
+        if self.has_persistent_sim() {
+            let mut sim = self.persistent_sim.lock();
+            if let Some(ref mut sim) = *sim {
+                if sim.is_running() {
+                    tracing::info!(kernel_id = %self.id, "Shutting down persistent simulation");
+                    if let Err(e) = sim.shutdown() {
+                        tracing::warn!(
+                            kernel_id = %self.id,
+                            error = %e,
+                            "Persistent simulation shutdown error (may have already terminated)"
+                        );
+                    }
                 }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        } else {
+            // Standard template-based path: request termination via control block
+            {
+                let cb_lock = self.control_block.write();
+                let mut cb = cb_lock.read()?;
+                cb.should_terminate = 1;
+                cb_lock.write(&cb)?;
             }
 
-            // Synchronize device
-            self.device.synchronize()?;
+            // Only wait for kernel to terminate if it was actually launched on GPU
+            if self.gpu_launched.load(Ordering::Acquire) {
+                // Wait for kernel to terminate (with timeout)
+                let start = Instant::now();
+                let timeout = Duration::from_secs(5);
+
+                while start.elapsed() < timeout {
+                    let cb = self.control_block.read().read()?;
+                    if cb.has_terminated() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+
+                // Synchronize device
+                self.device.synchronize()?;
+            }
         }
 
         // Mark as terminated
@@ -599,6 +721,13 @@ impl Drop for CudaKernel {
     fn drop(&mut self) {
         // Ensure kernel is terminated - only do cleanup if not already terminated
         if *self.state.read() != KernelState::Terminated {
+            // Shut down persistent simulation if present
+            if let Some(ref mut sim) = *self.persistent_sim.get_mut() {
+                if sim.is_running() {
+                    let _ = sim.shutdown();
+                }
+            }
+
             // Request termination via control block
             if let Ok(mut cb) = self.control_block.get_mut().read() {
                 cb.should_terminate = 1;
