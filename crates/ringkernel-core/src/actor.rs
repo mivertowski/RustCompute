@@ -118,12 +118,16 @@ pub enum RestartPolicy {
     },
     /// Restart the failed actor and all its siblings (children of the same parent).
     OneForAll {
+        /// Maximum restart attempts within the time window.
         max_restarts: u32,
+        /// Time window for counting restarts.
         window: Duration,
     },
     /// Restart the failed actor and all actors that were started after it.
     RestForOne {
+        /// Maximum restart attempts within the time window.
         max_restarts: u32,
+        /// Time window for counting restarts.
         window: Duration,
     },
 }
@@ -537,7 +541,7 @@ impl ActorSupervisor {
                 });
             }
 
-            RestartPolicy::OneForOne { max_restarts, .. } => {
+            RestartPolicy::OneForOne { .. } => {
                 // Restart only the failed actor
                 match self.restart_actor(failed_id, config) {
                     Ok(new_id) => {
@@ -666,13 +670,26 @@ pub enum SupervisionAction {
     /// Actor marked as failed.
     MarkedFailed(ActorId),
     /// Actor was restarted.
-    Restarted { old_id: ActorId, new_id: ActorId },
+    Restarted {
+        /// The original actor ID before restart.
+        old_id: ActorId,
+        /// The new actor ID after restart.
+        new_id: ActorId,
+    },
     /// A sibling was destroyed (OneForAll/RestForOne).
     DestroyedSibling(ActorId),
     /// All siblings destroyed, parent needs to re-create them.
-    AllSiblingsDestroyed { parent: ActorId },
+    AllSiblingsDestroyed {
+        /// Parent actor that owns the destroyed siblings.
+        parent: ActorId,
+    },
     /// Failure escalated to parent supervisor.
-    Escalated { failed: ActorId, escalated_to: Option<ActorId> },
+    Escalated {
+        /// Actor that failed.
+        failed: ActorId,
+        /// Parent supervisor the failure was escalated to.
+        escalated_to: Option<ActorId>,
+    },
 }
 
 /// Errors from actor lifecycle operations.
@@ -680,21 +697,29 @@ pub enum SupervisionAction {
 pub enum ActorError {
     /// No available actor slots in the pool.
     PoolExhausted {
+        /// Total pool capacity.
         capacity: u32,
+        /// Number of currently active actors.
         active: u32,
     },
     /// Invalid actor ID.
     InvalidId(ActorId),
     /// Invalid state transition.
     InvalidStateTransition {
+        /// Actor that attempted the invalid transition.
         actor: ActorId,
+        /// Current state of the actor.
         from: ActorState,
+        /// Attempted target state.
         to: ActorState,
     },
     /// Actor has exceeded its maximum restart budget.
     MaxRestartsExceeded {
+        /// Actor that exceeded its restart budget.
         actor: ActorId,
+        /// Number of restarts attempted.
         restarts: u32,
+        /// Maximum allowed restarts.
         max: u32,
     },
 }

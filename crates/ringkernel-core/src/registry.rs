@@ -46,18 +46,25 @@ pub struct RegistryEntry {
 pub enum RegistryEvent {
     /// A new actor was registered.
     Registered {
+        /// Symbolic name of the registered actor.
         name: String,
+        /// Kernel ID assigned to the actor.
         kernel_id: KernelId,
     },
     /// An actor was deregistered.
     Deregistered {
+        /// Symbolic name of the deregistered actor.
         name: String,
+        /// Kernel ID that was removed.
         kernel_id: KernelId,
     },
     /// An actor's registration was updated.
     Updated {
+        /// Symbolic name of the updated actor.
         name: String,
+        /// Previous kernel ID.
         old_kernel_id: KernelId,
+        /// New kernel ID.
         new_kernel_id: KernelId,
     },
 }
@@ -287,10 +294,10 @@ impl Default for ActorRegistry {
 /// `**` matches any characters including `/`.
 /// `?` matches a single character.
 fn wildcard_match(pattern: &str, text: &str) -> bool {
-    let mut p = pattern.chars().peekable();
-    let mut t = text.chars().peekable();
+    let p = pattern.chars().collect::<Vec<_>>();
+    let t = text.chars().collect::<Vec<_>>();
 
-    wildcard_match_recursive(&mut p.collect::<Vec<_>>(), &mut t.collect::<Vec<_>>(), 0, 0)
+    wildcard_match_recursive(&p, &t, 0, 0)
 }
 
 fn wildcard_match_recursive(pattern: &[char], text: &[char], pi: usize, ti: usize) -> bool {

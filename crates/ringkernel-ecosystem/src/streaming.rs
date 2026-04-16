@@ -40,11 +40,28 @@ pub struct StreamMessage {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StreamOffset {
     /// Kafka-style: topic + partition + offset.
-    Kafka { topic: String, partition: i32, offset: i64 },
+    Kafka {
+        /// Kafka topic name.
+        topic: String,
+        /// Kafka partition number.
+        partition: i32,
+        /// Offset within the partition.
+        offset: i64,
+    },
     /// Redis-style: stream name + message ID.
-    Redis { stream: String, id: String },
+    Redis {
+        /// Redis stream name.
+        stream: String,
+        /// Redis message ID.
+        id: String,
+    },
     /// NATS-style: subject + sequence.
-    Nats { subject: String, sequence: u64 },
+    Nats {
+        /// NATS subject name.
+        subject: String,
+        /// Sequence number within the subject.
+        sequence: u64,
+    },
     /// Generic sequence number.
     Sequence(u64),
 }

@@ -140,9 +140,10 @@ impl KernelReductionConfig {
 ///
 /// Mirrors `ringkernel_core::scheduling::SchedulingStrategy` for the codegen layer.
 /// Kept separate to avoid a dependency from the codegen crate on core at build time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CodegenSchedulingStrategy {
     /// Static: no dynamic scheduling (default, original behavior).
+    #[default]
     Static,
     /// Work stealing: scheduler warp steals from neighbors when idle.
     WorkStealing,
@@ -157,12 +158,6 @@ pub enum CodegenSchedulingStrategy {
         /// Number of priority levels.
         levels: u32,
     },
-}
-
-impl Default for CodegenSchedulingStrategy {
-    fn default() -> Self {
-        Self::Static
-    }
 }
 
 /// Configuration for the scheduler warp pattern in codegen.

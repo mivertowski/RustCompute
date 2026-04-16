@@ -69,6 +69,8 @@ pub struct CudaLowering {
     block_labels: HashMap<BlockId, String>,
 }
 
+// Writing to a String via fmt::Write is infallible; unwrap is safe here.
+#[allow(clippy::unwrap_used)]
 impl CudaLowering {
     /// Create a new CUDA lowering pass.
     pub fn new(config: CudaLoweringConfig) -> Self {

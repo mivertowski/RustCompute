@@ -25,7 +25,6 @@
 //! ```
 
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use std::time::Instant;
 
 /// Flow control configuration for a K2K channel.
 #[derive(Debug, Clone)]
@@ -60,7 +59,10 @@ pub enum OverflowPolicy {
     /// Block the producer until credits are available.
     Block,
     /// Buffer messages locally (up to buffer_limit).
-    Buffer { limit: u32 },
+    Buffer {
+        /// Maximum number of messages to buffer.
+        limit: u32,
+    },
     /// Drop the message and route to dead letter queue.
     DropToDlq,
     /// Drop the message silently (with metric increment).
@@ -210,13 +212,21 @@ impl FlowController {
 /// Snapshot of flow control metrics (non-atomic, for reporting).
 #[derive(Debug, Clone)]
 pub struct FlowMetricsSnapshot {
+    /// Credits currently available to the producer.
     pub credits_available: i64,
+    /// Total credits granted since creation.
     pub credits_granted: u64,
+    /// Total credits consumed since creation.
     pub credits_consumed: u64,
+    /// Number of backpressure events triggered.
     pub backpressure_events: u64,
+    /// Number of messages routed to the dead letter queue.
     pub dlq_routed: u64,
+    /// Number of messages silently dropped.
     pub dropped: u64,
+    /// Number of high water mark signals emitted.
     pub high_water_signals: u64,
+    /// Number of low water mark signals emitted.
     pub low_water_signals: u64,
 }
 

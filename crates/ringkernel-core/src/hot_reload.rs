@@ -176,7 +176,10 @@ impl HotReloadConfig {
         };
 
         // Apply the change
-        self.entries.get_mut(key).unwrap().value = new_value;
+        self.entries
+            .get_mut(key)
+            .expect("config entry must exist after contains_key check")
+            .value = new_value;
 
         // Audit trail
         self.changes.push(change);
@@ -232,8 +235,11 @@ pub enum ConfigUpdateError {
     NotReloadable(String),
     /// Value type doesn't match registered type.
     TypeMismatch {
+        /// Configuration key with the type mismatch.
         key: String,
+        /// Expected type name.
         expected: String,
+        /// Actual type name provided.
         got: String,
     },
     /// Custom validation failed.

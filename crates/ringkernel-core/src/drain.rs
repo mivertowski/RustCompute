@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::actor::{ActorId, ActorState, ActorSupervisor};
+use crate::actor::{ActorId, ActorSupervisor};
 
 /// Shutdown phase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

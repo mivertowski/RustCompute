@@ -404,6 +404,7 @@ pub struct MemoryEncryption {
 
 impl MemoryEncryption {
     /// Create a new memory encryption manager.
+    #[allow(deprecated)]
     pub fn new(config: EncryptionConfig) -> Self {
         let key_id = 1;
         let active_key = EncryptionKey::new(key_id, config.algorithm);
@@ -682,6 +683,7 @@ impl MemoryEncryption {
     }
 
     /// Rotate encryption keys.
+    #[allow(deprecated)]
     pub fn rotate_keys(&self) {
         let mut active = self.active_key.write().expect("active_key lock poisoned");
         let mut previous = self.previous_keys.write().expect("previous_keys lock poisoned");

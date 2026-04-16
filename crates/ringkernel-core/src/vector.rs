@@ -247,9 +247,17 @@ fn dot_product(a: &[f32], b: &[f32]) -> f32 {
 #[derive(Debug, Clone)]
 pub enum VectorStoreError {
     /// Vector dimension doesn't match store configuration.
-    DimensionMismatch { expected: usize, got: usize },
+    DimensionMismatch {
+        /// Expected vector dimension.
+        expected: usize,
+        /// Actual vector dimension provided.
+        got: usize,
+    },
     /// Store is full.
-    CapacityExceeded { capacity: usize },
+    CapacityExceeded {
+        /// Maximum capacity of the vector store.
+        capacity: usize,
+    },
     /// Vector not found.
     NotFound(u64),
 }

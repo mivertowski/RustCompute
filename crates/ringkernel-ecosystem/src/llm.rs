@@ -19,7 +19,7 @@
 //! ```
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// An LLM completion request.
 #[derive(Debug, Clone)]
@@ -281,7 +281,10 @@ pub enum LlmError {
     /// Provider not available.
     Unavailable(String),
     /// Rate limited.
-    RateLimited { retry_after: Duration },
+    RateLimited {
+        /// Duration to wait before retrying.
+        retry_after: Duration,
+    },
     /// Authentication failed.
     AuthError(String),
     /// Request invalid.

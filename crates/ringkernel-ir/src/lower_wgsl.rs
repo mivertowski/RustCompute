@@ -63,6 +63,8 @@ pub struct WgslLowering {
     has_f64_warning: bool,
 }
 
+// Writing to a String via fmt::Write is infallible; unwrap is safe here.
+#[allow(clippy::unwrap_used)]
 impl WgslLowering {
     /// Create a new WGSL lowering pass.
     pub fn new(config: WgslLoweringConfig) -> Self {

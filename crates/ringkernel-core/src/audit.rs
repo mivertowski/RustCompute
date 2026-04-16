@@ -1481,11 +1481,11 @@ impl AuditSink for CloudWatchSink {
     fn flush(&self) -> std::io::Result<()> {
         #[cfg(feature = "cloudwatch")]
         {
-            return self.flush_to_cloudwatch();
+            self.flush_to_cloudwatch()
         }
         #[cfg(not(feature = "cloudwatch"))]
         {
-            return self.flush_stub();
+            self.flush_stub()
         }
     }
 

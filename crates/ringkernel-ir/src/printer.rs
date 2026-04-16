@@ -11,6 +11,8 @@ pub struct IrPrinter {
     output: String,
 }
 
+// Writing to a String via fmt::Write is infallible; unwrap is safe here.
+#[allow(clippy::unwrap_used)]
 impl IrPrinter {
     /// Create a new printer.
     pub fn new() -> Self {

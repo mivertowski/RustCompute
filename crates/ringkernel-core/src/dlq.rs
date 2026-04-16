@@ -17,17 +17,37 @@ use crate::runtime::KernelId;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeadLetterReason {
     /// Message processing failed after max retries.
-    MaxRetriesExceeded { retries: u32, max: u32 },
+    MaxRetriesExceeded {
+        /// Number of retries attempted.
+        retries: u32,
+        /// Maximum retries allowed.
+        max: u32,
+    },
     /// Destination actor not found.
-    ActorNotFound { actor_name: String },
+    ActorNotFound {
+        /// Name of the actor that was not found.
+        actor_name: String,
+    },
     /// Queue was full and overflow policy is DropToDlq.
-    QueueFull { queue_capacity: usize },
+    QueueFull {
+        /// Capacity of the full queue.
+        queue_capacity: usize,
+    },
     /// Message TTL expired before delivery.
-    TtlExpired { age: Duration },
+    TtlExpired {
+        /// Age of the message when it expired.
+        age: Duration,
+    },
     /// Actor was destroyed while message was in-flight.
-    ActorDestroyed { actor_id: String },
+    ActorDestroyed {
+        /// ID of the destroyed actor.
+        actor_id: String,
+    },
     /// Explicit rejection by the actor's message handler.
-    Rejected { reason: String },
+    Rejected {
+        /// Reason for rejection.
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for DeadLetterReason {

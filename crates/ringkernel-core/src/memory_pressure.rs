@@ -142,9 +142,17 @@ pub enum AllocationResult {
     /// Allocation granted, within soft limit.
     Granted,
     /// Allocation granted, but soft limit exceeded (warning).
-    GrantedWithWarning { usage_fraction: f64 },
+    GrantedWithWarning {
+        /// Fraction of memory budget currently in use (0.0 to 1.0).
+        usage_fraction: f64,
+    },
     /// Allocation denied — would exceed hard limit.
-    Denied { requested: u64, available: u64 },
+    Denied {
+        /// Number of bytes requested.
+        requested: u64,
+        /// Number of bytes available.
+        available: u64,
+    },
 }
 
 /// Global memory pressure monitor for all actors.
