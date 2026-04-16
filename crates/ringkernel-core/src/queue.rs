@@ -60,22 +60,42 @@ pub trait MessageQueue: Send + Sync {
 
 /// Single-producer single-consumer lock-free ring buffer.
 ///
-/// This implementation is optimized for the common case of one
-/// producer (host) and one consumer (GPU kernel).
+/// This implementation is truly lock-free: no mutexes, no blocking.
+/// It uses atomic head/tail pointers with acquire/release ordering.
+/// Since SPSC has exactly one producer and one consumer, no CAS is
+/// needed — ordered loads and stores are sufficient.
+///
+/// # Memory Ordering
+///
+/// - Producer: writes data, then `Release`-stores head (publishes the write)
+/// - Consumer: `Acquire`-loads head (observes the write), reads data, then `Release`-stores tail
+/// - This matches the GPU-side H2K/K2H queue protocol (volatile + fence)
 pub struct SpscQueue {
-    /// Ring buffer storage.
-    buffer: Vec<parking_lot::Mutex<Option<MessageEnvelope>>>,
+    /// Ring buffer storage. UnsafeCell for interior mutability without Mutex.
+    /// Each slot holds an Option<MessageEnvelope>.
+    buffer: Vec<std::cell::UnsafeCell<Option<MessageEnvelope>>>,
     /// Capacity (power of 2).
     capacity: usize,
-    /// Mask for index wrapping.
+    /// Mask for index wrapping (capacity - 1).
     mask: usize,
-    /// Head pointer (producer writes here).
+    /// Head pointer (producer writes here, only modified by producer).
     head: AtomicU64,
-    /// Tail pointer (consumer reads from here).
+    /// Tail pointer (consumer reads from here, only modified by consumer).
     tail: AtomicU64,
     /// Statistics.
     stats: QueueStatsInner,
 }
+
+// SAFETY: SpscQueue is Send+Sync because:
+// - head is only written by the producer, tail only by the consumer
+// - Buffer slots are accessed with proper acquire/release ordering:
+//   slot[head] is written by producer BEFORE head is advanced (Release)
+//   slot[tail] is read by consumer AFTER head is observed > tail (Acquire)
+// - No two threads ever access the same slot simultaneously:
+//   producer writes slot[head], consumer reads slot[tail], and head != tail
+//   is guaranteed by the full check (head - tail < capacity)
+unsafe impl Send for SpscQueue {}
+unsafe impl Sync for SpscQueue {}
 
 /// Internal statistics with atomics.
 struct QueueStatsInner {
@@ -95,7 +115,7 @@ impl SpscQueue {
 
         let mut buffer = Vec::with_capacity(capacity);
         for _ in 0..capacity {
-            buffer.push(parking_lot::Mutex::new(None));
+            buffer.push(std::cell::UnsafeCell::new(None));
         }
 
         Self {
@@ -152,8 +172,8 @@ impl MessageQueue for SpscQueue {
 
     #[inline]
     fn try_enqueue(&self, envelope: MessageEnvelope) -> Result<()> {
-        let head = self.head.load(Ordering::Acquire);
-        let tail = self.tail.load(Ordering::Acquire);
+        let head = self.head.load(Ordering::Relaxed); // Only producer reads head
+        let tail = self.tail.load(Ordering::Acquire); // Need to see consumer's tail updates
 
         // Check if full
         if head.wrapping_sub(tail) >= self.capacity as u64 {
@@ -163,13 +183,19 @@ impl MessageQueue for SpscQueue {
             });
         }
 
-        // Get slot
+        // Write data to slot — safe because producer owns this slot:
+        // consumer won't read slot[head] until head is advanced below.
         let index = (head as usize) & self.mask;
-        let mut slot = self.buffer[index].lock();
-        *slot = Some(envelope);
-        drop(slot);
+        // SAFETY: No concurrent access to this slot. The consumer only reads
+        // slots where tail <= index < head (before the new head). We haven't
+        // advanced head yet, so this slot is exclusively ours.
+        unsafe {
+            *self.buffer[index].get() = Some(envelope);
+        }
 
-        // Advance head
+        // Publish: advance head with Release ordering.
+        // This ensures the data write above is visible to the consumer
+        // before the consumer sees the new head value.
         self.head.store(head.wrapping_add(1), Ordering::Release);
 
         // Update stats
@@ -181,21 +207,30 @@ impl MessageQueue for SpscQueue {
 
     #[inline]
     fn try_dequeue(&self) -> Result<MessageEnvelope> {
-        let tail = self.tail.load(Ordering::Acquire);
-        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Relaxed); // Only consumer reads tail
+        let head = self.head.load(Ordering::Acquire); // Need to see producer's head updates
 
         // Check if empty
         if head == tail {
             return Err(RingKernelError::QueueEmpty);
         }
 
-        // Get slot
+        // Read data from slot — safe because consumer owns this slot:
+        // producer won't write slot[tail] because head > tail means
+        // the producer is writing to slot[head], not slot[tail].
         let index = (tail as usize) & self.mask;
-        let mut slot = self.buffer[index].lock();
-        let envelope = slot.take().ok_or(RingKernelError::QueueEmpty)?;
-        drop(slot);
+        // SAFETY: No concurrent access to this slot. The producer writes
+        // slots at head (which is > tail), not at tail. The Acquire load
+        // of head above ensures we see the producer's data write.
+        let envelope = unsafe {
+            (*self.buffer[index].get())
+                .take()
+                .ok_or(RingKernelError::QueueEmpty)?
+        };
 
-        // Advance tail
+        // Publish: advance tail with Release ordering.
+        // This ensures the slot is logically freed before the producer
+        // sees the new tail and potentially reuses this slot.
         self.tail.store(tail.wrapping_add(1), Ordering::Release);
 
         // Update stats

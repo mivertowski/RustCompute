@@ -251,7 +251,12 @@ impl EncryptionKey {
     ///
     /// WARNING: This uses deterministic key generation and is NOT secure.
     /// Only use for testing/development without the `crypto` feature.
+    /// Enable the `crypto` feature for real AES-256-GCM encryption.
     #[cfg(not(feature = "crypto"))]
+    #[deprecated(
+        since = "0.4.3",
+        note = "Using insecure XOR-based demo encryption. Enable the `crypto` feature for real AES-256-GCM."
+    )]
     pub fn new(key_id: u64, algorithm: EncryptionAlgorithm) -> Self {
         let key_size = match algorithm {
             EncryptionAlgorithm::Aes256Gcm
@@ -481,8 +486,12 @@ impl MemoryEncryption {
     /// Encrypt a memory region (demo/fallback implementation).
     ///
     /// WARNING: Uses XOR-based simulation - NOT cryptographically secure.
-    /// Only for testing/development without the `crypto` feature.
+    /// Enable the `crypto` feature for real AES-256-GCM encryption.
     #[cfg(not(feature = "crypto"))]
+    #[deprecated(
+        since = "0.4.3",
+        note = "Using insecure XOR-based demo encryption. Enable the `crypto` feature for real AES-256-GCM."
+    )]
     pub fn encrypt_region(&self, plaintext: &[u8]) -> EncryptedRegion {
         let start = Instant::now();
 
@@ -609,7 +618,12 @@ impl MemoryEncryption {
     /// Decrypt a memory region (demo/fallback implementation).
     ///
     /// WARNING: Uses XOR-based simulation - NOT cryptographically secure.
+    /// Enable the `crypto` feature for real AES-256-GCM decryption.
     #[cfg(not(feature = "crypto"))]
+    #[deprecated(
+        since = "0.4.3",
+        note = "Using insecure XOR-based demo decryption. Enable the `crypto` feature for real AES-256-GCM."
+    )]
     pub fn decrypt_region(&self, region: &EncryptedRegion) -> Result<Vec<u8>, String> {
         let start = Instant::now();
 

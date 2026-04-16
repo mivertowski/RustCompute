@@ -238,6 +238,7 @@ impl RingKernelRuntime for CudaRuntime {
             .map(|broker| broker.register(id.clone()));
 
         // Create kernel
+        let auto_activate = options.auto_activate;
         let mut kernel = CudaKernel::new(kernel_id, id_num, self.device.clone(), options)?;
 
         // Load PTX (using template for now)
@@ -247,9 +248,18 @@ impl RingKernelRuntime for CudaRuntime {
         self.kernels.write().insert(id.clone(), Arc::clone(&kernel));
         self.total_launched.fetch_add(1, Ordering::Relaxed);
 
+        // Auto-activate: starts actual GPU execution via cuLaunchKernel.
+        // This matches the CPU runtime behavior and makes the trait contract
+        // truthful — launch() with auto_activate=true (the default) produces
+        // a running kernel, not just a loaded one.
+        if auto_activate {
+            kernel.activate().await?;
+        }
+
         tracing::info!(
             kernel_id = %kernel_id,
             k2k = %self.is_k2k_enabled(),
+            auto_activate = %auto_activate,
             "Launched CUDA kernel"
         );
 
