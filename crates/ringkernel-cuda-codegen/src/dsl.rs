@@ -4,6 +4,15 @@
 //! These functions have CPU fallback implementations for testing but are transpiled
 //! to the corresponding CUDA operations when used in kernel code.
 //!
+//! # Marker Function Pattern
+//!
+//! All functions in this module are transpiler markers. During transpilation by the
+//! `ringkernel-cuda-codegen` transpiler, they are replaced with their CUDA equivalents.
+//! Unlike the WGSL backend (`ringkernel-wgpu-codegen`), every function here provides a
+//! CPU fallback so kernel logic can be unit-tested without a GPU. Note that atomic
+//! operation fallbacks are NOT thread-safe -- they use simple read-modify-write and are
+//! only suitable for single-threaded CPU testing.
+//!
 //! Common functions (thread indices, basic math, synchronization) are shared with
 //! the WGSL backend via `ringkernel_codegen::dsl_common`.
 //!
