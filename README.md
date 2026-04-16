@@ -4,21 +4,59 @@
 [![Documentation](https://docs.rs/ringkernel-core/badge.svg)](https://docs.rs/ringkernel-core)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-1416%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1496%20passed-brightgreen.svg)]()
 
 A GPU-native persistent actor model framework for Rust.
 
-RingKernel treats GPU compute units as long-running actors that maintain state between invocations. Instead of launching kernels per-operation, kernels persist on the GPU, communicate via lock-free queues, and process messages continuously.
+RingKernel treats GPU thread blocks as long-running actors that maintain state, communicate via lock-free queues, and manage lifecycle (create, destroy, restart, supervise) — all within a single persistent kernel launch. No kernel re-launch overhead. No host round-trip for inter-actor messaging.
+
+## What's Proven (H100 Benchmarks)
+
+Measured on NVIDIA H100 NVL with locked clocks, exclusive compute mode, and statistical rigor (95% CI, Cohen's d, Welch's t-test). Full data in [`docs/benchmarks/ACADEMIC_PROOF.md`](docs/benchmarks/ACADEMIC_PROOF.md).
+
+| Metric | Value | vs Baseline |
+|--------|-------|-------------|
+| Persistent actor command injection | **55 ns** | 8,698x faster than cuLaunchKernel |
+| vs CUDA Graphs (best traditional) | **0.2 us total** | 3,005x faster than graph replay |
+| Sustained throughput (60 seconds) | **5.54M ops/s** | CV 0.05%, zero degradation |
+| Cluster sync (H100 Hopper) | **0.628 us/sync** | 2.98x faster than grid.sync() |
+| Zero-copy serialization | **0.544 ns** | Sub-nanosecond pointer cast |
+| Actor create (on-GPU) | **163 us** | Erlang-style, no kernel re-launch |
+| Actor restart (on-GPU) | **197 us** | State reset + reactivation |
+| Streaming pipeline | **610K events/s** | 4-stage GPU-native pipeline |
+| WaveSim3D GPU stencil | **78K Mcells/s** | 217.9x vs CPU (40-core EPYC) |
+| Async memory alloc | **878 ns** | 116.9x vs cuMemAlloc |
 
 ## Key Capabilities
 
-- **Persistent GPU-resident kernels** that maintain state across invocations
-- **Lock-free message queues** for host-GPU and kernel-to-kernel communication
-- **Hybrid Logical Clocks (HLC)** for causal ordering across distributed operations
-- **Multiple GPU backends**: CPU (always available), CUDA (cudarc 0.18.2), WebGPU (wgpu 27.0), Metal (experimental)
-- **Rust-to-GPU transpilers** for writing CUDA and WGSL kernels in a Rust DSL
-- **Zero-copy serialization** via rkyv for efficient GPU data transfer
-- **Enterprise features**: authentication, rate limiting, TLS/mTLS, multi-tenancy, observability
+- **Persistent GPU kernels** that run for the entire application lifetime
+- **Actor lifecycle on GPU**: create, destroy, restart, supervise — within a single kernel launch
+- **Lock-free SPSC queues**: truly lock-free (atomic head/tail, no mutexes), 55 ns per message
+- **Thread Block Clusters** (H100): DSMEM messaging, cluster.sync(), Green Contexts
+- **Hybrid Logical Clocks** for causal ordering (30 ns/tick)
+- **Rust-to-GPU transpilers**: CUDA codegen (155+ intrinsics), WGSL codegen
+- **Enterprise features**: auth, rate limiting, TLS, multi-tenancy, NVTX profiling
+- **Actor infrastructure**: supervision trees, named registry, backpressure, dead letter queue, memory pressure handling
+
+## Honest Assessment
+
+**What works well:**
+- CUDA persistent kernel execution is production-quality
+- Lock-free queues are fast and stable (sub-100ns, 0.05% CV over 60s)
+- Hopper features (clusters, DSMEM, Green Contexts) are verified on H100
+- Actor lifecycle (create/destroy/restart/supervise) works end-to-end on GPU
+
+**What's partial or limited:**
+- `CudaRuntime::launch()` fires a real GPU kernel (auto-activate), but the PTX template is generic — custom user kernels require the codegen path or `PersistentSimulation` directly
+- WebGPU and Metal backends are scaffolds — they have runtime infrastructure but no persistent kernel support (API limitation, not a bug)
+- The unified IR (`ringkernel-ir`) is built but the codegen crates bypass it (direct AST-to-backend transpilation)
+- WGSL codegen has 23 unimplemented atomic/shuffle intrinsics (blocked by WebGPU subgroup spec)
+
+**What's missing:**
+- Multi-GPU actor communication (P2P, NVLink-aware placement)
+- Dynamic work stealing on GPU (host-side scheduler exists, GPU-side is future work)
+- Fault tolerance checkpointing (actor state snapshots planned, not implemented)
+- Streaming integrations (Kafka, NATS — planned)
 
 ## Installation
 
@@ -50,7 +88,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    // Launch a persistent kernel
+    // Launch a persistent kernel (auto-activates on GPU)
     let kernel = runtime.launch("processor", LaunchOptions::default()).await?;
     println!("State: {:?}", kernel.state());
 
@@ -68,263 +106,115 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
 ```
 Host (CPU)                              Device (GPU)
-┌──────────────────────────┐           ┌──────────────────────────┐
-│  Application (async)     │           │  Control Block (128 B)   │
-│  Runtime (tokio)         │◄─ DMA ──►│  Input Queue (lock-free) │
-│  Message Bridge          │           │  Output Queue (lock-free)│
-└──────────────────────────┘           │  Persistent Kernel       │
-                                       └──────────────────────────┘
+┌──────────────────────────┐           ┌──────────────────────────────────┐
+│  Application (async)     │           │  Supervisor (Block 0)            │
+│  ActorSupervisor         │◄─ DMA ──►│  Actor Pool (Blocks 1-N)         │
+│  ActorRegistry           │           │    ├─ Control Block (256B each)  │
+│  FlowController          │           │    ├─ H2K/K2H Queues            │
+│  DeadLetterQueue         │           │    ├─ Inter-Actor Buffers        │
+│  MemoryPressureMonitor   │           │    └─ K2K Routes (device mem)    │
+└──────────────────────────┘           │  grid.sync() / cluster.sync()   │
+                                       └──────────────────────────────────┘
 ```
 
-Kernels follow a state machine: `Created → Launched → Active ⇄ Deactivated → Terminated`
+## GPU Actor Lifecycle
 
-## GPU Code Generation
+Actors on GPU follow the same lifecycle as Erlang processes:
 
-Write GPU kernels in Rust and transpile to CUDA C or WGSL. The same DSL code works with both backends.
-
-### Global Kernels
+```
+Dormant → Initializing → Active ⇄ Draining → Terminated / Failed
+```
 
 ```rust
-use ringkernel_cuda_codegen::transpile_global_kernel;
-use syn::parse_quote;
+use ringkernel_core::actor::{ActorSupervisor, ActorConfig, RestartPolicy};
 
-let kernel: syn::ItemFn = parse_quote! {
-    fn saxpy(x: &[f32], y: &mut [f32], a: f32, n: i32) {
-        let idx = block_idx_x() * block_dim_x() + thread_idx_x();
-        if idx >= n { return; }
-        y[idx as usize] = a * x[idx as usize] + y[idx as usize];
-    }
-};
+let mut supervisor = ActorSupervisor::new(128); // 127 actor slots + 1 supervisor
 
-let cuda_code = transpile_global_kernel(&kernel)?;
+// Create actors
+let config = ActorConfig::named("sensor-reader")
+    .with_restart_policy(RestartPolicy::OneForOne {
+        max_restarts: 3,
+        window: Duration::from_secs(60),
+    });
+let actor = supervisor.create_actor(&config, None)?;
+supervisor.activate_actor(actor)?;
+
+// Create child actors
+let child = supervisor.create_actor(&child_config, Some(actor))?;
+
+// Cascading kill (Erlang-style)
+supervisor.kill_tree(actor); // Kills actor and all descendants
+
+// Named registry for service discovery
+let mut registry = ActorRegistry::new();
+registry.register("isa_ontology", kernel_id);
+let actor = registry.lookup("standards/isa/*"); // Wildcard patterns
 ```
-
-### Stencil Kernels
-
-```rust
-use ringkernel_cuda_codegen::{transpile_stencil_kernel, StencilConfig};
-
-let kernel: syn::ItemFn = parse_quote! {
-    fn fdtd(p: &[f32], p_prev: &mut [f32], c2: f32, pos: GridPos) {
-        let lap = pos.north(p) + pos.south(p) + pos.east(p) + pos.west(p) - 4.0 * p[pos.idx()];
-        p_prev[pos.idx()] = 2.0 * p[pos.idx()] - p_prev[pos.idx()] + c2 * lap;
-    }
-};
-
-let config = StencilConfig::new("fdtd").with_tile_size(16, 16).with_halo(1);
-let cuda_code = transpile_stencil_kernel(&kernel, &config)?;
-```
-
-### Ring Kernels (Persistent Actor Model)
-
-```rust
-use ringkernel_cuda_codegen::{transpile_ring_kernel, RingKernelConfig};
-
-let handler: syn::ItemFn = parse_quote! {
-    fn process(ctx: &RingContext, msg: &Request) -> Response {
-        let tid = ctx.global_thread_id();
-        ctx.sync_threads();
-        Response { value: msg.value * 2.0, id: tid as u64 }
-    }
-};
-
-let config = RingKernelConfig::new("processor")
-    .with_block_size(128)
-    .with_queue_capacity(1024)
-    .with_envelope_format(true)
-    .with_hlc(true)
-    .with_k2k(true);
-
-let cuda_code = transpile_ring_kernel(&handler, &config)?;
-```
-
-The DSL supports 120+ GPU intrinsics across 13 categories: atomics, warp operations, synchronization, math, trigonometric, memory, and more.
-
-## Messaging
-
-### Kernel-to-Kernel (K2K)
-
-```rust
-let runtime = CpuRuntime::new().await?;
-let broker = runtime.k2k_broker().unwrap();
-let receipt = broker.send(source_id, dest_id, envelope).await?;
-```
-
-### Pub/Sub with Wildcards
-
-```rust
-let broker = PubSubBroker::new(PubSubConfig::default());
-broker.subscribe(kernel_id, Topic::new("sensors/+/temperature"));
-broker.publish(Topic::new("sensors/room1/temperature"), sender, envelope, timestamp)?;
-```
-
-### Hybrid Logical Clocks
-
-```rust
-let clock = HlcClock::new(node_id);
-let ts1 = clock.tick();
-let ts2 = clock.tick();
-assert!(ts1 < ts2);
-
-// Synchronize with remote timestamp
-let synced = clock.update(&remote_ts)?;
-```
-
-## Proc Macros
-
-```rust
-use ringkernel::prelude::*;
-
-#[derive(RingMessage)]
-#[message(type_id = 1)]
-struct ComputeRequest {
-    #[message(id)]
-    id: MessageId,
-    data: Vec<f32>,
-}
-
-#[derive(GpuType)]
-struct Matrix4x4 {
-    data: [f32; 16],
-}
-```
-
-## Backends
-
-| Backend | Status | Platforms | Requirements |
-|---------|--------|-----------|--------------|
-| CPU | Stable | All | None |
-| CUDA | Stable | Linux, Windows | NVIDIA GPU, CUDA 12.x, cudarc 0.18.2 |
-| WebGPU | Stable | All | Vulkan/Metal/DX12 capable GPU, wgpu 27.0 |
-| Metal | Experimental | macOS, iOS | Apple GPU, metal-rs 0.31 |
-
-## Enterprise Features
-
-Enable with `features = ["enterprise"]` on `ringkernel-core`:
-
-- **Authentication**: API key, JWT (RS256/HS256), chained providers
-- **Authorization**: RBAC with policy evaluation, fine-grained resource rules
-- **Rate Limiting**: Token bucket, sliding window, leaky bucket algorithms
-- **Multi-tenancy**: Tenant context, resource quotas, usage tracking
-- **TLS/mTLS**: Certificate management with hot reload, SNI, session resumption
-- **K2K Encryption**: AES-256-GCM and ChaCha20-Poly1305 for kernel-to-kernel messages
-- **Observability**: Prometheus export, OTLP tracing, structured logging, alert routing
-- **Resilience**: Circuit breaker, degradation manager, kernel watchdog, automatic recovery
 
 ## Crate Structure
 
-| Crate | Purpose |
-|-------|---------|
-| `ringkernel` | Main facade, re-exports core + derive + backends |
-| `ringkernel-core` | Core traits, HLC, K2K, PubSub, queues, enterprise features |
-| `ringkernel-derive` | Proc macros (`#[derive(RingMessage)]`, `#[ring_kernel]`, `#[derive(GpuType)]`) |
-| `ringkernel-cpu` | CPU backend with mock GPU testing infrastructure |
-| `ringkernel-cuda` | NVIDIA CUDA backend: cooperative groups, profiling, reduction, memory pools, streams |
-| `ringkernel-wgpu` | WebGPU cross-platform backend |
-| `ringkernel-metal` | Apple Metal backend (experimental) |
-| `ringkernel-codegen` | Shared GPU code generation infrastructure and DSL marker functions |
-| `ringkernel-cuda-codegen` | Rust-to-CUDA transpiler (global, stencil, ring kernel types) |
-| `ringkernel-wgpu-codegen` | Rust-to-WGSL transpiler |
-| `ringkernel-ir` | Unified IR for multi-backend codegen (CUDA/WGSL/MSL) |
-| `ringkernel-ecosystem` | Framework integrations: Actix, Axum, Tower, gRPC, Arrow, Polars |
-| `ringkernel-cli` | CLI for scaffolding, codegen, and validation |
-| `ringkernel-python` | Python bindings via PyO3 with async/await support |
-| `ringkernel-montecarlo` | Monte Carlo primitives: Philox RNG, variance reduction techniques |
-| `ringkernel-graph` | Graph algorithms: CSR, BFS, SCC, Union-Find, SpMV |
-
-## Showcase Applications
-
-| Application | Description | Command |
-|-------------|-------------|---------|
-| **WaveSim** | 2D acoustic wave simulation with tile-based FDTD | `cargo run -p ringkernel-wavesim --release` |
-| **WaveSim3D** | 3D wave simulation with persistent GPU actors and binaural audio | `cargo run -p ringkernel-wavesim3d --release` |
-| **TxMon** | Real-time GPU-accelerated transaction fraud detection | `cargo run -p ringkernel-txmon --release --features cuda-codegen` |
-| **AccNet** | Accounting network analytics with fraud and GAAP compliance | `cargo run -p ringkernel-accnet --release` |
-| **ProcInt** | Process intelligence with DFG mining and conformance checking | `cargo run -p ringkernel-procint --release` |
-
-## Performance
-
-Benchmarked on NVIDIA RTX Ada hardware:
-
-| Metric | Value |
-|--------|-------|
-| CUDA codegen throughput | ~93B elem/sec (12,378x vs CPU) |
-| Message queue throughput | ~75M ops/sec |
-| Host-to-device bandwidth | ~7.6 GB/s (PCIe 4.0) |
-| HLC timestamp generation | <10ns per tick |
-| Persistent actor inject latency | 0.03 us (11,327x faster than traditional kernel launch) |
-| WaveSim GPU vs CPU (512x512) | 9.9x speedup |
-| WaveSim3D GPU stencil (64^3) | 78,046 Mcells/s (280x vs CPU) |
-
-## CLI
-
-```bash
-cargo install ringkernel-cli
-
-ringkernel new my-gpu-app --template persistent-actor
-ringkernel codegen src/kernels/processor.rs --backend cuda,wgsl
-ringkernel check --backends all
-```
-
-## Python Bindings
-
-```python
-import ringkernel
-import asyncio
-
-async def main():
-    runtime = await ringkernel.RingKernel.create(backend="cpu")
-    kernel = await runtime.launch("processor", ringkernel.LaunchOptions())
-    await kernel.terminate()
-    await runtime.shutdown()
-
-asyncio.run(main())
-```
+| Crate | Purpose | Status |
+|-------|---------|--------|
+| `ringkernel` | Main facade | Stable |
+| `ringkernel-core` | Core traits, actor lifecycle, HLC, K2K, queues, enterprise | Stable |
+| `ringkernel-derive` | Proc macros (`#[derive(RingMessage)]`, `#[ring_kernel]`) | Stable |
+| `ringkernel-cpu` | CPU backend (testing, fallback) | Stable |
+| `ringkernel-cuda` | NVIDIA CUDA: persistent kernels, Hopper features, cooperative groups | **Stable, H100-verified** |
+| `ringkernel-wgpu` | WebGPU cross-platform backend | Scaffold |
+| `ringkernel-metal` | Apple Metal backend | Scaffold |
+| `ringkernel-cuda-codegen` | Rust-to-CUDA transpiler (155+ intrinsics) | Stable |
+| `ringkernel-wgpu-codegen` | Rust-to-WGSL transpiler | Partial (23 atomic stubs) |
+| `ringkernel-ir` | Unified IR for multi-backend codegen | Built, underutilized |
+| `ringkernel-ecosystem` | Actix, Axum, Tower, gRPC, Arrow, Polars integrations | Stable |
+| `ringkernel-cli` | CLI scaffolding and codegen | Stable |
+| `ringkernel-montecarlo` | Philox RNG, variance reduction | Stable |
+| `ringkernel-graph` | CSR, BFS, SCC, Union-Find, SpMV | Stable |
 
 ## Testing
 
 ```bash
-cargo test --workspace                    # 1416 tests, 96 GPU-only ignored
-cargo test -p ringkernel-core             # Core: 525+ tests incl. property-based
-cargo bench --package ringkernel          # Benchmarks
+cargo test --workspace                    # 1,496 tests, 0 failures
+cargo test -p ringkernel-core             # 592 core tests
+cargo test -p ringkernel-cuda \
+  --features "cuda,cooperative" \
+  --release -- --ignored                  # 31 GPU tests on CUDA hardware
+cargo bench --package ringkernel          # Criterion benchmarks
 ```
 
-## Examples
+## Roadmap
 
-```bash
-# Basic
-cargo run -p ringkernel --example basic_hello_kernel
-cargo run -p ringkernel --example kernel_to_kernel
+### Completed (this release)
+- [x] Persistent cooperative kernel execution (CUDA)
+- [x] Lock-free SPSC/MPSC queues (truly lock-free, no mutexes)
+- [x] Hopper Thread Block Clusters, DSMEM, TMA, Green Contexts
+- [x] GPU actor lifecycle (create/destroy/restart/supervise)
+- [x] Named actor registry with wildcard service discovery
+- [x] Credit-based backpressure and dead letter queue
+- [x] GPU memory pressure handling (budgets, mitigation)
+- [x] Dynamic scheduling (work stealing protocol)
+- [x] Async memory pool (116.9x faster than cuMemAlloc)
+- [x] NVTX profiling, Chrome trace export, memory tracking
+- [x] Paper-quality H100 benchmarks with statistical analysis
 
-# CUDA codegen
-cargo run -p ringkernel --example global_kernel
-cargo run -p ringkernel --example stencil_kernel
-cargo run -p ringkernel --example ring_kernel_codegen
-
-# WebGPU
-cargo run -p ringkernel --example wgpu_hello --features wgpu
-
-# Integration
-cargo run -p ringkernel --example axum_api
-cargo run -p ringkernel --example grpc_server
-```
+### Next
+- [ ] Multi-GPU P2P actor communication (NVLink, NVSHMEM)
+- [ ] GPU-side work stealing within persistent kernel
+- [ ] State checkpointing and fault recovery
+- [ ] Route codegen through unified IR
+- [ ] Streaming integrations (Kafka, NATS, Redis Streams)
+- [ ] LLM provider bridge (OpenAI, Anthropic, local models)
+- [ ] Vector store / GPU-resident embedding index
+- [ ] WebGPU event-driven actor mode
+- [ ] Blackwell (B200) Cluster Launch Control
 
 ## Documentation
 
+- **Academic proof**: [`docs/benchmarks/ACADEMIC_PROOF.md`](docs/benchmarks/ACADEMIC_PROOF.md) — H100 empirical evidence
+- **Benchmark data**: [`docs/benchmarks/h100-b200-baseline.md`](docs/benchmarks/h100-b200-baseline.md) — Full tables with CI
+- **Gap analysis**: [`docs/superpowers/GAP_ANALYSIS.md`](docs/superpowers/GAP_ANALYSIS.md) — Vision vs reality
+- **Methodology**: [`docs/benchmarks/METHODOLOGY.md`](docs/benchmarks/METHODOLOGY.md) — Statistical protocol
 - **API Reference**: [docs.rs/ringkernel](https://docs.rs/ringkernel)
-- **Guides**: [mivertowski.github.io/RustCompute](https://mivertowski.github.io/RustCompute/)
-
-## Known Limitations
-
-- Metal backend is experimental (no persistent kernels yet)
-- WebGPU lacks 64-bit atomics (WGSL limitation)
-- Persistent kernel mode requires CUDA compute capability 7.0+
-- Cooperative groups (`grid.sync()`) requires CC 6.0+ and `cooperative` feature flag
 
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
-
-## Contributing
-
-Contributions welcome. Priority areas: Metal backend completion, additional examples, performance optimization, and hardware testing. Please open an issue to discuss significant changes before submitting PRs.
