@@ -213,7 +213,12 @@ fn determine_cuda_arch(nvcc: &Path) -> Vec<String> {
     }
 
     // 3. Fall back to multi-arch covering common architectures
-    println!("cargo:warning=Using multi-arch fallback (sm_75, sm_80, sm_89, sm_90)");
+    // sm_75: Turing (T4, RTX 2000)
+    // sm_80: Ampere (A100, RTX 3000)
+    // sm_89: Ada Lovelace (L40, RTX 4000)
+    // sm_90: Hopper (H100, H200)
+    // sm_100: Blackwell (B200, B300) — requires CUDA 12.8+
+    println!("cargo:warning=Using multi-arch fallback (sm_75, sm_80, sm_89, sm_90, sm_100)");
     vec![
         "-gencode".to_string(),
         "arch=compute_75,code=sm_75".to_string(),
@@ -223,6 +228,8 @@ fn determine_cuda_arch(nvcc: &Path) -> Vec<String> {
         "arch=compute_89,code=sm_89".to_string(),
         "-gencode".to_string(),
         "arch=compute_90,code=sm_90".to_string(),
+        "-gencode".to_string(),
+        "arch=compute_100,code=sm_100".to_string(),
     ]
 }
 

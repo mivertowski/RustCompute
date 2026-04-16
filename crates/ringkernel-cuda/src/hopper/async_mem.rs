@@ -43,7 +43,34 @@ impl Default for AsyncPoolConfig {
         Self {
             initial_size: 64 * 1024 * 1024,     // 64 MB
             max_size: 0,                          // Unlimited
-            release_threshold: 256 * 1024 * 1024, // 256 MB
+            // NVIDIA recommendation for persistent workloads: set high release
+            // threshold to prevent OS reclaim during sustained operation.
+            // For persistent actors that run for minutes/hours, we want to
+            // keep the pool warm — only release when truly excessive.
+            release_threshold: 1024 * 1024 * 1024, // 1 GB (high for persistent)
+        }
+    }
+}
+
+impl AsyncPoolConfig {
+    /// Configuration optimized for persistent actor workloads.
+    ///
+    /// High release threshold prevents pool shrinkage during sustained operation.
+    /// Based on NVIDIA guidance for stream-ordered allocators with persistent kernels.
+    pub fn for_persistent_actors() -> Self {
+        Self {
+            initial_size: 256 * 1024 * 1024,      // 256 MB pre-allocated
+            max_size: 0,                            // Unlimited
+            release_threshold: 4 * 1024 * 1024 * 1024, // 4 GB (very high)
+        }
+    }
+
+    /// Configuration for short-lived workloads (lower memory retention).
+    pub fn for_batch_processing() -> Self {
+        Self {
+            initial_size: 32 * 1024 * 1024,        // 32 MB
+            max_size: 0,
+            release_threshold: 128 * 1024 * 1024,  // 128 MB (release quickly)
         }
     }
 }
