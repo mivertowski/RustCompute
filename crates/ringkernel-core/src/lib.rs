@@ -84,6 +84,7 @@ pub mod state;
 pub mod telemetry;
 pub mod telemetry_pipeline;
 pub mod types;
+pub mod vector;
 
 // Enterprise modules
 pub mod alerting;

@@ -898,3 +898,253 @@ mod tests {
         sink.send(&warning).await.unwrap();
     }
 }
+
+// ============================================================================
+// FR-014: Threshold-Based Alert Triggers
+// ============================================================================
+
+/// A threshold-based alert trigger that fires when a metric crosses a threshold.
+pub struct AlertTrigger {
+    /// Trigger name.
+    pub name: String,
+    /// Metric name to watch.
+    pub metric: String,
+    /// Threshold value.
+    pub threshold: f64,
+    /// Comparison operator.
+    pub operator: ThresholdOperator,
+    /// Severity when triggered.
+    pub severity: AlertSeverity,
+    /// Minimum duration the condition must hold before triggering.
+    pub hold_duration: Duration,
+    /// Cooldown after firing (suppress repeated alerts).
+    pub cooldown: Duration,
+    /// Last triggered timestamp.
+    last_triggered: Option<Instant>,
+    /// When the condition first became true.
+    condition_start: Option<Instant>,
+}
+
+/// Comparison operator for threshold triggers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThresholdOperator {
+    /// Fire when value > threshold.
+    GreaterThan,
+    /// Fire when value >= threshold.
+    GreaterThanOrEqual,
+    /// Fire when value < threshold.
+    LessThan,
+    /// Fire when value <= threshold.
+    LessThanOrEqual,
+    /// Fire when value == threshold.
+    Equal,
+}
+
+impl AlertTrigger {
+    /// Create a new alert trigger.
+    pub fn new(
+        name: impl Into<String>,
+        metric: impl Into<String>,
+        operator: ThresholdOperator,
+        threshold: f64,
+        severity: AlertSeverity,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            metric: metric.into(),
+            threshold,
+            operator,
+            severity,
+            hold_duration: Duration::from_secs(0),
+            cooldown: Duration::from_secs(60),
+            last_triggered: None,
+            condition_start: None,
+        }
+    }
+
+    /// Set the hold duration (condition must persist this long before triggering).
+    pub fn with_hold_duration(mut self, duration: Duration) -> Self {
+        self.hold_duration = duration;
+        self
+    }
+
+    /// Set the cooldown period after triggering.
+    pub fn with_cooldown(mut self, duration: Duration) -> Self {
+        self.cooldown = duration;
+        self
+    }
+
+    /// Evaluate the trigger against a metric value.
+    ///
+    /// Returns Some(Alert) if the trigger should fire, None otherwise.
+    pub fn evaluate(&mut self, value: f64) -> Option<Alert> {
+        let condition_met = match self.operator {
+            ThresholdOperator::GreaterThan => value > self.threshold,
+            ThresholdOperator::GreaterThanOrEqual => value >= self.threshold,
+            ThresholdOperator::LessThan => value < self.threshold,
+            ThresholdOperator::LessThanOrEqual => value <= self.threshold,
+            ThresholdOperator::Equal => (value - self.threshold).abs() < f64::EPSILON,
+        };
+
+        if !condition_met {
+            self.condition_start = None;
+            return None;
+        }
+
+        // Track when condition first became true
+        let now = Instant::now();
+        if self.condition_start.is_none() {
+            self.condition_start = Some(now);
+        }
+
+        // Check hold duration
+        if let Some(start) = self.condition_start {
+            if now.duration_since(start) < self.hold_duration {
+                return None; // Condition hasn't held long enough
+            }
+        }
+
+        // Check cooldown
+        if let Some(last) = self.last_triggered {
+            if now.duration_since(last) < self.cooldown {
+                return None; // Still in cooldown
+            }
+        }
+
+        // Fire!
+        self.last_triggered = Some(now);
+        self.condition_start = None;
+
+        Some(Alert::new(
+            self.severity,
+            format!(
+                "[{}] {} {} {:.2} (threshold: {:.2})",
+                self.name, self.metric, operator_symbol(self.operator), value, self.threshold
+            ),
+        ))
+    }
+}
+
+fn operator_symbol(op: ThresholdOperator) -> &'static str {
+    match op {
+        ThresholdOperator::GreaterThan => ">",
+        ThresholdOperator::GreaterThanOrEqual => ">=",
+        ThresholdOperator::LessThan => "<",
+        ThresholdOperator::LessThanOrEqual => "<=",
+        ThresholdOperator::Equal => "==",
+    }
+}
+
+/// Alert routing rule: route alerts to specific sinks based on criteria.
+#[derive(Debug, Clone)]
+pub struct AlertRoutingRule {
+    /// Rule name.
+    pub name: String,
+    /// Match alerts with this severity or higher.
+    pub min_severity: AlertSeverity,
+    /// Match alerts containing this text (empty = match all).
+    pub message_contains: String,
+    /// Sink indices to route to.
+    pub sink_indices: Vec<usize>,
+}
+
+impl AlertRoutingRule {
+    /// Create a new routing rule.
+    pub fn new(name: impl Into<String>, min_severity: AlertSeverity) -> Self {
+        Self {
+            name: name.into(),
+            min_severity,
+            message_contains: String::new(),
+            sink_indices: Vec::new(),
+        }
+    }
+
+    /// Match alerts containing specific text.
+    pub fn with_message_filter(mut self, contains: impl Into<String>) -> Self {
+        self.message_contains = contains.into();
+        self
+    }
+
+    /// Route to specific sink indices.
+    pub fn route_to(mut self, indices: Vec<usize>) -> Self {
+        self.sink_indices = indices;
+        self
+    }
+
+    /// Check if an alert matches this rule.
+    pub fn matches(&self, alert: &Alert) -> bool {
+        if (alert.severity as u32) < (self.min_severity as u32) {
+            return false;
+        }
+        if !self.message_contains.is_empty() && !alert.title.contains(&self.message_contains) {
+            return false;
+        }
+        true
+    }
+}
+
+#[cfg(test)]
+mod trigger_tests {
+    use super::*;
+
+    #[test]
+    fn test_threshold_trigger_fires() {
+        let mut trigger = AlertTrigger::new(
+            "high_latency", "p99_latency_ms", ThresholdOperator::GreaterThan, 100.0,
+            AlertSeverity::Warning,
+        ).with_cooldown(Duration::from_millis(0)); // No cooldown for testing
+
+        // Below threshold: no alert
+        assert!(trigger.evaluate(50.0).is_none());
+
+        // Above threshold: fires
+        let alert = trigger.evaluate(150.0);
+        assert!(alert.is_some());
+        assert_eq!(alert.unwrap().severity, AlertSeverity::Warning);
+    }
+
+    #[test]
+    fn test_threshold_trigger_cooldown() {
+        let mut trigger = AlertTrigger::new(
+            "test", "metric", ThresholdOperator::GreaterThan, 10.0,
+            AlertSeverity::Critical,
+        ).with_cooldown(Duration::from_secs(60));
+
+        // First fire: OK
+        assert!(trigger.evaluate(20.0).is_some());
+
+        // Second fire: suppressed by cooldown
+        assert!(trigger.evaluate(20.0).is_none());
+    }
+
+    #[test]
+    fn test_routing_rule_matches() {
+        let rule = AlertRoutingRule::new("oncall", AlertSeverity::Critical)
+            .with_message_filter("OOM")
+            .route_to(vec![0]);
+
+        let critical_oom = Alert::new(AlertSeverity::Critical, "GPU OOM detected");
+        assert!(rule.matches(&critical_oom));
+
+        let warning = Alert::new(AlertSeverity::Warning, "GPU OOM warning");
+        assert!(!rule.matches(&warning)); // Below severity
+
+        let critical_other = Alert::new(AlertSeverity::Critical, "High latency");
+        assert!(!rule.matches(&critical_other)); // Doesn't contain "OOM"
+    }
+
+    #[test]
+    fn test_all_operators() {
+        let test = |op, val, thresh| {
+            let mut t = AlertTrigger::new("t", "m", op, thresh, AlertSeverity::Info)
+                .with_cooldown(Duration::from_millis(0));
+            t.evaluate(val).is_some()
+        };
+
+        assert!(test(ThresholdOperator::GreaterThan, 10.0, 5.0));
+        assert!(!test(ThresholdOperator::GreaterThan, 5.0, 10.0));
+        assert!(test(ThresholdOperator::LessThan, 5.0, 10.0));
+        assert!(test(ThresholdOperator::GreaterThanOrEqual, 10.0, 10.0));
+        assert!(test(ThresholdOperator::LessThanOrEqual, 10.0, 10.0));
+    }
+}

@@ -74,6 +74,16 @@ pub mod metrics;
 #[cfg(feature = "graphql")]
 pub mod graphql;
 
+/// LLM provider bridge (OpenAI, Anthropic, local models).
+pub mod llm;
+
+/// Streaming integrations (Kafka, Redis Streams, NATS).
+pub mod streaming;
+
+/// Machine learning framework bridge.
+#[cfg(feature = "candle")]
+pub mod ml_bridge;
+
 #[cfg(feature = "enterprise")]
 pub mod enterprise;
 
