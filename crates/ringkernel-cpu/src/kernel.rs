@@ -328,6 +328,9 @@ impl KernelHandleInner for CpuKernel {
 
     fn metrics(&self) -> KernelMetrics {
         let telemetry = *self.telemetry.read();
+        let state = *self.state.read();
+        let messages_sent = self.message_counter.load(Ordering::Relaxed);
+        let control = self.control.read();
         KernelMetrics {
             telemetry,
             kernel_id: self.id.to_string(),
@@ -338,6 +341,12 @@ impl KernelHandleInner for CpuKernel {
             bytes_from_device: 0,
             gpu_memory_used: 0,
             host_memory_used: 0,
+            messages_sent,
+            messages_received: control.messages_processed,
+            input_queue_depth: self.input_queue.len(),
+            output_queue_depth: self.output_queue.len(),
+            state,
+            gpu_launched: false, // CPU backend is never GPU-launched
         }
     }
 

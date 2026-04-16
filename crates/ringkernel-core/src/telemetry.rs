@@ -134,6 +134,24 @@ pub struct KernelMetrics {
 
     /// Host memory usage in bytes.
     pub host_memory_used: u64,
+
+    /// Total messages sent to this kernel.
+    pub messages_sent: u64,
+
+    /// Total messages received from this kernel.
+    pub messages_received: u64,
+
+    /// Current number of messages in the input queue.
+    pub input_queue_depth: usize,
+
+    /// Current number of messages in the output queue.
+    pub output_queue_depth: usize,
+
+    /// Current kernel state.
+    pub state: crate::runtime::KernelState,
+
+    /// Whether the kernel has been launched on the GPU.
+    pub gpu_launched: bool,
 }
 
 impl Default for KernelMetrics {
@@ -148,6 +166,12 @@ impl Default for KernelMetrics {
             bytes_from_device: 0,
             gpu_memory_used: 0,
             host_memory_used: 0,
+            messages_sent: 0,
+            messages_received: 0,
+            input_queue_depth: 0,
+            output_queue_depth: 0,
+            state: crate::runtime::KernelState::Created,
+            gpu_launched: false,
         }
     }
 }

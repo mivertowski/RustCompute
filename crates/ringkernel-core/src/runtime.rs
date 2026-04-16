@@ -387,6 +387,16 @@ pub trait RingKernelRuntime: Send + Sync {
     /// Get runtime metrics.
     fn metrics(&self) -> RuntimeMetrics;
 
+    /// Get per-kernel metrics for a specific kernel.
+    ///
+    /// Returns detailed metrics for the kernel identified by `kernel_id`,
+    /// including message counts, queue depths, uptime, state, and whether
+    /// the kernel is GPU-launched. Returns `None` if the kernel is not found.
+    fn kernel_metrics(&self, kernel_id: &KernelId) -> Option<KernelMetrics> {
+        // Default: look up the kernel handle and delegate to its metrics()
+        self.get_kernel(kernel_id).map(|handle| handle.metrics())
+    }
+
     /// Shutdown the runtime and terminate all kernels.
     async fn shutdown(&self) -> Result<()>;
 }

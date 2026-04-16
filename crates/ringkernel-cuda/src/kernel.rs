@@ -374,7 +374,18 @@ impl KernelHandleInner for CudaKernel {
     }
 
     fn metrics(&self) -> KernelMetrics {
-        self.metrics.read().clone()
+        let mut metrics = self.metrics.read().clone();
+        let state = *self.state.read();
+        let cb = self.control_block.read().read().unwrap_or_default();
+        metrics.kernel_id = self.id.to_string();
+        metrics.uptime = self.created_at.elapsed();
+        metrics.messages_sent = self.message_counter.load(Ordering::Relaxed);
+        metrics.messages_received = cb.messages_processed;
+        metrics.input_queue_depth = cb.input_queue_size() as usize;
+        metrics.output_queue_depth = cb.output_queue_size() as usize;
+        metrics.state = state;
+        metrics.gpu_launched = self.gpu_launched.load(Ordering::Relaxed);
+        metrics
     }
 
     async fn activate(&self) -> Result<()> {
