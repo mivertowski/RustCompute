@@ -10,7 +10,7 @@ use crate::error::ProcIntError;
 use super::LaunchConfig;
 
 #[cfg(feature = "cuda")]
-use cudarc::driver::{CudaDevice, LaunchAsync, LaunchConfig as CudaLaunchConfig};
+use cudarc::driver::{CudaContext, CudaFunction, LaunchConfig as CudaLaunchConfig, PushKernelArg};
 #[cfg(feature = "cuda")]
 use std::sync::Arc;
 
@@ -157,9 +157,12 @@ pub struct KernelExecutor {
     kernel_cache: std::collections::HashMap<String, CompiledKernel>,
     /// GPU usage statistics.
     pub stats: GpuStats,
-    /// CUDA device handle.
+    /// CUDA context handle.
     #[cfg(feature = "cuda")]
-    device: Option<Arc<CudaDevice>>,
+    context: Option<Arc<CudaContext>>,
+    /// Compiled function cache (function name -> CudaFunction).
+    #[cfg(feature = "cuda")]
+    func_cache: std::collections::HashMap<String, CudaFunction>,
 }
 
 impl std::fmt::Debug for KernelExecutor {
@@ -183,14 +186,15 @@ impl KernelExecutor {
     pub fn new() -> Self {
         #[cfg(feature = "cuda")]
         {
-            match CudaDevice::new(0) {
-                Ok(device) => {
+            match CudaContext::new(0) {
+                Ok(context) => {
                     log::info!("CUDA device initialized successfully");
                     Self {
                         gpu_status: GpuStatus::CudaReady,
                         kernel_cache: std::collections::HashMap::new(),
                         stats: GpuStats::default(),
-                        device: Some(device),
+                        context: Some(context),
+                        func_cache: std::collections::HashMap::new(),
                     }
                 }
                 Err(e) => {
@@ -199,7 +203,8 @@ impl KernelExecutor {
                         gpu_status: GpuStatus::CudaError,
                         kernel_cache: std::collections::HashMap::new(),
                         stats: GpuStats::default(),
-                        device: None,
+                        context: None,
+                        func_cache: std::collections::HashMap::new(),
                     }
                 }
             }
@@ -225,10 +230,10 @@ impl KernelExecutor {
         self.gpu_status == GpuStatus::CudaReady
     }
 
-    /// Get CUDA device reference.
+    /// Get CUDA context reference.
     #[cfg(feature = "cuda")]
-    pub fn device(&self) -> Option<&Arc<CudaDevice>> {
-        self.device.as_ref()
+    pub fn cuda_context(&self) -> Option<&Arc<CudaContext>> {
+        self.context.as_ref()
     }
 
     /// Compile a kernel from source using NVRTC.
@@ -243,7 +248,7 @@ impl KernelExecutor {
         }
 
         #[cfg(feature = "cuda")]
-        if let Some(device) = &self.device {
+        if let Some(context) = &self.context {
             // Compile CUDA C to PTX using NVRTC
             let ptx = cudarc::nvrtc::compile_ptx(&cuda_source).map_err(|e| {
                 ProcIntError::NvrtcCompilation {
@@ -252,18 +257,25 @@ impl KernelExecutor {
                 }
             })?;
 
-            // Load the PTX module into the device
-            // load_ptx requires 'static strings, so we use leaked Box<str>
-            let module_name: &'static str = Box::leak(kernel_name.clone().into_boxed_str());
-            let func_name: &'static str = Box::leak(entry_point.clone().into_boxed_str());
-
-            device
-                .load_ptx(ptx, module_name, &[func_name])
+            // Load the PTX module and extract the kernel function
+            let module = context
+                .load_module(ptx)
                 .map_err(|e| ProcIntError::PtxLoad {
                     kernel: kernel_name.clone(),
-                    func: func_name.to_string(),
+                    func: entry_point.clone(),
                     reason: e.to_string(),
                 })?;
+
+            let func = module
+                .load_function(&entry_point)
+                .map_err(|e| ProcIntError::PtxLoad {
+                    kernel: kernel_name.clone(),
+                    func: entry_point.clone(),
+                    reason: e.to_string(),
+                })?;
+
+            // Cache the compiled function for later use
+            self.func_cache.insert(kernel_name.clone(), func);
 
             log::info!(
                 "Compiled and loaded CUDA kernel: {} (entry: {})",
@@ -297,7 +309,8 @@ impl KernelExecutor {
     ) -> Result<(Vec<crate::models::GpuDFGEdge>, ExecutionResult), ProcIntError> {
         use crate::models::GpuDFGEdge;
 
-        let device = self.device.as_ref().ok_or(ProcIntError::NoCudaDevice)?;
+        let context = self.context.as_ref().ok_or(ProcIntError::NoCudaDevice)?;
+        let stream = context.default_stream();
         let start = std::time::Instant::now();
 
         let n = events.len();
@@ -338,31 +351,33 @@ impl KernelExecutor {
         let edge_count = max_activities * max_activities;
 
         // Host-to-Device transfers
-        let d_sources = device
-            .htod_sync_copy(&source_activities)
+        let d_sources = stream
+            .clone_htod(&source_activities)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "sources", reason: e.to_string() })?;
-        let d_targets = device
-            .htod_sync_copy(&target_activities)
+        let d_targets = stream
+            .clone_htod(&target_activities)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "targets", reason: e.to_string() })?;
-        let d_durations = device
-            .htod_sync_copy(&durations)
+        let d_durations = stream
+            .clone_htod(&durations)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "durations", reason: e.to_string() })?;
 
         // Allocate output buffers (initialized to zeros)
         let edge_frequencies = vec![0u32; edge_count];
         let edge_durations = vec![0u64; edge_count];
 
-        let d_edge_freq = device
-            .htod_sync_copy(&edge_frequencies)
+        let mut d_edge_freq = stream
+            .clone_htod(&edge_frequencies)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "edge_freq", reason: e.to_string() })?;
-        let d_edge_dur = device
-            .htod_sync_copy(&edge_durations)
+        let mut d_edge_dur = stream
+            .clone_htod(&edge_durations)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "edge_dur", reason: e.to_string() })?;
 
         // Get the compiled kernel function
-        let func = device
-            .get_func("dfg_construction", "dfg_construction_kernel")
-            .ok_or_else(|| ProcIntError::KernelNotLoaded("dfg_construction".into()))?;
+        let func = self
+            .func_cache
+            .get("dfg_construction")
+            .ok_or_else(|| ProcIntError::KernelNotLoaded("dfg_construction".into()))?
+            .clone();
 
         // Launch configuration
         let block_size = 256u32;
@@ -375,36 +390,33 @@ impl KernelExecutor {
         };
 
         // Launch kernel
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size.
         unsafe {
-            func.launch(
-                config,
-                (
-                    &d_sources,
-                    &d_targets,
-                    &d_durations,
-                    &d_edge_freq,
-                    &d_edge_dur,
-                    max_activities as i32,
-                    pair_count as i32,
-                ),
-            )
-            .map_err(|e| ProcIntError::KernelLaunch { kernel: "dfg_construction", reason: e.to_string() })?;
+            stream
+                .launch_builder(&func)
+                .arg(&d_sources)
+                .arg(&d_targets)
+                .arg(&d_durations)
+                .arg(&mut d_edge_freq)
+                .arg(&mut d_edge_dur)
+                .arg(&(max_activities as i32))
+                .arg(&(pair_count as i32))
+                .launch(config)
+                .map_err(|e| ProcIntError::KernelLaunch { kernel: "dfg_construction", reason: e.to_string() })?;
         }
 
         // Synchronize - wait for kernel completion
-        device
+        context
             .synchronize()
             .map_err(|e| ProcIntError::DeviceSync(e.to_string()))?;
 
         // Device-to-Host transfers
-        let mut result_frequencies = vec![0u32; edge_count];
-        let mut result_durations = vec![0u64; edge_count];
-
-        device
-            .dtoh_sync_copy_into(&d_edge_freq, &mut result_frequencies)
+        let result_frequencies = stream
+            .clone_dtoh(&d_edge_freq)
             .map_err(|e| ProcIntError::DeviceToHost { buffer: "frequencies", reason: e.to_string() })?;
-        device
-            .dtoh_sync_copy_into(&d_edge_dur, &mut result_durations)
+        let result_durations = stream
+            .clone_dtoh(&d_edge_dur)
             .map_err(|e| ProcIntError::DeviceToHost { buffer: "durations", reason: e.to_string() })?;
 
         let elapsed = start.elapsed().as_micros() as u64;
@@ -456,7 +468,8 @@ impl KernelExecutor {
     ) -> Result<(Vec<crate::models::GpuPatternMatch>, ExecutionResult), ProcIntError> {
         use crate::models::{GpuPatternMatch, PatternSeverity, PatternType};
 
-        let device = self.device.as_ref().ok_or(ProcIntError::NoCudaDevice)?;
+        let context = self.context.as_ref().ok_or(ProcIntError::NoCudaDevice)?;
+        let stream = context.default_stream();
         let start = std::time::Instant::now();
 
         let n = nodes.len();
@@ -471,34 +484,36 @@ impl KernelExecutor {
         let outgoing_counts: Vec<u16> = nodes.iter().map(|n| n.outgoing_count).collect();
 
         // HtoD transfers
-        let d_event_counts = device
-            .htod_sync_copy(&event_counts)
+        let d_event_counts = stream
+            .clone_htod(&event_counts)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "event_counts", reason: e.to_string() })?;
-        let d_avg_durations = device
-            .htod_sync_copy(&avg_durations)
+        let d_avg_durations = stream
+            .clone_htod(&avg_durations)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "avg_durations", reason: e.to_string() })?;
-        let d_incoming = device
-            .htod_sync_copy(&incoming_counts)
+        let d_incoming = stream
+            .clone_htod(&incoming_counts)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "incoming", reason: e.to_string() })?;
-        let d_outgoing = device
-            .htod_sync_copy(&outgoing_counts)
+        let d_outgoing = stream
+            .clone_htod(&outgoing_counts)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "outgoing", reason: e.to_string() })?;
 
         // Output buffers
         let pattern_types = vec![0u8; n];
         let pattern_confidences = vec![0.0f32; n];
 
-        let d_pattern_types = device
-            .htod_sync_copy(&pattern_types)
+        let mut d_pattern_types = stream
+            .clone_htod(&pattern_types)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "pattern_types", reason: e.to_string() })?;
-        let d_pattern_conf = device
-            .htod_sync_copy(&pattern_confidences)
+        let mut d_pattern_conf = stream
+            .clone_htod(&pattern_confidences)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "pattern_conf", reason: e.to_string() })?;
 
         // Get kernel function
-        let func = device
-            .get_func("pattern_detection", "pattern_detection_kernel")
-            .ok_or_else(|| ProcIntError::KernelNotLoaded("pattern_detection".into()))?;
+        let func = self
+            .func_cache
+            .get("pattern_detection")
+            .ok_or_else(|| ProcIntError::KernelNotLoaded("pattern_detection".into()))?
+            .clone();
 
         // Launch configuration
         let block_size = 256u32;
@@ -511,37 +526,34 @@ impl KernelExecutor {
         };
 
         // Launch kernel
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size.
         unsafe {
-            func.launch(
-                config,
-                (
-                    &d_event_counts,
-                    &d_avg_durations,
-                    &d_incoming,
-                    &d_outgoing,
-                    &d_pattern_types,
-                    &d_pattern_conf,
-                    bottleneck_threshold,
-                    duration_threshold,
-                    n as i32,
-                ),
-            )
-            .map_err(|e| ProcIntError::KernelLaunch { kernel: "pattern_detection", reason: e.to_string() })?;
+            stream
+                .launch_builder(&func)
+                .arg(&d_event_counts)
+                .arg(&d_avg_durations)
+                .arg(&d_incoming)
+                .arg(&d_outgoing)
+                .arg(&mut d_pattern_types)
+                .arg(&mut d_pattern_conf)
+                .arg(&bottleneck_threshold)
+                .arg(&duration_threshold)
+                .arg(&(n as i32))
+                .launch(config)
+                .map_err(|e| ProcIntError::KernelLaunch { kernel: "pattern_detection", reason: e.to_string() })?;
         }
 
-        device
+        context
             .synchronize()
             .map_err(|e| ProcIntError::DeviceSync(e.to_string()))?;
 
         // DtoH transfers
-        let mut result_types = vec![0u8; n];
-        let mut result_confidences = vec![0.0f32; n];
-
-        device
-            .dtoh_sync_copy_into(&d_pattern_types, &mut result_types)
+        let result_types = stream
+            .clone_dtoh(&d_pattern_types)
             .map_err(|e| ProcIntError::DeviceToHost { buffer: "pattern_types", reason: e.to_string() })?;
-        device
-            .dtoh_sync_copy_into(&d_pattern_conf, &mut result_confidences)
+        let result_confidences = stream
+            .clone_dtoh(&d_pattern_conf)
             .map_err(|e| ProcIntError::DeviceToHost { buffer: "pattern_conf", reason: e.to_string() })?;
 
         let elapsed = start.elapsed().as_micros() as u64;
@@ -596,7 +608,8 @@ impl KernelExecutor {
         use crate::models::{GpuPartialOrderTrace, HybridTimestamp};
         use std::collections::HashMap;
 
-        let device = self.device.as_ref().ok_or(ProcIntError::NoCudaDevice)?;
+        let context = self.context.as_ref().ok_or(ProcIntError::NoCudaDevice)?;
+        let stream = context.default_stream();
         let start = std::time::Instant::now();
 
         // Group events by case
@@ -604,6 +617,13 @@ impl KernelExecutor {
         for event in events {
             case_events.entry(event.object_id).or_default().push(event);
         }
+
+        // Get the compiled kernel function
+        let func = self
+            .func_cache
+            .get("partial_order")
+            .ok_or_else(|| ProcIntError::KernelNotLoaded("partial_order".into()))?
+            .clone();
 
         // For each case, we'll run a GPU kernel to compute the precedence matrix
         let mut all_traces = Vec::with_capacity(case_events.len());
@@ -633,23 +653,18 @@ impl KernelExecutor {
             end_times_padded[..n].copy_from_slice(&end_times);
 
             // HtoD transfers
-            let d_start_times = device
-                .htod_sync_copy(&start_times_padded)
+            let d_start_times = stream
+                .clone_htod(&start_times_padded)
                 .map_err(|e| ProcIntError::HostToDevice { buffer: "start_times", reason: e.to_string() })?;
-            let d_end_times = device
-                .htod_sync_copy(&end_times_padded)
+            let d_end_times = stream
+                .clone_htod(&end_times_padded)
                 .map_err(|e| ProcIntError::HostToDevice { buffer: "end_times", reason: e.to_string() })?;
 
             // Output buffer (16x16 = 256 elements)
             let precedence_flat = vec![0u32; 256];
-            let d_precedence = device
-                .htod_sync_copy(&precedence_flat)
+            let mut d_precedence = stream
+                .clone_htod(&precedence_flat)
                 .map_err(|e| ProcIntError::HostToDevice { buffer: "precedence", reason: e.to_string() })?;
-
-            // Get kernel function
-            let func = device
-                .get_func("partial_order", "partial_order_kernel")
-                .ok_or_else(|| ProcIntError::KernelNotLoaded("partial_order".into()))?;
 
             // Launch configuration (16x16 grid for pairwise comparison)
             let config = CudaLaunchConfig {
@@ -661,24 +676,29 @@ impl KernelExecutor {
             let kernel_start = std::time::Instant::now();
 
             // Launch kernel
+            // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+            // are valid and allocated with sufficient size.
             unsafe {
-                func.launch(
-                    config,
-                    (&d_start_times, &d_end_times, &d_precedence, 16i32, 16i32),
-                )
-                .map_err(|e| ProcIntError::KernelLaunch { kernel: "partial_order", reason: e.to_string() })?;
+                stream
+                    .launch_builder(&func)
+                    .arg(&d_start_times)
+                    .arg(&d_end_times)
+                    .arg(&mut d_precedence)
+                    .arg(&16i32)
+                    .arg(&16i32)
+                    .launch(config)
+                    .map_err(|e| ProcIntError::KernelLaunch { kernel: "partial_order", reason: e.to_string() })?;
             }
 
-            device
+            context
                 .synchronize()
                 .map_err(|e| ProcIntError::DeviceSync(e.to_string()))?;
 
             total_kernel_time_us += kernel_start.elapsed().as_micros() as u64;
 
             // DtoH transfer
-            let mut result_precedence = vec![0u32; 256];
-            device
-                .dtoh_sync_copy_into(&d_precedence, &mut result_precedence)
+            let result_precedence = stream
+                .clone_dtoh(&d_precedence)
                 .map_err(|e| ProcIntError::DeviceToHost { buffer: "precedence", reason: e.to_string() })?;
 
             // Convert flat precedence to 16x16 bit matrix
@@ -782,7 +802,8 @@ impl KernelExecutor {
         use crate::models::{ComplianceLevel, ConformanceResult, ConformanceStatus};
         use std::collections::HashMap;
 
-        let device = self.device.as_ref().ok_or(ProcIntError::NoCudaDevice)?;
+        let context = self.context.as_ref().ok_or(ProcIntError::NoCudaDevice)?;
+        let stream = context.default_stream();
         let start = std::time::Instant::now();
 
         // Group events by case
@@ -821,32 +842,34 @@ impl KernelExecutor {
         let num_transitions = model_sources.len() as i32;
 
         // HtoD transfers
-        let d_activities = device
-            .htod_sync_copy(&all_activities)
+        let d_activities = stream
+            .clone_htod(&all_activities)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "activities", reason: e.to_string() })?;
-        let d_trace_starts = device
-            .htod_sync_copy(&trace_starts)
+        let d_trace_starts = stream
+            .clone_htod(&trace_starts)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "trace_starts", reason: e.to_string() })?;
-        let d_trace_lengths = device
-            .htod_sync_copy(&trace_lengths)
+        let d_trace_lengths = stream
+            .clone_htod(&trace_lengths)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "trace_lengths", reason: e.to_string() })?;
-        let d_model_sources = device
-            .htod_sync_copy(&model_sources)
+        let d_model_sources = stream
+            .clone_htod(&model_sources)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "model_sources", reason: e.to_string() })?;
-        let d_model_targets = device
-            .htod_sync_copy(&model_targets)
+        let d_model_targets = stream
+            .clone_htod(&model_targets)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "model_targets", reason: e.to_string() })?;
 
         // Output buffer
         let fitness_scores = vec![0.0f32; num_traces];
-        let d_fitness = device
-            .htod_sync_copy(&fitness_scores)
+        let mut d_fitness = stream
+            .clone_htod(&fitness_scores)
             .map_err(|e| ProcIntError::HostToDevice { buffer: "fitness", reason: e.to_string() })?;
 
         // Get kernel function
-        let func = device
-            .get_func("conformance", "conformance_kernel")
-            .ok_or_else(|| ProcIntError::KernelNotLoaded("conformance".into()))?;
+        let func = self
+            .func_cache
+            .get("conformance")
+            .ok_or_else(|| ProcIntError::KernelNotLoaded("conformance".into()))?
+            .clone();
 
         // Launch configuration
         let block_size = 256u32;
@@ -859,31 +882,30 @@ impl KernelExecutor {
         };
 
         // Launch kernel
+        // SAFETY: Kernel arguments match the compiled PTX signature. Device pointers
+        // are valid and allocated with sufficient size.
         unsafe {
-            func.launch(
-                config,
-                (
-                    &d_activities,
-                    &d_trace_starts,
-                    &d_trace_lengths,
-                    &d_model_sources,
-                    &d_model_targets,
-                    num_transitions,
-                    &d_fitness,
-                    num_traces as i32,
-                ),
-            )
-            .map_err(|e| ProcIntError::KernelLaunch { kernel: "conformance", reason: e.to_string() })?;
+            stream
+                .launch_builder(&func)
+                .arg(&d_activities)
+                .arg(&d_trace_starts)
+                .arg(&d_trace_lengths)
+                .arg(&d_model_sources)
+                .arg(&d_model_targets)
+                .arg(&num_transitions)
+                .arg(&mut d_fitness)
+                .arg(&(num_traces as i32))
+                .launch(config)
+                .map_err(|e| ProcIntError::KernelLaunch { kernel: "conformance", reason: e.to_string() })?;
         }
 
-        device
+        context
             .synchronize()
             .map_err(|e| ProcIntError::DeviceSync(e.to_string()))?;
 
         // DtoH transfer
-        let mut result_fitness = vec![0.0f32; num_traces];
-        device
-            .dtoh_sync_copy_into(&d_fitness, &mut result_fitness)
+        let result_fitness = stream
+            .clone_dtoh(&d_fitness)
             .map_err(|e| ProcIntError::DeviceToHost { buffer: "fitness", reason: e.to_string() })?;
 
         let elapsed = start.elapsed().as_micros() as u64;

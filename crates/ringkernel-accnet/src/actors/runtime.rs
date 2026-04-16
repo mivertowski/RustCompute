@@ -117,7 +117,7 @@ pub struct GpuActorRuntime {
     messages_processed: u64,
     /// CUDA device handle (when feature enabled).
     #[cfg(feature = "cuda")]
-    cuda_device: Option<Arc<cudarc::driver::CudaDevice>>,
+    cuda_device: Option<Arc<cudarc::driver::CudaContext>>,
     /// Compiled PTX modules (reserved for future multi-kernel support).
     #[cfg(feature = "cuda")]
     #[allow(dead_code)]
@@ -168,17 +168,14 @@ impl GpuActorRuntime {
     fn init_gpu() -> (bool, Option<String>, Option<(u32, u32)>) {
         #[cfg(feature = "cuda")]
         {
-            match cudarc::driver::CudaDevice::new(0) {
-                Ok(device) => {
-                    let name = device.name().unwrap_or_else(|_| "Unknown GPU".to_string());
+            match cudarc::driver::CudaContext::new(0) {
+                Ok(context) => {
+                    let name = context.name().unwrap_or_else(|_| "Unknown GPU".to_string());
                     // Get compute capability
-                    let cc = device.attribute(
-                        cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR
-                    ).ok().and_then(|major| {
-                        device.attribute(
-                            cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR
-                        ).ok().map(|minor| (major as u32, minor as u32))
-                    });
+                    let cc = context
+                        .compute_capability()
+                        .ok()
+                        .map(|(major, minor)| (major as u32, minor as u32));
                     log::info!("GPU initialized: {} (CC {:?})", name, cc);
                     (true, Some(name), cc)
                 }
@@ -270,12 +267,11 @@ impl GpuActorRuntime {
         network: &AccountingNetwork,
         result: &mut GpuAnalyticsResult,
     ) -> crate::Result<()> {
-        use cudarc::driver::*;
-
         let device = match &self.cuda_device {
             Some(d) => d.clone(),
             None => {
-                let d = CudaDevice::new(0).map_err(|e| AccNetError::DeviceCreation(e.to_string()))?;
+                let d = cudarc::driver::CudaContext::new(0)
+                    .map_err(|e| AccNetError::DeviceCreation(e.to_string()))?;
                 self.cuda_device = Some(d.clone());
                 d
             }
@@ -325,7 +321,7 @@ impl GpuActorRuntime {
     #[cfg(feature = "cuda")]
     fn compute_pagerank_gpu(
         &self,
-        _device: &Arc<cudarc::driver::CudaDevice>,
+        _device: &Arc<cudarc::driver::CudaContext>,
         network: &AccountingNetwork,
     ) -> crate::Result<Vec<f64>> {
         // For now, use CPU implementation until ring kernel infrastructure is ready
@@ -339,7 +335,7 @@ impl GpuActorRuntime {
     #[cfg(feature = "cuda")]
     fn detect_fraud_gpu(
         &self,
-        _device: &Arc<cudarc::driver::CudaDevice>,
+        _device: &Arc<cudarc::driver::CudaContext>,
         network: &AccountingNetwork,
     ) -> crate::Result<(u32, Vec<u32>)> {
         let n_flows = network.flows.len();
@@ -378,7 +374,7 @@ impl GpuActorRuntime {
     #[cfg(feature = "cuda")]
     fn validate_gaap_gpu(
         &self,
-        _device: &Arc<cudarc::driver::CudaDevice>,
+        _device: &Arc<cudarc::driver::CudaContext>,
         network: &AccountingNetwork,
     ) -> crate::Result<(u32, Vec<u32>)> {
         let n_flows = network.flows.len();
@@ -415,7 +411,7 @@ impl GpuActorRuntime {
     #[cfg(feature = "cuda")]
     fn analyze_benford_gpu(
         &self,
-        _device: &Arc<cudarc::driver::CudaDevice>,
+        _device: &Arc<cudarc::driver::CudaContext>,
         network: &AccountingNetwork,
     ) -> crate::Result<([u32; 9], f32, bool)> {
         let mut counts = [0u32; 9];
@@ -457,7 +453,7 @@ impl GpuActorRuntime {
     #[cfg(feature = "cuda")]
     fn detect_suspense_gpu(
         &self,
-        _device: &Arc<cudarc::driver::CudaDevice>,
+        _device: &Arc<cudarc::driver::CudaContext>,
         network: &AccountingNetwork,
     ) -> crate::Result<(u32, Vec<f32>)> {
         let n_accounts = network.accounts.len();
