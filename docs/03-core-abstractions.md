@@ -159,7 +159,7 @@ use async_trait::async_trait;
 /// Runtime for managing ring kernel lifecycles.
 #[async_trait]
 pub trait RingKernelRuntime: Send + Sync {
-    /// Backend identifier (e.g., "cuda", "metal", "wgpu").
+    /// Backend identifier (e.g., "cuda", "cpu").
     fn backend_name(&self) -> &'static str;
 
     /// Launch a kernel (initially inactive).

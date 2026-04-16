@@ -65,17 +65,15 @@ RingKernel enables GPU-accelerated actor systems with persistent kernels, lock-f
 
 | Backend | Status | Key Documents |
 |---------|--------|---------------|
-| **CUDA** | ✅ Complete | [Architecture](ARCHITECTURE_ANALYSIS.md#cuda-backend-analysis) |
-| **WebGPU** | ⚠️ Limited | [Architecture](ARCHITECTURE_ANALYSIS.md#webgpu-backend-analysis) |
-| **Metal** | 🔧 Scaffold | [Roadmap](../ROADMAP.md#11-metal-backend-implementation) |
-| **CPU** | ✅ Complete | [Architecture](ARCHITECTURE_ANALYSIS.md#cpu-backend-analysis) |
+| **CUDA** | Complete | [Architecture](ARCHITECTURE_ANALYSIS.md#cuda-backend-analysis) |
+| **CPU** | Complete | [Architecture](ARCHITECTURE_ANALYSIS.md#cpu-backend-analysis) |
 
 ## Key Metrics
 
 | Metric | Current | Target |
 |--------|---------|--------|
 | Command Injection Latency | 0.03µs (CUDA) | <0.1µs (all backends) |
-| Backend Coverage | 2/3 production-ready | 3/3 |
+| Backend Coverage | 2/2 production-ready | 2/2 |
 | Test Count | 950+ | 1000+ |
 | Speedup vs Traditional | 11,327x | >10,000x |
 

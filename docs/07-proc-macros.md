@@ -240,7 +240,6 @@ pub struct Matrix4x4 {
 
 The macro generates:
 - CUDA struct definition with matching layout
-- WGSL struct definition with proper alignment
 - Size and alignment compile-time assertions
 - Serialization helpers for GPU transfer
 
@@ -272,7 +271,7 @@ pub fn ring_kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Generate kernel registration
     let registration = generate_registration(&kernel_id, &input_type, &output_type);
 
-    // Generate GPU code (CUDA/Metal/WGSL)
+    // Generate GPU code (CUDA)
     let gpu_code = generate_gpu_kernel(&input_fn, &config);
 
     let expanded = quote! {
@@ -386,23 +385,15 @@ The proc macro translates `RingContext` method calls to GPU intrinsics:
 const INTRINSIC_MAP: &[(&str, IntrinsicInfo)] = &[
     ("sync_threads", IntrinsicInfo {
         cuda: "__syncthreads()",
-        metal: "threadgroup_barrier(mem_flags::mem_threadgroup)",
-        wgsl: "workgroupBarrier()",
     }),
     ("sync_warp", IntrinsicInfo {
         cuda: "__syncwarp({mask})",
-        metal: "simdgroup_barrier(mem_flags::mem_none)",
-        wgsl: "/* no equivalent */",
     }),
     ("atomic_add", IntrinsicInfo {
         cuda: "atomicAdd({ptr}, {value})",
-        metal: "atomic_fetch_add_explicit({ptr}, {value}, memory_order_relaxed)",
-        wgsl: "atomicAdd({ptr}, {value})",
     }),
     ("now", IntrinsicInfo {
         cuda: "make_hlc_timestamp(clock64(), hlc_logical++, kernel_id)",
-        metal: "make_hlc_timestamp(/* metal clock */, hlc_logical++, kernel_id)",
-        wgsl: "/* limited timing support */",
     }),
     // ... more mappings
 ];

@@ -60,16 +60,10 @@ RustCompute/
 │   │   └── tests/
 │   │       └── gpu_execution_verify.rs  # GPU execution verification
 │   │
-│   ├── ringkernel-metal/         # Metal backend (scaffolded)
-│   │   └── src/lib.rs
-│   │
-│   ├── ringkernel-wgpu/          # WebGPU backend (scaffolded)
-│   │   └── src/lib.rs
-│   │
 │   ├── ringkernel-codegen/       # Kernel code generation
 │   │   └── src/lib.rs
 │   │
-│   ├── ringkernel-ir/            # Unified IR for multi-backend codegen
+│   ├── ringkernel-ir/            # Unified IR for codegen
 │   │   └── src/
 │   │       ├── lib.rs            # IrModule, IrBuilder, ValueId, BlockId
 │   │       ├── builder.rs        # Fluent IR construction
@@ -77,8 +71,6 @@ RustCompute/
 │   │       ├── types.rs          # IrType, ScalarType, VectorType
 │   │       ├── optimize.rs       # Optimization passes (DCE, constant folding)
 │   │       ├── lower_cuda.rs     # CUDA backend lowering
-│   │       ├── lower_wgsl.rs     # WGSL backend lowering
-│   │       ├── lower_msl.rs      # MSL backend lowering
 │   │       └── validation.rs     # IR validation
 │   │
 │   ├── ringkernel-cli/           # CLI tool for scaffolding and codegen
@@ -136,14 +128,6 @@ RustCompute/
 │   │       ├── simulation/       # Grid, kernels, backends
 │   │       └── gui/              # Interactive visualization
 │   │
-│   ├── ringkernel-wavesim3d/     # Showcase: 3D wave simulation
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── simulation/       # 3D FDTD, actor backend, physics
-│   │       ├── audio/            # Binaural audio, sources, virtual head
-│   │       ├── visualization/    # Volume renderer, slices, camera
-│   │       └── gui/              # Controls panel
-│   │
 │   ├── ringkernel-txmon/         # Showcase: Transaction monitoring
 │   │   └── src/
 │   │       ├── lib.rs
@@ -169,8 +153,7 @@ RustCompute/
 ├── examples/                     # 20+ working examples
 │   ├── basic/
 │   │   ├── hello_kernel.rs       # Runtime, lifecycle, suspend/resume
-│   │   ├── kernel_states.rs      # State machine, multi-kernel
-│   │   └── wgpu_hello.rs         # WebGPU backend
+│   │   └── kernel_states.rs      # State machine, multi-kernel
 │   ├── messaging/
 │   │   ├── request_response.rs   # Correlation IDs, priorities
 │   │   ├── pub_sub.rs            # Topic wildcards, QoS
@@ -262,16 +245,12 @@ RustCompute/
 | `ringkernel-core` | Working | Core traits: RingKernel, KernelHandle, HLC, PubSub, K2K |
 | `ringkernel-cpu` | Working | CPU backend for development/testing |
 | `ringkernel-cuda` | Working | NVIDIA CUDA backend with PTX kernels |
-| `ringkernel-metal` | Scaffolded | Apple Metal backend (API defined) |
-| `ringkernel-wgpu` | Working | WebGPU cross-platform backend |
 | `ringkernel-derive` | Working | Proc macros for message/kernel definitions |
 | `ringkernel-codegen` | In Development | GPU kernel code generation |
 | `ringkernel-cuda-codegen` | Working | Rust-to-CUDA transpiler for GPU kernels |
-| `ringkernel-wgpu-codegen` | Working | Rust-to-WGSL transpiler for GPU kernels |
 | `ringkernel-ecosystem` | Working | Integration utilities |
 | `ringkernel-audio-fft` | Working | Example: GPU audio FFT processing |
 | `ringkernel-wavesim` | Working | Example: 2D wave simulation with FDTD |
-| `ringkernel-wavesim3d` | Working | Showcase: 3D wave simulation with binaural audio |
 | `ringkernel-txmon` | Working | Showcase: GPU-accelerated transaction monitoring |
 | `ringkernel-accnet` | Working | Showcase: Accounting network analytics |
 | `ringkernel-procint` | Working | Showcase: Process intelligence with DFG mining |
@@ -288,8 +267,6 @@ members = [
     "crates/ringkernel-core",
     "crates/ringkernel-derive",
     "crates/ringkernel-cuda",
-    "crates/ringkernel-metal",
-    "crates/ringkernel-wgpu",
     "crates/ringkernel-cpu",
     "crates/ringkernel-codegen",
 ]
@@ -325,8 +302,6 @@ tracing-subscriber = "0.3"
 
 # GPU backends
 cudarc = { version = "0.18.2", optional = true }       # CUDA (updated API)
-metal = { version = "0.31", optional = true }          # Metal
-wgpu = { version = "27.0", optional = true }           # WebGPU (Arc-based)
 
 # Web frameworks
 axum = { version = "0.8", optional = true }
@@ -387,20 +362,6 @@ Requires:
 - NVIDIA GPU with compute capability 3.5+
 - CUDA toolkit installed
 - `CUDA_PATH` environment variable (or `/usr/local/cuda`)
-
----
-
-## Platform-Specific Compilation
-
-```toml
-# crates/ringkernel-cuda/Cargo.toml
-[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
-cudarc = { workspace = true }
-
-# crates/ringkernel-metal/Cargo.toml
-[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-metal = { workspace = true }
-```
 
 ---
 

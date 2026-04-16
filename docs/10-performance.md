@@ -357,16 +357,6 @@ At 60 FPS, you have 16.67ms per frame for all operations:
 | Traditional | 123 ops | Batch-oriented, compute-heavy |
 | **Persistent** | **327 ops** | Interactive, command-heavy |
 
-### Run the Benchmark
-
-```bash
-# Interactive benchmark (latency comparison)
-cargo run -p ringkernel-wavesim3d --bin interactive-benchmark --release --features cuda-codegen
-
-# Throughput benchmark (cells/second comparison)
-cargo run -p ringkernel-wavesim3d --bin wavesim3d-benchmark --release --features cuda-codegen
-```
-
 ---
 
 ## Next: [Ecosystem Integration](./11-ecosystem.md)

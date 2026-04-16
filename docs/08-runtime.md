@@ -268,8 +268,6 @@ impl RuntimeBuilder {
     pub async fn build(self) -> Result<RingKernelRuntime> {
         let backend: Arc<dyn GpuBackend> = match self.backend {
             Some(BackendType::Cuda) => Arc::new(CudaBackend::new()?),
-            Some(BackendType::Metal) => Arc::new(MetalBackend::new()?),
-            Some(BackendType::Wgpu) => Arc::new(WgpuBackend::new().await?),
             Some(BackendType::Cpu) => Arc::new(CpuBackend::new()),
             None => select_backend()?,
         };

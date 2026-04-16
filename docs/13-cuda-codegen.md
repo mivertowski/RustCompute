@@ -8,8 +8,6 @@ nav_order: 14
 
 The `ringkernel-cuda-codegen` crate provides a Rust-to-CUDA transpiler that lets you write GPU kernels in a Rust DSL and generate equivalent CUDA C code.
 
-> **Cross-platform alternative:** For WebGPU/WGSL, see [WGSL Code Generation](./14-wgpu-codegen.md). Both transpilers share the same Rust DSL—just change the import.
-
 ## Overview
 
 The transpiler supports three types of kernels:
@@ -731,4 +729,4 @@ Run the benchmark:
 cargo run -p ringkernel-txmon --bin txmon-benchmark --release --features cuda-codegen
 ```
 
-## Next: [WGSL Code Generation](./14-wgpu-codegen.md)
+## Next: [Showcase Applications](./15-showcase-applications.md)

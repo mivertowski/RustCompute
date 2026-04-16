@@ -400,37 +400,6 @@ println!("Hit rate: {:.1}%", stats.hit_rate() * 100.0);
 
 ---
 
-## WebGPU Staging Buffer Pool (v0.3.0)
-
-Efficient staging buffer reuse for GPU-to-host transfers:
-
-```rust
-use ringkernel_wgpu::memory::{StagingBufferPool, StagingPoolStats};
-
-// Create staging pool
-let pool = StagingBufferPool::new(&device, 16);  // Max 16 buffers
-
-// Acquire staging buffer for readback
-let staging = pool.acquire(data_size)?;
-
-// Use for GPU → host copy
-encoder.copy_buffer_to_buffer(&gpu_buffer, 0, staging.buffer(), 0, data_size);
-
-// Map and read
-staging.map_async(wgpu::MapMode::Read);
-device.poll(wgpu::Maintain::Wait);
-let data = staging.get_mapped_range();
-
-// Buffer returned to pool on drop
-drop(staging);
-
-// Check statistics
-let stats = pool.stats();
-println!("Staging buffer reuse rate: {:.1}%", stats.hit_rate() * 100.0);
-```
-
----
-
 ## GPU Stratified Memory Pool (v0.4.0)
 
 For GPU-side buffer reuse with O(1) allocation from free lists:
@@ -562,11 +531,6 @@ impl MemoryVisibility {
         #[cfg(target_os = "windows")]
         {
             Self::SystemScope // Native Windows CUDA works
-        }
-
-        #[cfg(target_os = "macos")]
-        {
-            Self::DeviceScope // Metal doesn't have system atomics
         }
     }
 }

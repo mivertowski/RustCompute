@@ -33,8 +33,8 @@ ringkernel new my-app
 # With template
 ringkernel new my-app --template persistent-actor
 
-# With multiple backends
-ringkernel new my-app --backends cuda,wgpu
+# With CUDA backend
+ringkernel new my-app --backends cuda
 
 # Custom location
 ringkernel new my-app --path /projects
@@ -60,8 +60,7 @@ my-app/
 │   └── kernels/
 │       └── mod.rs           # Kernel definitions
 └── generated/               # Generated GPU code
-    ├── cuda/
-    └── wgsl/
+    └── cuda/
 ```
 
 ---
@@ -73,8 +72,8 @@ Add RingKernel to an existing Rust project:
 ```bash
 ringkernel init
 
-# With backends
-ringkernel init --backends cuda,wgpu
+# With CUDA backend
+ringkernel init --backends cuda
 
 # Force overwrite
 ringkernel init --force
@@ -95,8 +94,8 @@ Generate GPU kernel code from Rust DSL:
 # Generate CUDA
 ringkernel codegen src/kernels/processor.rs --backend cuda
 
-# Multiple backends
-ringkernel codegen src/kernels/processor.rs --backend cuda,wgsl,msl
+# CUDA backend
+ringkernel codegen src/kernels/processor.rs --backend cuda
 
 # Custom output
 ringkernel codegen src/kernels/ --backend cuda --output generated/
@@ -115,9 +114,8 @@ Generating GPU code...
 
   src/kernels/processor.rs:
     ✓ process_messages → generated/cuda/process_messages.cu
-    ✓ process_messages → generated/wgsl/process_messages.wgsl
 
-Generated 2 files in 0.15s
+Generated 1 file in 0.15s
 ```
 
 ---
@@ -133,8 +131,8 @@ ringkernel check
 # Custom path
 ringkernel check --path src/kernels
 
-# Specific backends
-ringkernel check --backends cuda,wgsl
+# Specific backend
+ringkernel check --backends cuda
 
 # All backends
 ringkernel check --backends all
@@ -151,16 +149,12 @@ Checking kernel compatibility...
 src/kernels/processor.rs:
   process_messages:
     ✓ CUDA    - Compatible
-    ✓ WGSL    - Compatible (64-bit atomics emulated)
-    ✗ MSL     - Incompatible (K2K not supported)
 
 src/kernels/stencil.rs:
   fdtd_step:
     ✓ CUDA    - Compatible
-    ✓ WGSL    - Compatible
-    ✓ MSL     - Compatible
 
-Summary: 3/4 kernels fully compatible across all backends
+Summary: 2/2 kernels fully compatible
 ```
 
 ---
@@ -196,7 +190,7 @@ version = "0.1.0"
 
 [backends]
 default = "cuda"
-enabled = ["cuda", "wgpu"]
+enabled = ["cuda"]
 
 [codegen]
 output_dir = "generated"
@@ -205,9 +199,6 @@ optimize = true
 [codegen.cuda]
 arch = "sm_80"
 ptx_version = "7.0"
-
-[codegen.wgsl]
-workgroup_size = [256, 1, 1]
 
 [check]
 strict = true
