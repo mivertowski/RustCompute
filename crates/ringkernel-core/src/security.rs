@@ -14,6 +14,10 @@
 //! Without the `crypto` feature, a demo XOR-based implementation is used
 //! (NOT suitable for production - only for testing/development).
 //!
+//! **WARNING**: All encryption methods without `crypto` are `#[deprecated]`
+//! and will emit compile-time warnings. Suppress only if you accept the risk.
+
+//!
 //! # Memory Encryption
 //!
 //! ```rust,ignore
@@ -53,6 +57,15 @@
 //!
 //! let report = reporter.generate_report(ReportFormat::Pdf)?;
 //! ```
+
+// Compile-time warning: encryption without `crypto` feature uses insecure XOR fallback
+#[cfg(not(feature = "crypto"))]
+#[deprecated(
+    since = "0.4.3",
+    note = "INSECURE: Memory encryption uses XOR fallback without `crypto` feature. Enable `crypto` for production."
+)]
+#[allow(dead_code)]
+const INSECURE_CRYPTO_FALLBACK: () = ();
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
