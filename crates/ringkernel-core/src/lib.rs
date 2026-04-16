@@ -69,6 +69,7 @@ pub mod reduction;
 pub mod resource;
 pub mod runtime;
 pub mod runtime_context;
+pub mod scheduling;
 pub mod security;
 pub mod shutdown;
 pub mod state;
