@@ -32,6 +32,7 @@
 #![warn(clippy::all)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod actor;
 #[macro_use]
 pub mod backend_stub;
 pub mod analytics_context;
