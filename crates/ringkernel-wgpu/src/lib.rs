@@ -33,6 +33,8 @@
 #![warn(clippy::unwrap_used)]
 
 #[cfg(feature = "wgpu")]
+mod actor_loop;
+#[cfg(feature = "wgpu")]
 mod adapter;
 #[cfg(feature = "wgpu")]
 mod kernel;
@@ -43,6 +45,8 @@ mod runtime;
 #[cfg(feature = "wgpu")]
 mod shader;
 
+#[cfg(feature = "wgpu")]
+pub use actor_loop::{ActorLoopConfig, WgpuActorLoop, ACTOR_LOOP_WGSL_TEMPLATE};
 #[cfg(feature = "wgpu")]
 pub use adapter::WgpuAdapter;
 #[cfg(feature = "wgpu")]

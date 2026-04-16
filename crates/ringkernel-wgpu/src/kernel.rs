@@ -17,6 +17,7 @@ use ringkernel_core::runtime::{
 use ringkernel_core::telemetry::KernelMetrics;
 use ringkernel_core::types::KernelMode;
 
+use crate::actor_loop::{ActorLoopConfig, WgpuActorLoop, ACTOR_LOOP_WGSL_TEMPLATE};
 use crate::adapter::WgpuAdapter;
 use crate::memory::{WgpuControlBlock, WgpuMessageQueue};
 use crate::shader::{create_bind_group, ComputePipeline};
@@ -54,6 +55,10 @@ pub struct WgpuKernel {
     created_at: Instant,
     /// Termination notifier.
     terminate_notify: Notify,
+    /// Actor loop for emulated persistent mode.
+    /// When `options.mode == Persistent`, an actor loop is created during
+    /// construction and started on `activate()`.
+    actor_loop: Option<Arc<WgpuActorLoop>>,
 }
 
 impl WgpuKernel {
@@ -71,6 +76,21 @@ impl WgpuKernel {
         let input_queue = WgpuMessageQueue::new(&adapter, input_capacity, 4096);
         let output_queue = WgpuMessageQueue::new(&adapter, output_capacity, 4096);
 
+        // When persistent mode is requested, create an actor loop that
+        // emulates persistence via rapid dispatch + state preservation.
+        let actor_loop = if options.mode == KernelMode::Persistent {
+            let config = ActorLoopConfig::default();
+            let loop_instance = WgpuActorLoop::new(
+                Arc::clone(&adapter),
+                ACTOR_LOOP_WGSL_TEMPLATE,
+                "actor_main",
+                config,
+            )?;
+            Some(Arc::new(loop_instance))
+        } else {
+            None
+        };
+
         Ok(Self {
             id: KernelId::new(id),
             id_num,
@@ -87,7 +107,13 @@ impl WgpuKernel {
             message_counter: AtomicU64::new(0),
             created_at: Instant::now(),
             terminate_notify: Notify::new(),
+            actor_loop,
         })
+    }
+
+    /// Get the actor loop, if this kernel uses emulated persistent mode.
+    pub fn actor_loop(&self) -> Option<&Arc<WgpuActorLoop>> {
+        self.actor_loop.as_ref()
     }
 
     /// Get the kernel ID.
@@ -175,10 +201,17 @@ impl KernelHandleInner for WgpuKernel {
     fn status(&self) -> KernelStatus {
         let state = *self.state.read();
         let cb = self.control_block.read().read().unwrap_or_default();
+        // Report Persistent when the actor loop is active (emulated),
+        // otherwise EventDriven.
+        let mode = if self.actor_loop.is_some() {
+            KernelMode::Persistent
+        } else {
+            KernelMode::EventDriven
+        };
         KernelStatus {
             id: self.id.clone(),
             state,
-            mode: KernelMode::EventDriven, // WebGPU is event-driven
+            mode,
             input_queue_depth: cb.input_queue_size() as usize,
             output_queue_depth: cb.output_queue_size() as usize,
             messages_processed: self.message_counter.load(Ordering::Relaxed),
@@ -218,8 +251,18 @@ impl KernelHandleInner for WgpuKernel {
             cb_lock.write(&cb)?;
         }
 
+        // Start the actor loop if we are emulating persistent mode.
+        if let Some(actor_loop) = &self.actor_loop {
+            actor_loop.start();
+            tracing::info!(
+                kernel_id = %self.id,
+                "WebGPU kernel activated (emulated persistent mode via actor loop)"
+            );
+        } else {
+            tracing::info!(kernel_id = %self.id, "WebGPU kernel activated");
+        }
+
         *self.state.write() = KernelState::Active;
-        tracing::info!(kernel_id = %self.id, "WebGPU kernel activated");
 
         Ok(())
     }
@@ -231,6 +274,11 @@ impl KernelHandleInner for WgpuKernel {
                 from: format!("{:?}", current_state),
                 to: "Deactivated".to_string(),
             });
+        }
+
+        // Stop the actor loop if running.
+        if let Some(actor_loop) = &self.actor_loop {
+            actor_loop.stop();
         }
 
         // Clear active flag
@@ -248,6 +296,11 @@ impl KernelHandleInner for WgpuKernel {
     }
 
     async fn terminate(&self) -> Result<()> {
+        // Stop the actor loop if running.
+        if let Some(actor_loop) = &self.actor_loop {
+            actor_loop.stop();
+        }
+
         // Request termination
         {
             let cb_lock = self.control_block.write();
