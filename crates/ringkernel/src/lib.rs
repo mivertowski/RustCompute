@@ -11,7 +11,7 @@
 //! - **Persistent GPU-resident state** across kernel invocations
 //! - **Lock-free message passing** between kernels (K2K messaging)
 //! - **Hybrid Logical Clocks (HLC)** for temporal ordering
-//! - **Multiple GPU backends**: CUDA, Metal, WebGPU
+//! - **Multiple backends**: CUDA (NVIDIA GPUs), CPU (testing/fallback)
 //! - **Type-safe serialization** via rkyv/zerocopy
 //!
 //! ## Quick Start
@@ -57,18 +57,16 @@
 //!
 //! ## Backends
 //!
-//! RingKernel supports multiple GPU backends:
+//! RingKernel supports the following backends:
 //!
 //! - **CPU** - Testing and fallback (always available)
 //! - **CUDA** - NVIDIA GPUs (requires `cuda` feature)
-//! - **Metal** - Apple GPUs (requires `metal` feature, macOS only)
-//! - **WebGPU** - Cross-platform via wgpu (requires `wgpu` feature)
 //!
-//! Enable backends via Cargo features:
+//! Enable the CUDA backend via Cargo features:
 //!
 //! ```toml
 //! [dependencies]
-//! ringkernel = { version = "0.1", features = ["cuda", "wgpu"] }
+//! ringkernel = { version = "1.0", features = ["cuda"] }
 //! ```
 //!
 //! ## Architecture
@@ -109,12 +107,6 @@ pub use ringkernel_cpu::CpuRuntime;
 // Conditional re-exports for GPU backends
 #[cfg(feature = "cuda")]
 pub use ringkernel_cuda::CudaRuntime;
-
-#[cfg(feature = "wgpu")]
-pub use ringkernel_wgpu::WgpuRuntime;
-
-#[cfg(feature = "metal")]
-pub use ringkernel_metal::MetalRuntime;
 
 // Re-export codegen
 pub use ringkernel_codegen as codegen;
@@ -271,20 +263,14 @@ impl RingKernelBuilder {
                     "CUDA feature not enabled".to_string(),
                 ))
             }
-            #[cfg(feature = "metal")]
-            Backend::Metal => Box::new(ringkernel_metal::MetalRuntime::new().await?),
-            #[cfg(not(feature = "metal"))]
             Backend::Metal => {
                 return Err(RingKernelError::BackendUnavailable(
-                    "Metal feature not enabled".to_string(),
+                    "Metal backend has been removed".to_string(),
                 ))
             }
-            #[cfg(feature = "wgpu")]
-            Backend::Wgpu => Box::new(ringkernel_wgpu::WgpuRuntime::new().await?),
-            #[cfg(not(feature = "wgpu"))]
             Backend::Wgpu => {
                 return Err(RingKernelError::BackendUnavailable(
-                    "WebGPU feature not enabled".to_string(),
+                    "WebGPU backend has been removed".to_string(),
                 ))
             }
         };
@@ -299,20 +285,6 @@ impl RingKernelBuilder {
         if ringkernel_cuda::is_cuda_available() {
             tracing::info!("Auto-selected CUDA backend");
             return Ok(Box::new(ringkernel_cuda::CudaRuntime::new().await?));
-        }
-
-        // Try Metal on macOS
-        #[cfg(feature = "metal")]
-        if ringkernel_metal::is_metal_available() {
-            tracing::info!("Auto-selected Metal backend");
-            return Ok(Box::new(ringkernel_metal::MetalRuntime::new().await?));
-        }
-
-        // Try WebGPU
-        #[cfg(feature = "wgpu")]
-        if ringkernel_wgpu::is_wgpu_available() {
-            tracing::info!("Auto-selected WebGPU backend");
-            return Ok(Box::new(ringkernel_wgpu::WgpuRuntime::new().await?));
         }
 
         // Fall back to CPU
@@ -349,42 +321,12 @@ pub mod availability {
         }
     }
 
-    /// Check if Metal is available.
-    pub fn metal() -> bool {
-        #[cfg(feature = "metal")]
-        {
-            ringkernel_metal::is_metal_available()
-        }
-        #[cfg(not(feature = "metal"))]
-        {
-            false
-        }
-    }
-
-    /// Check if WebGPU is available.
-    pub fn wgpu() -> bool {
-        #[cfg(feature = "wgpu")]
-        {
-            ringkernel_wgpu::is_wgpu_available()
-        }
-        #[cfg(not(feature = "wgpu"))]
-        {
-            false
-        }
-    }
-
     /// Get list of available backends.
     pub fn available_backends() -> Vec<super::Backend> {
         let mut backends = vec![super::Backend::Cpu];
 
         if cuda() {
             backends.push(super::Backend::Cuda);
-        }
-        if metal() {
-            backends.push(super::Backend::Metal);
-        }
-        if wgpu() {
-            backends.push(super::Backend::Wgpu);
         }
 
         backends
@@ -398,8 +340,7 @@ mod tests {
     #[tokio::test]
     async fn test_runtime_creation() {
         let runtime = RingKernel::new().await.unwrap();
-        // Default backend is Auto which selects best available (CUDA > Metal > WebGPU > CPU)
-        // On systems with CUDA, this will select CUDA; otherwise CPU
+        // Default backend is Auto which selects best available (CUDA > CPU)
         let backend = runtime.backend();
         assert!(
             backend == Backend::Cuda || backend == Backend::Cpu,

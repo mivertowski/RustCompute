@@ -36,8 +36,6 @@ rayon = "1.11"
 # Random number generation (for educational chaotic mode)
 rand = "0.8"
 
-# GPU compute (optional, for tile GPU acceleration)
-wgpu = { workspace = true, optional = true }
 bytemuck = { version = "1.24", features = ["derive"], optional = true }
 
 # CUDA compute (optional, for NVIDIA GPU acceleration)
@@ -55,9 +53,7 @@ default = ["cpu", "simd"]
 cpu = ["ringkernel/cpu"]
 cuda = ["ringkernel/cuda", "dep:ringkernel-cuda", "dep:cudarc", "dep:bytemuck"]
 cuda-codegen = ["cuda", "dep:ringkernel-cuda-codegen", "dep:syn", "ringkernel-derive/cuda-codegen"]
-wgpu = ["ringkernel/wgpu", "dep:wgpu", "dep:bytemuck"]
 simd = []  # Enable SIMD optimizations (requires nightly)
-all-backends = ["cpu", "cuda", "wgpu"]
 
 [[bin]]
 name = "wavesim"

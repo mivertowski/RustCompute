@@ -20,7 +20,7 @@ use std::time::Duration;
 /// Main configuration structure for RingKernel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RingKernelConfig {
-    /// Backend to use (cpu, cuda, metal, wgpu).
+    /// Backend to use (cpu, cuda).
     #[serde(default = "default_backend")]
     pub backend: String,
 
@@ -338,7 +338,7 @@ impl RingKernelConfig {
             return Err("Pool size must be >= max allocation size".to_string());
         }
 
-        let valid_backends = ["cpu", "cuda", "metal", "wgpu"];
+        let valid_backends = ["cpu", "cuda"];
         if !valid_backends.contains(&self.backend.as_str()) {
             return Err(format!(
                 "Invalid backend '{}'. Valid options: {:?}",

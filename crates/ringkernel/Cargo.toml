@@ -9,7 +9,7 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 description = "GPU-native persistent actor model framework - Rust port of DotCompute Ring Kernel"
-keywords = ["gpu", "actor", "cuda", "wgpu", "distributed"]
+keywords = ["gpu", "actor", "cuda", "compute", "distributed"]
 categories = ["concurrency", "asynchronous", "hardware-support"]
 readme = "../../README.md"
 
@@ -25,8 +25,6 @@ ringkernel-cpu = { workspace = true }
 
 # GPU backends (optional)
 ringkernel-cuda = { workspace = true, optional = true }
-ringkernel-wgpu = { workspace = true, optional = true }
-ringkernel-metal = { workspace = true, optional = true }
 
 # Code generation
 ringkernel-codegen = { workspace = true }
@@ -91,9 +89,6 @@ default = ["cpu"]
 # Backend features
 cpu = []
 cuda = ["ringkernel-cuda/cuda"]
-wgpu = ["ringkernel-wgpu/wgpu"]
-metal = ["ringkernel-metal/metal"]
-all-backends = ["cpu", "cuda", "wgpu", "metal"]
 
 # Functionality features (planned - not yet fully implemented)
 telemetry = []        # Real-time performance metrics
@@ -202,12 +197,6 @@ path = "../../examples/advanced/multi_gpu.rs"
 [[example]]
 name = "derive_example"
 path = "../../examples/macros/derive_example.rs"
-
-# WebGPU examples
-[[example]]
-name = "wgpu_hello"
-path = "../../examples/basic/wgpu_hello.rs"
-required-features = ["wgpu"]
 
 # CUDA Codegen examples
 [[example]]
