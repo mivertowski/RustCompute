@@ -339,9 +339,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(kernel.id().as_str(), "test_kernel");
+        // With auto_activate=true (default), kernel is Active after launch
         assert_eq!(
             kernel.status().state,
-            ringkernel_core::runtime::KernelState::Launched
+            ringkernel_core::runtime::KernelState::Active
         );
 
         runtime.shutdown().await.unwrap();
