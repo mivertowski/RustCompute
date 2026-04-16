@@ -14,6 +14,7 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-changed=src/cuda/cooperative_kernels.cu");
     println!("cargo:rerun-if-changed=src/cuda/cluster_kernels.cu");
+    println!("cargo:rerun-if-changed=src/cuda/actor_lifecycle_kernel.cu");
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
     println!("cargo:rerun-if-env-changed=CUDA_HOME");
     println!("cargo:rerun-if-env-changed=RINGKERNEL_CUDA_ARCH");
@@ -55,11 +56,24 @@ fn main() {
                     generate_cluster_stub(&out_dir, &format!("Compilation failed: {}", e));
                 }
             }
+
+            // Compile actor lifecycle kernel (requires sm_90+ for cooperative groups)
+            match compile_lifecycle_kernel(&nvcc, &out_dir) {
+                Ok(()) => {
+                    println!("cargo:rustc-cfg=has_lifecycle_kernel");
+                    println!("cargo:warning=Actor lifecycle kernel compiled successfully");
+                }
+                Err(e) => {
+                    println!("cargo:warning=Actor lifecycle kernel not available: {}", e);
+                    generate_lifecycle_stub(&out_dir, &format!("Compilation failed: {}", e));
+                }
+            }
         }
         None => {
             println!("cargo:warning=nvcc not found - cooperative groups will use fallback");
             generate_stub(&out_dir, "nvcc not found at build time");
             generate_cluster_stub(&out_dir, "nvcc not found at build time");
+            generate_lifecycle_stub(&out_dir, "nvcc not found at build time");
         }
     }
 }
@@ -373,4 +387,51 @@ fn write_cluster_rust_code(
     ));
 
     fs::write(path, code)
+}
+
+/// Compile actor lifecycle kernel to PTX.
+fn compile_lifecycle_kernel(nvcc: &Path, out_dir: &Path) -> Result<(), String> {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let cuda_src = manifest_dir.join("src/cuda/actor_lifecycle_kernel.cu");
+
+    if !cuda_src.exists() {
+        return Err(format!("Actor lifecycle CUDA source not found: {:?}", cuda_src));
+    }
+
+    let ptx_file = out_dir.join("actor_lifecycle_kernel.ptx");
+
+    let mut cmd = Command::new(nvcc);
+    cmd.args(["-ptx", "-O3", "--generate-line-info", "-arch=sm_90", "-std=c++17", "-w", "-o"]);
+    cmd.arg(ptx_file.to_str().unwrap());
+    cmd.arg(cuda_src.to_str().unwrap());
+
+    let status = cmd.status().map_err(|e| format!("nvcc failed: {}", e))?;
+    if !status.success() {
+        return Err(format!("nvcc lifecycle kernel failed: {:?}", status.code()));
+    }
+
+    let ptx_content = fs::read_to_string(&ptx_file)
+        .map_err(|e| format!("Failed to read lifecycle PTX: {}", e))?;
+
+    let rust_file = out_dir.join("actor_lifecycle_kernel.rs");
+    let mut code = String::new();
+    code.push_str("// Auto-generated actor lifecycle kernel PTX.\n\n");
+    code.push_str("pub const LIFECYCLE_KERNEL_PTX: &str = r####\"");
+    code.push_str(&ptx_content);
+    code.push_str("\"####;\n\n");
+    code.push_str("pub const HAS_LIFECYCLE_KERNEL: bool = true;\n");
+
+    fs::write(&rust_file, code).map_err(|e| format!("Write failed: {}", e))
+}
+
+/// Generate lifecycle kernel stub.
+fn generate_lifecycle_stub(out_dir: &Path, reason: &str) {
+    let rust_file = out_dir.join("actor_lifecycle_kernel.rs");
+    let code = format!(
+        "// Actor lifecycle kernel not available: {}\n\n\
+         pub const LIFECYCLE_KERNEL_PTX: &str = \"\";\n\
+         pub const HAS_LIFECYCLE_KERNEL: bool = false;\n",
+        reason
+    );
+    fs::write(&rust_file, code).expect("Failed to write lifecycle stub");
 }

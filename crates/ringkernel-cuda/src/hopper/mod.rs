@@ -13,6 +13,7 @@ pub mod async_mem;
 pub mod cluster;
 pub mod dsmem;
 pub mod green_ctx;
+pub mod lifecycle;
 pub mod tma;
 
 use ringkernel_core::error::{Result, RingKernelError};
