@@ -473,6 +473,206 @@ impl ActorSupervisor {
     pub fn entries(&self) -> &[SupervisionEntry] {
         &self.entries
     }
+
+    // === FR-001: Cascading Termination & Escalation ===
+
+    /// Cascading kill: destroy an actor and all its descendants.
+    ///
+    /// Walks the supervision tree depth-first, destroying children
+    /// before parents. Returns the list of destroyed actor IDs.
+    pub fn kill_tree(&mut self, root: ActorId) -> Vec<ActorId> {
+        let mut destroyed = Vec::new();
+        self.kill_tree_recursive(root, &mut destroyed);
+        destroyed
+    }
+
+    fn kill_tree_recursive(&mut self, id: ActorId, destroyed: &mut Vec<ActorId>) {
+        // First, recursively kill all children
+        let children = self.children_of(id);
+        for child in children {
+            self.kill_tree_recursive(child, destroyed);
+        }
+
+        // Then destroy this actor
+        if self.destroy_actor(id).is_ok() {
+            destroyed.push(id);
+        }
+    }
+
+    /// Handle a failed actor according to its parent's restart policy.
+    ///
+    /// Returns a list of actions taken (for logging/auditing).
+    pub fn handle_failure(
+        &mut self,
+        failed_id: ActorId,
+        config: &ActorConfig,
+    ) -> Vec<SupervisionAction> {
+        let mut actions = Vec::new();
+
+        let (parent_id, policy) = {
+            let entry = match self.get(failed_id) {
+                Some(e) => e,
+                None => return actions,
+            };
+            let parent = if entry.parent_id > 0 {
+                Some(ActorId(entry.parent_id))
+            } else {
+                None
+            };
+            (parent, config.restart_policy)
+        };
+
+        // Mark as failed
+        if let Some(entry) = self.entries.get_mut(failed_id.0 as usize) {
+            entry.state = ActorState::Failed as u32;
+        }
+        actions.push(SupervisionAction::MarkedFailed(failed_id));
+
+        match policy {
+            RestartPolicy::Permanent => {
+                // No restart — escalate to parent
+                actions.push(SupervisionAction::Escalated {
+                    failed: failed_id,
+                    escalated_to: parent_id,
+                });
+            }
+
+            RestartPolicy::OneForOne { max_restarts, .. } => {
+                // Restart only the failed actor
+                match self.restart_actor(failed_id, config) {
+                    Ok(new_id) => {
+                        actions.push(SupervisionAction::Restarted {
+                            old_id: failed_id,
+                            new_id,
+                        });
+                    }
+                    Err(ActorError::MaxRestartsExceeded { .. }) => {
+                        // Budget exhausted — escalate to parent
+                        actions.push(SupervisionAction::Escalated {
+                            failed: failed_id,
+                            escalated_to: parent_id,
+                        });
+                    }
+                    Err(_) => {
+                        actions.push(SupervisionAction::Escalated {
+                            failed: failed_id,
+                            escalated_to: parent_id,
+                        });
+                    }
+                }
+            }
+
+            RestartPolicy::OneForAll { .. } => {
+                // Restart the failed actor AND all its siblings
+                if let Some(parent) = parent_id {
+                    let siblings = self.children_of(parent);
+                    for sibling in siblings {
+                        let _ = self.destroy_actor(sibling);
+                        actions.push(SupervisionAction::DestroyedSibling(sibling));
+                    }
+                    // Re-create all (including the failed one)
+                    // Note: caller is responsible for re-creating with proper configs
+                    actions.push(SupervisionAction::AllSiblingsDestroyed { parent });
+                }
+            }
+
+            RestartPolicy::RestForOne { .. } => {
+                // Restart the failed actor and all actors started after it
+                if let Some(parent) = parent_id {
+                    let siblings = self.children_of(parent);
+                    let mut found = false;
+                    for sibling in siblings {
+                        if sibling == failed_id {
+                            found = true;
+                        }
+                        if found {
+                            let _ = self.destroy_actor(sibling);
+                            actions.push(SupervisionAction::DestroyedSibling(sibling));
+                        }
+                    }
+                }
+            }
+        }
+
+        actions
+    }
+
+    /// Get the depth of the supervision tree from root to the given actor.
+    pub fn depth(&self, id: ActorId) -> u32 {
+        let mut depth = 0;
+        let mut current = id;
+        while let Some(entry) = self.get(current) {
+            if entry.parent_id == 0 {
+                break;
+            }
+            current = ActorId(entry.parent_id);
+            depth += 1;
+            if depth > 100 {
+                break; // Safety: prevent infinite loop on corrupted tree
+            }
+        }
+        depth
+    }
+
+    /// Produce a textual visualization of the supervision tree.
+    pub fn tree_view(&self) -> String {
+        let mut out = String::new();
+        out.push_str("Supervision Tree:\n");
+
+        // Find root actors (no parent)
+        let roots: Vec<ActorId> = self
+            .entries
+            .iter()
+            .filter(|e| e.parent_id == 0 && e.actor_state().is_alive())
+            .map(|e| ActorId(e.actor_id))
+            .collect();
+
+        for root in roots {
+            self.tree_view_recursive(root, &mut out, 0);
+        }
+
+        out
+    }
+
+    fn tree_view_recursive(&self, id: ActorId, out: &mut String, indent: usize) {
+        if let Some(entry) = self.get(id) {
+            let prefix = "  ".repeat(indent);
+            let state = match entry.actor_state() {
+                ActorState::Active => "ACTIVE",
+                ActorState::Dormant => "DORMANT",
+                ActorState::Initializing => "INIT",
+                ActorState::Failed => "FAILED",
+                ActorState::Terminated => "TERM",
+                ActorState::Draining => "DRAIN",
+            };
+            out.push_str(&format!(
+                "{}[{}] actor:{} state={} restarts={} msgs={}\n",
+                prefix,
+                if indent == 0 { "R" } else { "C" },
+                id.0, state, entry.restart_count, entry.last_heartbeat_ns
+            ));
+
+            let children = self.children_of(id);
+            for child in children {
+                self.tree_view_recursive(child, out, indent + 1);
+            }
+        }
+    }
+}
+
+/// Action taken by the supervisor in response to a failure.
+#[derive(Debug, Clone)]
+pub enum SupervisionAction {
+    /// Actor marked as failed.
+    MarkedFailed(ActorId),
+    /// Actor was restarted.
+    Restarted { old_id: ActorId, new_id: ActorId },
+    /// A sibling was destroyed (OneForAll/RestForOne).
+    DestroyedSibling(ActorId),
+    /// All siblings destroyed, parent needs to re-create them.
+    AllSiblingsDestroyed { parent: ActorId },
+    /// Failure escalated to parent supervisor.
+    Escalated { failed: ActorId, escalated_to: Option<ActorId> },
 }
 
 /// Errors from actor lifecycle operations.
@@ -681,5 +881,108 @@ mod tests {
             let recovered = ActorState::from_u32(raw).unwrap();
             assert_eq!(recovered, state);
         }
+    }
+
+    // === FR-001: Cascading termination & escalation tests ===
+
+    #[test]
+    fn test_cascading_kill_tree() {
+        let mut sup = ActorSupervisor::new(16);
+        let config = ActorConfig::named("node");
+
+        // Build a tree: root → child1, child2; child1 → grandchild1
+        let root = sup.create_actor(&config, None).unwrap();
+        sup.activate_actor(root).unwrap();
+
+        let child1 = sup.create_actor(&config, Some(root)).unwrap();
+        sup.activate_actor(child1).unwrap();
+
+        let child2 = sup.create_actor(&config, Some(root)).unwrap();
+        sup.activate_actor(child2).unwrap();
+
+        let grandchild1 = sup.create_actor(&config, Some(child1)).unwrap();
+        sup.activate_actor(grandchild1).unwrap();
+
+        assert_eq!(sup.active_count(), 4);
+
+        // Kill the root — should cascade to all descendants
+        let destroyed = sup.kill_tree(root);
+        assert_eq!(destroyed.len(), 4);
+        assert_eq!(sup.active_count(), 0);
+        assert_eq!(sup.available_count(), 15); // All back in pool
+    }
+
+    #[test]
+    fn test_handle_failure_one_for_one() {
+        let mut sup = ActorSupervisor::new(8);
+        let config = ActorConfig::named("worker")
+            .with_restart_policy(RestartPolicy::OneForOne {
+                max_restarts: 2,
+                window: Duration::from_secs(60),
+            });
+
+        let parent = sup.create_actor(&ActorConfig::named("parent"), None).unwrap();
+        sup.activate_actor(parent).unwrap();
+
+        let child = sup.create_actor(&config, Some(parent)).unwrap();
+        sup.activate_actor(child).unwrap();
+
+        // Simulate failure
+        let actions = sup.handle_failure(child, &config);
+        assert!(actions.iter().any(|a| matches!(a, SupervisionAction::Restarted { .. })));
+    }
+
+    #[test]
+    fn test_handle_failure_escalation() {
+        let mut sup = ActorSupervisor::new(8);
+        let config = ActorConfig::named("fragile")
+            .with_restart_policy(RestartPolicy::Permanent);
+
+        let parent = sup.create_actor(&ActorConfig::named("parent"), None).unwrap();
+        sup.activate_actor(parent).unwrap();
+
+        let child = sup.create_actor(&config, Some(parent)).unwrap();
+        sup.activate_actor(child).unwrap();
+
+        // Permanent policy → failure escalates to parent
+        let actions = sup.handle_failure(child, &config);
+        assert!(actions.iter().any(|a| matches!(a, SupervisionAction::Escalated { .. })));
+    }
+
+    #[test]
+    fn test_tree_depth() {
+        let mut sup = ActorSupervisor::new(16);
+        let config = ActorConfig::named("node");
+
+        let root = sup.create_actor(&config, None).unwrap();
+        sup.activate_actor(root).unwrap();
+        assert_eq!(sup.depth(root), 0);
+
+        let child = sup.create_actor(&config, Some(root)).unwrap();
+        sup.activate_actor(child).unwrap();
+        assert_eq!(sup.depth(child), 1);
+
+        let grandchild = sup.create_actor(&config, Some(child)).unwrap();
+        sup.activate_actor(grandchild).unwrap();
+        assert_eq!(sup.depth(grandchild), 2);
+    }
+
+    #[test]
+    fn test_tree_view() {
+        let mut sup = ActorSupervisor::new(8);
+        let config = ActorConfig::named("actor");
+
+        let root = sup.create_actor(&config, None).unwrap();
+        sup.activate_actor(root).unwrap();
+
+        let child1 = sup.create_actor(&config, Some(root)).unwrap();
+        sup.activate_actor(child1).unwrap();
+
+        let child2 = sup.create_actor(&config, Some(root)).unwrap();
+        sup.activate_actor(child2).unwrap();
+
+        let view = sup.tree_view();
+        assert!(view.contains("ACTIVE"));
+        assert!(view.contains("actor:"));
     }
 }

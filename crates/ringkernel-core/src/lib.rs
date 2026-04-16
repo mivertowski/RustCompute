@@ -66,6 +66,7 @@ pub mod persistent_message;
 pub mod pubsub;
 pub mod queue;
 pub mod reduction;
+pub mod registry;
 pub mod resource;
 pub mod runtime;
 pub mod runtime_context;
