@@ -89,6 +89,7 @@ use async_trait::async_trait;
 
 use crate::error::Result;
 use crate::message::{MessageEnvelope, RingMessage};
+use crate::scheduling::SchedulerConfig;
 use crate::telemetry::KernelMetrics;
 use crate::types::KernelMode;
 
@@ -247,6 +248,14 @@ pub struct LaunchOptions {
     /// Enable K2K (kernel-to-kernel) messaging.
     /// Allocates routing table and inbox buffers on GPU.
     pub enable_k2k: bool,
+    /// Dynamic scheduling configuration for persistent actor load balancing.
+    ///
+    /// When set to a non-`Static` strategy, the codegen layer generates a
+    /// scheduler warp pattern: warp 0 in each block handles work distribution,
+    /// remaining warps perform computation.
+    ///
+    /// Default: `None` (static scheduling, current behavior).
+    pub scheduler_config: Option<SchedulerConfig>,
 }
 
 impl Default for LaunchOptions {
@@ -261,6 +270,7 @@ impl Default for LaunchOptions {
             auto_activate: true,
             cooperative: false,
             enable_k2k: false,
+            scheduler_config: None,
         }
     }
 }
@@ -336,6 +346,26 @@ impl LaunchOptions {
     /// for direct kernel-to-kernel communication without host intervention.
     pub fn with_k2k(mut self, enable: bool) -> Self {
         self.enable_k2k = enable;
+        self
+    }
+
+    /// Configure dynamic actor scheduling for load balancing.
+    ///
+    /// When set, the codegen layer generates a scheduler warp pattern within
+    /// each persistent kernel block. Warp 0 handles work distribution (stealing,
+    /// round-robin, or priority-based), while remaining warps process messages.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use ringkernel_core::scheduling::SchedulerConfig;
+    ///
+    /// let options = LaunchOptions::default()
+    ///     .with_scheduler(SchedulerConfig::work_stealing(8)
+    ///         .with_max_steal_batch(16));
+    /// ```
+    pub fn with_scheduler(mut self, config: SchedulerConfig) -> Self {
+        self.scheduler_config = Some(config);
         self
     }
 

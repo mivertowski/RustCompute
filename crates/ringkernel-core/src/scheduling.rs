@@ -83,6 +83,206 @@ impl Default for SchedulerConfig {
     }
 }
 
+impl SchedulerConfig {
+    /// Create a static (no scheduling) configuration.
+    ///
+    /// This is the current default behavior: each thread block processes its
+    /// own fixed work queue. No load balancing occurs.
+    pub fn static_scheduling() -> Self {
+        Self {
+            enabled: false,
+            strategy: SchedulingStrategy::Static,
+            ..Default::default()
+        }
+    }
+
+    /// Create a work-stealing configuration with the given threshold.
+    ///
+    /// When an actor's queue depth falls below `steal_threshold`, its scheduler
+    /// warp will attempt to steal messages from the busiest neighbor.
+    pub fn work_stealing(steal_threshold: u32) -> Self {
+        Self {
+            steal_threshold,
+            strategy: SchedulingStrategy::WorkStealing,
+            ..Default::default()
+        }
+    }
+
+    /// Create a round-robin configuration.
+    ///
+    /// Messages are distributed from a global work queue to blocks in
+    /// round-robin order, using a global atomic counter for index assignment.
+    pub fn round_robin() -> Self {
+        Self {
+            strategy: SchedulingStrategy::RoundRobin,
+            ..Default::default()
+        }
+    }
+
+    /// Create a priority-based configuration with the given number of levels.
+    ///
+    /// Messages are bucketed into priority sub-queues (0 = lowest, levels-1 = highest).
+    /// The scheduler warp dequeues from the highest-priority non-empty sub-queue first.
+    pub fn priority(levels: u32) -> Self {
+        let levels = levels.clamp(1, 16);
+        Self {
+            strategy: SchedulingStrategy::Priority { levels },
+            ..Default::default()
+        }
+    }
+
+    /// Set the steal threshold.
+    pub fn with_steal_threshold(mut self, threshold: u32) -> Self {
+        self.steal_threshold = threshold;
+        self
+    }
+
+    /// Set the share threshold.
+    pub fn with_share_threshold(mut self, threshold: u32) -> Self {
+        self.share_threshold = threshold;
+        self
+    }
+
+    /// Set the maximum steal batch size.
+    pub fn with_max_steal_batch(mut self, batch: u32) -> Self {
+        self.max_steal_batch = batch;
+        self
+    }
+
+    /// Set the number of neighbor blocks to check for work stealing.
+    pub fn with_steal_neighborhood(mut self, neighborhood: u32) -> Self {
+        self.steal_neighborhood = neighborhood;
+        self
+    }
+
+    /// Enable or disable the scheduler.
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Check if this configuration uses dynamic scheduling (anything other than Static).
+    pub fn is_dynamic(&self) -> bool {
+        self.enabled && self.strategy != SchedulingStrategy::Static
+    }
+}
+
+/// Work item for the scheduler.
+///
+/// Represents a unit of work that can be assigned to any actor (thread block).
+/// The scheduler warp uses these to track pending work in the global work queue.
+///
+/// Layout (16 bytes): message_id (8) + actor_id (4) + priority (4).
+/// Fields ordered largest-first to avoid padding.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WorkItem {
+    /// Unique message identifier for tracking.
+    pub message_id: u64,
+    /// Actor ID that owns (or should process) this work item.
+    pub actor_id: u32,
+    /// Priority level (0 = lowest). Used by `Priority` strategy.
+    pub priority: u32,
+}
+
+impl WorkItem {
+    /// Create a new work item.
+    pub fn new(actor_id: u32, message_id: u64, priority: u32) -> Self {
+        Self {
+            message_id,
+            actor_id,
+            priority,
+        }
+    }
+}
+
+impl fmt::Display for WorkItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "WorkItem(actor={}, msg={}, pri={})",
+            self.actor_id, self.message_id, self.priority
+        )
+    }
+}
+
+/// Configuration for the scheduler warp pattern in CUDA codegen.
+///
+/// This controls how the scheduler warp (warp 0 by default) is generated
+/// within each persistent kernel thread block. When enabled, the codegen
+/// produces a split: warp 0 handles work distribution, remaining warps
+/// do message processing.
+#[derive(Debug, Clone)]
+pub struct SchedulerWarpConfig {
+    /// Which warp handles scheduling (default: 0).
+    pub scheduler_warp_id: u32,
+    /// The scheduling parameters.
+    pub scheduler: SchedulerConfig,
+    /// Size of the global work queue (number of WorkItem slots).
+    /// Must be power of 2. Used for round-robin and priority strategies.
+    pub work_queue_capacity: usize,
+    /// Polling interval in nanoseconds for the scheduler warp
+    /// when no work is available (default: 1000ns).
+    pub poll_interval_ns: u32,
+}
+
+impl Default for SchedulerWarpConfig {
+    fn default() -> Self {
+        Self {
+            scheduler_warp_id: 0,
+            scheduler: SchedulerConfig::default(),
+            work_queue_capacity: 1024,
+            poll_interval_ns: 1000,
+        }
+    }
+}
+
+impl SchedulerWarpConfig {
+    /// Create a new scheduler warp config with the given strategy.
+    pub fn new(scheduler: SchedulerConfig) -> Self {
+        Self {
+            scheduler,
+            ..Default::default()
+        }
+    }
+
+    /// Create a static (disabled) scheduler warp config.
+    /// Codegen will produce the original non-split kernel.
+    pub fn disabled() -> Self {
+        Self {
+            scheduler: SchedulerConfig::static_scheduling(),
+            ..Default::default()
+        }
+    }
+
+    /// Set the scheduler warp ID.
+    pub fn with_scheduler_warp(mut self, warp_id: u32) -> Self {
+        self.scheduler_warp_id = warp_id;
+        self
+    }
+
+    /// Set the global work queue capacity.
+    pub fn with_work_queue_capacity(mut self, capacity: usize) -> Self {
+        debug_assert!(
+            capacity.is_power_of_two(),
+            "Work queue capacity must be power of 2"
+        );
+        self.work_queue_capacity = capacity;
+        self
+    }
+
+    /// Set the poll interval for the scheduler warp.
+    pub fn with_poll_interval_ns(mut self, ns: u32) -> Self {
+        self.poll_interval_ns = ns;
+        self
+    }
+
+    /// Check if the scheduler warp pattern should be generated.
+    pub fn is_enabled(&self) -> bool {
+        self.scheduler.is_dynamic()
+    }
+}
+
 /// Scheduling strategy for persistent actors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulingStrategy {
@@ -94,6 +294,15 @@ pub enum SchedulingStrategy {
     WorkSharing,
     /// Hybrid — combines stealing and sharing based on load imbalance.
     Hybrid,
+    /// Round-robin: a central work queue distributes to blocks in round-robin order.
+    /// The scheduler warp in each block pulls from a global atomic counter.
+    RoundRobin,
+    /// Priority-based: actors have priority levels, higher priority served first.
+    /// Messages are dequeued from the highest-priority non-empty sub-queue.
+    Priority {
+        /// Number of priority levels (1-16). Messages are bucketed into sub-queues.
+        levels: u32,
+    },
 }
 
 impl fmt::Display for SchedulingStrategy {
@@ -103,6 +312,8 @@ impl fmt::Display for SchedulingStrategy {
             Self::WorkStealing => write!(f, "work-stealing"),
             Self::WorkSharing => write!(f, "work-sharing"),
             Self::Hybrid => write!(f, "hybrid"),
+            Self::RoundRobin => write!(f, "round-robin"),
+            Self::Priority { levels } => write!(f, "priority({})", levels),
         }
     }
 }
@@ -217,8 +428,18 @@ impl LoadTable {
     /// Compute a work stealing plan: which actors should steal from which.
     ///
     /// Returns a list of (thief_id, victim_id, count) tuples.
+    /// For `RoundRobin` and `Priority` strategies, this returns an empty plan
+    /// since those use a central work queue rather than peer-to-peer stealing.
     pub fn compute_steal_plan(&self, config: &SchedulerConfig) -> Vec<StealOp> {
         if !config.enabled || config.strategy == SchedulingStrategy::Static {
+            return Vec::new();
+        }
+
+        // Round-robin and priority use a central queue, not peer stealing.
+        if matches!(
+            config.strategy,
+            SchedulingStrategy::RoundRobin | SchedulingStrategy::Priority { .. }
+        ) {
             return Vec::new();
         }
 
@@ -424,5 +645,135 @@ mod tests {
             32,
             "LoadEntry must be 32 bytes for GPU cache efficiency"
         );
+    }
+
+    #[test]
+    fn test_work_item_size() {
+        assert_eq!(
+            std::mem::size_of::<WorkItem>(),
+            16,
+            "WorkItem must be 16 bytes for GPU cache efficiency"
+        );
+    }
+
+    #[test]
+    fn test_work_item_display() {
+        let item = WorkItem::new(3, 42, 2);
+        let s = format!("{}", item);
+        assert!(s.contains("actor=3"));
+        assert!(s.contains("msg=42"));
+        assert!(s.contains("pri=2"));
+    }
+
+    #[test]
+    fn test_scheduler_config_static() {
+        let config = SchedulerConfig::static_scheduling();
+        assert!(!config.enabled);
+        assert_eq!(config.strategy, SchedulingStrategy::Static);
+        assert!(!config.is_dynamic());
+    }
+
+    #[test]
+    fn test_scheduler_config_work_stealing() {
+        let config = SchedulerConfig::work_stealing(8);
+        assert_eq!(config.steal_threshold, 8);
+        assert_eq!(config.strategy, SchedulingStrategy::WorkStealing);
+        assert!(config.is_dynamic());
+    }
+
+    #[test]
+    fn test_scheduler_config_round_robin() {
+        let config = SchedulerConfig::round_robin();
+        assert_eq!(config.strategy, SchedulingStrategy::RoundRobin);
+        assert!(config.is_dynamic());
+    }
+
+    #[test]
+    fn test_scheduler_config_priority() {
+        let config = SchedulerConfig::priority(4);
+        assert_eq!(config.strategy, SchedulingStrategy::Priority { levels: 4 });
+        assert!(config.is_dynamic());
+    }
+
+    #[test]
+    fn test_scheduler_config_priority_clamped() {
+        let config = SchedulerConfig::priority(100);
+        assert_eq!(config.strategy, SchedulingStrategy::Priority { levels: 16 });
+    }
+
+    #[test]
+    fn test_scheduler_config_builder_chain() {
+        let config = SchedulerConfig::work_stealing(10)
+            .with_share_threshold(80)
+            .with_max_steal_batch(32)
+            .with_steal_neighborhood(6);
+
+        assert_eq!(config.steal_threshold, 10);
+        assert_eq!(config.share_threshold, 80);
+        assert_eq!(config.max_steal_batch, 32);
+        assert_eq!(config.steal_neighborhood, 6);
+    }
+
+    #[test]
+    fn test_scheduler_warp_config_default() {
+        let config = SchedulerWarpConfig::default();
+        assert_eq!(config.scheduler_warp_id, 0);
+        assert_eq!(config.work_queue_capacity, 1024);
+        assert_eq!(config.poll_interval_ns, 1000);
+        assert!(config.is_enabled());
+    }
+
+    #[test]
+    fn test_scheduler_warp_config_disabled() {
+        let config = SchedulerWarpConfig::disabled();
+        assert!(!config.is_enabled());
+    }
+
+    #[test]
+    fn test_scheduler_warp_config_builder() {
+        let config = SchedulerWarpConfig::new(SchedulerConfig::round_robin())
+            .with_scheduler_warp(1)
+            .with_work_queue_capacity(2048)
+            .with_poll_interval_ns(500);
+
+        assert_eq!(config.scheduler_warp_id, 1);
+        assert_eq!(config.work_queue_capacity, 2048);
+        assert_eq!(config.poll_interval_ns, 500);
+        assert!(config.is_enabled());
+    }
+
+    #[test]
+    fn test_strategy_display() {
+        assert_eq!(format!("{}", SchedulingStrategy::Static), "static");
+        assert_eq!(format!("{}", SchedulingStrategy::WorkStealing), "work-stealing");
+        assert_eq!(format!("{}", SchedulingStrategy::WorkSharing), "work-sharing");
+        assert_eq!(format!("{}", SchedulingStrategy::Hybrid), "hybrid");
+        assert_eq!(format!("{}", SchedulingStrategy::RoundRobin), "round-robin");
+        assert_eq!(
+            format!("{}", SchedulingStrategy::Priority { levels: 4 }),
+            "priority(4)"
+        );
+    }
+
+    #[test]
+    fn test_steal_plan_round_robin_empty() {
+        let mut table = LoadTable::new(4);
+        table.entries[0] = LoadEntry { queue_depth: 2, capacity: 100, ..Default::default() };
+        table.entries[1] = LoadEntry { queue_depth: 80, capacity: 100, ..Default::default() };
+
+        let config = SchedulerConfig::round_robin();
+        let plan = table.compute_steal_plan(&config);
+        assert!(plan.is_empty(), "Round-robin should not produce steal ops");
+    }
+
+    #[test]
+    fn test_steal_plan_priority_empty() {
+        let mut table = LoadTable::new(4);
+        table.entries[0] = LoadEntry { queue_depth: 2, capacity: 100, ..Default::default() };
+        table.entries[1] = LoadEntry { queue_depth: 80, capacity: 100, ..Default::default() };
+
+        let config = SchedulerConfig::priority(4);
+        let plan = table.compute_steal_plan(&config);
+        assert!(plan.is_empty(), "Priority should not produce steal ops");
     }
 }

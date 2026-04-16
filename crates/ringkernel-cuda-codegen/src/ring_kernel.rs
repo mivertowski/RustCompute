@@ -136,6 +136,133 @@ impl KernelReductionConfig {
     }
 }
 
+/// Scheduling strategy for codegen.
+///
+/// Mirrors `ringkernel_core::scheduling::SchedulingStrategy` for the codegen layer.
+/// Kept separate to avoid a dependency from the codegen crate on core at build time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodegenSchedulingStrategy {
+    /// Static: no dynamic scheduling (default, original behavior).
+    Static,
+    /// Work stealing: scheduler warp steals from neighbors when idle.
+    WorkStealing,
+    /// Work sharing: scheduler warp pushes excess work to neighbors.
+    WorkSharing,
+    /// Hybrid: combines stealing and sharing.
+    Hybrid,
+    /// Round-robin: central work queue, global atomic index.
+    RoundRobin,
+    /// Priority: multiple sub-queues, highest-priority first.
+    Priority {
+        /// Number of priority levels.
+        levels: u32,
+    },
+}
+
+impl Default for CodegenSchedulingStrategy {
+    fn default() -> Self {
+        Self::Static
+    }
+}
+
+/// Configuration for the scheduler warp pattern in codegen.
+///
+/// When enabled, the generated CUDA kernel splits warp 0 from compute warps:
+/// - Warp 0: scheduler logic (work stealing, load monitoring, redistribution)
+/// - Warps 1-N: message processing (user handler code)
+#[derive(Debug, Clone)]
+pub struct CodegenSchedulerConfig {
+    /// Whether to generate the scheduler warp pattern.
+    pub enabled: bool,
+    /// Which warp acts as the scheduler (default: 0).
+    pub scheduler_warp_id: u32,
+    /// Scheduling strategy to generate code for.
+    pub strategy: CodegenSchedulingStrategy,
+    /// Queue depth below which the scheduler warp tries to steal.
+    pub steal_threshold: u32,
+    /// Queue depth above which the scheduler warp offers work.
+    pub share_threshold: u32,
+    /// Maximum messages to steal/share per batch.
+    pub max_batch: u32,
+    /// Number of neighbors to probe for stealing.
+    pub neighborhood_size: u32,
+    /// Global work queue capacity (for round-robin/priority).
+    pub work_queue_capacity: u32,
+    /// Scheduler poll interval in nanoseconds.
+    pub poll_interval_ns: u32,
+}
+
+impl Default for CodegenSchedulerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            scheduler_warp_id: 0,
+            strategy: CodegenSchedulingStrategy::Static,
+            steal_threshold: 4,
+            share_threshold: 64,
+            max_batch: 16,
+            neighborhood_size: 4,
+            work_queue_capacity: 1024,
+            poll_interval_ns: 1000,
+        }
+    }
+}
+
+impl CodegenSchedulerConfig {
+    /// Create a new disabled (static) scheduler config.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Enable work-stealing scheduling.
+    pub fn work_stealing(steal_threshold: u32) -> Self {
+        Self {
+            enabled: true,
+            strategy: CodegenSchedulingStrategy::WorkStealing,
+            steal_threshold,
+            ..Default::default()
+        }
+    }
+
+    /// Enable round-robin scheduling.
+    pub fn round_robin(work_queue_capacity: u32) -> Self {
+        Self {
+            enabled: true,
+            strategy: CodegenSchedulingStrategy::RoundRobin,
+            work_queue_capacity,
+            ..Default::default()
+        }
+    }
+
+    /// Enable priority-based scheduling.
+    pub fn priority(levels: u32, work_queue_capacity: u32) -> Self {
+        Self {
+            enabled: true,
+            strategy: CodegenSchedulingStrategy::Priority { levels: levels.clamp(1, 16) },
+            work_queue_capacity,
+            ..Default::default()
+        }
+    }
+
+    /// Set the scheduler warp ID.
+    pub fn with_scheduler_warp(mut self, warp_id: u32) -> Self {
+        self.scheduler_warp_id = warp_id;
+        self
+    }
+
+    /// Set the max batch size.
+    pub fn with_max_batch(mut self, batch: u32) -> Self {
+        self.max_batch = batch;
+        self
+    }
+
+    /// Set the neighborhood size.
+    pub fn with_neighborhood(mut self, size: u32) -> Self {
+        self.neighborhood_size = size;
+        self
+    }
+}
+
 /// Configuration for a ring kernel.
 #[derive(Debug, Clone)]
 pub struct RingKernelConfig {
@@ -166,6 +293,11 @@ pub struct RingKernelConfig {
     pub hlc_node_id: u64,
     /// Configuration for global reductions (e.g., for PageRank dangling sum).
     pub reduction: KernelReductionConfig,
+    /// Configuration for dynamic actor scheduling.
+    ///
+    /// When enabled, codegen produces a scheduler warp pattern: warp 0 handles
+    /// work distribution, remaining warps do computation.
+    pub scheduling: CodegenSchedulerConfig,
 }
 
 impl Default for RingKernelConfig {
@@ -184,6 +316,7 @@ impl Default for RingKernelConfig {
             kernel_id_num: 0,
             hlc_node_id: 0,
             reduction: KernelReductionConfig::new(),
+            scheduling: CodegenSchedulerConfig::new(),
         }
     }
 }
@@ -292,6 +425,26 @@ impl RingKernelConfig {
         self
     }
 
+    /// Configure dynamic scheduling for the generated kernel.
+    ///
+    /// When enabled, the generated kernel includes a scheduler warp pattern:
+    /// warp 0 handles work distribution (stealing, round-robin, or priority),
+    /// while remaining warps process messages.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use ringkernel_cuda_codegen::{RingKernelConfig, CodegenSchedulerConfig};
+    ///
+    /// let config = RingKernelConfig::new("load_balanced")
+    ///     .with_block_size(256) // 8 warps: 1 scheduler + 7 compute
+    ///     .with_scheduling(CodegenSchedulerConfig::work_stealing(4));
+    /// ```
+    pub fn with_scheduling(mut self, scheduling: CodegenSchedulerConfig) -> Self {
+        self.scheduling = scheduling;
+        self
+    }
+
     /// Generate the kernel function name.
     pub fn kernel_name(&self) -> String {
         format!("ring_kernel_{}", self.id)
@@ -310,6 +463,15 @@ impl RingKernelConfig {
             writeln!(sig, "    K2KRoutingTable* __restrict__ k2k_routes,")?;
             writeln!(sig, "    unsigned char* __restrict__ k2k_inbox,")?;
             writeln!(sig, "    unsigned char* __restrict__ k2k_outbox,")?;
+        }
+
+        // Scheduler warp load table parameter
+        if self.scheduling.enabled {
+            write!(
+                sig,
+                "{}",
+                generate_scheduler_signature_params(&self.scheduling)
+            )?;
         }
 
         write!(sig, "    void* __restrict__ shared_state")?;
@@ -629,6 +791,12 @@ impl RingKernelConfig {
             code.push('\n');
         }
 
+        // Scheduler load table struct (if scheduling enabled)
+        if self.scheduling.enabled {
+            code.push_str(&generate_load_table_struct());
+            code.push('\n');
+        }
+
         // Kernel signature
         code.push_str(&self.generate_signature()?);
         code.push_str(" {\n");
@@ -638,6 +806,14 @@ impl RingKernelConfig {
 
         // Message loop
         code.push_str(&self.generate_loop_header("    ")?);
+
+        // Scheduler warp code (inserted before handler, skips message processing)
+        if self.scheduling.enabled {
+            code.push_str(&generate_scheduler_warp_code(
+                &self.scheduling,
+                "        ",
+            ));
+        }
 
         // Handler placeholder
         writeln!(code, "        // === USER HANDLER CODE ===")?;
@@ -1095,6 +1271,291 @@ __device__ inline unsigned int k2k_pending_count(unsigned char* k2k_inbox) {
 }
 "#
     .to_string()
+}
+
+// ============================================================================
+// SCHEDULER WARP CODE GENERATION
+// ============================================================================
+
+/// Generate the LoadEntry struct definition for CUDA.
+///
+/// This matches `ringkernel_core::scheduling::LoadEntry` and is stored in
+/// global memory so all blocks can read/write their load metrics.
+pub fn generate_load_table_struct() -> String {
+    r#"// Per-actor load entry for scheduler warp (32 bytes, aligned)
+struct __align__(32) LoadEntry {
+    unsigned int queue_depth;        // Current input queue depth
+    unsigned int capacity;           // Queue capacity
+    unsigned long long messages_processed;  // Throughput indicator
+    unsigned int steal_requests;     // Pending steal requests (atomic)
+    unsigned int offer_count;        // Messages offered for stealing
+    unsigned int load_score;         // 0-255 normalized load
+    unsigned int _pad;
+};
+
+// Work item for scheduler (16 bytes, aligned)
+struct __align__(16) WorkItem {
+    unsigned int actor_id;           // Owning actor (block) ID
+    unsigned long long message_id;   // Message identifier
+    unsigned int priority;           // Priority level (0 = lowest)
+};
+"#
+    .to_string()
+}
+
+/// Generate the scheduler warp code for a given strategy.
+///
+/// This produces the CUDA code that warp 0 executes within the persistent loop.
+/// The scheduler warp monitors load, steals/shares work, and updates the load table.
+///
+/// The generated code assumes these variables are available from the preamble:
+/// - `warp_id`, `lane_id`, `tid`
+/// - `control` (ControlBlock pointer)
+/// - `input_buffer`, `output_buffer`
+///
+/// And these kernel parameters are added to the signature:
+/// - `LoadEntry* __restrict__ load_table` (global memory, one entry per block)
+pub fn generate_scheduler_warp_code(config: &CodegenSchedulerConfig, indent: &str) -> String {
+    if !config.enabled {
+        return String::new();
+    }
+
+    let mut code = String::new();
+    let i = indent;
+
+    // Warp divergence guard: only the scheduler warp runs this code
+    code.push_str(&format!(
+        "{i}// === SCHEDULER WARP (warp {}) ===\n",
+        config.scheduler_warp_id
+    ));
+    code.push_str(&format!(
+        "{i}if (warp_id == {}) {{\n",
+        config.scheduler_warp_id
+    ));
+
+    // Lane 0 of the scheduler warp does the actual scheduling work
+    code.push_str(&format!("{i}    if (lane_id == 0) {{\n"));
+
+    // Update load table entry for this block
+    code.push_str(&format!(
+        "{i}        // Update this block's load entry\n"
+    ));
+    code.push_str(&format!(
+        "{i}        unsigned int my_depth = (unsigned int)(atomicAdd(&control->input_head, 0) - atomicAdd(&control->input_tail, 0));\n"
+    ));
+    code.push_str(&format!(
+        "{i}        load_table[blockIdx.x].queue_depth = my_depth;\n"
+    ));
+    code.push_str(&format!(
+        "{i}        load_table[blockIdx.x].messages_processed = atomicAdd(&control->messages_processed, 0);\n"
+    ));
+    code.push_str(&format!(
+        "{i}        if (load_table[blockIdx.x].capacity > 0) {{\n"
+    ));
+    code.push_str(&format!(
+        "{i}            load_table[blockIdx.x].load_score = (my_depth * 255) / load_table[blockIdx.x].capacity;\n"
+    ));
+    code.push_str(&format!("{i}        }}\n"));
+    code.push_str(&format!("{i}        __threadfence();\n"));
+
+    // Generate strategy-specific code
+    match config.strategy {
+        CodegenSchedulingStrategy::WorkStealing => {
+            generate_work_stealing_code(&mut code, config, indent);
+        }
+        CodegenSchedulingStrategy::WorkSharing => {
+            generate_work_sharing_code(&mut code, config, indent);
+        }
+        CodegenSchedulingStrategy::Hybrid => {
+            generate_work_stealing_code(&mut code, config, indent);
+            generate_work_sharing_code(&mut code, config, indent);
+        }
+        CodegenSchedulingStrategy::RoundRobin => {
+            generate_round_robin_code(&mut code, config, indent);
+        }
+        CodegenSchedulingStrategy::Priority { levels } => {
+            generate_priority_code(&mut code, config, indent, levels);
+        }
+        CodegenSchedulingStrategy::Static => {
+            // No scheduling code needed
+        }
+    }
+
+    code.push_str(&format!("{i}    }}\n")); // end lane_id == 0
+    code.push_str(&format!(
+        "{i}    // Scheduler warp does not process messages\n"
+    ));
+    code.push_str(&format!("{i}    __syncwarp();\n"));
+    code.push_str(&format!("{i}    continue;\n"));
+    code.push_str(&format!("{i}}}\n")); // end warp_id check
+    code.push_str(&format!("{i}// === END SCHEDULER WARP ===\n\n"));
+
+    code
+}
+
+/// Generate work-stealing logic for the scheduler warp.
+fn generate_work_stealing_code(code: &mut String, config: &CodegenSchedulerConfig, indent: &str) {
+    let i = indent;
+    code.push_str(&format!("{i}        // Work stealing: check if underloaded\n"));
+    code.push_str(&format!(
+        "{i}        if (my_depth < {}) {{\n",
+        config.steal_threshold
+    ));
+    code.push_str(&format!(
+        "{i}            // Scan {} neighbors for the busiest one\n",
+        config.neighborhood_size
+    ));
+    code.push_str(&format!(
+        "{i}            unsigned int best_victim = 0xFFFFFFFF;\n"
+    ));
+    code.push_str(&format!("{i}            unsigned int best_depth = 0;\n"));
+    code.push_str(&format!(
+        "{i}            for (unsigned int n = 1; n <= {}; n++) {{\n",
+        config.neighborhood_size
+    ));
+    code.push_str(&format!(
+        "{i}                int neighbor = (int)blockIdx.x + (int)n;\n"
+    ));
+    code.push_str(&format!(
+        "{i}                if (neighbor < gridDim.x) {{\n"
+    ));
+    code.push_str(&format!(
+        "{i}                    unsigned int nd = load_table[neighbor].queue_depth;\n"
+    ));
+    code.push_str(&format!(
+        "{i}                    if (nd > {} && nd > best_depth) {{\n",
+        config.share_threshold
+    ));
+    code.push_str(&format!(
+        "{i}                        best_depth = nd;\n"
+    ));
+    code.push_str(&format!(
+        "{i}                        best_victim = (unsigned int)neighbor;\n"
+    ));
+    code.push_str(&format!("{i}                    }}\n"));
+    code.push_str(&format!("{i}                }}\n"));
+    // Also check in the negative direction
+    code.push_str(&format!(
+        "{i}                int neg_neighbor = (int)blockIdx.x - (int)n;\n"
+    ));
+    code.push_str(&format!("{i}                if (neg_neighbor >= 0) {{\n"));
+    code.push_str(&format!(
+        "{i}                    unsigned int nd = load_table[neg_neighbor].queue_depth;\n"
+    ));
+    code.push_str(&format!(
+        "{i}                    if (nd > {} && nd > best_depth) {{\n",
+        config.share_threshold
+    ));
+    code.push_str(&format!(
+        "{i}                        best_depth = nd;\n"
+    ));
+    code.push_str(&format!(
+        "{i}                        best_victim = (unsigned int)neg_neighbor;\n"
+    ));
+    code.push_str(&format!("{i}                    }}\n"));
+    code.push_str(&format!("{i}                }}\n"));
+    code.push_str(&format!("{i}            }}\n"));
+    code.push_str(&format!(
+        "{i}            // TODO(scheduler): implement atomic steal from best_victim's queue\n"
+    ));
+    code.push_str(&format!(
+        "{i}            // Placeholder: atomicAdd(&load_table[best_victim].steal_requests, 1);\n"
+    ));
+    code.push_str(&format!(
+        "{i}            if (best_victim != 0xFFFFFFFF) {{\n"
+    ));
+    code.push_str(&format!(
+        "{i}                atomicAdd(&load_table[best_victim].steal_requests, 1);\n"
+    ));
+    code.push_str(&format!("{i}            }}\n"));
+    code.push_str(&format!("{i}        }}\n"));
+}
+
+/// Generate work-sharing logic for the scheduler warp.
+fn generate_work_sharing_code(code: &mut String, config: &CodegenSchedulerConfig, indent: &str) {
+    let i = indent;
+    code.push_str(&format!("{i}        // Work sharing: offer excess work\n"));
+    code.push_str(&format!(
+        "{i}        if (my_depth > {}) {{\n",
+        config.share_threshold
+    ));
+    code.push_str(&format!(
+        "{i}            unsigned int excess = my_depth - {};\n",
+        config.share_threshold
+    ));
+    code.push_str(&format!(
+        "{i}            unsigned int offer = (excess < {}) ? excess : {};\n",
+        config.max_batch, config.max_batch
+    ));
+    code.push_str(&format!(
+        "{i}            load_table[blockIdx.x].offer_count = offer;\n"
+    ));
+    code.push_str(&format!(
+        "{i}            // TODO(scheduler): signal neighbors that work is available\n"
+    ));
+    code.push_str(&format!("{i}        }} else {{\n"));
+    code.push_str(&format!(
+        "{i}            load_table[blockIdx.x].offer_count = 0;\n"
+    ));
+    code.push_str(&format!("{i}        }}\n"));
+}
+
+/// Generate round-robin scheduling code for the scheduler warp.
+fn generate_round_robin_code(code: &mut String, _config: &CodegenSchedulerConfig, indent: &str) {
+    let i = indent;
+    code.push_str(&format!(
+        "{i}        // Round-robin: pull from global work queue\n"
+    ));
+    code.push_str(&format!(
+        "{i}        // TODO(scheduler): implement global atomic counter for round-robin dispatch\n"
+    ));
+    code.push_str(&format!(
+        "{i}        // The global work queue (work_items + work_queue_head/tail) distributes\n"
+    ));
+    code.push_str(&format!(
+        "{i}        // messages to blocks in round-robin order. Each block's scheduler warp\n"
+    ));
+    code.push_str(&format!(
+        "{i}        // atomically increments a global tail pointer to claim work items.\n"
+    ));
+}
+
+/// Generate priority scheduling code for the scheduler warp.
+fn generate_priority_code(
+    code: &mut String,
+    _config: &CodegenSchedulerConfig,
+    indent: &str,
+    levels: u32,
+) {
+    let i = indent;
+    code.push_str(&format!(
+        "{i}        // Priority scheduling: {} levels, dequeue highest-priority first\n",
+        levels
+    ));
+    code.push_str(&format!(
+        "{i}        // TODO(scheduler): implement priority sub-queue scanning\n"
+    ));
+    code.push_str(&format!(
+        "{i}        // The scheduler warp scans {} sub-queues from highest to lowest priority,\n",
+        levels
+    ));
+    code.push_str(&format!(
+        "{i}        // dequeuing from the first non-empty sub-queue and placing the work item\n"
+    ));
+    code.push_str(&format!(
+        "{i}        // into the local block's processing queue.\n"
+    ));
+}
+
+/// Generate the kernel signature with scheduler warp parameters.
+///
+/// When scheduling is enabled, adds `LoadEntry* __restrict__ load_table` parameter.
+fn generate_scheduler_signature_params(config: &CodegenSchedulerConfig) -> String {
+    if !config.enabled {
+        return String::new();
+    }
+
+    "    LoadEntry* __restrict__ load_table,\n".to_string()
 }
 
 /// Intrinsic functions available in ring kernel handlers.
@@ -2059,5 +2520,241 @@ mod tests {
         assert!(code.contains("switch (handler_id)"));
         assert!(code.contains("case 1:"));
         assert!(code.contains("case 2:"));
+    }
+
+    // ========================================================================
+    // Scheduler Warp Codegen Tests
+    // ========================================================================
+
+    #[test]
+    fn test_codegen_scheduler_config_default() {
+        let config = CodegenSchedulerConfig::new();
+        assert!(!config.enabled);
+        assert_eq!(config.strategy, CodegenSchedulingStrategy::Static);
+        assert_eq!(config.scheduler_warp_id, 0);
+    }
+
+    #[test]
+    fn test_codegen_scheduler_config_work_stealing() {
+        let config = CodegenSchedulerConfig::work_stealing(8);
+        assert!(config.enabled);
+        assert_eq!(config.strategy, CodegenSchedulingStrategy::WorkStealing);
+        assert_eq!(config.steal_threshold, 8);
+    }
+
+    #[test]
+    fn test_codegen_scheduler_config_round_robin() {
+        let config = CodegenSchedulerConfig::round_robin(2048);
+        assert!(config.enabled);
+        assert_eq!(config.strategy, CodegenSchedulingStrategy::RoundRobin);
+        assert_eq!(config.work_queue_capacity, 2048);
+    }
+
+    #[test]
+    fn test_codegen_scheduler_config_priority() {
+        let config = CodegenSchedulerConfig::priority(4, 1024);
+        assert!(config.enabled);
+        assert_eq!(
+            config.strategy,
+            CodegenSchedulingStrategy::Priority { levels: 4 }
+        );
+    }
+
+    #[test]
+    fn test_codegen_scheduler_config_priority_clamped() {
+        let config = CodegenSchedulerConfig::priority(99, 1024);
+        assert_eq!(
+            config.strategy,
+            CodegenSchedulingStrategy::Priority { levels: 16 }
+        );
+    }
+
+    #[test]
+    fn test_load_table_struct_generation() {
+        let code = generate_load_table_struct();
+        assert!(code.contains("struct __align__(32) LoadEntry"));
+        assert!(code.contains("queue_depth"));
+        assert!(code.contains("messages_processed"));
+        assert!(code.contains("load_score"));
+        assert!(code.contains("struct __align__(16) WorkItem"));
+        assert!(code.contains("actor_id"));
+        assert!(code.contains("message_id"));
+        assert!(code.contains("priority"));
+    }
+
+    #[test]
+    fn test_scheduler_warp_code_disabled() {
+        let config = CodegenSchedulerConfig::new();
+        let code = generate_scheduler_warp_code(&config, "    ");
+        assert!(code.is_empty(), "Disabled scheduler should produce no code");
+    }
+
+    #[test]
+    fn test_scheduler_warp_code_work_stealing() {
+        let config = CodegenSchedulerConfig::work_stealing(4);
+        let code = generate_scheduler_warp_code(&config, "    ");
+
+        assert!(code.contains("SCHEDULER WARP"), "Should have scheduler header");
+        assert!(code.contains("warp_id == 0"), "Should check warp 0");
+        assert!(code.contains("lane_id == 0"), "Should check lane 0");
+        assert!(code.contains("queue_depth"), "Should update queue depth");
+        assert!(code.contains("load_score"), "Should update load score");
+        assert!(
+            code.contains("steal_requests"),
+            "Should have steal request logic"
+        );
+        assert!(code.contains("best_victim"), "Should scan for victims");
+        assert!(code.contains("continue"), "Scheduler warp should skip handler");
+    }
+
+    #[test]
+    fn test_scheduler_warp_code_work_sharing() {
+        let config = CodegenSchedulerConfig {
+            enabled: true,
+            strategy: CodegenSchedulingStrategy::WorkSharing,
+            ..Default::default()
+        };
+        let code = generate_scheduler_warp_code(&config, "    ");
+
+        assert!(code.contains("Work sharing"));
+        assert!(code.contains("offer_count"));
+    }
+
+    #[test]
+    fn test_scheduler_warp_code_hybrid() {
+        let config = CodegenSchedulerConfig {
+            enabled: true,
+            strategy: CodegenSchedulingStrategy::Hybrid,
+            ..Default::default()
+        };
+        let code = generate_scheduler_warp_code(&config, "    ");
+
+        // Hybrid should have both stealing and sharing
+        assert!(code.contains("Work stealing"));
+        assert!(code.contains("Work sharing"));
+    }
+
+    #[test]
+    fn test_scheduler_warp_code_round_robin() {
+        let config = CodegenSchedulerConfig::round_robin(2048);
+        let code = generate_scheduler_warp_code(&config, "    ");
+
+        assert!(code.contains("Round-robin"));
+        assert!(code.contains("global work queue"));
+    }
+
+    #[test]
+    fn test_scheduler_warp_code_priority() {
+        let config = CodegenSchedulerConfig::priority(4, 1024);
+        let code = generate_scheduler_warp_code(&config, "    ");
+
+        assert!(code.contains("Priority scheduling: 4 levels"));
+        assert!(code.contains("sub-queue"));
+    }
+
+    #[test]
+    fn test_kernel_with_scheduling_signature() {
+        let config = RingKernelConfig::new("scheduled")
+            .with_block_size(256)
+            .with_scheduling(CodegenSchedulerConfig::work_stealing(4));
+
+        let sig = config.generate_signature().unwrap();
+        assert!(
+            sig.contains("LoadEntry* __restrict__ load_table"),
+            "Signature should include load_table parameter"
+        );
+    }
+
+    #[test]
+    fn test_kernel_without_scheduling_signature() {
+        let config = RingKernelConfig::new("static");
+        let sig = config.generate_signature().unwrap();
+        assert!(
+            !sig.contains("load_table"),
+            "Static kernel should not have load_table parameter"
+        );
+    }
+
+    #[test]
+    fn test_full_kernel_with_scheduling() {
+        let config = RingKernelConfig::new("work_balanced")
+            .with_block_size(256)
+            .with_hlc(true)
+            .with_scheduling(CodegenSchedulerConfig::work_stealing(4));
+
+        let kernel = config
+            .generate_kernel_wrapper("// Process message here")
+            .unwrap();
+
+        // Should have struct definitions
+        assert!(
+            kernel.contains("struct __align__(128) ControlBlock"),
+            "Should have ControlBlock"
+        );
+        assert!(
+            kernel.contains("struct __align__(32) LoadEntry"),
+            "Should have LoadEntry struct"
+        );
+        assert!(
+            kernel.contains("struct __align__(16) WorkItem"),
+            "Should have WorkItem struct"
+        );
+
+        // Should have load_table parameter
+        assert!(
+            kernel.contains("LoadEntry* __restrict__ load_table"),
+            "Should have load_table param"
+        );
+
+        // Should have scheduler warp code
+        assert!(
+            kernel.contains("SCHEDULER WARP"),
+            "Should have scheduler warp block"
+        );
+        assert!(
+            kernel.contains("warp_id == 0"),
+            "Should check scheduler warp"
+        );
+
+        // Should still have handler code
+        assert!(kernel.contains("// Process message here"));
+        assert!(kernel.contains("has_terminated"));
+
+        println!("Full scheduled kernel:\n{}", kernel);
+    }
+
+    #[test]
+    fn test_ring_kernel_config_with_scheduling_builder() {
+        let config = RingKernelConfig::new("test")
+            .with_block_size(256)
+            .with_scheduling(
+                CodegenSchedulerConfig::work_stealing(8)
+                    .with_max_batch(32)
+                    .with_neighborhood(6),
+            );
+
+        assert!(config.scheduling.enabled);
+        assert_eq!(
+            config.scheduling.strategy,
+            CodegenSchedulingStrategy::WorkStealing
+        );
+        assert_eq!(config.scheduling.steal_threshold, 8);
+        assert_eq!(config.scheduling.max_batch, 32);
+        assert_eq!(config.scheduling.neighborhood_size, 6);
+    }
+
+    #[test]
+    fn test_scheduler_warp_custom_warp_id() {
+        let config = CodegenSchedulerConfig::work_stealing(4).with_scheduler_warp(2);
+        let code = generate_scheduler_warp_code(&config, "    ");
+
+        assert!(
+            code.contains("warp_id == 2"),
+            "Should use custom warp ID 2"
+        );
+        assert!(
+            code.contains("SCHEDULER WARP (warp 2)"),
+            "Comment should reflect warp 2"
+        );
     }
 }

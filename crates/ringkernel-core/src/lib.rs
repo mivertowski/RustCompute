@@ -187,6 +187,10 @@ pub mod prelude {
         SYSTEM_MEMORY_MARGIN,
     };
     pub use crate::runtime::*;
+    pub use crate::scheduling::{
+        LoadEntry, LoadTable, SchedulerConfig, SchedulerWarpConfig, SchedulingStrategy, StealOp,
+        WorkItem,
+    };
     pub use crate::runtime_context::{
         AppInfo, BackgroundTaskStatus, CircuitGuard, ContextMetrics, DegradationGuard,
         HealthCycleResult, LifecycleState, MonitoringConfig, MonitoringHandles, OperationPriority,

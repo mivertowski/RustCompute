@@ -65,7 +65,8 @@ pub use reduction_intrinsics::{
 };
 pub use ring_kernel::{
     generate_control_block_struct, generate_hlc_struct, generate_k2k_structs,
-    KernelReductionConfig, RingKernelConfig,
+    generate_load_table_struct, generate_scheduler_warp_code, CodegenSchedulerConfig,
+    CodegenSchedulingStrategy, KernelReductionConfig, RingKernelConfig,
 };
 pub use shared::{SharedArray, SharedMemoryConfig, SharedMemoryDecl, SharedTile};
 pub use stencil::{Grid, GridPos, StencilConfig, StencilLaunchConfig};
