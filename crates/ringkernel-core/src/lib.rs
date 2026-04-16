@@ -33,6 +33,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod actor;
+pub mod backpressure;
 #[macro_use]
 pub mod backend_stub;
 pub mod analytics_context;
@@ -52,6 +53,7 @@ pub mod config;
 pub mod context;
 pub mod control;
 pub mod dispatcher;
+pub mod dlq;
 pub mod domain;
 pub mod error;
 pub mod health;
