@@ -39,10 +39,15 @@
 //! };
 //! use ringkernel_core::hlc::HlcTimestamp;
 //!
-//! let hdr = ProvenanceBuilder::new(ProvNodeType::Entity, 0xFRAUD_ALERT_00u64)
+//! // IDs are u64 — caller (e.g., VynGraph) owns the ID namespace
+//! const FRAUD_ALERT_ID: u64 = 0xDEAD_BEEF_0001;
+//! const FRAUD_TRIANGLE_AGENT: u64 = 0xA6E0_7751_0002;
+//! const GAAP_RUN_ACTIVITY: u64 = 0xAC71_7170_0003;
+//!
+//! let hdr = ProvenanceBuilder::new(ProvNodeType::Entity, FRAUD_ALERT_ID)
 //!     .with_timestamp(HlcTimestamp::now(1))
-//!     .with_relation(ProvRelationKind::WasAttributedTo, 0xAGENT_TRI__u64)
-//!     .with_relation(ProvRelationKind::WasGeneratedBy, 0xACT_RUN____u64)
+//!     .with_relation(ProvRelationKind::WasAttributedTo, FRAUD_TRIANGLE_AGENT)
+//!     .with_relation(ProvRelationKind::WasGeneratedBy, GAAP_RUN_ACTIVITY)
 //!     .build()
 //!     .unwrap();
 //! assert_eq!(hdr.relation_count(), 2);
