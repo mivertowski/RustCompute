@@ -1,12 +1,10 @@
 #!/bin/bash
 #
-# RingKernel Crates Publishing Script
+# RingKernel Crates Publishing Script (v1.0.0 — NVIDIA CUDA focus)
 #
-# This script publishes all RingKernel crates to crates.io in the correct
-# dependency order. It handles the complex dependency graph automatically.
-#
-# By default, the script automatically skips already-published crates,
-# making it safe to run multiple times (useful with crates.io rate limits).
+# Publishes 17 RingKernel crates to crates.io in correct dependency order.
+# By default, automatically skips already-published crates, making it safe
+# to run multiple times (useful with crates.io rate limits: ~5/10min).
 #
 # Usage:
 #   ./scripts/publish.sh <CRATES_IO_TOKEN>
@@ -14,12 +12,38 @@
 #   ./scripts/publish.sh <TOKEN> --force-all # Re-publish all (will fail if exists)
 #   ./scripts/publish.sh --status            # Check which crates are published
 #
-# The publishing order respects the dependency graph:
-#   Tier 1 (no deps):       core, ir
-#   Tier 2 (core deps):     codegen, cpu, cuda, ecosystem, audio-fft, graph, montecarlo
-#   Tier 3 (codegen deps):  cuda-codegen, derive, cli
-#   Tier 4 (main crate):    ringkernel
-#   Tier 5 (apps):          wavesim, txmon, accnet, procint
+# Publishing order (respects dependency graph):
+#   Tier 1 (leaf, no internal deps):
+#     ringkernel-core, ringkernel-ir
+#
+#   Tier 2 (depends on core only):
+#     ringkernel-codegen, ringkernel-cpu, ringkernel-cuda,
+#     ringkernel-audio-fft, ringkernel-graph, ringkernel-montecarlo
+#
+#   Tier 3 (depends on multiple Tier 2 crates):
+#     ringkernel-cuda-codegen (← codegen)
+#     ringkernel-derive       (← core, cuda-codegen)
+#     ringkernel-ecosystem    (← core, cuda)
+#     ringkernel-cli          (← ir, cuda-codegen)
+#
+#   Tier 4 (main facade):
+#     ringkernel (← core, derive, cpu, cuda, codegen)
+#
+#   Tier 5 (applications):
+#     ringkernel-accnet  (← core, derive, cpu, cuda, cuda-codegen)
+#     ringkernel-procint (← core, derive, cpu, cuda, cuda-codegen)
+#     ringkernel-wavesim (← ringkernel, core, derive, cuda, cuda-codegen)
+#     ringkernel-txmon   (← ringkernel, core, cuda, cuda-codegen)
+#
+# NOT published to crates.io:
+#   - ringkernel-python (PyO3 extension → publish to PyPI via maturin)
+#   - tutorials (publish = false in Cargo.toml)
+#
+# REMOVED in v1.0.0 (were previously published under 0.4.x):
+#   - ringkernel-wgpu, ringkernel-wgpu-codegen (WebGPU backend)
+#   - ringkernel-metal (Metal backend)
+#   - ringkernel-wavesim3d (hard wgpu dependency)
+# These crates remain on crates.io at 0.4.x but will not get 1.0.0 updates.
 #
 
 set -e
@@ -90,35 +114,41 @@ for arg in "$@"; do
     esac
 done
 
-# Crates in dependency order (leaves first, main crate last)
-# This order ensures each crate's dependencies are published before it
+# Crates in dependency order (leaves first, main crate last).
+# This order ensures each crate's dependencies are published before it.
+#
+# NOTE: Optional dependencies still require the crate to exist on crates.io
+# for `cargo publish` to succeed. Order must respect both required and
+# optional internal dependencies.
 CRATES=(
-    # Tier 1: No internal dependencies
-    "ringkernel-core"
-    "ringkernel-ir"
+    # ─── Tier 1: No internal dependencies ────────────────────────────
+    "ringkernel-core"          # Core traits, runtime, HLC, K2K, enterprise
+    "ringkernel-ir"            # SSA-based IR
 
-    # Tier 2: Depends only on core
-    "ringkernel-codegen"     # depends on: core
-    "ringkernel-cpu"         # depends on: core
-    "ringkernel-cuda"        # depends on: core
-    "ringkernel-ecosystem"   # depends on: core
-    "ringkernel-audio-fft"   # depends on: core
-    "ringkernel-graph"       # depends on: core
-    "ringkernel-montecarlo"  # depends on: core
+    # ─── Tier 2: Depends only on Tier 1 ──────────────────────────────
+    "ringkernel-codegen"       # ← core
+    "ringkernel-cpu"           # ← core
+    "ringkernel-cuda"          # ← core (CUDA backend, Hopper features)
+    "ringkernel-audio-fft"     # ← core
+    "ringkernel-graph"         # ← core
+    "ringkernel-montecarlo"    # ← core
 
-    # Tier 3: Depends on codegen or other Tier 2 crates
-    "ringkernel-cuda-codegen"  # depends on: codegen
-    "ringkernel-derive"        # depends on: core, cuda-codegen (optional)
-    "ringkernel-cli"           # depends on: ir, cuda-codegen (optional)
+    # ─── Tier 3: Depends on Tier 2 crates ────────────────────────────
+    "ringkernel-cuda-codegen"  # ← codegen (Rust-to-CUDA transpiler)
+    "ringkernel-derive"        # ← core, cuda-codegen (optional)
+    "ringkernel-ecosystem"     # ← core, cuda (optional)
+    "ringkernel-cli"           # ← ir, cuda-codegen (optional)
 
-    # Tier 4: Main crate (depends on most others)
-    "ringkernel"             # depends on: core, derive, cpu, cuda, codegen
+    # ─── Tier 4: Main facade ─────────────────────────────────────────
+    "ringkernel"               # ← core, derive, cpu, cuda (opt), codegen
 
-    # Tier 5: Application crates (depend on main crate)
-    "ringkernel-wavesim"     # depends on: ringkernel, core, derive, cuda, cuda-codegen
-    "ringkernel-txmon"       # depends on: ringkernel, core, cuda, cuda-codegen
-    "ringkernel-accnet"      # depends on: core, derive, cpu, cuda-codegen
-    "ringkernel-procint"     # depends on: core, derive, cpu, cuda-codegen
+    # ─── Tier 5: Applications ────────────────────────────────────────
+    # Note: accnet and procint only depend on core/derive/cpu/cuda directly,
+    # but listed in Tier 5 for consistency with other showcase apps.
+    "ringkernel-accnet"        # ← core, derive, cpu, cuda (opt), cuda-codegen (opt)
+    "ringkernel-procint"       # ← core, derive, cpu, cuda (opt), cuda-codegen (opt)
+    "ringkernel-wavesim"       # ← ringkernel, core, derive, cuda (opt), cuda-codegen (opt)
+    "ringkernel-txmon"         # ← ringkernel, core, cuda (opt), cuda-codegen (opt)
 )
 
 # Tier 1 crates can be verified independently (no internal deps)
@@ -319,14 +349,51 @@ if [ "$DRY_RUN" = false ] && [ -z "$TOKEN" ]; then
     exit 1
 fi
 
-# Verify all crates exist
+# Verify all crates exist and workspace consistency
 print_header "Verifying Crates"
+
+# Check that removed v0.4 crates are NOT in workspace (safety check)
+REMOVED_CRATES=(
+    "ringkernel-wgpu"
+    "ringkernel-wgpu-codegen"
+    "ringkernel-metal"
+    "ringkernel-wavesim3d"
+)
+for removed in "${REMOVED_CRATES[@]}"; do
+    if [ -d "crates/$removed" ] && grep -q "\"crates/$removed\"" Cargo.toml; then
+        print_error "Removed crate '$removed' still in workspace members!"
+        echo "  This crate was removed in v1.0.0. Remove from Cargo.toml [workspace.members]"
+        exit 1
+    fi
+done
+
+# Check that all publishable crates exist
 for crate in "${CRATES[@]}"; do
     if [ -d "crates/$crate" ]; then
         print_success "$crate"
     else
         print_error "Missing: $crate"
         exit 1
+    fi
+done
+
+# Warn if workspace has publishable crates not in CRATES list
+WORKSPACE_CRATES=$(grep -E '^\s*"crates/' Cargo.toml | sed -E 's|.*"crates/([^"]+)".*|\1|')
+for workspace_crate in $WORKSPACE_CRATES; do
+    # Skip non-publishable crates (Python bindings go to PyPI)
+    if [ "$workspace_crate" = "ringkernel-python" ]; then
+        continue
+    fi
+    # Check if it's in CRATES array
+    found=false
+    for crate in "${CRATES[@]}"; do
+        if [ "$crate" = "$workspace_crate" ]; then
+            found=true
+            break
+        fi
+    done
+    if [ "$found" = false ]; then
+        print_warning "Workspace crate '$workspace_crate' not in publish list (check if intentional)"
     fi
 done
 
