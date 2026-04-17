@@ -1,0 +1,28 @@
+# cargo-audit configuration
+# See: https://github.com/rustsec/rustsec/blob/main/cargo-audit/audit.toml.example
+
+[advisories]
+# Ignore specific advisories that have no upgrade path or are in optional/dev dependencies.
+# Review quarterly and remove when upstream fixes land.
+ignore = [
+    # rustls-webpki 0.101.7 name constraints advisories (2x)
+    # - Fixed in 0.103.12+ but some transitive deps still pull 0.101.7
+    # - We already have rustls-webpki 0.103.12 for our direct path (TLS feature)
+    # - The 0.101.7 path is only reachable through unmaintained deps
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+
+    # rsa 0.9.10 Marvin Attack (timing side-channel in RSA private key ops)
+    # - No fix available upstream as of 2026-04
+    # - Pulled transitively via sqlx-mysql in development (optional dep chain)
+    # - Not in RingKernel's CUDA production path — no RSA signing on GPU actors
+    "RUSTSEC-2023-0071",
+]
+
+# Unmaintained crate warnings (informational, not security issues)
+informational_warnings = ["unmaintained", "notice"]
+
+[target]
+# Only audit supported platforms (Linux/macOS/Windows x86_64)
+arch = ["x86_64", "aarch64"]
+os = ["linux", "macos", "windows"]
