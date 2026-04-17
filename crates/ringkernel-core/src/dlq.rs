@@ -53,18 +53,16 @@ pub enum DeadLetterReason {
 impl std::fmt::Display for DeadLetterReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MaxRetriesExceeded { retries, max } =>
-                write!(f, "max retries exceeded ({}/{})", retries, max),
-            Self::ActorNotFound { actor_name } =>
-                write!(f, "actor not found: {}", actor_name),
-            Self::QueueFull { queue_capacity } =>
-                write!(f, "queue full (capacity {})", queue_capacity),
-            Self::TtlExpired { age } =>
-                write!(f, "TTL expired (age {:?})", age),
-            Self::ActorDestroyed { actor_id } =>
-                write!(f, "actor destroyed: {}", actor_id),
-            Self::Rejected { reason } =>
-                write!(f, "rejected: {}", reason),
+            Self::MaxRetriesExceeded { retries, max } => {
+                write!(f, "max retries exceeded ({}/{})", retries, max)
+            }
+            Self::ActorNotFound { actor_name } => write!(f, "actor not found: {}", actor_name),
+            Self::QueueFull { queue_capacity } => {
+                write!(f, "queue full (capacity {})", queue_capacity)
+            }
+            Self::TtlExpired { age } => write!(f, "TTL expired (age {:?})", age),
+            Self::ActorDestroyed { actor_id } => write!(f, "actor destroyed: {}", actor_id),
+            Self::Rejected { reason } => write!(f, "rejected: {}", reason),
         }
     }
 }
@@ -211,7 +209,8 @@ impl DeadLetterQueue {
         let max_age = self.config.max_age;
         let before = self.letters.len();
 
-        self.letters.retain(|letter| letter.arrived_at.elapsed() < max_age);
+        self.letters
+            .retain(|letter| letter.arrived_at.elapsed() < max_age);
 
         let expired = (before - self.letters.len()) as u64;
         self.total_expired += expired;
@@ -291,7 +290,10 @@ mod tests {
 
     #[test]
     fn test_dlq_enqueue_and_browse() {
-        let mut dlq = DeadLetterQueue::new(DlqConfig { log_entries: false, ..Default::default() });
+        let mut dlq = DeadLetterQueue::new(DlqConfig {
+            log_entries: false,
+            ..Default::default()
+        });
 
         dlq.enqueue(
             test_envelope(),
@@ -308,11 +310,35 @@ mod tests {
 
     #[test]
     fn test_dlq_replay() {
-        let mut dlq = DeadLetterQueue::new(DlqConfig { log_entries: false, ..Default::default() });
+        let mut dlq = DeadLetterQueue::new(DlqConfig {
+            log_entries: false,
+            ..Default::default()
+        });
 
-        dlq.enqueue(test_envelope(), DeadLetterReason::QueueFull { queue_capacity: 256 }, KernelId::new("a"), 1);
-        dlq.enqueue(test_envelope(), DeadLetterReason::QueueFull { queue_capacity: 256 }, KernelId::new("b"), 1);
-        dlq.enqueue(test_envelope(), DeadLetterReason::QueueFull { queue_capacity: 256 }, KernelId::new("a"), 1);
+        dlq.enqueue(
+            test_envelope(),
+            DeadLetterReason::QueueFull {
+                queue_capacity: 256,
+            },
+            KernelId::new("a"),
+            1,
+        );
+        dlq.enqueue(
+            test_envelope(),
+            DeadLetterReason::QueueFull {
+                queue_capacity: 256,
+            },
+            KernelId::new("b"),
+            1,
+        );
+        dlq.enqueue(
+            test_envelope(),
+            DeadLetterReason::QueueFull {
+                queue_capacity: 256,
+            },
+            KernelId::new("a"),
+            1,
+        );
 
         // Replay only actor "a" messages
         let replayed = dlq.replay_for(&KernelId::new("a"));
@@ -331,7 +357,9 @@ mod tests {
         for i in 0..5 {
             dlq.enqueue(
                 test_envelope(),
-                DeadLetterReason::ActorNotFound { actor_name: format!("a{}", i) },
+                DeadLetterReason::ActorNotFound {
+                    actor_name: format!("a{}", i),
+                },
                 KernelId::new(&format!("k{}", i)),
                 1,
             );
@@ -345,10 +373,25 @@ mod tests {
 
     #[test]
     fn test_dlq_replay_with_filter() {
-        let mut dlq = DeadLetterQueue::new(DlqConfig { log_entries: false, ..Default::default() });
+        let mut dlq = DeadLetterQueue::new(DlqConfig {
+            log_entries: false,
+            ..Default::default()
+        });
 
-        dlq.enqueue(test_envelope(), DeadLetterReason::MaxRetriesExceeded { retries: 3, max: 3 }, KernelId::new("a"), 3);
-        dlq.enqueue(test_envelope(), DeadLetterReason::QueueFull { queue_capacity: 256 }, KernelId::new("a"), 1);
+        dlq.enqueue(
+            test_envelope(),
+            DeadLetterReason::MaxRetriesExceeded { retries: 3, max: 3 },
+            KernelId::new("a"),
+            3,
+        );
+        dlq.enqueue(
+            test_envelope(),
+            DeadLetterReason::QueueFull {
+                queue_capacity: 256,
+            },
+            KernelId::new("a"),
+            1,
+        );
 
         // Replay only queue-full messages
         let replayed = dlq.replay(|l| matches!(l.reason, DeadLetterReason::QueueFull { .. }));
@@ -358,10 +401,27 @@ mod tests {
 
     #[test]
     fn test_dlq_metrics() {
-        let mut dlq = DeadLetterQueue::new(DlqConfig { log_entries: false, ..Default::default() });
+        let mut dlq = DeadLetterQueue::new(DlqConfig {
+            log_entries: false,
+            ..Default::default()
+        });
 
-        dlq.enqueue(test_envelope(), DeadLetterReason::Rejected { reason: "test".into() }, KernelId::new("a"), 1);
-        dlq.enqueue(test_envelope(), DeadLetterReason::Rejected { reason: "test".into() }, KernelId::new("b"), 1);
+        dlq.enqueue(
+            test_envelope(),
+            DeadLetterReason::Rejected {
+                reason: "test".into(),
+            },
+            KernelId::new("a"),
+            1,
+        );
+        dlq.enqueue(
+            test_envelope(),
+            DeadLetterReason::Rejected {
+                reason: "test".into(),
+            },
+            KernelId::new("b"),
+            1,
+        );
         dlq.replay_for(&KernelId::new("a"));
 
         let m = dlq.metrics();
@@ -375,7 +435,9 @@ mod tests {
         let r = DeadLetterReason::MaxRetriesExceeded { retries: 3, max: 3 };
         assert!(format!("{}", r).contains("3/3"));
 
-        let r = DeadLetterReason::ActorNotFound { actor_name: "test".into() };
+        let r = DeadLetterReason::ActorNotFound {
+            actor_name: "test".into(),
+        };
         assert!(format!("{}", r).contains("test"));
     }
 }

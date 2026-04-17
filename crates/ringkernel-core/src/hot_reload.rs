@@ -252,7 +252,11 @@ impl std::fmt::Display for ConfigUpdateError {
             Self::KeyNotFound(k) => write!(f, "Config key not found: {}", k),
             Self::NotReloadable(k) => write!(f, "Config key '{}' requires restart to change", k),
             Self::TypeMismatch { key, expected, got } => {
-                write!(f, "Type mismatch for '{}': expected {}, got {}", key, expected, got)
+                write!(
+                    f,
+                    "Type mismatch for '{}': expected {}, got {}",
+                    key, expected, got
+                )
             }
             Self::ValidationFailed(msg) => write!(f, "Validation failed: {}", msg),
         }
@@ -268,7 +272,12 @@ mod tests {
     #[test]
     fn test_register_and_get() {
         let mut config = HotReloadConfig::new();
-        config.register("rate_limit", ConfigValue::Int(1000), true, "Max requests/sec");
+        config.register(
+            "rate_limit",
+            ConfigValue::Int(1000),
+            true,
+            "Max requests/sec",
+        );
         config.register("gpu_device", ConfigValue::Int(0), false, "GPU device index");
 
         assert_eq!(config.get_int("rate_limit"), Some(1000));
@@ -280,7 +289,9 @@ mod tests {
         let mut config = HotReloadConfig::new();
         config.register("rate_limit", ConfigValue::Int(1000), true, "");
 
-        let version = config.update("rate_limit", ConfigValue::Int(2000), "admin").unwrap();
+        let version = config
+            .update("rate_limit", ConfigValue::Int(2000), "admin")
+            .unwrap();
         assert_eq!(version, 1);
         assert_eq!(config.get_int("rate_limit"), Some(2000));
     }
@@ -300,7 +311,10 @@ mod tests {
         config.register("rate_limit", ConfigValue::Int(1000), true, "");
 
         let result = config.update("rate_limit", ConfigValue::String("fast".into()), "admin");
-        assert!(matches!(result, Err(ConfigUpdateError::TypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(ConfigUpdateError::TypeMismatch { .. })
+        ));
     }
 
     #[test]
@@ -308,8 +322,12 @@ mod tests {
         let mut config = HotReloadConfig::new();
         config.register("rate_limit", ConfigValue::Int(1000), true, "");
 
-        config.update("rate_limit", ConfigValue::Int(2000), "admin").unwrap();
-        config.update("rate_limit", ConfigValue::Int(3000), "operator").unwrap();
+        config
+            .update("rate_limit", ConfigValue::Int(2000), "admin")
+            .unwrap();
+        config
+            .update("rate_limit", ConfigValue::Int(3000), "operator")
+            .unwrap();
 
         let changes = config.recent_changes(10);
         assert_eq!(changes.len(), 2);
@@ -323,7 +341,9 @@ mod tests {
         config.register("a", ConfigValue::Bool(true), true, "");
 
         assert_eq!(config.version(), 0);
-        config.update("a", ConfigValue::Bool(false), "test").unwrap();
+        config
+            .update("a", ConfigValue::Bool(false), "test")
+            .unwrap();
         assert_eq!(config.version(), 1);
         config.update("a", ConfigValue::Bool(true), "test").unwrap();
         assert_eq!(config.version(), 2);

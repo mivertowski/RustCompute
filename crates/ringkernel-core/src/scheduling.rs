@@ -419,7 +419,11 @@ impl LoadTable {
         let min = active.iter().map(|e| e.queue_depth).min().unwrap_or(0);
 
         if min == 0 {
-            if max == 0 { 1.0 } else { f64::INFINITY }
+            if max == 0 {
+                1.0
+            } else {
+                f64::INFINITY
+            }
         } else {
             max as f64 / min as f64
         }
@@ -558,10 +562,26 @@ mod tests {
     #[test]
     fn test_load_table_most_least_loaded() {
         let mut table = LoadTable::new(4);
-        table.entries[0] = LoadEntry { queue_depth: 10, capacity: 100, ..Default::default() };
-        table.entries[1] = LoadEntry { queue_depth: 90, capacity: 100, ..Default::default() };
-        table.entries[2] = LoadEntry { queue_depth: 50, capacity: 100, ..Default::default() };
-        table.entries[3] = LoadEntry { queue_depth: 5, capacity: 100, ..Default::default() };
+        table.entries[0] = LoadEntry {
+            queue_depth: 10,
+            capacity: 100,
+            ..Default::default()
+        };
+        table.entries[1] = LoadEntry {
+            queue_depth: 90,
+            capacity: 100,
+            ..Default::default()
+        };
+        table.entries[2] = LoadEntry {
+            queue_depth: 50,
+            capacity: 100,
+            ..Default::default()
+        };
+        table.entries[3] = LoadEntry {
+            queue_depth: 5,
+            capacity: 100,
+            ..Default::default()
+        };
 
         let (most_id, most) = table.most_loaded().unwrap();
         assert_eq!(most_id, 1);
@@ -603,13 +623,29 @@ mod tests {
     fn test_steal_plan_work_stealing() {
         let mut table = LoadTable::new(4);
         // Actor 0: idle (depth 2, below steal threshold 4)
-        table.entries[0] = LoadEntry { queue_depth: 2, capacity: 100, ..Default::default() };
+        table.entries[0] = LoadEntry {
+            queue_depth: 2,
+            capacity: 100,
+            ..Default::default()
+        };
         // Actor 1: overloaded (depth 80, above share threshold 64)
-        table.entries[1] = LoadEntry { queue_depth: 80, capacity: 100, ..Default::default() };
+        table.entries[1] = LoadEntry {
+            queue_depth: 80,
+            capacity: 100,
+            ..Default::default()
+        };
         // Actor 2: normal
-        table.entries[2] = LoadEntry { queue_depth: 30, capacity: 100, ..Default::default() };
+        table.entries[2] = LoadEntry {
+            queue_depth: 30,
+            capacity: 100,
+            ..Default::default()
+        };
         // Actor 3: idle
-        table.entries[3] = LoadEntry { queue_depth: 1, capacity: 100, ..Default::default() };
+        table.entries[3] = LoadEntry {
+            queue_depth: 1,
+            capacity: 100,
+            ..Default::default()
+        };
 
         let config = SchedulerConfig::default();
         let plan = table.compute_steal_plan(&config);
@@ -623,8 +659,16 @@ mod tests {
     #[test]
     fn test_steal_plan_respects_max_batch() {
         let mut table = LoadTable::new(2);
-        table.entries[0] = LoadEntry { queue_depth: 0, capacity: 100, ..Default::default() };
-        table.entries[1] = LoadEntry { queue_depth: 100, capacity: 100, ..Default::default() };
+        table.entries[0] = LoadEntry {
+            queue_depth: 0,
+            capacity: 100,
+            ..Default::default()
+        };
+        table.entries[1] = LoadEntry {
+            queue_depth: 100,
+            capacity: 100,
+            ..Default::default()
+        };
 
         let config = SchedulerConfig {
             max_steal_batch: 8,
@@ -634,7 +678,11 @@ mod tests {
 
         assert!(!plan.is_empty());
         for op in &plan {
-            assert!(op.count <= 8, "Steal count {} exceeds max batch 8", op.count);
+            assert!(
+                op.count <= 8,
+                "Steal count {} exceeds max batch 8",
+                op.count
+            );
         }
     }
 
@@ -745,8 +793,14 @@ mod tests {
     #[test]
     fn test_strategy_display() {
         assert_eq!(format!("{}", SchedulingStrategy::Static), "static");
-        assert_eq!(format!("{}", SchedulingStrategy::WorkStealing), "work-stealing");
-        assert_eq!(format!("{}", SchedulingStrategy::WorkSharing), "work-sharing");
+        assert_eq!(
+            format!("{}", SchedulingStrategy::WorkStealing),
+            "work-stealing"
+        );
+        assert_eq!(
+            format!("{}", SchedulingStrategy::WorkSharing),
+            "work-sharing"
+        );
         assert_eq!(format!("{}", SchedulingStrategy::Hybrid), "hybrid");
         assert_eq!(format!("{}", SchedulingStrategy::RoundRobin), "round-robin");
         assert_eq!(
@@ -758,8 +812,16 @@ mod tests {
     #[test]
     fn test_steal_plan_round_robin_empty() {
         let mut table = LoadTable::new(4);
-        table.entries[0] = LoadEntry { queue_depth: 2, capacity: 100, ..Default::default() };
-        table.entries[1] = LoadEntry { queue_depth: 80, capacity: 100, ..Default::default() };
+        table.entries[0] = LoadEntry {
+            queue_depth: 2,
+            capacity: 100,
+            ..Default::default()
+        };
+        table.entries[1] = LoadEntry {
+            queue_depth: 80,
+            capacity: 100,
+            ..Default::default()
+        };
 
         let config = SchedulerConfig::round_robin();
         let plan = table.compute_steal_plan(&config);
@@ -769,8 +831,16 @@ mod tests {
     #[test]
     fn test_steal_plan_priority_empty() {
         let mut table = LoadTable::new(4);
-        table.entries[0] = LoadEntry { queue_depth: 2, capacity: 100, ..Default::default() };
-        table.entries[1] = LoadEntry { queue_depth: 80, capacity: 100, ..Default::default() };
+        table.entries[0] = LoadEntry {
+            queue_depth: 2,
+            capacity: 100,
+            ..Default::default()
+        };
+        table.entries[1] = LoadEntry {
+            queue_depth: 80,
+            capacity: 100,
+            ..Default::default()
+        };
 
         let config = SchedulerConfig::priority(4);
         let plan = table.compute_steal_plan(&config);

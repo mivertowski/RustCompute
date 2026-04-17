@@ -202,10 +202,7 @@ impl CudaKernel {
     ///
     /// Returns the command ID on success. Only available when a persistent
     /// simulation is attached (cooperative persistent mode).
-    pub fn send_h2k(
-        &self,
-        msg: crate::persistent::H2KMessage,
-    ) -> Result<u64> {
+    pub fn send_h2k(&self, msg: crate::persistent::H2KMessage) -> Result<u64> {
         let sim = self.persistent_sim.lock();
         match sim.as_ref() {
             Some(sim) => sim.send_h2k(msg),
@@ -414,12 +411,11 @@ impl KernelHandleInner for CudaKernel {
                         "No PTX set for persistent cooperative kernel".to_string(),
                     )
                 })?;
-                let func_name =
-                    self.persistent_func_name.lock().take().ok_or_else(|| {
-                        RingKernelError::LaunchFailed(
-                            "No function name set for persistent cooperative kernel".to_string(),
-                        )
-                    })?;
+                let func_name = self.persistent_func_name.lock().take().ok_or_else(|| {
+                    RingKernelError::LaunchFailed(
+                        "No function name set for persistent cooperative kernel".to_string(),
+                    )
+                })?;
 
                 // Start the persistent simulation (launches cooperative kernel on GPU)
                 let mut sim = self.persistent_sim.lock();

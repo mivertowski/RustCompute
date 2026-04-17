@@ -134,12 +134,16 @@ impl FlowController {
     pub fn try_acquire(&self) -> bool {
         let prev = self.credits.fetch_sub(1, Ordering::AcqRel);
         if prev > 0 {
-            self.metrics.credits_consumed.fetch_add(1, Ordering::Relaxed);
+            self.metrics
+                .credits_consumed
+                .fetch_add(1, Ordering::Relaxed);
             true
         } else {
             // Restore the credit (we didn't actually send)
             self.credits.fetch_add(1, Ordering::Release);
-            self.metrics.backpressure_events.fetch_add(1, Ordering::Relaxed);
+            self.metrics
+                .backpressure_events
+                .fetch_add(1, Ordering::Relaxed);
             false
         }
     }
@@ -147,7 +151,9 @@ impl FlowController {
     /// Grant credits to the producer (called by consumer when queue has space).
     pub fn grant(&self, amount: u32) {
         self.credits.fetch_add(amount as i64, Ordering::Release);
-        self.metrics.credits_granted.fetch_add(amount as u64, Ordering::Relaxed);
+        self.metrics
+            .credits_granted
+            .fetch_add(amount as u64, Ordering::Relaxed);
     }
 
     /// Refill credits by the configured refill amount.
@@ -168,11 +174,15 @@ impl FlowController {
 
         if !was_high && queue_depth >= self.config.high_water_mark {
             self.is_high_water.store(true, Ordering::Release);
-            self.metrics.high_water_signals.fetch_add(1, Ordering::Relaxed);
+            self.metrics
+                .high_water_signals
+                .fetch_add(1, Ordering::Relaxed);
             Some(WatermarkSignal::HighWater)
         } else if was_high && queue_depth <= self.config.low_water_mark {
             self.is_high_water.store(false, Ordering::Release);
-            self.metrics.low_water_signals.fetch_add(1, Ordering::Relaxed);
+            self.metrics
+                .low_water_signals
+                .fetch_add(1, Ordering::Relaxed);
             Some(WatermarkSignal::LowWater)
         } else {
             None

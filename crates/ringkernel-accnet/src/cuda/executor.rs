@@ -92,8 +92,7 @@ impl GpuExecutor {
         }
 
         // Create device
-        let device =
-            CudaDevice::new(0).map_err(|e| AccNetError::DeviceCreation(e.to_string()))?;
+        let device = CudaDevice::new(0).map_err(|e| AccNetError::DeviceCreation(e.to_string()))?;
 
         let device_name = device.name().to_string();
         let compute_capability = device.compute_capability();
@@ -149,8 +148,8 @@ impl GpuExecutor {
         let cuda_context = self.device.inner();
 
         // Compile CUDA source to PTX using NVRTC
-        let ptx = cudarc::nvrtc::compile_ptx(cuda_source)
-            .map_err(|e| AccNetError::NvrtcCompilation {
+        let ptx =
+            cudarc::nvrtc::compile_ptx(cuda_source).map_err(|e| AccNetError::NvrtcCompilation {
                 kernel: name.to_string(),
                 reason: e.to_string(),
             })?;
@@ -253,27 +252,50 @@ impl GpuExecutor {
             .collect();
 
         // Allocate GPU memory and copy host data to device
-        let d_balance_debit = stream
-            .clone_htod(&balance_debit)
-            .map_err(|e| AccNetError::HostToDevice { field: "balance_debit".into(), reason: e.to_string() })?;
-        let d_balance_credit = stream
-            .clone_htod(&balance_credit)
-            .map_err(|e| AccNetError::HostToDevice { field: "balance_credit".into(), reason: e.to_string() })?;
-        let d_risk_scores = stream
-            .clone_htod(&risk_scores)
-            .map_err(|e| AccNetError::HostToDevice { field: "risk_scores".into(), reason: e.to_string() })?;
-        let d_inflow_counts = stream
-            .clone_htod(&inflow_counts)
-            .map_err(|e| AccNetError::HostToDevice { field: "inflow_counts".into(), reason: e.to_string() })?;
-        let d_outflow_counts = stream
-            .clone_htod(&outflow_counts)
-            .map_err(|e| AccNetError::HostToDevice { field: "outflow_counts".into(), reason: e.to_string() })?;
+        let d_balance_debit =
+            stream
+                .clone_htod(&balance_debit)
+                .map_err(|e| AccNetError::HostToDevice {
+                    field: "balance_debit".into(),
+                    reason: e.to_string(),
+                })?;
+        let d_balance_credit =
+            stream
+                .clone_htod(&balance_credit)
+                .map_err(|e| AccNetError::HostToDevice {
+                    field: "balance_credit".into(),
+                    reason: e.to_string(),
+                })?;
+        let d_risk_scores =
+            stream
+                .clone_htod(&risk_scores)
+                .map_err(|e| AccNetError::HostToDevice {
+                    field: "risk_scores".into(),
+                    reason: e.to_string(),
+                })?;
+        let d_inflow_counts =
+            stream
+                .clone_htod(&inflow_counts)
+                .map_err(|e| AccNetError::HostToDevice {
+                    field: "inflow_counts".into(),
+                    reason: e.to_string(),
+                })?;
+        let d_outflow_counts =
+            stream
+                .clone_htod(&outflow_counts)
+                .map_err(|e| AccNetError::HostToDevice {
+                    field: "outflow_counts".into(),
+                    reason: e.to_string(),
+                })?;
 
         // Allocate output buffer
         // SAFETY: cudarc's alloc returns properly aligned device memory. The size
         // is computed from the input data and checked by the caller.
-        let mut d_suspense_scores = unsafe { stream.alloc::<f32>(n) }
-            .map_err(|e| AccNetError::GpuAlloc { field: "suspense_scores".into(), reason: e.to_string() })?;
+        let mut d_suspense_scores =
+            unsafe { stream.alloc::<f32>(n) }.map_err(|e| AccNetError::GpuAlloc {
+                field: "suspense_scores".into(),
+                reason: e.to_string(),
+            })?;
 
         // Calculate grid dimensions
         let block_size = 256u32;
@@ -338,21 +360,36 @@ impl GpuExecutor {
             .collect();
 
         // Allocate GPU memory and copy host data to device
-        let d_flow_source = stream
-            .clone_htod(&flow_source)
-            .map_err(|e| AccNetError::HostToDevice { field: "flow_source".into(), reason: e.to_string() })?;
-        let d_flow_target = stream
-            .clone_htod(&flow_target)
-            .map_err(|e| AccNetError::HostToDevice { field: "flow_target".into(), reason: e.to_string() })?;
-        let d_account_types = stream
-            .clone_htod(&account_types)
-            .map_err(|e| AccNetError::HostToDevice { field: "account_types".into(), reason: e.to_string() })?;
+        let d_flow_source =
+            stream
+                .clone_htod(&flow_source)
+                .map_err(|e| AccNetError::HostToDevice {
+                    field: "flow_source".into(),
+                    reason: e.to_string(),
+                })?;
+        let d_flow_target =
+            stream
+                .clone_htod(&flow_target)
+                .map_err(|e| AccNetError::HostToDevice {
+                    field: "flow_target".into(),
+                    reason: e.to_string(),
+                })?;
+        let d_account_types =
+            stream
+                .clone_htod(&account_types)
+                .map_err(|e| AccNetError::HostToDevice {
+                    field: "account_types".into(),
+                    reason: e.to_string(),
+                })?;
 
         // Allocate output buffer
         // SAFETY: cudarc's alloc returns properly aligned device memory. The size
         // is computed from the input data and checked by the caller.
-        let mut d_violation_flags = unsafe { stream.alloc::<u8>(n_flows) }
-            .map_err(|e| AccNetError::GpuAlloc { field: "violation_flags".into(), reason: e.to_string() })?;
+        let mut d_violation_flags =
+            unsafe { stream.alloc::<u8>(n_flows) }.map_err(|e| AccNetError::GpuAlloc {
+                field: "violation_flags".into(),
+                reason: e.to_string(),
+            })?;
 
         // Calculate grid dimensions
         let block_size = 256u32;
@@ -407,12 +444,19 @@ impl GpuExecutor {
         // Allocate GPU memory and copy host data to device
         let d_amounts = stream
             .clone_htod(&amounts)
-            .map_err(|e| AccNetError::HostToDevice { field: "amounts".into(), reason: e.to_string() })?;
+            .map_err(|e| AccNetError::HostToDevice {
+                field: "amounts".into(),
+                reason: e.to_string(),
+            })?;
 
         // Allocate and zero-initialize digit counts
-        let mut d_digit_counts = stream
-            .clone_htod(&vec![0u32; 9])
-            .map_err(|e| AccNetError::HostToDevice { field: "digit_counts".into(), reason: e.to_string() })?;
+        let mut d_digit_counts =
+            stream
+                .clone_htod(&vec![0u32; 9])
+                .map_err(|e| AccNetError::HostToDevice {
+                    field: "digit_counts".into(),
+                    reason: e.to_string(),
+                })?;
 
         // Calculate grid dimensions
         let block_size = 256u32;

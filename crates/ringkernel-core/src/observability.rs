@@ -561,7 +561,8 @@ impl PrometheusExporter {
 
             for def in &defs {
                 // Write TYPE and HELP
-                writeln!(output, "# HELP {} {}", def.name, def.help).expect("write to String is infallible");
+                writeln!(output, "# HELP {} {}", def.name, def.help)
+                    .expect("write to String is infallible");
                 writeln!(
                     output,
                     "# TYPE {} {}",
@@ -2014,7 +2015,8 @@ impl GpuMemoryDashboard {
 
         // Total allocated
         writeln!(output, "# HELP ringkernel_gpu_memory_allocated_bytes Current GPU memory allocated by RingKernel").expect("write to String is infallible");
-        writeln!(output, "# TYPE ringkernel_gpu_memory_allocated_bytes gauge").expect("write to String is infallible");
+        writeln!(output, "# TYPE ringkernel_gpu_memory_allocated_bytes gauge")
+            .expect("write to String is infallible");
         writeln!(
             output,
             "ringkernel_gpu_memory_allocated_bytes {}",
@@ -2028,7 +2030,8 @@ impl GpuMemoryDashboard {
             "# HELP ringkernel_gpu_memory_peak_bytes Peak GPU memory allocated by RingKernel"
         )
         .expect("write to String is infallible");
-        writeln!(output, "# TYPE ringkernel_gpu_memory_peak_bytes gauge").expect("write to String is infallible");
+        writeln!(output, "# TYPE ringkernel_gpu_memory_peak_bytes gauge")
+            .expect("write to String is infallible");
         writeln!(
             output,
             "ringkernel_gpu_memory_peak_bytes {}",
@@ -2095,9 +2098,12 @@ impl GpuMemoryDashboard {
         let mut report = String::new();
 
         writeln!(report, "=== GPU Memory Dashboard ===").expect("write to String is infallible");
-        writeln!(report, "Total Allocated: {} bytes", self.total_allocated()).expect("write to String is infallible");
-        writeln!(report, "Peak Allocated: {} bytes", self.peak_allocated()).expect("write to String is infallible");
-        writeln!(report, "Active Allocations: {}", self.allocation_count()).expect("write to String is infallible");
+        writeln!(report, "Total Allocated: {} bytes", self.total_allocated())
+            .expect("write to String is infallible");
+        writeln!(report, "Peak Allocated: {} bytes", self.peak_allocated())
+            .expect("write to String is infallible");
+        writeln!(report, "Active Allocations: {}", self.allocation_count())
+            .expect("write to String is infallible");
         writeln!(report).expect("write to String is infallible");
 
         // Device summary
@@ -2115,14 +2121,16 @@ impl GpuMemoryDashboard {
                 device.total_memory / (1024 * 1024)
             )
             .expect("write to String is infallible");
-            writeln!(report, "  Free: {} MB", device.free_memory / (1024 * 1024)).expect("write to String is infallible");
+            writeln!(report, "  Free: {} MB", device.free_memory / (1024 * 1024))
+                .expect("write to String is infallible");
             writeln!(
                 report,
                 "  RingKernel: {} MB",
                 device.ringkernel_used / (1024 * 1024)
             )
             .expect("write to String is infallible");
-            writeln!(report, "  Utilization: {:.1}%", device.utilization()).expect("write to String is infallible");
+            writeln!(report, "  Utilization: {:.1}%", device.utilization())
+                .expect("write to String is infallible");
             writeln!(
                 report,
                 "  Pressure: {:?}",

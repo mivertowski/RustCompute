@@ -1019,7 +1019,11 @@ impl AlertTrigger {
             self.severity,
             format!(
                 "[{}] {} {} {:.2} (threshold: {:.2})",
-                self.name, self.metric, operator_symbol(self.operator), value, self.threshold
+                self.name,
+                self.metric,
+                operator_symbol(self.operator),
+                value,
+                self.threshold
             ),
         ))
     }
@@ -1090,9 +1094,13 @@ mod trigger_tests {
     #[test]
     fn test_threshold_trigger_fires() {
         let mut trigger = AlertTrigger::new(
-            "high_latency", "p99_latency_ms", ThresholdOperator::GreaterThan, 100.0,
+            "high_latency",
+            "p99_latency_ms",
+            ThresholdOperator::GreaterThan,
+            100.0,
             AlertSeverity::Warning,
-        ).with_cooldown(Duration::from_millis(0)); // No cooldown for testing
+        )
+        .with_cooldown(Duration::from_millis(0)); // No cooldown for testing
 
         // Below threshold: no alert
         assert!(trigger.evaluate(50.0).is_none());
@@ -1106,9 +1114,13 @@ mod trigger_tests {
     #[test]
     fn test_threshold_trigger_cooldown() {
         let mut trigger = AlertTrigger::new(
-            "test", "metric", ThresholdOperator::GreaterThan, 10.0,
+            "test",
+            "metric",
+            ThresholdOperator::GreaterThan,
+            10.0,
             AlertSeverity::Critical,
-        ).with_cooldown(Duration::from_secs(60));
+        )
+        .with_cooldown(Duration::from_secs(60));
 
         // First fire: OK
         assert!(trigger.evaluate(20.0).is_some());

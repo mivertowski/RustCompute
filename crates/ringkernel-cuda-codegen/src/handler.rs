@@ -293,10 +293,7 @@ impl Default for HandlerCodegenConfig {
 ///
 /// This generates code to cast the input buffer pointer to the message type.
 /// When envelope format is used, msg_ptr points to the payload (after header).
-pub fn generate_message_deser(
-    message_type: &str,
-    config: &HandlerCodegenConfig,
-) -> Result<String> {
+pub fn generate_message_deser(message_type: &str, config: &HandlerCodegenConfig) -> Result<String> {
     let mut code = String::new();
     let indent = &config.indent;
 
@@ -365,10 +362,7 @@ pub fn generate_envelope_message_deser(
 /// Generate response serialization code (legacy raw format).
 ///
 /// This generates code to copy the response to the output buffer.
-pub fn generate_response_ser(
-    response_type: &str,
-    config: &HandlerCodegenConfig,
-) -> Result<String> {
+pub fn generate_response_ser(response_type: &str, config: &HandlerCodegenConfig) -> Result<String> {
     let mut code = String::new();
     let indent = &config.indent;
 
@@ -483,7 +477,7 @@ pub fn generate_cuda_struct(
     for (field_name, cuda_type) in fields {
         writeln!(code, "    {} {};", cuda_type, field_name)?;
     }
-    writeln!(code, "}};")? ;
+    writeln!(code, "}};")?;
 
     Ok(code)
 }

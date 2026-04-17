@@ -265,10 +265,10 @@ pub enum VectorStoreError {
 impl std::fmt::Display for VectorStoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::DimensionMismatch { expected, got } =>
-                write!(f, "Dimension mismatch: expected {}, got {}", expected, got),
-            Self::CapacityExceeded { capacity } =>
-                write!(f, "Capacity exceeded: max {}", capacity),
+            Self::DimensionMismatch { expected, got } => {
+                write!(f, "Dimension mismatch: expected {}, got {}", expected, got)
+            }
+            Self::CapacityExceeded { capacity } => write!(f, "Capacity exceeded: max {}", capacity),
             Self::NotFound(id) => write!(f, "Vector {} not found", id),
         }
     }
@@ -293,9 +293,27 @@ mod tests {
             store_metadata: false,
         });
 
-        store.insert(VectorEntry { id: 1, vector: vec![1.0, 0.0, 0.0, 0.0], metadata: HashMap::new() }).unwrap();
-        store.insert(VectorEntry { id: 2, vector: vec![0.9, 0.1, 0.0, 0.0], metadata: HashMap::new() }).unwrap();
-        store.insert(VectorEntry { id: 3, vector: vec![0.0, 1.0, 0.0, 0.0], metadata: HashMap::new() }).unwrap();
+        store
+            .insert(VectorEntry {
+                id: 1,
+                vector: vec![1.0, 0.0, 0.0, 0.0],
+                metadata: HashMap::new(),
+            })
+            .unwrap();
+        store
+            .insert(VectorEntry {
+                id: 2,
+                vector: vec![0.9, 0.1, 0.0, 0.0],
+                metadata: HashMap::new(),
+            })
+            .unwrap();
+        store
+            .insert(VectorEntry {
+                id: 3,
+                vector: vec![0.0, 1.0, 0.0, 0.0],
+                metadata: HashMap::new(),
+            })
+            .unwrap();
 
         let results = store.search(&[1.0, 0.0, 0.0, 0.0], 2).unwrap();
         assert_eq!(results.len(), 2);
@@ -312,9 +330,27 @@ mod tests {
             store_metadata: false,
         });
 
-        store.insert(VectorEntry { id: 1, vector: vec![0.0, 0.0, 0.0], metadata: HashMap::new() }).unwrap();
-        store.insert(VectorEntry { id: 2, vector: vec![1.0, 0.0, 0.0], metadata: HashMap::new() }).unwrap();
-        store.insert(VectorEntry { id: 3, vector: vec![10.0, 10.0, 10.0], metadata: HashMap::new() }).unwrap();
+        store
+            .insert(VectorEntry {
+                id: 1,
+                vector: vec![0.0, 0.0, 0.0],
+                metadata: HashMap::new(),
+            })
+            .unwrap();
+        store
+            .insert(VectorEntry {
+                id: 2,
+                vector: vec![1.0, 0.0, 0.0],
+                metadata: HashMap::new(),
+            })
+            .unwrap();
+        store
+            .insert(VectorEntry {
+                id: 3,
+                vector: vec![10.0, 10.0, 10.0],
+                metadata: HashMap::new(),
+            })
+            .unwrap();
 
         let results = store.search(&[0.0, 0.0, 0.0], 2).unwrap();
         assert_eq!(results[0].id, 1); // Closest
@@ -333,7 +369,10 @@ mod tests {
             vector: vec![1.0, 2.0], // Wrong dimension
             metadata: HashMap::new(),
         });
-        assert!(matches!(result, Err(VectorStoreError::DimensionMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(VectorStoreError::DimensionMismatch { .. })
+        ));
     }
 
     #[test]
@@ -344,11 +383,30 @@ mod tests {
             ..Default::default()
         });
 
-        store.insert(VectorEntry { id: 1, vector: vec![1.0, 0.0], metadata: HashMap::new() }).unwrap();
-        store.insert(VectorEntry { id: 2, vector: vec![0.0, 1.0], metadata: HashMap::new() }).unwrap();
+        store
+            .insert(VectorEntry {
+                id: 1,
+                vector: vec![1.0, 0.0],
+                metadata: HashMap::new(),
+            })
+            .unwrap();
+        store
+            .insert(VectorEntry {
+                id: 2,
+                vector: vec![0.0, 1.0],
+                metadata: HashMap::new(),
+            })
+            .unwrap();
 
-        let result = store.insert(VectorEntry { id: 3, vector: vec![1.0, 1.0], metadata: HashMap::new() });
-        assert!(matches!(result, Err(VectorStoreError::CapacityExceeded { .. })));
+        let result = store.insert(VectorEntry {
+            id: 3,
+            vector: vec![1.0, 1.0],
+            metadata: HashMap::new(),
+        });
+        assert!(matches!(
+            result,
+            Err(VectorStoreError::CapacityExceeded { .. })
+        ));
     }
 
     #[test]
@@ -359,8 +417,20 @@ mod tests {
             ..Default::default()
         });
 
-        store.insert(VectorEntry { id: 1, vector: vec![1.0, 0.0], metadata: HashMap::new() }).unwrap();
-        store.insert(VectorEntry { id: 2, vector: vec![0.0, 1.0], metadata: HashMap::new() }).unwrap();
+        store
+            .insert(VectorEntry {
+                id: 1,
+                vector: vec![1.0, 0.0],
+                metadata: HashMap::new(),
+            })
+            .unwrap();
+        store
+            .insert(VectorEntry {
+                id: 2,
+                vector: vec![0.0, 1.0],
+                metadata: HashMap::new(),
+            })
+            .unwrap();
         assert_eq!(store.len(), 2);
 
         assert!(store.delete(1));
@@ -379,7 +449,13 @@ mod tests {
         let mut meta = HashMap::new();
         meta.insert("node_type".to_string(), "isa_standard".to_string());
 
-        store.insert(VectorEntry { id: 42, vector: vec![1.0, 0.0], metadata: meta }).unwrap();
+        store
+            .insert(VectorEntry {
+                id: 42,
+                vector: vec![1.0, 0.0],
+                metadata: meta,
+            })
+            .unwrap();
 
         let results = store.search(&[1.0, 0.0], 1).unwrap();
         assert_eq!(results[0].id, 42);
@@ -395,8 +471,20 @@ mod tests {
             ..Default::default()
         });
 
-        store.insert(VectorEntry { id: 1, vector: vec![1.0, 2.0, 3.0], metadata: HashMap::new() }).unwrap();
-        store.insert(VectorEntry { id: 2, vector: vec![4.0, 5.0, 6.0], metadata: HashMap::new() }).unwrap();
+        store
+            .insert(VectorEntry {
+                id: 1,
+                vector: vec![1.0, 2.0, 3.0],
+                metadata: HashMap::new(),
+            })
+            .unwrap();
+        store
+            .insert(VectorEntry {
+                id: 2,
+                vector: vec![4.0, 5.0, 6.0],
+                metadata: HashMap::new(),
+            })
+            .unwrap();
 
         let flat = store.flat_vectors();
         assert_eq!(flat.len(), 6); // 2 vectors × 3 dimensions

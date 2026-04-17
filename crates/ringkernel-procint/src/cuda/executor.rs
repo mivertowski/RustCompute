@@ -244,7 +244,10 @@ impl KernelExecutor {
         let cuda_source = source.source.clone();
 
         if self.kernel_cache.contains_key(&kernel_name) {
-            return Ok(self.kernel_cache.get(&kernel_name).expect("kernel_cache contains_key just confirmed"));
+            return Ok(self
+                .kernel_cache
+                .get(&kernel_name)
+                .expect("kernel_cache contains_key just confirmed"));
         }
 
         #[cfg(feature = "cuda")]
@@ -293,7 +296,10 @@ impl KernelExecutor {
         };
 
         self.kernel_cache.insert(kernel_name.clone(), compiled);
-        Ok(self.kernel_cache.get(&kernel_name).expect("kernel just inserted into cache"))
+        Ok(self
+            .kernel_cache
+            .get(&kernel_name)
+            .expect("kernel just inserted into cache"))
     }
 
     /// Get compiled kernel count.
@@ -351,26 +357,46 @@ impl KernelExecutor {
         let edge_count = max_activities * max_activities;
 
         // Host-to-Device transfers
-        let d_sources = stream
-            .clone_htod(&source_activities)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "sources", reason: e.to_string() })?;
-        let d_targets = stream
-            .clone_htod(&target_activities)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "targets", reason: e.to_string() })?;
-        let d_durations = stream
-            .clone_htod(&durations)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "durations", reason: e.to_string() })?;
+        let d_sources =
+            stream
+                .clone_htod(&source_activities)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "sources",
+                    reason: e.to_string(),
+                })?;
+        let d_targets =
+            stream
+                .clone_htod(&target_activities)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "targets",
+                    reason: e.to_string(),
+                })?;
+        let d_durations =
+            stream
+                .clone_htod(&durations)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "durations",
+                    reason: e.to_string(),
+                })?;
 
         // Allocate output buffers (initialized to zeros)
         let edge_frequencies = vec![0u32; edge_count];
         let edge_durations = vec![0u64; edge_count];
 
-        let mut d_edge_freq = stream
-            .clone_htod(&edge_frequencies)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "edge_freq", reason: e.to_string() })?;
-        let mut d_edge_dur = stream
-            .clone_htod(&edge_durations)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "edge_dur", reason: e.to_string() })?;
+        let mut d_edge_freq =
+            stream
+                .clone_htod(&edge_frequencies)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "edge_freq",
+                    reason: e.to_string(),
+                })?;
+        let mut d_edge_dur =
+            stream
+                .clone_htod(&edge_durations)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "edge_dur",
+                    reason: e.to_string(),
+                })?;
 
         // Get the compiled kernel function
         let func = self
@@ -403,7 +429,10 @@ impl KernelExecutor {
                 .arg(&(max_activities as i32))
                 .arg(&(pair_count as i32))
                 .launch(config)
-                .map_err(|e| ProcIntError::KernelLaunch { kernel: "dfg_construction", reason: e.to_string() })?;
+                .map_err(|e| ProcIntError::KernelLaunch {
+                    kernel: "dfg_construction",
+                    reason: e.to_string(),
+                })?;
         }
 
         // Synchronize - wait for kernel completion
@@ -412,12 +441,20 @@ impl KernelExecutor {
             .map_err(|e| ProcIntError::DeviceSync(e.to_string()))?;
 
         // Device-to-Host transfers
-        let result_frequencies = stream
-            .clone_dtoh(&d_edge_freq)
-            .map_err(|e| ProcIntError::DeviceToHost { buffer: "frequencies", reason: e.to_string() })?;
-        let result_durations = stream
-            .clone_dtoh(&d_edge_dur)
-            .map_err(|e| ProcIntError::DeviceToHost { buffer: "durations", reason: e.to_string() })?;
+        let result_frequencies =
+            stream
+                .clone_dtoh(&d_edge_freq)
+                .map_err(|e| ProcIntError::DeviceToHost {
+                    buffer: "frequencies",
+                    reason: e.to_string(),
+                })?;
+        let result_durations =
+            stream
+                .clone_dtoh(&d_edge_dur)
+                .map_err(|e| ProcIntError::DeviceToHost {
+                    buffer: "durations",
+                    reason: e.to_string(),
+                })?;
 
         let elapsed = start.elapsed().as_micros() as u64;
 
@@ -484,29 +521,53 @@ impl KernelExecutor {
         let outgoing_counts: Vec<u16> = nodes.iter().map(|n| n.outgoing_count).collect();
 
         // HtoD transfers
-        let d_event_counts = stream
-            .clone_htod(&event_counts)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "event_counts", reason: e.to_string() })?;
-        let d_avg_durations = stream
-            .clone_htod(&avg_durations)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "avg_durations", reason: e.to_string() })?;
-        let d_incoming = stream
-            .clone_htod(&incoming_counts)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "incoming", reason: e.to_string() })?;
-        let d_outgoing = stream
-            .clone_htod(&outgoing_counts)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "outgoing", reason: e.to_string() })?;
+        let d_event_counts =
+            stream
+                .clone_htod(&event_counts)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "event_counts",
+                    reason: e.to_string(),
+                })?;
+        let d_avg_durations =
+            stream
+                .clone_htod(&avg_durations)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "avg_durations",
+                    reason: e.to_string(),
+                })?;
+        let d_incoming =
+            stream
+                .clone_htod(&incoming_counts)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "incoming",
+                    reason: e.to_string(),
+                })?;
+        let d_outgoing =
+            stream
+                .clone_htod(&outgoing_counts)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "outgoing",
+                    reason: e.to_string(),
+                })?;
 
         // Output buffers
         let pattern_types = vec![0u8; n];
         let pattern_confidences = vec![0.0f32; n];
 
-        let mut d_pattern_types = stream
-            .clone_htod(&pattern_types)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "pattern_types", reason: e.to_string() })?;
-        let mut d_pattern_conf = stream
-            .clone_htod(&pattern_confidences)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "pattern_conf", reason: e.to_string() })?;
+        let mut d_pattern_types =
+            stream
+                .clone_htod(&pattern_types)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "pattern_types",
+                    reason: e.to_string(),
+                })?;
+        let mut d_pattern_conf =
+            stream
+                .clone_htod(&pattern_confidences)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "pattern_conf",
+                    reason: e.to_string(),
+                })?;
 
         // Get kernel function
         let func = self
@@ -541,7 +602,10 @@ impl KernelExecutor {
                 .arg(&duration_threshold)
                 .arg(&(n as i32))
                 .launch(config)
-                .map_err(|e| ProcIntError::KernelLaunch { kernel: "pattern_detection", reason: e.to_string() })?;
+                .map_err(|e| ProcIntError::KernelLaunch {
+                    kernel: "pattern_detection",
+                    reason: e.to_string(),
+                })?;
         }
 
         context
@@ -549,12 +613,20 @@ impl KernelExecutor {
             .map_err(|e| ProcIntError::DeviceSync(e.to_string()))?;
 
         // DtoH transfers
-        let result_types = stream
-            .clone_dtoh(&d_pattern_types)
-            .map_err(|e| ProcIntError::DeviceToHost { buffer: "pattern_types", reason: e.to_string() })?;
-        let result_confidences = stream
-            .clone_dtoh(&d_pattern_conf)
-            .map_err(|e| ProcIntError::DeviceToHost { buffer: "pattern_conf", reason: e.to_string() })?;
+        let result_types =
+            stream
+                .clone_dtoh(&d_pattern_types)
+                .map_err(|e| ProcIntError::DeviceToHost {
+                    buffer: "pattern_types",
+                    reason: e.to_string(),
+                })?;
+        let result_confidences =
+            stream
+                .clone_dtoh(&d_pattern_conf)
+                .map_err(|e| ProcIntError::DeviceToHost {
+                    buffer: "pattern_conf",
+                    reason: e.to_string(),
+                })?;
 
         let elapsed = start.elapsed().as_micros() as u64;
 
@@ -653,18 +725,30 @@ impl KernelExecutor {
             end_times_padded[..n].copy_from_slice(&end_times);
 
             // HtoD transfers
-            let d_start_times = stream
-                .clone_htod(&start_times_padded)
-                .map_err(|e| ProcIntError::HostToDevice { buffer: "start_times", reason: e.to_string() })?;
-            let d_end_times = stream
-                .clone_htod(&end_times_padded)
-                .map_err(|e| ProcIntError::HostToDevice { buffer: "end_times", reason: e.to_string() })?;
+            let d_start_times =
+                stream
+                    .clone_htod(&start_times_padded)
+                    .map_err(|e| ProcIntError::HostToDevice {
+                        buffer: "start_times",
+                        reason: e.to_string(),
+                    })?;
+            let d_end_times =
+                stream
+                    .clone_htod(&end_times_padded)
+                    .map_err(|e| ProcIntError::HostToDevice {
+                        buffer: "end_times",
+                        reason: e.to_string(),
+                    })?;
 
             // Output buffer (16x16 = 256 elements)
             let precedence_flat = vec![0u32; 256];
-            let mut d_precedence = stream
-                .clone_htod(&precedence_flat)
-                .map_err(|e| ProcIntError::HostToDevice { buffer: "precedence", reason: e.to_string() })?;
+            let mut d_precedence =
+                stream
+                    .clone_htod(&precedence_flat)
+                    .map_err(|e| ProcIntError::HostToDevice {
+                        buffer: "precedence",
+                        reason: e.to_string(),
+                    })?;
 
             // Launch configuration (16x16 grid for pairwise comparison)
             let config = CudaLaunchConfig {
@@ -687,7 +771,10 @@ impl KernelExecutor {
                     .arg(&16i32)
                     .arg(&16i32)
                     .launch(config)
-                    .map_err(|e| ProcIntError::KernelLaunch { kernel: "partial_order", reason: e.to_string() })?;
+                    .map_err(|e| ProcIntError::KernelLaunch {
+                        kernel: "partial_order",
+                        reason: e.to_string(),
+                    })?;
             }
 
             context
@@ -697,9 +784,13 @@ impl KernelExecutor {
             total_kernel_time_us += kernel_start.elapsed().as_micros() as u64;
 
             // DtoH transfer
-            let result_precedence = stream
-                .clone_dtoh(&d_precedence)
-                .map_err(|e| ProcIntError::DeviceToHost { buffer: "precedence", reason: e.to_string() })?;
+            let result_precedence =
+                stream
+                    .clone_dtoh(&d_precedence)
+                    .map_err(|e| ProcIntError::DeviceToHost {
+                        buffer: "precedence",
+                        reason: e.to_string(),
+                    })?;
 
             // Convert flat precedence to 16x16 bit matrix
             let mut precedence_matrix = [0u16; 16];
@@ -842,27 +933,51 @@ impl KernelExecutor {
         let num_transitions = model_sources.len() as i32;
 
         // HtoD transfers
-        let d_activities = stream
-            .clone_htod(&all_activities)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "activities", reason: e.to_string() })?;
-        let d_trace_starts = stream
-            .clone_htod(&trace_starts)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "trace_starts", reason: e.to_string() })?;
-        let d_trace_lengths = stream
-            .clone_htod(&trace_lengths)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "trace_lengths", reason: e.to_string() })?;
-        let d_model_sources = stream
-            .clone_htod(&model_sources)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "model_sources", reason: e.to_string() })?;
-        let d_model_targets = stream
-            .clone_htod(&model_targets)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "model_targets", reason: e.to_string() })?;
+        let d_activities =
+            stream
+                .clone_htod(&all_activities)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "activities",
+                    reason: e.to_string(),
+                })?;
+        let d_trace_starts =
+            stream
+                .clone_htod(&trace_starts)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "trace_starts",
+                    reason: e.to_string(),
+                })?;
+        let d_trace_lengths =
+            stream
+                .clone_htod(&trace_lengths)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "trace_lengths",
+                    reason: e.to_string(),
+                })?;
+        let d_model_sources =
+            stream
+                .clone_htod(&model_sources)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "model_sources",
+                    reason: e.to_string(),
+                })?;
+        let d_model_targets =
+            stream
+                .clone_htod(&model_targets)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "model_targets",
+                    reason: e.to_string(),
+                })?;
 
         // Output buffer
         let fitness_scores = vec![0.0f32; num_traces];
-        let mut d_fitness = stream
-            .clone_htod(&fitness_scores)
-            .map_err(|e| ProcIntError::HostToDevice { buffer: "fitness", reason: e.to_string() })?;
+        let mut d_fitness =
+            stream
+                .clone_htod(&fitness_scores)
+                .map_err(|e| ProcIntError::HostToDevice {
+                    buffer: "fitness",
+                    reason: e.to_string(),
+                })?;
 
         // Get kernel function
         let func = self
@@ -896,7 +1011,10 @@ impl KernelExecutor {
                 .arg(&mut d_fitness)
                 .arg(&(num_traces as i32))
                 .launch(config)
-                .map_err(|e| ProcIntError::KernelLaunch { kernel: "conformance", reason: e.to_string() })?;
+                .map_err(|e| ProcIntError::KernelLaunch {
+                    kernel: "conformance",
+                    reason: e.to_string(),
+                })?;
         }
 
         context
@@ -904,9 +1022,13 @@ impl KernelExecutor {
             .map_err(|e| ProcIntError::DeviceSync(e.to_string()))?;
 
         // DtoH transfer
-        let result_fitness = stream
-            .clone_dtoh(&d_fitness)
-            .map_err(|e| ProcIntError::DeviceToHost { buffer: "fitness", reason: e.to_string() })?;
+        let result_fitness =
+            stream
+                .clone_dtoh(&d_fitness)
+                .map_err(|e| ProcIntError::DeviceToHost {
+                    buffer: "fitness",
+                    reason: e.to_string(),
+                })?;
 
         let elapsed = start.elapsed().as_micros() as u64;
 

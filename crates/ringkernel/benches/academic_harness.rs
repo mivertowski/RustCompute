@@ -81,7 +81,8 @@ impl Statistics {
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let mean = values.iter().sum::<f64>() / n as f64;
-        let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1).max(1) as f64;
+        let variance =
+            values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1).max(1) as f64;
         let std_dev = variance.sqrt();
         let ci_margin = 1.96 * std_dev / (n as f64).sqrt();
 
@@ -140,7 +141,11 @@ impl fmt::Display for Statistics {
         writeln!(f, "  mean:       {:.4}", self.mean)?;
         writeln!(f, "  median:     {:.4}", self.median)?;
         writeln!(f, "  std_dev:    {:.4}", self.std_dev)?;
-        writeln!(f, "  95% CI:     [{:.4}, {:.4}]", self.ci_95_lower, self.ci_95_upper)?;
+        writeln!(
+            f,
+            "  95% CI:     [{:.4}, {:.4}]",
+            self.ci_95_lower, self.ci_95_upper
+        )?;
         writeln!(f, "  CV:         {:.2}%", self.cv * 100.0)?;
         writeln!(f, "  min/max:    {:.4} / {:.4}", self.min, self.max)?;
         writeln!(f, "  p50:        {:.4}", self.p50)?;
@@ -178,7 +183,8 @@ impl Comparison {
         // Cohen's d (pooled standard deviation)
         let n1 = b_stats.n as f64;
         let n2 = t_stats.n as f64;
-        let s_pooled = ((((n1 - 1.0) * b_stats.std_dev.powi(2)) + ((n2 - 1.0) * t_stats.std_dev.powi(2)))
+        let s_pooled = ((((n1 - 1.0) * b_stats.std_dev.powi(2))
+            + ((n2 - 1.0) * t_stats.std_dev.powi(2)))
             / (n1 + n2 - 2.0))
             .sqrt();
         let cohens_d = if s_pooled != 0.0 {
@@ -213,13 +219,30 @@ impl Comparison {
 
 impl fmt::Display for Comparison {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "=== {} vs {} ===", self.baseline_label, self.treatment_label)?;
+        writeln!(
+            f,
+            "=== {} vs {} ===",
+            self.baseline_label, self.treatment_label
+        )?;
         writeln!(f, "  Baseline mean:  {:.4}", self.baseline.mean)?;
         writeln!(f, "  Treatment mean: {:.4}", self.treatment.mean)?;
         writeln!(f, "  Speedup:        {:.2}x", self.speedup)?;
-        writeln!(f, "  Cohen's d:      {:.2} ({})", self.cohens_d, effect_size_label(self.cohens_d))?;
+        writeln!(
+            f,
+            "  Cohen's d:      {:.2} ({})",
+            self.cohens_d,
+            effect_size_label(self.cohens_d)
+        )?;
         writeln!(f, "  p-value:        {:.2e}", self.p_value)?;
-        write!(f, "  Significant:    {}", if self.significant { "YES (p < 0.05)" } else { "NO" })
+        write!(
+            f,
+            "  Significant:    {}",
+            if self.significant {
+                "YES (p < 0.05)"
+            } else {
+                "NO"
+            }
+        )
     }
 }
 
@@ -237,7 +260,10 @@ pub fn export_csv(
     let filename = format!("{}/{}_{}.csv", output_dir, experiment, timestamp);
 
     let mut file = fs::File::create(&filename)?;
-    writeln!(file, "experiment,configuration,trial,iteration,metric,value,unit")?;
+    writeln!(
+        file,
+        "experiment,configuration,trial,iteration,metric,value,unit"
+    )?;
 
     for m in measurements {
         for (i, v) in m.values.iter().enumerate() {
@@ -329,7 +355,10 @@ pub fn export_comparison_json(
         .duration_since(UNIX_EPOCH)
         .expect("system clock after UNIX epoch")
         .as_secs();
-    let filename = format!("{}/{}_comparison_{}.json", output_dir, experiment, timestamp);
+    let filename = format!(
+        "{}/{}_comparison_{}.json",
+        output_dir, experiment, timestamp
+    );
 
     let json = format!(
         r#"{{
@@ -477,14 +506,19 @@ pub fn capture_system_info() -> String {
         if output.status.success() {
             let nvcc = String::from_utf8_lossy(&output.stdout);
             if let Some(line) = nvcc.lines().find(|l| l.contains("release")) {
-                info.push_str(&format!("  \"cuda\": \"{}\",\n", line.trim().replace('"', "\\\"")));
+                info.push_str(&format!(
+                    "  \"cuda\": \"{}\",\n",
+                    line.trim().replace('"', "\\\"")
+                ));
             }
         }
     }
 
     info.push_str(&format!("  \"rust\": \"{}\",\n", env!("CARGO_PKG_VERSION")));
-    info.push_str(&format!("  \"ringkernel_cuda_arch\": \"{}\",\n",
-        std::env::var("RINGKERNEL_CUDA_ARCH").unwrap_or_else(|_| "auto".to_string())));
+    info.push_str(&format!(
+        "  \"ringkernel_cuda_arch\": \"{}\",\n",
+        std::env::var("RINGKERNEL_CUDA_ARCH").unwrap_or_else(|_| "auto".to_string())
+    ));
 
     info.push_str("}\n");
     info

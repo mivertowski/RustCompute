@@ -146,9 +146,15 @@ pub enum ClusterSchedulingPolicy {
 impl ClusterSchedulingPolicy {
     fn to_cuda(&self) -> cuda_sys::CUclusterSchedulingPolicy {
         match self {
-            Self::Default => cuda_sys::CUclusterSchedulingPolicy::CU_CLUSTER_SCHEDULING_POLICY_DEFAULT,
-            Self::Spread => cuda_sys::CUclusterSchedulingPolicy::CU_CLUSTER_SCHEDULING_POLICY_SPREAD,
-            Self::ClusterOnGpc => cuda_sys::CUclusterSchedulingPolicy::CU_CLUSTER_SCHEDULING_POLICY_LOAD_BALANCING,
+            Self::Default => {
+                cuda_sys::CUclusterSchedulingPolicy::CU_CLUSTER_SCHEDULING_POLICY_DEFAULT
+            }
+            Self::Spread => {
+                cuda_sys::CUclusterSchedulingPolicy::CU_CLUSTER_SCHEDULING_POLICY_SPREAD
+            }
+            Self::ClusterOnGpc => {
+                cuda_sys::CUclusterSchedulingPolicy::CU_CLUSTER_SCHEDULING_POLICY_LOAD_BALANCING
+            }
         }
     }
 }
@@ -193,7 +199,8 @@ pub unsafe fn launch_kernel_with_cluster(
     // Attribute 2: Scheduling policy (if not default)
     if config.scheduling_policy != ClusterSchedulingPolicy::Default {
         let mut policy_attr: cuda_sys::CUlaunchAttribute_st = mem::zeroed();
-        policy_attr.id = cuda_sys::CUlaunchAttributeID::CU_LAUNCH_ATTRIBUTE_CLUSTER_SCHEDULING_POLICY_PREFERENCE;
+        policy_attr.id =
+            cuda_sys::CUlaunchAttributeID::CU_LAUNCH_ATTRIBUTE_CLUSTER_SCHEDULING_POLICY_PREFERENCE;
         policy_attr.value.clusterSchedulingPolicyPreference = config.scheduling_policy.to_cuda();
         attrs.push(policy_attr);
     }
@@ -417,10 +424,7 @@ impl ClusterKernel {
 }
 
 /// Query the maximum cluster size supported by the device for a given kernel.
-pub fn query_max_cluster_size(
-    device: &CudaDevice,
-    _func: cuda_sys::CUfunction,
-) -> Result<u32> {
+pub fn query_max_cluster_size(device: &CudaDevice, _func: cuda_sys::CUfunction) -> Result<u32> {
     if !super::supports_cluster_launch(device) {
         return Ok(1);
     }

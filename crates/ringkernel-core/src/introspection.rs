@@ -263,13 +263,16 @@ mod tests {
         let actor = ActorId(1);
         svc.register_actor(actor);
 
-        svc.record_trace(actor, TraceEntry {
-            sequence: 1,
-            received_at: Instant::now(),
-            duration: Duration::from_micros(50),
-            source: Some(ActorId(2)),
-            outcome: TraceOutcome::Forwarded(ActorId(3)),
-        });
+        svc.record_trace(
+            actor,
+            TraceEntry {
+                sequence: 1,
+                received_at: Instant::now(),
+                duration: Duration::from_micros(50),
+                source: Some(ActorId(2)),
+                outcome: TraceOutcome::Forwarded(ActorId(3)),
+            },
+        );
 
         let traces = svc.get_traces(actor, 10);
         assert_eq!(traces.len(), 1);

@@ -240,17 +240,11 @@ impl RingKernelRuntime for CudaRuntime {
             .map(|broker| broker.register(id.clone()));
 
         // Check if this is a persistent cooperative launch
-        let use_persistent_sim =
-            options.mode == KernelMode::Persistent && options.cooperative;
+        let use_persistent_sim = options.mode == KernelMode::Persistent && options.cooperative;
 
         // Create kernel
         let auto_activate = options.auto_activate;
-        let mut kernel = CudaKernel::new(
-            kernel_id,
-            id_num,
-            self.device.clone(),
-            options.clone(),
-        )?;
+        let mut kernel = CudaKernel::new(kernel_id, id_num, self.device.clone(), options.clone())?;
 
         if use_persistent_sim {
             // Persistent cooperative mode: create a PersistentSimulation and
@@ -280,7 +274,10 @@ impl RingKernelRuntime for CudaRuntime {
                         "Cooperative PTX not available (nvcc not found at build time), \
                          falling back to template PTX"
                     );
-                    (RING_KERNEL_PTX_TEMPLATE.to_string(), "ring_kernel_main".to_string())
+                    (
+                        RING_KERNEL_PTX_TEMPLATE.to_string(),
+                        "ring_kernel_main".to_string(),
+                    )
                 } else {
                     (coop_ptx.to_string(), "coop_persistent_fdtd".to_string())
                 }
@@ -291,7 +288,10 @@ impl RingKernelRuntime for CudaRuntime {
                 tracing::warn!(
                     "Cooperative feature not enabled, persistent simulation will use template PTX"
                 );
-                (RING_KERNEL_PTX_TEMPLATE.to_string(), "ring_kernel_main".to_string())
+                (
+                    RING_KERNEL_PTX_TEMPLATE.to_string(),
+                    "ring_kernel_main".to_string(),
+                )
             };
 
             // Still load PTX for the CudaKernel's module/function fields

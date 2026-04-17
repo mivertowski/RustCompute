@@ -172,9 +172,9 @@ mod tests {
         let mut cache = DeduplicationCache::new(DeduplicationConfig::default());
 
         assert!(!cache.is_duplicate(1)); // First time
-        assert!(cache.is_duplicate(1));  // Duplicate
+        assert!(cache.is_duplicate(1)); // Duplicate
         assert!(!cache.is_duplicate(2)); // New message
-        assert!(cache.is_duplicate(2));  // Duplicate
+        assert!(cache.is_duplicate(2)); // Duplicate
     }
 
     #[test]

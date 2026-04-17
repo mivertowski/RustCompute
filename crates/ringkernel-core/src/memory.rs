@@ -519,7 +519,10 @@ impl StratifiedMemoryPool {
 
     /// Allocate from a specific bucket.
     pub fn allocate_bucket(&self, bucket: SizeBucket) -> StratifiedBuffer<'_> {
-        let pool = self.buckets.get(&bucket).expect("all SizeBucket variants are inserted in new()");
+        let pool = self
+            .buckets
+            .get(&bucket)
+            .expect("all SizeBucket variants are inserted in new()");
 
         // Track stats before allocation to capture hit
         let was_cached = pool.current_size() > 0;

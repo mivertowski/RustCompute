@@ -130,9 +130,10 @@ impl ShutdownCoordinator {
 
             ShutdownPhase::Draining => {
                 // Check if all actors have drained
-                let all_drained = self.draining_actors.iter().all(|a| {
-                    self.drained_actors.contains(a)
-                });
+                let all_drained = self
+                    .draining_actors
+                    .iter()
+                    .all(|a| self.drained_actors.contains(a));
 
                 if all_drained {
                     self.phase = ShutdownPhase::Terminated;
@@ -141,7 +142,8 @@ impl ShutdownCoordinator {
                 } else if self.is_timeout_expired() {
                     // Force kill remaining
                     self.phase = ShutdownPhase::ForceKilling;
-                    let remaining: Vec<ActorId> = self.draining_actors
+                    let remaining: Vec<ActorId> = self
+                        .draining_actors
                         .iter()
                         .filter(|a| !self.drained_actors.contains(a))
                         .copied()

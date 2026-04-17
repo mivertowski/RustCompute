@@ -11,8 +11,8 @@ use std::time::Instant;
 
 use cudarc::driver::sys as cuda_sys;
 
-use ringkernel_cuda::hopper::cluster;
 use ringkernel_cuda::driver_api::DirectPtxModule;
+use ringkernel_cuda::hopper::cluster;
 
 fn is_hopper() -> bool {
     // CudaDevice::new handles driver initialization internally
@@ -50,7 +50,9 @@ fn test_cluster_sync_kernel_execution() {
     let device = ringkernel_cuda::CudaDevice::new(0).expect("Failed to create device");
     let ptx = cluster::cluster_kernel_ptx();
     let module = DirectPtxModule::load_ptx(&device, ptx).expect("Failed to load cluster PTX");
-    let func = module.get_function("cluster_test_sync").expect("Failed to get function");
+    let func = module
+        .get_function("cluster_test_sync")
+        .expect("Failed to get function");
 
     // Allocate counter via cuMemAlloc
     let mut counter_dev: u64 = 0;
@@ -95,11 +97,8 @@ fn test_cluster_sync_kernel_execution() {
     // Read counter back
     let mut counter_host: u32 = 0;
     unsafe {
-        let r = cuda_sys::cuMemcpyDtoH_v2(
-            &mut counter_host as *mut u32 as *mut c_void,
-            counter_dev,
-            4,
-        );
+        let r =
+            cuda_sys::cuMemcpyDtoH_v2(&mut counter_host as *mut u32 as *mut c_void, counter_dev, 4);
         assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS, "cuMemcpyDtoH failed");
         let _ = cuda_sys::cuMemFree_v2(counter_dev);
     }
@@ -123,7 +122,9 @@ fn test_cluster_dsmem_k2k_execution() {
     let device = ringkernel_cuda::CudaDevice::new(0).expect("Failed to create device");
     let ptx = cluster::cluster_kernel_ptx();
     let module = DirectPtxModule::load_ptx(&device, ptx).expect("Failed to load cluster PTX");
-    let func = module.get_function("cluster_dsmem_k2k").expect("Failed to get function");
+    let func = module
+        .get_function("cluster_dsmem_k2k")
+        .expect("Failed to get function");
 
     let block_size: u32 = 256;
     let cluster_size: u32 = 4;
@@ -179,14 +180,21 @@ fn test_cluster_dsmem_k2k_execution() {
         let _ = cuda_sys::cuMemFree_v2(results_dev);
     }
 
-    println!("DSMEM K2K results ({} rounds, cluster_size={}):", rounds, cluster_size);
+    println!(
+        "DSMEM K2K results ({} rounds, cluster_size={}):",
+        rounds, cluster_size
+    );
     for (i, val) in results_host.iter().enumerate() {
         println!("  Block {}: sum = {:.2}", i, val);
     }
 
     // All blocks should have non-zero results from DSMEM exchange
     for (i, val) in results_host.iter().enumerate() {
-        assert!(*val != 0.0, "Block {} result should be non-zero after DSMEM exchange", i);
+        assert!(
+            *val != 0.0,
+            "Block {} result should be non-zero after DSMEM exchange",
+            i
+        );
     }
 }
 
@@ -207,7 +215,9 @@ fn bench_cluster_sync_vs_grid_sync() {
     // ─── Benchmark 1: Cluster sync ───
     let cluster_ptx = cluster::cluster_kernel_ptx();
     let cluster_module = DirectPtxModule::load_ptx(&device, cluster_ptx).expect("load PTX");
-    let cluster_func = cluster_module.get_function("cluster_test_sync").expect("get func");
+    let cluster_func = cluster_module
+        .get_function("cluster_test_sync")
+        .expect("get func");
 
     let mut cluster_times = Vec::with_capacity(trials as usize);
 
@@ -241,7 +251,9 @@ fn bench_cluster_sync_vs_grid_sync() {
             cuda_sys::cuCtxSynchronize();
         }
         cluster_times.push(start.elapsed().as_nanos() as f64 / 1000.0); // us
-        unsafe { cuda_sys::cuMemFree_v2(counter_dev); }
+        unsafe {
+            cuda_sys::cuMemFree_v2(counter_dev);
+        }
     }
 
     // ─── Benchmark 2: Grid sync (cooperative launch, same block count) ───
@@ -250,7 +262,9 @@ fn bench_cluster_sync_vs_grid_sync() {
     if ringkernel_cuda::cooperative::has_cooperative_support() {
         let coop_ptx = ringkernel_cuda::cooperative::cooperative_kernel_ptx();
         let coop_module = DirectPtxModule::load_ptx(&device, coop_ptx).expect("load coop PTX");
-        let coop_func = coop_module.get_function("coop_test_grid_sync").expect("get coop func");
+        let coop_func = coop_module
+            .get_function("coop_test_grid_sync")
+            .expect("get coop func");
 
         for _ in 0..trials {
             let mut counter_dev: u64 = 0;
@@ -270,12 +284,20 @@ fn bench_cluster_sync_vs_grid_sync() {
             let start = Instant::now();
             unsafe {
                 cudarc::driver::result::launch_cooperative_kernel(
-                    coop_func, (cluster_size, 1, 1), (block_size, 1, 1), 0, stream, &mut params,
-                ).expect("coop launch");
+                    coop_func,
+                    (cluster_size, 1, 1),
+                    (block_size, 1, 1),
+                    0,
+                    stream,
+                    &mut params,
+                )
+                .expect("coop launch");
                 cuda_sys::cuCtxSynchronize();
             }
             grid_times.push(start.elapsed().as_nanos() as f64 / 1000.0);
-            unsafe { cuda_sys::cuMemFree_v2(counter_dev); }
+            unsafe {
+                cuda_sys::cuMemFree_v2(counter_dev);
+            }
         }
     }
 
@@ -297,8 +319,10 @@ fn bench_cluster_sync_vs_grid_sync() {
     println!();
     println!("══════════════════════════════════════════════════════════════════");
     println!("  Cluster Sync vs Grid Sync — H100 Benchmark");
-    println!("  {} sync iterations × {} trials, {} blocks × {} threads",
-        iterations, trials, cluster_size, block_size);
+    println!(
+        "  {} sync iterations × {} trials, {} blocks × {} threads",
+        iterations, trials, cluster_size, block_size
+    );
     println!("══════════════════════════════════════════════════════════════════");
     println!("  Cluster sync:");
     println!("    mean   = {:.1} us  (95% CI: ±{:.1})", c_mean, c_ci);
@@ -317,8 +341,11 @@ fn bench_cluster_sync_vs_grid_sync() {
         println!("    per-sync = {:.3} us", g_mean / iterations as f64);
         println!("  ────────────────────────────────────────────");
         println!("  Cluster sync speedup: {:.2}x", speedup);
-        println!("  Per-sync latency: cluster={:.3} us, grid={:.3} us",
-            c_mean / iterations as f64, g_mean / iterations as f64);
+        println!(
+            "  Per-sync latency: cluster={:.3} us, grid={:.3} us",
+            c_mean / iterations as f64,
+            g_mean / iterations as f64
+        );
     }
     println!("══════════════════════════════════════════════════════════════════");
 }

@@ -240,16 +240,10 @@ pub trait LlmProvider: Send + Sync {
     fn name(&self) -> &str;
 
     /// Send a completion request.
-    fn complete(
-        &self,
-        request: &CompletionRequest,
-    ) -> Result<CompletionResponse, LlmError>;
+    fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, LlmError>;
 
     /// Generate embeddings.
-    fn embed(
-        &self,
-        request: &EmbeddingRequest,
-    ) -> Result<EmbeddingResponse, LlmError>;
+    fn embed(&self, request: &EmbeddingRequest) -> Result<EmbeddingResponse, LlmError>;
 
     /// Check if the provider is available/connected.
     fn is_available(&self) -> bool;
@@ -303,7 +297,9 @@ impl std::fmt::Display for LlmError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unavailable(msg) => write!(f, "Provider unavailable: {}", msg),
-            Self::RateLimited { retry_after } => write!(f, "Rate limited, retry after {:?}", retry_after),
+            Self::RateLimited { retry_after } => {
+                write!(f, "Rate limited, retry after {:?}", retry_after)
+            }
             Self::AuthError(msg) => write!(f, "Auth error: {}", msg),
             Self::InvalidRequest(msg) => write!(f, "Invalid request: {}", msg),
             Self::ModelNotFound(model) => write!(f, "Model not found: {}", model),
@@ -346,7 +342,8 @@ impl LlmProvider for EchoProvider {
     }
 
     fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, LlmError> {
-        self.total_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.total_requests
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let content = request
             .messages
@@ -376,7 +373,9 @@ impl LlmProvider for EchoProvider {
             .iter()
             .map(|input| {
                 // Deterministic pseudo-embedding based on input hash
-                let hash = input.bytes().fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
+                let hash = input
+                    .bytes()
+                    .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
                 (0..dim)
                     .map(|i| ((hash.wrapping_add(i as u64) % 1000) as f32 / 1000.0) - 0.5)
                     .collect()
@@ -400,7 +399,9 @@ impl LlmProvider for EchoProvider {
 
     fn metrics(&self) -> LlmProviderMetrics {
         LlmProviderMetrics {
-            total_requests: self.total_requests.load(std::sync::atomic::Ordering::Relaxed),
+            total_requests: self
+                .total_requests
+                .load(std::sync::atomic::Ordering::Relaxed),
             ..Default::default()
         }
     }
@@ -477,8 +478,12 @@ mod tests {
     fn test_provider_metrics() {
         let provider = EchoProvider::new();
 
-        provider.complete(&CompletionRequest::new("m", "a")).unwrap();
-        provider.complete(&CompletionRequest::new("m", "b")).unwrap();
+        provider
+            .complete(&CompletionRequest::new("m", "a"))
+            .unwrap();
+        provider
+            .complete(&CompletionRequest::new("m", "b"))
+            .unwrap();
 
         let m = provider.metrics();
         assert_eq!(m.total_requests, 2);
@@ -489,7 +494,8 @@ mod tests {
         let tool = ToolDefinition {
             name: "graph_query".to_string(),
             description: "Query the knowledge graph".to_string(),
-            parameters_schema: r#"{"type":"object","properties":{"query":{"type":"string"}}}"#.to_string(),
+            parameters_schema: r#"{"type":"object","properties":{"query":{"type":"string"}}}"#
+                .to_string(),
         };
         assert_eq!(tool.name, "graph_query");
     }

@@ -44,8 +44,10 @@ fn test_sustained_throughput_60s() {
     let mut windows: Vec<WindowStats> = Vec::new();
 
     println!();
-    println!("  {:>8} {:>12} {:>10} {:>10} {:>10} {:>10}",
-        "Window", "Throughput", "p50 (ns)", "p95 (ns)", "p99 (ns)", "Ops");
+    println!(
+        "  {:>8} {:>12} {:>10} {:>10} {:>10} {:>10}",
+        "Window", "Throughput", "p50 (ns)", "p95 (ns)", "p99 (ns)", "Ops"
+    );
 
     while start.elapsed() < duration {
         // Measure single operation
@@ -80,8 +82,15 @@ fn test_sustained_throughput_60s() {
                 ops: window_ops,
             };
 
-            println!("  {:>6.0}s {:>10.2}M {:>10.0} {:>10.0} {:>10.0} {:>10}",
-                ws.window_secs, throughput / 1e6, p50, p95, p99, window_ops);
+            println!(
+                "  {:>6.0}s {:>10.2}M {:>10.0} {:>10.0} {:>10.0} {:>10}",
+                ws.window_secs,
+                throughput / 1e6,
+                p50,
+                p95,
+                p99,
+                window_ops
+            );
 
             windows.push(ws);
 
@@ -97,7 +106,10 @@ fn test_sustained_throughput_60s() {
 
     let throughputs: Vec<f64> = windows.iter().map(|w| w.throughput).collect();
     let mean_throughput = throughputs.iter().sum::<f64>() / throughputs.len() as f64;
-    let variance = throughputs.iter().map(|t| (t - mean_throughput).powi(2)).sum::<f64>()
+    let variance = throughputs
+        .iter()
+        .map(|t| (t - mean_throughput).powi(2))
+        .sum::<f64>()
         / (throughputs.len() - 1).max(1) as f64;
     let cv = (variance.sqrt() / mean_throughput) * 100.0;
 
@@ -112,7 +124,11 @@ fn test_sustained_throughput_60s() {
         mean_throughput
     };
     let last_3_mean = if windows.len() >= 6 {
-        windows[windows.len()-3..].iter().map(|w| w.throughput).sum::<f64>() / 3.0
+        windows[windows.len() - 3..]
+            .iter()
+            .map(|w| w.throughput)
+            .sum::<f64>()
+            / 3.0
     } else {
         mean_throughput
     };
@@ -121,19 +137,36 @@ fn test_sustained_throughput_60s() {
 
     println!();
     println!("  ────────────────────────────────────────────");
-    println!("  Summary ({:.0}s, {} windows):", total_elapsed, windows.len());
+    println!(
+        "  Summary ({:.0}s, {} windows):",
+        total_elapsed,
+        windows.len()
+    );
     println!("    Total operations:  {}", total_ops);
-    println!("    Overall throughput: {:.2}M ops/s", overall_throughput / 1e6);
+    println!(
+        "    Overall throughput: {:.2}M ops/s",
+        overall_throughput / 1e6
+    );
     println!("    Mean throughput:   {:.2}M ops/s", mean_throughput / 1e6);
     println!("    Min throughput:    {:.2}M ops/s", min_throughput / 1e6);
     println!("    Max throughput:    {:.2}M ops/s", max_throughput / 1e6);
     println!("    CV (throughput):   {:.2}%", cv);
     println!("    Max p99 spike:     {:.0} ns", max_p99);
-    println!("    Degradation:       {:.1}% (first vs last 3 windows)", degradation_pct);
-    println!("    Degradation:       {}", if has_degradation { "YES" } else { "NO" });
+    println!(
+        "    Degradation:       {:.1}% (first vs last 3 windows)",
+        degradation_pct
+    );
+    println!(
+        "    Degradation:       {}",
+        if has_degradation { "YES" } else { "NO" }
+    );
     println!("══════════════════════════════════════════════════════════════════");
 
-    assert!(!has_degradation, "Throughput degraded by {:.1}% over 60s", degradation_pct);
+    assert!(
+        !has_degradation,
+        "Throughput degraded by {:.1}% over 60s",
+        degradation_pct
+    );
     assert!(cv < 10.0, "Throughput CV {:.1}% exceeds 10% threshold", cv);
 }
 
@@ -170,7 +203,11 @@ fn test_sustained_throughput_with_power_monitoring() {
     println!("══════════════════════════════════════════════════════════════════");
     println!("  Power & Thermal Telemetry (10s burst)");
     println!("══════════════════════════════════════════════════════════════════");
-    println!("  Throughput: {:.2}M ops/s ({} total)", throughput / 1e6, ops);
+    println!(
+        "  Throughput: {:.2}M ops/s ({} total)",
+        throughput / 1e6,
+        ops
+    );
     println!("  Power:  before={}, after={}", power_before, power_after);
     println!("  Temp:   before={}, after={}", temp_before, temp_after);
 
@@ -207,7 +244,10 @@ fn get_gpu_temp() -> String {
 
 fn get_ecc_errors() -> String {
     std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=ecc.errors.corrected.volatile.total,ecc.errors.uncorrected.volatile.total", "--format=csv,noheader"])
+        .args([
+            "--query-gpu=ecc.errors.corrected.volatile.total,ecc.errors.uncorrected.volatile.total",
+            "--format=csv,noheader",
+        ])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|_| "N/A".to_string())

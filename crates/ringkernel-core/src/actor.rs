@@ -303,13 +303,10 @@ impl ActorSupervisor {
         config: &ActorConfig,
         parent_id: Option<ActorId>,
     ) -> Result<ActorId, ActorError> {
-        let slot = self
-            .free_list
-            .pop()
-            .ok_or(ActorError::PoolExhausted {
-                capacity: self.capacity,
-                active: self.active_count,
-            })?;
+        let slot = self.free_list.pop().ok_or(ActorError::PoolExhausted {
+            capacity: self.capacity,
+            active: self.active_count,
+        })?;
 
         let entry = &mut self.entries[slot as usize];
         entry.state = ActorState::Initializing as u32;
@@ -318,9 +315,18 @@ impl ActorSupervisor {
         entry.last_heartbeat_ns = 0;
 
         match config.restart_policy {
-            RestartPolicy::OneForOne { max_restarts, window }
-            | RestartPolicy::OneForAll { max_restarts, window }
-            | RestartPolicy::RestForOne { max_restarts, window } => {
+            RestartPolicy::OneForOne {
+                max_restarts,
+                window,
+            }
+            | RestartPolicy::OneForAll {
+                max_restarts,
+                window,
+            }
+            | RestartPolicy::RestForOne {
+                max_restarts,
+                window,
+            } => {
                 entry.max_restarts = max_restarts;
                 entry.restart_window_ns = window.as_nanos() as u64;
             }
@@ -653,7 +659,10 @@ impl ActorSupervisor {
                 "{}[{}] actor:{} state={} restarts={} msgs={}\n",
                 prefix,
                 if indent == 0 { "R" } else { "C" },
-                id.0, state, entry.restart_count, entry.last_heartbeat_ns
+                id.0,
+                state,
+                entry.restart_count,
+                entry.last_heartbeat_ns
             ));
 
             let children = self.children_of(id);
@@ -738,7 +747,11 @@ impl fmt::Display for ActorError {
                 "Invalid state transition for {}: {:?} → {:?}",
                 actor, from, to
             ),
-            Self::MaxRestartsExceeded { actor, restarts, max } => write!(
+            Self::MaxRestartsExceeded {
+                actor,
+                restarts,
+                max,
+            } => write!(
                 f,
                 "Actor {} exceeded max restarts: {}/{}",
                 actor, restarts, max
@@ -788,8 +801,12 @@ mod tests {
 
         // Create children
         let child_config = ActorConfig::named("child");
-        let child1 = supervisor.create_actor(&child_config, Some(parent)).unwrap();
-        let child2 = supervisor.create_actor(&child_config, Some(parent)).unwrap();
+        let child1 = supervisor
+            .create_actor(&child_config, Some(parent))
+            .unwrap();
+        let child2 = supervisor
+            .create_actor(&child_config, Some(parent))
+            .unwrap();
         supervisor.activate_actor(child1).unwrap();
         supervisor.activate_actor(child2).unwrap();
 
@@ -802,8 +819,8 @@ mod tests {
     #[test]
     fn test_actor_restart() {
         let mut supervisor = ActorSupervisor::new(8);
-        let config = ActorConfig::named("restartable")
-            .with_restart_policy(RestartPolicy::OneForOne {
+        let config =
+            ActorConfig::named("restartable").with_restart_policy(RestartPolicy::OneForOne {
                 max_restarts: 3,
                 window: Duration::from_secs(60),
             });
@@ -823,11 +840,10 @@ mod tests {
     #[test]
     fn test_actor_max_restarts_exceeded() {
         let mut supervisor = ActorSupervisor::new(8);
-        let config = ActorConfig::named("fragile")
-            .with_restart_policy(RestartPolicy::OneForOne {
-                max_restarts: 1,
-                window: Duration::from_secs(60),
-            });
+        let config = ActorConfig::named("fragile").with_restart_policy(RestartPolicy::OneForOne {
+            max_restarts: 1,
+            window: Duration::from_secs(60),
+        });
 
         let id = supervisor.create_actor(&config, None).unwrap();
         supervisor.activate_actor(id).unwrap();
@@ -838,7 +854,10 @@ mod tests {
 
         // Second restart: should fail
         let result = supervisor.restart_actor(new_id, &config);
-        assert!(matches!(result, Err(ActorError::MaxRestartsExceeded { .. })));
+        assert!(matches!(
+            result,
+            Err(ActorError::MaxRestartsExceeded { .. })
+        ));
     }
 
     #[test]
@@ -940,13 +959,14 @@ mod tests {
     #[test]
     fn test_handle_failure_one_for_one() {
         let mut sup = ActorSupervisor::new(8);
-        let config = ActorConfig::named("worker")
-            .with_restart_policy(RestartPolicy::OneForOne {
-                max_restarts: 2,
-                window: Duration::from_secs(60),
-            });
+        let config = ActorConfig::named("worker").with_restart_policy(RestartPolicy::OneForOne {
+            max_restarts: 2,
+            window: Duration::from_secs(60),
+        });
 
-        let parent = sup.create_actor(&ActorConfig::named("parent"), None).unwrap();
+        let parent = sup
+            .create_actor(&ActorConfig::named("parent"), None)
+            .unwrap();
         sup.activate_actor(parent).unwrap();
 
         let child = sup.create_actor(&config, Some(parent)).unwrap();
@@ -954,16 +974,19 @@ mod tests {
 
         // Simulate failure
         let actions = sup.handle_failure(child, &config);
-        assert!(actions.iter().any(|a| matches!(a, SupervisionAction::Restarted { .. })));
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, SupervisionAction::Restarted { .. })));
     }
 
     #[test]
     fn test_handle_failure_escalation() {
         let mut sup = ActorSupervisor::new(8);
-        let config = ActorConfig::named("fragile")
-            .with_restart_policy(RestartPolicy::Permanent);
+        let config = ActorConfig::named("fragile").with_restart_policy(RestartPolicy::Permanent);
 
-        let parent = sup.create_actor(&ActorConfig::named("parent"), None).unwrap();
+        let parent = sup
+            .create_actor(&ActorConfig::named("parent"), None)
+            .unwrap();
         sup.activate_actor(parent).unwrap();
 
         let child = sup.create_actor(&config, Some(parent)).unwrap();
@@ -971,7 +994,9 @@ mod tests {
 
         // Permanent policy → failure escalates to parent
         let actions = sup.handle_failure(child, &config);
-        assert!(actions.iter().any(|a| matches!(a, SupervisionAction::Escalated { .. })));
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, SupervisionAction::Escalated { .. })));
     }
 
     #[test]

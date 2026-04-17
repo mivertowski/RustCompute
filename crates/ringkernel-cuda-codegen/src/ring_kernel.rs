@@ -233,7 +233,9 @@ impl CodegenSchedulerConfig {
     pub fn priority(levels: u32, work_queue_capacity: u32) -> Self {
         Self {
             enabled: true,
-            strategy: CodegenSchedulingStrategy::Priority { levels: levels.clamp(1, 16) },
+            strategy: CodegenSchedulingStrategy::Priority {
+                levels: levels.clamp(1, 16),
+            },
             work_queue_capacity,
             ..Default::default()
         }
@@ -804,10 +806,7 @@ impl RingKernelConfig {
 
         // Scheduler warp code (inserted before handler, skips message processing)
         if self.scheduling.enabled {
-            code.push_str(&generate_scheduler_warp_code(
-                &self.scheduling,
-                "        ",
-            ));
+            code.push_str(&generate_scheduler_warp_code(&self.scheduling, "        "));
         }
 
         // Handler placeholder
@@ -1332,9 +1331,7 @@ pub fn generate_scheduler_warp_code(config: &CodegenSchedulerConfig, indent: &st
     code.push_str(&format!("{i}    if (lane_id == 0) {{\n"));
 
     // Update load table entry for this block
-    code.push_str(&format!(
-        "{i}        // Update this block's load entry\n"
-    ));
+    code.push_str(&format!("{i}        // Update this block's load entry\n"));
     code.push_str(&format!(
         "{i}        unsigned int my_depth = (unsigned int)(atomicAdd(&control->input_head, 0) - atomicAdd(&control->input_tail, 0));\n"
     ));
@@ -1391,7 +1388,9 @@ pub fn generate_scheduler_warp_code(config: &CodegenSchedulerConfig, indent: &st
 /// Generate work-stealing logic for the scheduler warp.
 fn generate_work_stealing_code(code: &mut String, config: &CodegenSchedulerConfig, indent: &str) {
     let i = indent;
-    code.push_str(&format!("{i}        // Work stealing: check if underloaded\n"));
+    code.push_str(&format!(
+        "{i}        // Work stealing: check if underloaded\n"
+    ));
     code.push_str(&format!(
         "{i}        if (my_depth < {}) {{\n",
         config.steal_threshold
@@ -1421,9 +1420,7 @@ fn generate_work_stealing_code(code: &mut String, config: &CodegenSchedulerConfi
         "{i}                    if (nd > {} && nd > best_depth) {{\n",
         config.share_threshold
     ));
-    code.push_str(&format!(
-        "{i}                        best_depth = nd;\n"
-    ));
+    code.push_str(&format!("{i}                        best_depth = nd;\n"));
     code.push_str(&format!(
         "{i}                        best_victim = (unsigned int)neighbor;\n"
     ));
@@ -1441,9 +1438,7 @@ fn generate_work_stealing_code(code: &mut String, config: &CodegenSchedulerConfi
         "{i}                    if (nd > {} && nd > best_depth) {{\n",
         config.share_threshold
     ));
-    code.push_str(&format!(
-        "{i}                        best_depth = nd;\n"
-    ));
+    code.push_str(&format!("{i}                        best_depth = nd;\n"));
     code.push_str(&format!(
         "{i}                        best_victim = (unsigned int)neg_neighbor;\n"
     ));
@@ -2130,7 +2125,9 @@ mod tests {
             .with_block_size(128)
             .with_hlc(true);
 
-        let kernel = config.generate_kernel_wrapper("// Process message here").unwrap();
+        let kernel = config
+            .generate_kernel_wrapper("// Process message here")
+            .unwrap();
 
         assert!(kernel.contains("struct __align__(128) ControlBlock"));
         assert!(kernel.contains("extern \"C\" __global__ void ring_kernel_example"));
@@ -2221,7 +2218,9 @@ mod tests {
             .with_k2k(true)
             .with_hlc(true);
 
-        let kernel = config.generate_kernel_wrapper("// K2K handler code").unwrap();
+        let kernel = config
+            .generate_kernel_wrapper("// K2K handler code")
+            .unwrap();
 
         // Check K2K-specific components
         assert!(
@@ -2589,7 +2588,10 @@ mod tests {
         let config = CodegenSchedulerConfig::work_stealing(4);
         let code = generate_scheduler_warp_code(&config, "    ");
 
-        assert!(code.contains("SCHEDULER WARP"), "Should have scheduler header");
+        assert!(
+            code.contains("SCHEDULER WARP"),
+            "Should have scheduler header"
+        );
         assert!(code.contains("warp_id == 0"), "Should check warp 0");
         assert!(code.contains("lane_id == 0"), "Should check lane 0");
         assert!(code.contains("queue_depth"), "Should update queue depth");
@@ -2599,7 +2601,10 @@ mod tests {
             "Should have steal request logic"
         );
         assert!(code.contains("best_victim"), "Should scan for victims");
-        assert!(code.contains("continue"), "Scheduler warp should skip handler");
+        assert!(
+            code.contains("continue"),
+            "Scheduler warp should skip handler"
+        );
     }
 
     #[test]
@@ -2743,10 +2748,7 @@ mod tests {
         let config = CodegenSchedulerConfig::work_stealing(4).with_scheduler_warp(2);
         let code = generate_scheduler_warp_code(&config, "    ");
 
-        assert!(
-            code.contains("warp_id == 2"),
-            "Should use custom warp ID 2"
-        );
+        assert!(code.contains("warp_id == 2"), "Should use custom warp ID 2");
         assert!(
             code.contains("SCHEDULER WARP (warp 2)"),
             "Comment should reflect warp 2"

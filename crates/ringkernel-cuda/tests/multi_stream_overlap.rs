@@ -35,7 +35,9 @@ fn bench_single_stream_vs_multi_stream() {
     }
 
     let module = DirectPtxModule::load_ptx(&device, ptx).expect("load PTX");
-    let func = module.get_function("coop_test_grid_sync").expect("get func");
+    let func = module
+        .get_function("coop_test_grid_sync")
+        .expect("get func");
 
     let block_size: u32 = 256;
     let num_blocks: u32 = 4;
@@ -48,7 +50,9 @@ fn bench_single_stream_vs_multi_stream() {
 
     for _ in 0..trials {
         let mut stream: cuda_sys::CUstream = ptr::null_mut();
-        unsafe { cuda_sys::cuStreamCreate(&mut stream, 0); }
+        unsafe {
+            cuda_sys::cuStreamCreate(&mut stream, 0);
+        }
 
         let start = Instant::now();
         for _ in 0..commands {
@@ -67,17 +71,30 @@ fn bench_single_stream_vs_multi_stream() {
 
             unsafe {
                 cuda_sys::cuLaunchKernel(
-                    func, num_blocks, 1, 1, block_size, 1, 1, 0, stream,
-                    params.as_mut_ptr(), ptr::null_mut(),
+                    func,
+                    num_blocks,
+                    1,
+                    1,
+                    block_size,
+                    1,
+                    1,
+                    0,
+                    stream,
+                    params.as_mut_ptr(),
+                    ptr::null_mut(),
                 );
             }
-            unsafe { cuda_sys::cuMemFree_v2(counter_dev); }
+            unsafe {
+                cuda_sys::cuMemFree_v2(counter_dev);
+            }
         }
         unsafe {
             cuda_sys::cuStreamSynchronize(stream);
         }
         single_stream_times.push(start.elapsed().as_nanos() as f64 / 1000.0);
-        unsafe { cuda_sys::cuStreamDestroy_v2(stream); }
+        unsafe {
+            cuda_sys::cuStreamDestroy_v2(stream);
+        }
     }
 
     // ─── Multi-stream (4 streams, round-robin) ───
@@ -88,7 +105,12 @@ fn bench_single_stream_vs_multi_stream() {
         let mut streams: Vec<cuda_sys::CUstream> = Vec::new();
         for _ in 0..num_streams {
             let mut s: cuda_sys::CUstream = ptr::null_mut();
-            unsafe { cuda_sys::cuStreamCreate(&mut s, cuda_sys::CUstream_flags_enum::CU_STREAM_NON_BLOCKING as u32); }
+            unsafe {
+                cuda_sys::cuStreamCreate(
+                    &mut s,
+                    cuda_sys::CUstream_flags_enum::CU_STREAM_NON_BLOCKING as u32,
+                );
+            }
             streams.push(s);
         }
 
@@ -111,21 +133,36 @@ fn bench_single_stream_vs_multi_stream() {
 
             unsafe {
                 cuda_sys::cuLaunchKernel(
-                    func, num_blocks, 1, 1, block_size, 1, 1, 0, streams[stream_idx],
-                    params.as_mut_ptr(), ptr::null_mut(),
+                    func,
+                    num_blocks,
+                    1,
+                    1,
+                    block_size,
+                    1,
+                    1,
+                    0,
+                    streams[stream_idx],
+                    params.as_mut_ptr(),
+                    ptr::null_mut(),
                 );
             }
-            unsafe { cuda_sys::cuMemFree_v2(counter_dev); }
+            unsafe {
+                cuda_sys::cuMemFree_v2(counter_dev);
+            }
         }
 
         // Sync all streams
         for s in &streams {
-            unsafe { cuda_sys::cuStreamSynchronize(*s); }
+            unsafe {
+                cuda_sys::cuStreamSynchronize(*s);
+            }
         }
         multi_stream_times.push(start.elapsed().as_nanos() as f64 / 1000.0);
 
         for s in streams {
-            unsafe { cuda_sys::cuStreamDestroy_v2(s); }
+            unsafe {
+                cuda_sys::cuStreamDestroy_v2(s);
+            }
         }
     }
 
@@ -146,14 +183,28 @@ fn bench_single_stream_vs_multi_stream() {
 
     println!();
     println!("══════════════════════════════════════════════════════════════════");
-    println!("  Single Stream vs Multi-Stream ({} streams) — H100", num_streams);
-    println!("  {} commands × {} trials, {} blocks × {} threads × {} iters",
-        commands, trials, num_blocks, block_size, iterations);
+    println!(
+        "  Single Stream vs Multi-Stream ({} streams) — H100",
+        num_streams
+    );
+    println!(
+        "  {} commands × {} trials, {} blocks × {} threads × {} iters",
+        commands, trials, num_blocks, block_size, iterations
+    );
     println!("══════════════════════════════════════════════════════════════════");
-    println!("  Single stream:  mean={:.1} us, median={:.1} us (±{:.1})", s_mean, s_med, s_ci);
-    println!("  Multi-stream:   mean={:.1} us, median={:.1} us (±{:.1})", m_mean, m_med, m_ci);
+    println!(
+        "  Single stream:  mean={:.1} us, median={:.1} us (±{:.1})",
+        s_mean, s_med, s_ci
+    );
+    println!(
+        "  Multi-stream:   mean={:.1} us, median={:.1} us (±{:.1})",
+        m_mean, m_med, m_ci
+    );
     println!("  Speedup:        {:.2}x", s_mean / m_mean);
-    println!("  Per-command:    single={:.2} us, multi={:.2} us",
-        s_mean / commands as f64, m_mean / commands as f64);
+    println!(
+        "  Per-command:    single={:.2} us, multi={:.2} us",
+        s_mean / commands as f64,
+        m_mean / commands as f64
+    );
     println!("══════════════════════════════════════════════════════════════════");
 }

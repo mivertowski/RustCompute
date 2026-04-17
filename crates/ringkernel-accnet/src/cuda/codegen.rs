@@ -88,11 +88,10 @@ fn generate_suspense_detection_kernel() -> Result<String> {
         }
     };
 
-    transpile_global_kernel(&kernel_fn)
-        .map_err(|e| AccNetError::CodeGen {
-            kernel: "suspense_detection".into(),
-            reason: e.to_string(),
-        })
+    transpile_global_kernel(&kernel_fn).map_err(|e| AccNetError::CodeGen {
+        kernel: "suspense_detection".into(),
+        reason: e.to_string(),
+    })
 }
 
 /// Generate GAAP violation detection kernel.
@@ -135,11 +134,10 @@ fn generate_gaap_violation_kernel() -> Result<String> {
         }
     };
 
-    transpile_global_kernel(&kernel_fn)
-        .map_err(|e| AccNetError::CodeGen {
-            kernel: "gaap_violation".into(),
-            reason: e.to_string(),
-        })
+    transpile_global_kernel(&kernel_fn).map_err(|e| AccNetError::CodeGen {
+        kernel: "gaap_violation".into(),
+        reason: e.to_string(),
+    })
 }
 
 /// Generate Benford's Law analysis kernel.
@@ -182,11 +180,10 @@ fn generate_benford_analysis_kernel() -> Result<String> {
         }
     };
 
-    transpile_global_kernel(&kernel_fn)
-        .map_err(|e| AccNetError::CodeGen {
-            kernel: "benford_analysis".into(),
-            reason: e.to_string(),
-        })
+    transpile_global_kernel(&kernel_fn).map_err(|e| AccNetError::CodeGen {
+        kernel: "benford_analysis".into(),
+        reason: e.to_string(),
+    })
 }
 
 /// Generate PageRank initialization kernel (sets initial values).
@@ -204,11 +201,10 @@ fn generate_pagerank_init_kernel() -> Result<String> {
         }
     };
 
-    transpile_global_kernel(&kernel_fn)
-        .map_err(|e| AccNetError::CodeGen {
-            kernel: "pagerank_init".into(),
-            reason: e.to_string(),
-        })
+    transpile_global_kernel(&kernel_fn).map_err(|e| AccNetError::CodeGen {
+        kernel: "pagerank_init".into(),
+        reason: e.to_string(),
+    })
 }
 
 #[cfg(test)]

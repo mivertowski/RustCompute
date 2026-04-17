@@ -45,7 +45,9 @@ fn main() {
                 backend.set_params(c2, damping);
 
                 // Inject impulse at center
-                backend.inject_impulse(size / 2, size / 2, 1.0).expect("CUDA impulse injection failed");
+                backend
+                    .inject_impulse(size / 2, size / 2, 1.0)
+                    .expect("CUDA impulse injection failed");
 
                 // Warmup (10 steps)
                 for _ in 0..10 {
@@ -166,7 +168,9 @@ fn main() {
         cuda_backend.synchronize().expect("CUDA synchronize failed");
 
         let cuda_start = Instant::now();
-        cuda_backend.step_batch(steps).expect("CUDA batch step failed");
+        cuda_backend
+            .step_batch(steps)
+            .expect("CUDA batch step failed");
         let cuda_elapsed = cuda_start.elapsed();
         let cuda_steps_per_sec = steps as f64 / cuda_elapsed.as_secs_f64();
 
@@ -212,7 +216,9 @@ fn main() {
 
         // Compare
         let cpu_pressure = cpu_grid.pressure_slice();
-        let cuda_pressure = cuda_backend.read_pressure_grid().expect("CUDA pressure grid read failed");
+        let cuda_pressure = cuda_backend
+            .read_pressure_grid()
+            .expect("CUDA pressure grid read failed");
 
         let mut max_diff = 0.0f32;
         let mut total_diff = 0.0f32;

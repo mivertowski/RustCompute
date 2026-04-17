@@ -279,8 +279,8 @@ impl GpuArchitecture {
             max_threads_per_sm: 2048,
             max_threads_per_block: 1024,
             warp_size: 32,
-            shared_mem_per_sm: 228 * 1024,        // 228 KB
-            l2_cache_bytes: 128 * 1024 * 1024,    // 128 MB (GB200)
+            shared_mem_per_sm: 228 * 1024,     // 228 KB
+            l2_cache_bytes: 128 * 1024 * 1024, // 128 MB (GB200)
         }
     }
 

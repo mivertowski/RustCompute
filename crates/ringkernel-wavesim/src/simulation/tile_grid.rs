@@ -735,39 +735,26 @@ impl TileKernelGrid {
 
         for (tx, ty) in self.tiles.keys() {
             if let Some(buffers) = state.tile_buffers.get(&(*tx, *ty)) {
-                let tile = self.tiles.get(&(*tx, *ty)).expect("tile key exists in own iterator");
+                let tile = self
+                    .tiles
+                    .get(&(*tx, *ty))
+                    .expect("tile key exists in own iterator");
 
                 if let Some(ref neighbor) = tile.neighbor_north {
                     let halo = state.backend.extract_halo(buffers, Edge::North)?;
-                    halo_messages.push((
-                        neighbor.clone(),
-                        HaloDirection::South,
-                        halo,
-                    ));
+                    halo_messages.push((neighbor.clone(), HaloDirection::South, halo));
                 }
                 if let Some(ref neighbor) = tile.neighbor_south {
                     let halo = state.backend.extract_halo(buffers, Edge::South)?;
-                    halo_messages.push((
-                        neighbor.clone(),
-                        HaloDirection::North,
-                        halo,
-                    ));
+                    halo_messages.push((neighbor.clone(), HaloDirection::North, halo));
                 }
                 if let Some(ref neighbor) = tile.neighbor_west {
                     let halo = state.backend.extract_halo(buffers, Edge::West)?;
-                    halo_messages.push((
-                        neighbor.clone(),
-                        HaloDirection::East,
-                        halo,
-                    ));
+                    halo_messages.push((neighbor.clone(), HaloDirection::East, halo));
                 }
                 if let Some(ref neighbor) = tile.neighbor_east {
                     let halo = state.backend.extract_halo(buffers, Edge::East)?;
-                    halo_messages.push((
-                        neighbor.clone(),
-                        HaloDirection::West,
-                        halo,
-                    ));
+                    halo_messages.push((neighbor.clone(), HaloDirection::West, halo));
                 }
             }
         }
@@ -801,7 +788,10 @@ impl TileKernelGrid {
         state.backend.synchronize()?;
 
         // Phase 4: Swap buffers
-        let state = self.cuda_persistent.as_mut().expect("cuda_persistent state must be initialized before swap");
+        let state = self
+            .cuda_persistent
+            .as_mut()
+            .expect("cuda_persistent state must be initialized before swap");
         for buffers in state.tile_buffers.values_mut() {
             state.backend.swap_buffers(buffers);
         }
@@ -1126,5 +1116,4 @@ mod tests {
         let energy = grid.total_energy();
         assert!(energy.is_finite(), "Energy should be finite");
     }
-
 }

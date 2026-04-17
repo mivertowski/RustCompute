@@ -172,7 +172,9 @@ pub enum Message {
     BackendSwitched(std::result::Result<Arc<Mutex<KernelGrid>>, crate::WaveSimError>),
     /// CUDA Packed backend switch completed.
     #[cfg(feature = "cuda")]
-    CudaPackedSwitched(std::result::Result<Arc<std::sync::Mutex<CudaPackedBackend>>, crate::WaveSimError>),
+    CudaPackedSwitched(
+        std::result::Result<Arc<std::sync::Mutex<CudaPackedBackend>>, crate::WaveSimError>,
+    ),
 
     /// User clicked on the canvas (left click).
     CanvasClick(f32, f32),

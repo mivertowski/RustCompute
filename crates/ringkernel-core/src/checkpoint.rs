@@ -208,13 +208,25 @@ impl CheckpointHeader {
         Self {
             magic: u64::from_le_bytes(bytes[0..8].try_into().expect("slice is exactly 8 bytes")),
             version: u32::from_le_bytes(bytes[8..12].try_into().expect("slice is exactly 4 bytes")),
-            header_size: u32::from_le_bytes(bytes[12..16].try_into().expect("slice is exactly 4 bytes")),
-            total_size: u64::from_le_bytes(bytes[16..24].try_into().expect("slice is exactly 8 bytes")),
-            chunk_count: u32::from_le_bytes(bytes[24..28].try_into().expect("slice is exactly 4 bytes")),
-            compression: u32::from_le_bytes(bytes[28..32].try_into().expect("slice is exactly 4 bytes")),
-            checksum: u32::from_le_bytes(bytes[32..36].try_into().expect("slice is exactly 4 bytes")),
+            header_size: u32::from_le_bytes(
+                bytes[12..16].try_into().expect("slice is exactly 4 bytes"),
+            ),
+            total_size: u64::from_le_bytes(
+                bytes[16..24].try_into().expect("slice is exactly 8 bytes"),
+            ),
+            chunk_count: u32::from_le_bytes(
+                bytes[24..28].try_into().expect("slice is exactly 4 bytes"),
+            ),
+            compression: u32::from_le_bytes(
+                bytes[28..32].try_into().expect("slice is exactly 4 bytes"),
+            ),
+            checksum: u32::from_le_bytes(
+                bytes[32..36].try_into().expect("slice is exactly 4 bytes"),
+            ),
             flags: u32::from_le_bytes(bytes[36..40].try_into().expect("slice is exactly 4 bytes")),
-            created_at: u64::from_le_bytes(bytes[40..48].try_into().expect("slice is exactly 8 bytes")),
+            created_at: u64::from_le_bytes(
+                bytes[40..48].try_into().expect("slice is exactly 8 bytes"),
+            ),
             _reserved: bytes[48..56].try_into().expect("slice is exactly 8 bytes"),
         }
     }
@@ -274,11 +286,19 @@ impl ChunkHeader {
         // All slice-to-array conversions below are infallible because the input
         // is a fixed-size [u8; 32] and all subslice ranges are compile-time constants.
         Self {
-            chunk_type: u32::from_le_bytes(bytes[0..4].try_into().expect("slice is exactly 4 bytes")),
+            chunk_type: u32::from_le_bytes(
+                bytes[0..4].try_into().expect("slice is exactly 4 bytes"),
+            ),
             flags: u32::from_le_bytes(bytes[4..8].try_into().expect("slice is exactly 4 bytes")),
-            uncompressed_size: u64::from_le_bytes(bytes[8..16].try_into().expect("slice is exactly 8 bytes")),
-            compressed_size: u64::from_le_bytes(bytes[16..24].try_into().expect("slice is exactly 8 bytes")),
-            chunk_id: u64::from_le_bytes(bytes[24..32].try_into().expect("slice is exactly 8 bytes")),
+            uncompressed_size: u64::from_le_bytes(
+                bytes[8..16].try_into().expect("slice is exactly 8 bytes"),
+            ),
+            compressed_size: u64::from_le_bytes(
+                bytes[16..24].try_into().expect("slice is exactly 8 bytes"),
+            ),
+            chunk_id: u64::from_le_bytes(
+                bytes[24..32].try_into().expect("slice is exactly 8 bytes"),
+            ),
         }
     }
 }
@@ -407,7 +427,11 @@ impl CheckpointMetadata {
                 ));
             }
             // Bounds checked above, so the 4-byte slice conversion is infallible
-            let val = u32::from_le_bytes(bytes[*off..*off + 4].try_into().expect("bounds checked 4-byte slice"));
+            let val = u32::from_le_bytes(
+                bytes[*off..*off + 4]
+                    .try_into()
+                    .expect("bounds checked 4-byte slice"),
+            );
             *off += 4;
             Ok(val)
         };
@@ -420,7 +444,11 @@ impl CheckpointMetadata {
                 ));
             }
             // Bounds checked above, so the 8-byte slice conversion is infallible
-            let val = u64::from_le_bytes(bytes[*off..*off + 8].try_into().expect("bounds checked 8-byte slice"));
+            let val = u64::from_le_bytes(
+                bytes[*off..*off + 8]
+                    .try_into()
+                    .expect("bounds checked 8-byte slice"),
+            );
             *off += 8;
             Ok(val)
         };
@@ -652,7 +680,11 @@ impl Checkpoint {
         }
 
         // Read header - slice is exactly 64 bytes (checked above)
-        let header = CheckpointHeader::from_bytes(bytes[0..64].try_into().expect("input validated to be >= 64 bytes"));
+        let header = CheckpointHeader::from_bytes(
+            bytes[0..64]
+                .try_into()
+                .expect("input validated to be >= 64 bytes"),
+        );
         header.validate()?;
 
         // Verify checksum
@@ -673,8 +705,11 @@ impl Checkpoint {
             ));
         }
         // Bounds checked above, so the 4-byte slice conversion is infallible
-        let metadata_len =
-            u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("bounds checked 4-byte slice")) as usize;
+        let metadata_len = u32::from_le_bytes(
+            bytes[offset..offset + 4]
+                .try_into()
+                .expect("bounds checked 4-byte slice"),
+        ) as usize;
         offset += 4;
 
         // Read metadata
@@ -696,8 +731,11 @@ impl Checkpoint {
             }
 
             // Bounds checked above, so the 32-byte slice conversion is infallible
-            let chunk_header =
-                ChunkHeader::from_bytes(bytes[offset..offset + 32].try_into().expect("bounds checked 32-byte slice"));
+            let chunk_header = ChunkHeader::from_bytes(
+                bytes[offset..offset + 32]
+                    .try_into()
+                    .expect("bounds checked 32-byte slice"),
+            );
             offset += 32;
 
             let data_len = chunk_header.compressed_size as usize;
@@ -1539,10 +1577,7 @@ impl CheckpointManager {
     pub fn list_checkpoints(&self, actor_slot: u32) -> Result<Vec<String>> {
         let prefix = format!("{}_{}_", self.config.name_prefix, actor_slot);
         let all = self.storage.list()?;
-        Ok(all
-            .into_iter()
-            .filter(|n| n.starts_with(&prefix))
-            .collect())
+        Ok(all.into_iter().filter(|n| n.starts_with(&prefix)).collect())
     }
 
     /// Get a reference to the storage backend.
@@ -1713,8 +1748,7 @@ mod tests {
     #[test]
     fn test_manager_disabled() {
         let config = CheckpointConfig::new(Duration::from_millis(1)).with_enabled(false);
-        let mut manager =
-            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        let mut manager = CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
         manager.register_actor(0, "kernel_0", "test");
 
         // Should return no requests when disabled
@@ -1725,8 +1759,7 @@ mod tests {
     #[test]
     fn test_manager_register_and_poll() {
         let config = CheckpointConfig::new(Duration::from_millis(1));
-        let mut manager =
-            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        let mut manager = CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
         manager.register_actor(0, "sim_0", "fdtd_3d");
         manager.register_actor(1, "sim_1", "fdtd_3d");
 
@@ -1746,8 +1779,7 @@ mod tests {
     #[test]
     fn test_manager_no_duplicate_pending() {
         let config = CheckpointConfig::new(Duration::from_millis(1));
-        let mut manager =
-            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        let mut manager = CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
         manager.register_actor(0, "sim_0", "fdtd_3d");
 
         // First poll: actor is due
@@ -1761,10 +1793,8 @@ mod tests {
 
     #[test]
     fn test_manager_complete_snapshot() {
-        let config = CheckpointConfig::new(Duration::from_secs(3600))
-            .with_name_prefix("test");
-        let mut manager =
-            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        let config = CheckpointConfig::new(Duration::from_secs(3600)).with_name_prefix("test");
+        let mut manager = CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
         manager.register_actor(0, "sim_0", "fdtd_3d");
 
         // Generate a snapshot request
@@ -1802,8 +1832,7 @@ mod tests {
     #[test]
     fn test_manager_failed_snapshot() {
         let config = CheckpointConfig::new(Duration::from_secs(3600));
-        let mut manager =
-            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        let mut manager = CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
         manager.register_actor(0, "sim_0", "fdtd_3d");
 
         let requests = manager.poll_due_snapshots();
@@ -1858,8 +1887,7 @@ mod tests {
     #[test]
     fn test_manager_unknown_response() {
         let config = CheckpointConfig::new(Duration::from_secs(3600));
-        let mut manager =
-            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        let mut manager = CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
 
         // Response with unknown request_id
         let response = SnapshotResponse {
@@ -1877,8 +1905,7 @@ mod tests {
     #[test]
     fn test_manager_cancel_pending() {
         let config = CheckpointConfig::new(Duration::from_millis(1));
-        let mut manager =
-            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        let mut manager = CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
         manager.register_actor(0, "sim_0", "test");
 
         let requests = manager.poll_due_snapshots();
@@ -1892,8 +1919,7 @@ mod tests {
     #[test]
     fn test_manager_cancel_all_pending() {
         let config = CheckpointConfig::new(Duration::from_millis(1));
-        let mut manager =
-            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        let mut manager = CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
         manager.register_actor(0, "sim_0", "test");
         manager.register_actor(1, "sim_1", "test");
 
@@ -1906,10 +1932,8 @@ mod tests {
 
     #[test]
     fn test_manager_load_latest() {
-        let config = CheckpointConfig::new(Duration::from_secs(3600))
-            .with_name_prefix("lat");
-        let mut manager =
-            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        let config = CheckpointConfig::new(Duration::from_secs(3600)).with_name_prefix("lat");
+        let mut manager = CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
         manager.register_actor(0, "sim_0", "test");
 
         // No checkpoints yet
@@ -1939,8 +1963,7 @@ mod tests {
         let config = CheckpointConfig::new(Duration::from_secs(3600))
             .with_max_snapshots(10)
             .with_name_prefix("list");
-        let mut manager =
-            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        let mut manager = CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
         manager.register_actor(0, "sim_0", "test");
         manager.register_actor(1, "sim_1", "test");
 
@@ -1978,8 +2001,7 @@ mod tests {
     #[test]
     fn test_manager_unregister_actor() {
         let config = CheckpointConfig::new(Duration::from_millis(1));
-        let mut manager =
-            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        let mut manager = CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
         manager.register_actor(0, "sim_0", "test");
 
         let requests = manager.poll_due_snapshots();
@@ -2026,8 +2048,7 @@ mod tests {
     fn test_manager_interval_respected() {
         // Use a long interval so second poll returns nothing
         let config = CheckpointConfig::new(Duration::from_secs(3600));
-        let mut manager =
-            CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
+        let mut manager = CheckpointManager::with_storage(config, Box::new(MemoryStorage::new()));
         manager.register_actor(0, "sim_0", "test");
 
         // First poll: due immediately

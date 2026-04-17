@@ -144,11 +144,7 @@ fn compile_cooperative_kernels(nvcc: &Path, out_dir: &Path) -> Result<(), String
     let arch_args = determine_cuda_arch(nvcc);
 
     let mut cmd = Command::new(nvcc);
-    cmd.args([
-        "-ptx",
-        "-O3",
-        "--generate-line-info",
-    ]);
+    cmd.args(["-ptx", "-O3", "--generate-line-info"]);
     for arg in &arch_args {
         cmd.arg(arg);
     }
@@ -306,15 +302,15 @@ fn compile_cluster_kernels(nvcc: &Path, out_dir: &Path) -> Result<(), String> {
         .join("cluster_kernels.cu");
 
     if !cuda_src_path.exists() {
-        return Err(format!("Cluster CUDA source not found: {:?}", cuda_src_path));
+        return Err(format!(
+            "Cluster CUDA source not found: {:?}",
+            cuda_src_path
+        ));
     }
 
     // Cluster kernels require sm_90 minimum (Hopper)
     let arch = env::var("RINGKERNEL_CUDA_ARCH").unwrap_or_default();
-    let arch_num: u32 = arch
-        .trim_start_matches("sm_")
-        .parse()
-        .unwrap_or(0);
+    let arch_num: u32 = arch.trim_start_matches("sm_").parse().unwrap_or(0);
 
     if arch_num > 0 && arch_num < 90 {
         return Err(format!(
@@ -327,7 +323,15 @@ fn compile_cluster_kernels(nvcc: &Path, out_dir: &Path) -> Result<(), String> {
 
     // Always use sm_90 for cluster kernels (minimum for cluster support)
     let mut cmd = Command::new(nvcc);
-    cmd.args(["-ptx", "-O3", "--generate-line-info", "-arch=sm_90", "-std=c++17", "-w", "-o"]);
+    cmd.args([
+        "-ptx",
+        "-O3",
+        "--generate-line-info",
+        "-arch=sm_90",
+        "-std=c++17",
+        "-w",
+        "-o",
+    ]);
     cmd.arg(ptx_file.to_str().unwrap());
     cmd.arg(cuda_src_path.to_str().unwrap());
 
@@ -346,8 +350,13 @@ fn compile_cluster_kernels(nvcc: &Path, out_dir: &Path) -> Result<(), String> {
         fs::read_to_string(&ptx_file).map_err(|e| format!("Failed to read cluster PTX: {}", e))?;
 
     let rust_file = out_dir.join("cluster_kernels.rs");
-    write_cluster_rust_code(&rust_file, &ptx_content, true, "Cluster kernels compiled for sm_90")
-        .map_err(|e| format!("Failed to write cluster Rust bindings: {}", e))?;
+    write_cluster_rust_code(
+        &rust_file,
+        &ptx_content,
+        true,
+        "Cluster kernels compiled for sm_90",
+    )
+    .map_err(|e| format!("Failed to write cluster Rust bindings: {}", e))?;
 
     Ok(())
 }
@@ -402,13 +411,24 @@ fn compile_lifecycle_kernel(nvcc: &Path, out_dir: &Path) -> Result<(), String> {
     let cuda_src = manifest_dir.join("src/cuda/actor_lifecycle_kernel.cu");
 
     if !cuda_src.exists() {
-        return Err(format!("Actor lifecycle CUDA source not found: {:?}", cuda_src));
+        return Err(format!(
+            "Actor lifecycle CUDA source not found: {:?}",
+            cuda_src
+        ));
     }
 
     let ptx_file = out_dir.join("actor_lifecycle_kernel.ptx");
 
     let mut cmd = Command::new(nvcc);
-    cmd.args(["-ptx", "-O3", "--generate-line-info", "-arch=sm_90", "-std=c++17", "-w", "-o"]);
+    cmd.args([
+        "-ptx",
+        "-O3",
+        "--generate-line-info",
+        "-arch=sm_90",
+        "-std=c++17",
+        "-w",
+        "-o",
+    ]);
     cmd.arg(ptx_file.to_str().unwrap());
     cmd.arg(cuda_src.to_str().unwrap());
 

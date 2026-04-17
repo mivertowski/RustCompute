@@ -103,9 +103,10 @@ impl GeneratorConfig {
             + self.method_e_ratio;
 
         if (total - 1.0).abs() > 0.01 {
-            return Err(crate::AccNetError::Validation(
-                format!("method ratios must sum to 1.0, got {}", total),
-            ));
+            return Err(crate::AccNetError::Validation(format!(
+                "method ratios must sum to 1.0, got {}",
+                total
+            )));
         }
         Ok(())
     }
@@ -501,8 +502,9 @@ impl TransactionGenerator {
             // Log-normal distribution approximates Benford's Law
             let mean = ((min.ln() + max.ln()) / 2.0).exp();
             let std_dev = (max / min).ln() / 4.0;
-            let dist = LogNormal::new(mean.ln(), std_dev)
-                .unwrap_or_else(|_| LogNormal::new(0.0, 1.0).expect("fallback LogNormal(0,1) params are valid"));
+            let dist = LogNormal::new(mean.ln(), std_dev).unwrap_or_else(|_| {
+                LogNormal::new(0.0, 1.0).expect("fallback LogNormal(0,1) params are valid")
+            });
             let raw: f64 = self.rng.sample(dist);
             raw.clamp(min, max)
         } else {

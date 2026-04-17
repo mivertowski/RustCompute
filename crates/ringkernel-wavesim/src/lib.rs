@@ -29,7 +29,7 @@ pub mod error;
 pub mod gui;
 pub mod simulation;
 
-pub use error::{WaveSimError, Result};
+pub use error::{Result, WaveSimError};
 
 pub use gui::WaveSimApp;
 pub use simulation::{AcousticParams, CellState, Direction, SimulationGrid};

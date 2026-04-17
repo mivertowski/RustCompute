@@ -108,7 +108,8 @@ impl<T: Copy> MappedBuffer<T> {
         let mut host_ptr: *mut c_void = ptr::null_mut();
         unsafe {
             let r = cuda_sys::cuMemHostAlloc(
-                &mut host_ptr, size,
+                &mut host_ptr,
+                size,
                 cuda_sys::CU_MEMHOSTALLOC_DEVICEMAP | cuda_sys::CU_MEMHOSTALLOC_PORTABLE,
             );
             assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS, "cuMemHostAlloc failed");
@@ -117,9 +118,17 @@ impl<T: Copy> MappedBuffer<T> {
         let mut device_ptr: u64 = 0;
         unsafe {
             let r = cuda_sys::cuMemHostGetDevicePointer_v2(&mut device_ptr, host_ptr, 0);
-            assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS, "cuMemHostGetDevicePointer failed");
+            assert_eq!(
+                r,
+                cuda_sys::CUresult::CUDA_SUCCESS,
+                "cuMemHostGetDevicePointer failed"
+            );
         }
-        Self { host_ptr: host_ptr as *mut T, device_ptr, len }
+        Self {
+            host_ptr: host_ptr as *mut T,
+            device_ptr,
+            len,
+        }
     }
 
     fn read(&self, idx: usize) -> T {
@@ -129,20 +138,30 @@ impl<T: Copy> MappedBuffer<T> {
 
     fn write(&self, idx: usize, val: T) {
         assert!(idx < self.len);
-        unsafe { ptr::write_volatile(self.host_ptr.add(idx), val); }
+        unsafe {
+            ptr::write_volatile(self.host_ptr.add(idx), val);
+        }
     }
 
-    fn device_ptr(&self) -> u64 { self.device_ptr }
+    fn device_ptr(&self) -> u64 {
+        self.device_ptr
+    }
 }
 
 impl<T: Copy> Drop for MappedBuffer<T> {
     fn drop(&mut self) {
-        unsafe { let _ = cuda_sys::cuMemFreeHost(self.host_ptr as *mut c_void); }
+        unsafe {
+            let _ = cuda_sys::cuMemFreeHost(self.host_ptr as *mut c_void);
+        }
     }
 }
 
 /// Send an H2K command and return the command ID.
-fn send_h2k(header: &MappedBuffer<QueueHeader>, slots: &MappedBuffer<H2KMessage>, msg: H2KMessage) -> u64 {
+fn send_h2k(
+    header: &MappedBuffer<QueueHeader>,
+    slots: &MappedBuffer<H2KMessage>,
+    msg: H2KMessage,
+) -> u64 {
     let h = header.read(0);
     let idx = (h.head as usize) & (QUEUE_CAPACITY - 1);
     slots.write(idx, msg);
@@ -155,12 +174,17 @@ fn send_h2k(header: &MappedBuffer<QueueHeader>, slots: &MappedBuffer<H2KMessage>
 }
 
 /// Poll for K2H responses, return all received.
-fn poll_k2h(header: &MappedBuffer<QueueHeader>, slots: &MappedBuffer<K2HMessage>) -> Vec<K2HMessage> {
+fn poll_k2h(
+    header: &MappedBuffer<QueueHeader>,
+    slots: &MappedBuffer<K2HMessage>,
+) -> Vec<K2HMessage> {
     let mut results = Vec::new();
     loop {
         std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
         let h = header.read(0);
-        if h.head == h.tail { break; }
+        if h.head == h.tail {
+            break;
+        }
         let idx = (h.tail as usize) & (QUEUE_CAPACITY - 1);
         let msg = slots.read(idx);
         results.push(msg);
@@ -213,10 +237,12 @@ fn test_actor_lifecycle_full_proof() {
     let device = ringkernel_cuda::CudaDevice::new(0).expect("device");
     let ptx = lifecycle::lifecycle_kernel_ptx();
     let module = DirectPtxModule::load_ptx(&device, ptx).expect("load PTX");
-    let func = module.get_function(lifecycle::KERNEL_NAME).expect("get function");
+    let func = module
+        .get_function(lifecycle::KERNEL_NAME)
+        .expect("get function");
 
     // ─── Allocate mapped memory ─────────────────────────────────────
-    let num_blocks: u32 = 8;  // 1 supervisor + 7 actor slots
+    let num_blocks: u32 = 8; // 1 supervisor + 7 actor slots
     let num_actors: u32 = num_blocks - 1;
 
     let h2k_header = MappedBuffer::<QueueHeader>::new(1);
@@ -226,8 +252,26 @@ fn test_actor_lifecycle_full_proof() {
     let actor_controls = MappedBuffer::<ActorControl>::new(MAX_ACTORS);
 
     // Initialize queue headers
-    h2k_header.write(0, QueueHeader { head: 0, tail: 0, capacity: QUEUE_CAPACITY as u32, mask: (QUEUE_CAPACITY - 1) as u32, _reserved: [0; 5] });
-    k2h_header.write(0, QueueHeader { head: 0, tail: 0, capacity: QUEUE_CAPACITY as u32, mask: (QUEUE_CAPACITY - 1) as u32, _reserved: [0; 5] });
+    h2k_header.write(
+        0,
+        QueueHeader {
+            head: 0,
+            tail: 0,
+            capacity: QUEUE_CAPACITY as u32,
+            mask: (QUEUE_CAPACITY - 1) as u32,
+            _reserved: [0; 5],
+        },
+    );
+    k2h_header.write(
+        0,
+        QueueHeader {
+            head: 0,
+            tail: 0,
+            capacity: QUEUE_CAPACITY as u32,
+            mask: (QUEUE_CAPACITY - 1) as u32,
+            _reserved: [0; 5],
+        },
+    );
 
     // Termination flag
     let mut terminate_dev: u64 = 0;
@@ -243,10 +287,14 @@ fn test_actor_lifecycle_full_proof() {
     let mut max_blocks_per_sm: i32 = 0;
     unsafe {
         cuda_sys::cuOccupancyMaxActiveBlocksPerMultiprocessor(
-            &mut max_blocks_per_sm, func, block_size as i32, 0,
+            &mut max_blocks_per_sm,
+            func,
+            block_size as i32,
+            0,
         );
     }
-    let num_sms = device.inner()
+    let num_sms = device
+        .inner()
         .attribute(cuda_sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
         .unwrap_or(1);
     let max_coop_blocks = (max_blocks_per_sm as u32) * (num_sms as u32);
@@ -256,10 +304,16 @@ fn test_actor_lifecycle_full_proof() {
     println!("╔══════════════════════════════════════════════════════════════════════╗");
     println!("║     GPU Actor Lifecycle Proof — H100 Integration Test               ║");
     println!("╠══════════════════════════════════════════════════════════════════════╣");
-    println!("║ Blocks: {} (1 supervisor + {} actor slots), {} threads/block      ║",
-        actual_blocks, actual_blocks - 1, block_size);
-    println!("║ Max cooperative: {}, SMs: {}                                    ║",
-        max_coop_blocks, num_sms);
+    println!(
+        "║ Blocks: {} (1 supervisor + {} actor slots), {} threads/block      ║",
+        actual_blocks,
+        actual_blocks - 1,
+        block_size
+    );
+    println!(
+        "║ Max cooperative: {}, SMs: {}                                    ║",
+        max_coop_blocks, num_sms
+    );
     println!("╚══════════════════════════════════════════════════════════════════════╝");
 
     let mut h2k_hdr_ptr = h2k_header.device_ptr();
@@ -289,7 +343,8 @@ fn test_actor_lifecycle_full_proof() {
             0,
             stream,
             &mut params,
-        ).expect("Cooperative kernel launch failed");
+        )
+        .expect("Cooperative kernel launch failed");
     }
 
     // Give kernel time to start
@@ -322,7 +377,10 @@ fn test_actor_lifecycle_full_proof() {
         create_latencies.push(latency_us);
 
         match resp {
-            Some(r) => println!("  Created actor {} in {:.1} us (slot={})", slot, latency_us, r.param1),
+            Some(r) => println!(
+                "  Created actor {} in {:.1} us (slot={})",
+                slot, latency_us, r.param1
+            ),
             None => println!("  TIMEOUT creating actor {}", slot),
         }
     }
@@ -334,10 +392,16 @@ fn test_actor_lifecycle_full_proof() {
     println!("\n  Actor metrics after 200ms:");
     for slot in 1..=3u32 {
         let ctrl = actor_controls.read(slot as usize);
-        println!("    Actor {}: state={}, msgs_processed={}, work={}",
-            slot, ctrl.state, ctrl.msgs_processed, ctrl.total_work);
+        println!(
+            "    Actor {}: state={}, msgs_processed={}, work={}",
+            slot, ctrl.state, ctrl.msgs_processed, ctrl.total_work
+        );
         assert_eq!(ctrl.state, 2, "Actor {} should be ACTIVE (state=2)", slot);
-        assert!(ctrl.msgs_processed > 0, "Actor {} should have processed messages", slot);
+        assert!(
+            ctrl.msgs_processed > 0,
+            "Actor {} should have processed messages",
+            slot
+        );
     }
 
     // ═════════════════════════════════════════════════════════════════
@@ -364,8 +428,10 @@ fn test_actor_lifecycle_full_proof() {
 
             if let Some(r) = resp {
                 if heartbeat_latencies.len() <= 3 {
-                    println!("  Heartbeat actor {}: {:.1} us, msgs={}, age={:.3}ms",
-                        slot, latency_us, r.param2, r.param4);
+                    println!(
+                        "  Heartbeat actor {}: {:.1} us, msgs={}, age={:.3}ms",
+                        slot, latency_us, r.param2, r.param4
+                    );
                 }
             }
         }
@@ -392,7 +458,10 @@ fn test_actor_lifecycle_full_proof() {
     match resp {
         Some(r) => {
             let ctrl = actor_controls.read(4);
-            println!("  Created child actor 4 (parent=1) in {:.1} us", child_create_us);
+            println!(
+                "  Created child actor 4 (parent=1) in {:.1} us",
+                child_create_us
+            );
             println!("  Child state={}, parent_id={}", ctrl.state, ctrl.parent_id);
             assert_eq!(ctrl.parent_id, 1, "Child's parent should be actor 1");
         }
@@ -424,20 +493,28 @@ fn test_actor_lifecycle_full_proof() {
 
     match resp {
         Some(r) => {
-            println!("  Destroyed actor 2 in {:.1} us (processed {} msgs before destroy)",
-                destroy_us, r.param2);
+            println!(
+                "  Destroyed actor 2 in {:.1} us (processed {} msgs before destroy)",
+                destroy_us, r.param2
+            );
         }
         None => println!("  TIMEOUT destroying actor"),
     }
 
     std::thread::sleep(Duration::from_millis(100));
     let ctrl = actor_controls.read(2);
-    println!("  Actor 2 post-destroy: state={} (expected 0=DORMANT)", ctrl.state);
+    println!(
+        "  Actor 2 post-destroy: state={} (expected 0=DORMANT)",
+        ctrl.state
+    );
     assert_eq!(ctrl.state, 0, "Destroyed actor should be DORMANT");
 
     // Verify other actors still running
     let ctrl1 = actor_controls.read(1);
-    assert_eq!(ctrl1.state, 2, "Actor 1 should still be ACTIVE after sibling destroyed");
+    assert_eq!(
+        ctrl1.state, 2,
+        "Actor 1 should still be ACTIVE after sibling destroyed"
+    );
 
     // ═════════════════════════════════════════════════════════════════
     // TEST 5: Restart Actor
@@ -463,10 +540,15 @@ fn test_actor_lifecycle_full_proof() {
 
     match resp {
         Some(r) => {
-            println!("  Restarted actor 3 in {:.1} us (restart_count={})", restart_us, r.param2);
+            println!(
+                "  Restarted actor 3 in {:.1} us (restart_count={})",
+                restart_us, r.param2
+            );
             let ctrl = actor_controls.read(3);
-            println!("  Post-restart: state={}, msgs_processed={} (was {}), restarts={}",
-                ctrl.state, ctrl.msgs_processed, pre_restart_msgs, ctrl.restart_count);
+            println!(
+                "  Post-restart: state={}, msgs_processed={} (was {}), restarts={}",
+                ctrl.state, ctrl.msgs_processed, pre_restart_msgs, ctrl.restart_count
+            );
             assert_eq!(ctrl.state, 2, "Restarted actor should be ACTIVE");
             assert_eq!(ctrl.restart_count, 1, "Restart count should be 1");
         }
@@ -483,9 +565,14 @@ fn test_actor_lifecycle_full_proof() {
     let msgs_delta = ctrl1_after.msgs_processed - ctrl1_before.msgs_processed;
     let throughput = msgs_delta as f64 / 0.5; // msgs/sec
 
-    println!("  Actor 1 throughput during lifecycle chaos: {:.0} iter/s ({} iters in 500ms)",
-        throughput, msgs_delta);
-    assert!(msgs_delta > 0, "Actor 1 should continue processing during lifecycle events");
+    println!(
+        "  Actor 1 throughput during lifecycle chaos: {:.0} iter/s ({} iters in 500ms)",
+        throughput, msgs_delta
+    );
+    assert!(
+        msgs_delta > 0,
+        "Actor 1 should continue processing during lifecycle events"
+    );
 
     // ═════════════════════════════════════════════════════════════════
     // TERMINATE
@@ -497,7 +584,9 @@ fn test_actor_lifecycle_full_proof() {
     };
     send_h2k(&h2k_header, &h2k_slots, term_msg);
     std::thread::sleep(Duration::from_millis(200));
-    unsafe { cuda_sys::cuCtxSynchronize(); }
+    unsafe {
+        cuda_sys::cuCtxSynchronize();
+    }
 
     // ═════════════════════════════════════════════════════════════════
     // STATISTICAL REPORT
@@ -521,32 +610,65 @@ fn test_actor_lifecycle_full_proof() {
 
     if !create_latencies.is_empty() {
         let (mean, med, p99, sd, ci) = stats(&create_latencies);
-        println!("║ Create Actor (n={})                                               ║", create_latencies.len());
-        println!("║   Mean: {:>10.1} us  Median: {:>10.1} us  p99: {:>10.1} us       ║", mean, med, p99);
-        println!("║   StdDev: {:>8.1} us  95% CI: ±{:<8.1} us                        ║", sd, ci);
+        println!(
+            "║ Create Actor (n={})                                               ║",
+            create_latencies.len()
+        );
+        println!(
+            "║   Mean: {:>10.1} us  Median: {:>10.1} us  p99: {:>10.1} us       ║",
+            mean, med, p99
+        );
+        println!(
+            "║   StdDev: {:>8.1} us  95% CI: ±{:<8.1} us                        ║",
+            sd, ci
+        );
     }
 
     if !heartbeat_latencies.is_empty() {
         let (mean, med, p99, sd, ci) = stats(&heartbeat_latencies);
-        println!("║ Heartbeat RTT (n={})                                             ║", heartbeat_latencies.len());
-        println!("║   Mean: {:>10.1} us  Median: {:>10.1} us  p99: {:>10.1} us       ║", mean, med, p99);
-        println!("║   StdDev: {:>8.1} us  95% CI: ±{:<8.1} us                        ║", sd, ci);
+        println!(
+            "║ Heartbeat RTT (n={})                                             ║",
+            heartbeat_latencies.len()
+        );
+        println!(
+            "║   Mean: {:>10.1} us  Median: {:>10.1} us  p99: {:>10.1} us       ║",
+            mean, med, p99
+        );
+        println!(
+            "║   StdDev: {:>8.1} us  95% CI: ±{:<8.1} us                        ║",
+            sd, ci
+        );
     }
 
     if !destroy_latencies.is_empty() {
         let (mean, med, p99, sd, ci) = stats(&destroy_latencies);
-        println!("║ Destroy Actor (n={})                                              ║", destroy_latencies.len());
-        println!("║   Mean: {:>10.1} us  Median: {:>10.1} us                         ║", mean, med);
+        println!(
+            "║ Destroy Actor (n={})                                              ║",
+            destroy_latencies.len()
+        );
+        println!(
+            "║   Mean: {:>10.1} us  Median: {:>10.1} us                         ║",
+            mean, med
+        );
     }
 
     if !restart_latencies.is_empty() {
         let (mean, med, p99, sd, ci) = stats(&restart_latencies);
-        println!("║ Restart Actor (n={})                                              ║", restart_latencies.len());
-        println!("║   Mean: {:>10.1} us  Median: {:>10.1} us                         ║", mean, med);
+        println!(
+            "║ Restart Actor (n={})                                              ║",
+            restart_latencies.len()
+        );
+        println!(
+            "║   Mean: {:>10.1} us  Median: {:>10.1} us                         ║",
+            mean, med
+        );
     }
 
     println!("║                                                                      ║");
-    println!("║ Actor Throughput: {:>10.0} iterations/sec (during lifecycle events)   ║", throughput);
+    println!(
+        "║ Actor Throughput: {:>10.0} iterations/sec (during lifecycle events)   ║",
+        throughput
+    );
     println!("║ Fault Isolation: Actor 1 unaffected by actor 2 destroy   ✓           ║");
     println!("║ Parent-Child: Actor 4 created with parent_id=1           ✓           ║");
     println!("║ State Reset: Restart clears msgs_processed               ✓           ║");
@@ -554,5 +676,7 @@ fn test_actor_lifecycle_full_proof() {
     println!("╚══════════════════════════════════════════════════════════════════════╝");
 
     // Cleanup
-    unsafe { cuda_sys::cuMemFree_v2(terminate_dev); }
+    unsafe {
+        cuda_sys::cuMemFree_v2(terminate_dev);
+    }
 }

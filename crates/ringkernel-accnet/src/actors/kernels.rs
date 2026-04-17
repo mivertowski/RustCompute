@@ -98,11 +98,10 @@ fn generate_pagerank_kernel() -> Result<String> {
         .with_hlc(true)
         .with_k2k(true);
 
-    transpile_ring_kernel(&handler, &config)
-        .map_err(|e| AccNetError::CodeGen {
-            kernel: "pagerank".into(),
-            reason: e.to_string(),
-        })
+    transpile_ring_kernel(&handler, &config).map_err(|e| AccNetError::CodeGen {
+        kernel: "pagerank".into(),
+        reason: e.to_string(),
+    })
 }
 
 /// Generate the fraud detection ring kernel.
@@ -187,11 +186,10 @@ fn generate_fraud_detector_kernel() -> Result<String> {
         .with_hlc(true)
         .with_k2k(true);
 
-    transpile_ring_kernel(&handler, &config)
-        .map_err(|e| AccNetError::CodeGen {
-            kernel: "fraud_detector".into(),
-            reason: e.to_string(),
-        })
+    transpile_ring_kernel(&handler, &config).map_err(|e| AccNetError::CodeGen {
+        kernel: "fraud_detector".into(),
+        reason: e.to_string(),
+    })
 }
 
 /// Generate the GAAP validation ring kernel.
@@ -263,11 +261,10 @@ fn generate_gaap_validator_kernel() -> Result<String> {
         .with_hlc(true)
         .with_k2k(true);
 
-    transpile_ring_kernel(&handler, &config)
-        .map_err(|e| AccNetError::CodeGen {
-            kernel: "gaap_validator".into(),
-            reason: e.to_string(),
-        })
+    transpile_ring_kernel(&handler, &config).map_err(|e| AccNetError::CodeGen {
+        kernel: "gaap_validator".into(),
+        reason: e.to_string(),
+    })
 }
 
 /// Generate the Benford analysis ring kernel.
@@ -319,11 +316,10 @@ fn generate_benford_analyzer_kernel() -> Result<String> {
         .with_hlc(true)
         .with_k2k(true);
 
-    transpile_ring_kernel(&handler, &config)
-        .map_err(|e| AccNetError::CodeGen {
-            kernel: "benford_analyzer".into(),
-            reason: e.to_string(),
-        })
+    transpile_ring_kernel(&handler, &config).map_err(|e| AccNetError::CodeGen {
+        kernel: "benford_analyzer".into(),
+        reason: e.to_string(),
+    })
 }
 
 /// Generate the suspense detection ring kernel.
@@ -393,11 +389,10 @@ fn generate_suspense_detector_kernel() -> Result<String> {
         .with_hlc(true)
         .with_k2k(true);
 
-    transpile_ring_kernel(&handler, &config)
-        .map_err(|e| AccNetError::CodeGen {
-            kernel: "suspense_detector".into(),
-            reason: e.to_string(),
-        })
+    transpile_ring_kernel(&handler, &config).map_err(|e| AccNetError::CodeGen {
+        kernel: "suspense_detector".into(),
+        reason: e.to_string(),
+    })
 }
 
 /// Generate the results aggregator ring kernel.
@@ -458,11 +453,10 @@ fn generate_results_aggregator_kernel() -> Result<String> {
         .with_hlc(true)
         .with_k2k(true);
 
-    transpile_ring_kernel(&handler, &config)
-        .map_err(|e| AccNetError::CodeGen {
-            kernel: "results_aggregator".into(),
-            reason: e.to_string(),
-        })
+    transpile_ring_kernel(&handler, &config).map_err(|e| AccNetError::CodeGen {
+        kernel: "results_aggregator".into(),
+        reason: e.to_string(),
+    })
 }
 
 #[cfg(test)]

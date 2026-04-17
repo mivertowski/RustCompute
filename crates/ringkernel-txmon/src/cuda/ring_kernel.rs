@@ -436,9 +436,18 @@ impl TxMonitorPipeline {
 
     /// Get pipeline statistics.
     pub fn stats(&self) -> PipelineStats {
-        let validator = self.backend.get_kernel(self.validator_idx).expect("validator kernel index valid");
-        let pattern = self.backend.get_kernel(self.pattern_detector_idx).expect("pattern_detector kernel index valid");
-        let aggregator = self.backend.get_kernel(self.aggregator_idx).expect("aggregator kernel index valid");
+        let validator = self
+            .backend
+            .get_kernel(self.validator_idx)
+            .expect("validator kernel index valid");
+        let pattern = self
+            .backend
+            .get_kernel(self.pattern_detector_idx)
+            .expect("pattern_detector kernel index valid");
+        let aggregator = self
+            .backend
+            .get_kernel(self.aggregator_idx)
+            .expect("aggregator kernel index valid");
 
         PipelineStats {
             validator_processed: validator.messages_processed(),

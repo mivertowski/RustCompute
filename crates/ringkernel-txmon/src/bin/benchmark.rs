@@ -147,7 +147,11 @@ fn main() {
     println!();
 
     // Sort by TPS
-    results.sort_by(|a, b| b.tps.partial_cmp(&a.tps).expect("TPS values should not be NaN"));
+    results.sort_by(|a, b| {
+        b.tps
+            .partial_cmp(&a.tps)
+            .expect("TPS values should not be NaN")
+    });
 
     let baseline_tps = results
         .iter()
@@ -420,9 +424,7 @@ EXIT:
 
     // Load PTX (cudarc 0.18.2 API)
     let ptx = cudarc::nvrtc::Ptx::from_src(ptx_source);
-    let module = ctx
-        .load_module(ptx)
-        .map_err(|e| cuda_err("load PTX", e))?;
+    let module = ctx.load_module(ptx).map_err(|e| cuda_err("load PTX", e))?;
 
     let func = module
         .load_function("saxpy")
@@ -435,20 +437,12 @@ EXIT:
     let x: Vec<f32> = (0..n).map(|i| i as f32).collect();
     let y: Vec<f32> = (0..n).map(|i| i as f32 * 0.5).collect();
 
-    let mut x_dev = unsafe {
-        stream
-            .alloc::<f32>(n)
-            .map_err(|e| cuda_err("alloc x", e))?
-    };
+    let mut x_dev = unsafe { stream.alloc::<f32>(n).map_err(|e| cuda_err("alloc x", e))? };
     stream
         .memcpy_htod(&x, &mut x_dev)
         .map_err(|e| cuda_err("memcpy x to device", e))?;
 
-    let mut y_dev = unsafe {
-        stream
-            .alloc::<f32>(n)
-            .map_err(|e| cuda_err("alloc y", e))?
-    };
+    let mut y_dev = unsafe { stream.alloc::<f32>(n).map_err(|e| cuda_err("alloc y", e))? };
     stream
         .memcpy_htod(&y, &mut y_dev)
         .map_err(|e| cuda_err("memcpy y to device", e))?;
@@ -475,8 +469,7 @@ EXIT:
                 .launch(cfg)
                 .map_err(|e| cuda_err("kernel launch", e))?;
         }
-        ctx.synchronize()
-            .map_err(|e| cuda_err("synchronize", e))?;
+        ctx.synchronize().map_err(|e| cuda_err("synchronize", e))?;
     }
 
     // Benchmark
@@ -497,8 +490,7 @@ EXIT:
             }
             iterations += 1;
         }
-        ctx.synchronize()
-            .map_err(|e| cuda_err("synchronize", e))?;
+        ctx.synchronize().map_err(|e| cuda_err("synchronize", e))?;
     }
 
     let elapsed = start.elapsed();
@@ -558,9 +550,7 @@ fn benchmark_cuda_codegen(duration: Duration) -> Result<BenchmarkResult, TxMonEr
     let ptx = cudarc::nvrtc::compile_ptx(&cuda_source)
         .map_err(|e| TxMonError::NvrtcCompile(e.to_string()))?;
 
-    let module = ctx
-        .load_module(ptx)
-        .map_err(|e| cuda_err("load PTX", e))?;
+    let module = ctx.load_module(ptx).map_err(|e| cuda_err("load PTX", e))?;
 
     let func = module
         .load_function("scale_array")
@@ -613,8 +603,7 @@ fn benchmark_cuda_codegen(duration: Duration) -> Result<BenchmarkResult, TxMonEr
                 .launch(cfg)
                 .map_err(|e| cuda_err("kernel launch", e))?;
         }
-        ctx.synchronize()
-            .map_err(|e| cuda_err("synchronize", e))?;
+        ctx.synchronize().map_err(|e| cuda_err("synchronize", e))?;
     }
 
     // Benchmark
@@ -635,8 +624,7 @@ fn benchmark_cuda_codegen(duration: Duration) -> Result<BenchmarkResult, TxMonEr
             }
             iterations += 1;
         }
-        ctx.synchronize()
-            .map_err(|e| cuda_err("synchronize", e))?;
+        ctx.synchronize().map_err(|e| cuda_err("synchronize", e))?;
     }
 
     let elapsed = start.elapsed();

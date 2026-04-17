@@ -15,8 +15,11 @@ fn main() -> iced::Result {
     // Initialize tracing for debug output
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("ringkernel_wavesim=info".parse().expect("static directive parse infallible")),
+            tracing_subscriber::EnvFilter::from_default_env().add_directive(
+                "ringkernel_wavesim=info"
+                    .parse()
+                    .expect("static directive parse infallible"),
+            ),
         )
         .init();
 

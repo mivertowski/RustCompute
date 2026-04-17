@@ -195,7 +195,10 @@ impl MemoryPressureMonitor {
             .or_insert_with(|| self.default_budget.clone());
 
         let result = budget.alloc(bytes);
-        if matches!(result, AllocationResult::Granted | AllocationResult::GrantedWithWarning { .. }) {
+        if matches!(
+            result,
+            AllocationResult::Granted | AllocationResult::GrantedWithWarning { .. }
+        ) {
             self.total_allocated += bytes;
         }
         result
@@ -274,7 +277,10 @@ mod tests {
 
         // Exceeds soft limit
         let result = budget.alloc(400);
-        assert!(matches!(result, AllocationResult::GrantedWithWarning { .. }));
+        assert!(matches!(
+            result,
+            AllocationResult::GrantedWithWarning { .. }
+        ));
         assert_eq!(budget.current_bytes, 900);
 
         // Exceeds hard limit
@@ -308,7 +314,7 @@ mod tests {
         monitor.set_budget(ActorId(2), MemoryBudget::new(100, 200));
 
         monitor.request_alloc(ActorId(1), 150); // Over soft
-        monitor.request_alloc(ActorId(2), 50);  // Under soft
+        monitor.request_alloc(ActorId(2), 50); // Under soft
 
         let over = monitor.actors_over_budget();
         assert_eq!(over.len(), 1);

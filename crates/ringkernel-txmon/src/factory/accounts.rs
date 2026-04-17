@@ -47,7 +47,9 @@ impl AccountGenerator {
         };
 
         // Risk score based on level
-        profile.risk_score = match CustomerRiskLevel::from_u8(profile.risk_level).expect("risk_level was just assigned a valid CustomerRiskLevel variant") {
+        profile.risk_score = match CustomerRiskLevel::from_u8(profile.risk_level)
+            .expect("risk_level was just assigned a valid CustomerRiskLevel variant")
+        {
             CustomerRiskLevel::Low => self.rng.gen_range(5..30),
             CustomerRiskLevel::Medium => self.rng.gen_range(30..60),
             CustomerRiskLevel::High => self.rng.gen_range(60..85),

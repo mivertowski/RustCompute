@@ -147,8 +147,14 @@ impl DfgConstructionKernel {
                 // Calculate duration stats
                 let durations: Vec<u32> = evts.iter().map(|e| e.duration_ms).collect();
                 if !durations.is_empty() {
-                    nodes[idx].min_duration_ms = *durations.iter().min().expect("durations non-empty checked above");
-                    nodes[idx].max_duration_ms = *durations.iter().max().expect("durations non-empty checked above");
+                    nodes[idx].min_duration_ms = *durations
+                        .iter()
+                        .min()
+                        .expect("durations non-empty checked above");
+                    nodes[idx].max_duration_ms = *durations
+                        .iter()
+                        .max()
+                        .expect("durations non-empty checked above");
                     nodes[idx].avg_duration_ms =
                         durations.iter().sum::<u32>() as f32 / durations.len() as f32;
                 }

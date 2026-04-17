@@ -41,8 +41,8 @@ pub struct AsyncPoolConfig {
 impl Default for AsyncPoolConfig {
     fn default() -> Self {
         Self {
-            initial_size: 64 * 1024 * 1024,     // 64 MB
-            max_size: 0,                          // Unlimited
+            initial_size: 64 * 1024 * 1024, // 64 MB
+            max_size: 0,                    // Unlimited
             // NVIDIA recommendation for persistent workloads: set high release
             // threshold to prevent OS reclaim during sustained operation.
             // For persistent actors that run for minutes/hours, we want to
@@ -59,8 +59,8 @@ impl AsyncPoolConfig {
     /// Based on NVIDIA guidance for stream-ordered allocators with persistent kernels.
     pub fn for_persistent_actors() -> Self {
         Self {
-            initial_size: 256 * 1024 * 1024,      // 256 MB pre-allocated
-            max_size: 0,                            // Unlimited
+            initial_size: 256 * 1024 * 1024,           // 256 MB pre-allocated
+            max_size: 0,                               // Unlimited
             release_threshold: 4 * 1024 * 1024 * 1024, // 4 GB (very high)
         }
     }
@@ -68,9 +68,9 @@ impl AsyncPoolConfig {
     /// Configuration for short-lived workloads (lower memory retention).
     pub fn for_batch_processing() -> Self {
         Self {
-            initial_size: 32 * 1024 * 1024,        // 32 MB
+            initial_size: 32 * 1024 * 1024, // 32 MB
             max_size: 0,
-            release_threshold: 128 * 1024 * 1024,  // 128 MB (release quickly)
+            release_threshold: 128 * 1024 * 1024, // 128 MB (release quickly)
         }
     }
 }
@@ -134,10 +134,7 @@ impl AsyncMemoryPool {
 
         let mut pool: cuda_sys::CUmemoryPool = ptr::null_mut();
         unsafe {
-            let r = cuda_sys::cuDeviceGetDefaultMemPool(
-                &mut pool,
-                device.ordinal() as i32,
-            );
+            let r = cuda_sys::cuDeviceGetDefaultMemPool(&mut pool, device.ordinal() as i32);
             if r != cuda_sys::CUresult::CUDA_SUCCESS {
                 return Err(RingKernelError::BackendError(format!(
                     "cuDeviceGetDefaultMemPool failed: {:?}",
@@ -157,11 +154,7 @@ impl AsyncMemoryPool {
     ///
     /// The allocation is stream-ordered: it becomes available when the stream
     /// reaches this point. Other streams are not affected.
-    pub fn alloc_async(
-        &self,
-        size: usize,
-        stream: cuda_sys::CUstream,
-    ) -> Result<u64> {
+    pub fn alloc_async(&self, size: usize, stream: cuda_sys::CUstream) -> Result<u64> {
         let mut dptr: u64 = 0;
 
         unsafe {
@@ -241,7 +234,11 @@ mod tests {
     fn test_async_pool_creation() {
         let device = CudaDevice::new(0).expect("device");
         let pool = AsyncMemoryPool::from_default(&device);
-        assert!(pool.is_ok(), "Failed to create async pool: {:?}", pool.err());
+        assert!(
+            pool.is_ok(),
+            "Failed to create async pool: {:?}",
+            pool.err()
+        );
     }
 
     #[test]
@@ -273,7 +270,9 @@ mod tests {
             let dptr = pool.alloc_async(alloc_size, stream).expect("alloc");
             pool.free_async(dptr, stream).expect("free");
         }
-        unsafe { cuda_sys::cuStreamSynchronize(stream); }
+        unsafe {
+            cuda_sys::cuStreamSynchronize(stream);
+        }
         let async_time = start.elapsed();
 
         // Benchmark sync alloc
@@ -293,7 +292,10 @@ mod tests {
 
         println!();
         println!("══════════════════════════════════════════════════════════════");
-        println!("  Async vs Sync Memory Allocation — {} iterations", iterations);
+        println!(
+            "  Async vs Sync Memory Allocation — {} iterations",
+            iterations
+        );
         println!("══════════════════════════════════════════════════════════════");
         println!("  cuMemAllocAsync:  {:.0} ns/alloc", async_per);
         println!("  cuMemAlloc:       {:.0} ns/alloc", sync_per);

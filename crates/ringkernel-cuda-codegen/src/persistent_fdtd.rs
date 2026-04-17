@@ -1274,8 +1274,7 @@ mod tests {
 
     #[test]
     fn test_generate_kernel_legacy_no_libcupp() {
-        let config = PersistentFdtdConfig::default()
-            .with_libcupp_atomics(false);
+        let config = PersistentFdtdConfig::default().with_libcupp_atomics(false);
         let code = generate_persistent_fdtd_kernel(&config);
 
         // Must NOT include libcu++

@@ -55,7 +55,9 @@ async fn main() {
             cuda_backend.synchronize().expect("CUDA synchronize failed");
 
             let cpu_pressure = cpu_grid.get_pressure_grid();
-            let cuda_pressure = cuda_backend.read_pressure_grid().expect("CUDA pressure grid read failed");
+            let cuda_pressure = cuda_backend
+                .read_pressure_grid()
+                .expect("CUDA pressure grid read failed");
 
             let mut max_diff = 0.0f32;
             let mut total_diff = 0.0f32;
@@ -91,7 +93,9 @@ async fn main() {
     // Final detailed comparison
     cuda_backend.synchronize().expect("CUDA synchronize failed");
     let cpu_pressure = cpu_grid.get_pressure_grid();
-    let cuda_pressure = cuda_backend.read_pressure_grid().expect("CUDA pressure grid read failed");
+    let cuda_pressure = cuda_backend
+        .read_pressure_grid()
+        .expect("CUDA pressure grid read failed");
 
     let mut max_diff = 0.0f32;
     let mut total_diff = 0.0f32;

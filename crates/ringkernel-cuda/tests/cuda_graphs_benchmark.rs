@@ -68,7 +68,9 @@ fn bench_traditional_vs_graph_vs_persistent() {
 .visible .entry increment_kernel(.param .u64 p0, .param .u32 p1) { ret; }
 "#;
     let module = DirectPtxModule::load_ptx(&device, simple_ptx).expect("Failed to load PTX");
-    let func = module.get_function("increment_kernel").expect("Failed to get function");
+    let func = module
+        .get_function("increment_kernel")
+        .expect("Failed to get function");
 
     let n: u32 = 1024;
     let block_size: u32 = 256;
@@ -85,7 +87,9 @@ fn bench_traditional_vs_graph_vs_persistent() {
 
     // Create a CUDA stream
     let mut stream: cuda_sys::CUstream = ptr::null_mut();
-    unsafe { cuda_sys::cuStreamCreate(&mut stream, 0); }
+    unsafe {
+        cuda_sys::cuStreamCreate(&mut stream, 0);
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     // Benchmark 1: Traditional Launch (cuLaunchKernel per command)
@@ -93,7 +97,9 @@ fn bench_traditional_vs_graph_vs_persistent() {
     let mut trad_times = Vec::with_capacity(trials as usize);
 
     for _ in 0..trials {
-        unsafe { cuda_sys::cuMemsetD8_v2(data_dev, 0, (n as usize) * 4); }
+        unsafe {
+            cuda_sys::cuMemsetD8_v2(data_dev, 0, (n as usize) * 4);
+        }
 
         let start = Instant::now();
         for _ in 0..commands {
@@ -106,12 +112,23 @@ fn bench_traditional_vs_graph_vs_persistent() {
 
             unsafe {
                 cuda_sys::cuLaunchKernel(
-                    func, grid_size, 1, 1, block_size, 1, 1, 0, stream,
-                    params.as_mut_ptr(), ptr::null_mut(),
+                    func,
+                    grid_size,
+                    1,
+                    1,
+                    block_size,
+                    1,
+                    1,
+                    0,
+                    stream,
+                    params.as_mut_ptr(),
+                    ptr::null_mut(),
                 );
             }
         }
-        unsafe { cuda_sys::cuStreamSynchronize(stream); }
+        unsafe {
+            cuda_sys::cuStreamSynchronize(stream);
+        }
         trad_times.push(start.elapsed().as_nanos() as f64 / 1000.0); // us
     }
 
@@ -130,7 +147,12 @@ fn bench_traditional_vs_graph_vs_persistent() {
             stream,
             cuda_sys::CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_GLOBAL,
         );
-        assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS, "begin capture failed: {:?}", r);
+        assert_eq!(
+            r,
+            cuda_sys::CUresult::CUDA_SUCCESS,
+            "begin capture failed: {:?}",
+            r
+        );
 
         // Record the command sequence
         for _ in 0..commands {
@@ -142,24 +164,45 @@ fn bench_traditional_vs_graph_vs_persistent() {
             ];
 
             cuda_sys::cuLaunchKernel(
-                func, grid_size, 1, 1, block_size, 1, 1, 0, stream,
-                params.as_mut_ptr(), ptr::null_mut(),
+                func,
+                grid_size,
+                1,
+                1,
+                block_size,
+                1,
+                1,
+                0,
+                stream,
+                params.as_mut_ptr(),
+                ptr::null_mut(),
             );
         }
 
         // End capture
         let r = cuda_sys::cuStreamEndCapture(stream, &mut graph);
-        assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS, "end capture failed: {:?}", r);
+        assert_eq!(
+            r,
+            cuda_sys::CUresult::CUDA_SUCCESS,
+            "end capture failed: {:?}",
+            r
+        );
         assert!(!graph.is_null(), "graph should not be null");
 
         // Instantiate the graph
         let r = cuda_sys::cuGraphInstantiateWithFlags(&mut graph_exec, graph, 0);
-        assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS, "instantiate failed: {:?}", r);
+        assert_eq!(
+            r,
+            cuda_sys::CUresult::CUDA_SUCCESS,
+            "instantiate failed: {:?}",
+            r
+        );
     }
 
     // Step 2: Benchmark graph replay
     for _ in 0..trials {
-        unsafe { cuda_sys::cuMemsetD8_v2(data_dev, 0, (n as usize) * 4); }
+        unsafe {
+            cuda_sys::cuMemsetD8_v2(data_dev, 0, (n as usize) * 4);
+        }
 
         let start = Instant::now();
         unsafe {
@@ -184,7 +227,12 @@ fn bench_traditional_vs_graph_vs_persistent() {
             (commands as usize) * 4, // One u32 command per iteration
             cuda_sys::CU_MEMHOSTALLOC_DEVICEMAP | cuda_sys::CU_MEMHOSTALLOC_PORTABLE,
         );
-        assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS, "cuMemHostAlloc failed: {:?}", r);
+        assert_eq!(
+            r,
+            cuda_sys::CUresult::CUDA_SUCCESS,
+            "cuMemHostAlloc failed: {:?}",
+            r
+        );
     }
 
     for _ in 0..trials {
@@ -231,29 +279,66 @@ fn bench_traditional_vs_graph_vs_persistent() {
     println!();
     println!("══════════════════════════════════════════════════════════════════════════");
     println!("  Traditional vs CUDA Graph vs Persistent Actor — H100 Benchmark");
-    println!("  {} commands × {} trials, kernel: increment {} elements", commands, trials, n);
+    println!(
+        "  {} commands × {} trials, kernel: increment {} elements",
+        commands, trials, n
+    );
     println!("══════════════════════════════════════════════════════════════════════════");
     println!();
     println!("  ┌─────────────────────┬────────────┬────────────┬────────────┬──────────┐");
     println!("  │ Method              │ Total (us) │ Per-Cmd    │ 95% CI     │ Speedup  │");
     println!("  ├─────────────────────┼────────────┼────────────┼────────────┼──────────┤");
-    println!("  │ Traditional Launch  │ {:>10.1} │ {:>8.3} us │ ±{:<8.1} │   1.0x   │", t_mean, t_per_cmd, t_ci);
-    println!("  │ CUDA Graph Replay   │ {:>10.1} │ {:>8.3} us │ ±{:<8.1} │ {:>6.1}x │", g_mean, g_per_cmd, g_ci, t_mean / g_mean);
-    println!("  │ Persistent Actor    │ {:>10.1} │ {:>8.3} us │ ±{:<8.1} │ {:>6.1}x │", p_mean, p_per_cmd, p_ci, t_mean / p_mean);
+    println!(
+        "  │ Traditional Launch  │ {:>10.1} │ {:>8.3} us │ ±{:<8.1} │   1.0x   │",
+        t_mean, t_per_cmd, t_ci
+    );
+    println!(
+        "  │ CUDA Graph Replay   │ {:>10.1} │ {:>8.3} us │ ±{:<8.1} │ {:>6.1}x │",
+        g_mean,
+        g_per_cmd,
+        g_ci,
+        t_mean / g_mean
+    );
+    println!(
+        "  │ Persistent Actor    │ {:>10.1} │ {:>8.3} us │ ±{:<8.1} │ {:>6.1}x │",
+        p_mean,
+        p_per_cmd,
+        p_ci,
+        t_mean / p_mean
+    );
     println!("  └─────────────────────┴────────────┴────────────┴────────────┴──────────┘");
     println!();
     println!("  Key comparisons:");
-    println!("    Persistent vs Traditional: {:.0}x faster", t_mean / p_mean);
-    println!("    Persistent vs CUDA Graph:  {:.1}x faster", g_mean / p_mean);
-    println!("    CUDA Graph vs Traditional: {:.1}x faster", t_mean / g_mean);
+    println!(
+        "    Persistent vs Traditional: {:.0}x faster",
+        t_mean / p_mean
+    );
+    println!(
+        "    Persistent vs CUDA Graph:  {:.1}x faster",
+        g_mean / p_mean
+    );
+    println!(
+        "    CUDA Graph vs Traditional: {:.1}x faster",
+        t_mean / g_mean
+    );
     println!();
     println!("  Per-command latency:");
     println!("    Traditional: {:.3} us/cmd", t_per_cmd);
-    println!("    CUDA Graph:  {:.3} us/cmd ({:.1}x vs traditional)", g_per_cmd, t_per_cmd / g_per_cmd);
-    println!("    Persistent:  {:.3} us/cmd ({:.0}x vs traditional)", p_per_cmd, t_per_cmd / p_per_cmd);
+    println!(
+        "    CUDA Graph:  {:.3} us/cmd ({:.1}x vs traditional)",
+        g_per_cmd,
+        t_per_cmd / g_per_cmd
+    );
+    println!(
+        "    Persistent:  {:.3} us/cmd ({:.0}x vs traditional)",
+        p_per_cmd,
+        t_per_cmd / p_per_cmd
+    );
     println!();
-    println!("  Medians: traditional={:.1}, graph={:.1}, persistent={:.1} us",
-        t_med, g_med, p_med);
+    println!(
+        "  Medians: traditional={:.1}, graph={:.1}, persistent={:.1} us",
+        t_med, g_med, p_med
+    );
     println!("══════════════════════════════════════════════════════════════════════════");
 
     // Cleanup
@@ -269,11 +354,13 @@ fn bench_traditional_vs_graph_vs_persistent() {
     assert!(
         p_mean < t_mean,
         "Persistent actor ({:.1} us) should be faster than traditional ({:.1} us)",
-        p_mean, t_mean
+        p_mean,
+        t_mean
     );
     assert!(
         p_mean < g_mean,
         "Persistent actor ({:.1} us) should be faster than CUDA graph ({:.1} us)",
-        p_mean, g_mean
+        p_mean,
+        g_mean
     );
 }

@@ -457,7 +457,6 @@ pub enum SimCommand {
     GetProgress = 7,
 
     // === Actor Lifecycle Commands (Phase B) ===
-
     /// Create (activate) an actor in the specified block slot.
     /// param1: actor slot index (block ID), param2: parent actor slot (0 = no parent).
     CreateActor = 16,
@@ -640,7 +639,6 @@ pub enum ResponseType {
     Energy = 4,
 
     // === Actor Lifecycle Responses ===
-
     /// Actor created successfully. param1 = actor slot.
     ActorCreated = 16,
     /// Actor destroyed. param1 = actor slot.
