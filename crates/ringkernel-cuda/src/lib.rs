@@ -54,6 +54,8 @@ mod memory;
 #[cfg(feature = "cuda")]
 pub mod memory_pool;
 #[cfg(feature = "cuda")]
+pub mod multi_gpu;
+#[cfg(feature = "cuda")]
 pub mod persistent;
 #[cfg(feature = "cuda")]
 pub mod phases;
