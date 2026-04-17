@@ -40,8 +40,22 @@ pub const MAX_CLOCK_SKEW_MS: u64 = 60_000; // 1 minute
 ///
 /// This struct is 24 bytes and cache-line friendly.
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, AsBytes, FromBytes, FromZeroes, Pod, Zeroable,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    AsBytes,
+    FromBytes,
+    FromZeroes,
+    Pod,
+    Zeroable,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
+#[archive(compare(PartialEq))]
 #[repr(C, align(8))]
 pub struct HlcTimestamp {
     /// Physical time component (microseconds since UNIX epoch).

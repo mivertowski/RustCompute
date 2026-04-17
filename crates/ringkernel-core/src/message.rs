@@ -8,6 +8,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 use crate::hlc::HlcTimestamp;
+use crate::provenance::ProvenanceHeader;
 
 /// Unique message identifier.
 #[derive(
@@ -372,12 +373,28 @@ pub trait RingMessage: Send + Sync + 'static {
 }
 
 /// Envelope containing header and serialized payload.
+///
+/// The optional `provenance` slot carries PROV-O attribution metadata for
+/// NSAI reasoning chains (see [`crate::provenance`]). When `None`, the field
+/// is a single discriminant byte - zero cost for the common case. When
+/// populated, it adds a fixed-size [`ProvenanceHeader`] (see that type for
+/// size details).
+///
+/// The `provenance` field is *not* included in the legacy
+/// [`MessageEnvelope::to_bytes`] / [`MessageEnvelope::from_bytes`] wire format,
+/// which is defined by `MessageHeader` + raw payload for backwards
+/// compatibility. Provenance travels separately (e.g. as part of rkyv-encoded
+/// envelope transfer on GPU) or is reattached by the router.
 #[derive(Debug, Clone)]
 pub struct MessageEnvelope {
     /// Message header.
     pub header: MessageHeader,
     /// Serialized payload.
     pub payload: Vec<u8>,
+    /// Optional PROV-O attribution metadata. Defaults to `None`; only
+    /// populated when the message participates in an audited reasoning
+    /// chain (e.g. VynGraph NSAI pipelines).
+    pub provenance: Option<ProvenanceHeader>,
 }
 
 impl MessageEnvelope {
@@ -399,7 +416,11 @@ impl MessageEnvelope {
         .with_correlation(message.correlation_id())
         .with_priority(message.priority());
 
-        Self { header, payload }
+        Self {
+            header,
+            payload,
+            provenance: None,
+        }
     }
 
     /// Get total size (header + payload).
@@ -408,6 +429,10 @@ impl MessageEnvelope {
     }
 
     /// Serialize to contiguous bytes.
+    ///
+    /// NOTE: the provenance metadata is intentionally *not* serialised here.
+    /// This method keeps the historical wire format unchanged; provenance is
+    /// transported out-of-band or via rkyv-encoded transfer.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(self.total_size());
         bytes.extend_from_slice(self.header.as_bytes());
@@ -416,6 +441,9 @@ impl MessageEnvelope {
     }
 
     /// Deserialize from bytes.
+    ///
+    /// Reconstructs an envelope with `provenance: None`. Callers that need
+    /// provenance must reattach it via [`MessageEnvelope::with_provenance`].
     pub fn from_bytes(bytes: &[u8]) -> crate::error::Result<Self> {
         if bytes.len() < std::mem::size_of::<MessageHeader>() {
             return Err(crate::error::RingKernelError::DeserializationError(
@@ -445,7 +473,11 @@ impl MessageEnvelope {
 
         let payload = bytes[payload_start..payload_end].to_vec();
 
-        Ok(Self { header, payload })
+        Ok(Self {
+            header,
+            payload,
+            provenance: None,
+        })
     }
 
     /// Create an empty envelope (for testing).
@@ -454,7 +486,21 @@ impl MessageEnvelope {
         Self {
             header,
             payload: Vec::new(),
+            provenance: None,
         }
+    }
+
+    /// Attach a PROV-O provenance header (builder-style).
+    pub fn with_provenance(mut self, provenance: ProvenanceHeader) -> Self {
+        self.provenance = Some(provenance);
+        self
+    }
+
+    /// Strip provenance (builder-style). Useful when routing a message into
+    /// an untrusted tenant boundary where attribution must not leak.
+    pub fn without_provenance(mut self) -> Self {
+        self.provenance = None;
+        self
     }
 }
 
@@ -499,6 +545,7 @@ mod tests {
         let envelope = MessageEnvelope {
             header,
             payload: vec![1, 2, 3, 4, 5, 6, 7, 8],
+            provenance: None,
         };
 
         let bytes = envelope.to_bytes();
@@ -506,5 +553,31 @@ mod tests {
 
         assert_eq!(envelope.header.message_type, restored.header.message_type);
         assert_eq!(envelope.payload, restored.payload);
+        // Provenance is intentionally not round-tripped through the legacy
+        // wire format; restored envelopes carry `None` until reattached.
+        assert!(restored.provenance.is_none());
+    }
+
+    #[test]
+    fn test_envelope_with_provenance() {
+        use crate::provenance::{ProvNodeType, ProvRelationKind, ProvenanceBuilder};
+
+        let hdr = ProvenanceBuilder::new(ProvNodeType::Entity, 0x42)
+            .with_relation(ProvRelationKind::WasAttributedTo, 0x7)
+            .build()
+            .unwrap();
+
+        let envelope = MessageEnvelope::empty(0, 1, HlcTimestamp::now(1)).with_provenance(hdr);
+        assert!(envelope.provenance.is_some());
+        assert_eq!(envelope.provenance.unwrap().node_id, 0x42);
+
+        let stripped = envelope.without_provenance();
+        assert!(stripped.provenance.is_none());
+    }
+
+    #[test]
+    fn test_envelope_default_has_no_provenance() {
+        let envelope = MessageEnvelope::empty(0, 1, HlcTimestamp::zero());
+        assert!(envelope.provenance.is_none());
     }
 }

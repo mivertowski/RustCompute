@@ -460,6 +460,7 @@ impl PyMessageEnvelope {
             inner: MessageEnvelope {
                 header: header.inner,
                 payload: payload.as_bytes().to_vec(),
+                provenance: None,
             },
         }
     }

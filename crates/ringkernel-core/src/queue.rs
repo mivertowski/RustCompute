@@ -951,6 +951,7 @@ mod tests {
         MessageEnvelope {
             header: MessageHeader::new(1, 0, 1, 8, HlcTimestamp::now(1)),
             payload: vec![1, 2, 3, 4, 5, 6, 7, 8],
+            provenance: None,
         }
     }
 
@@ -1333,6 +1334,7 @@ mod proptests {
             // MessageHeader::new(message_type, source_kernel, dest_kernel, payload_size, timestamp)
             header: MessageHeader::new(seq, 1, 0, 8, HlcTimestamp::now(1)),
             payload: vec![1, 2, 3, 4, 5, 6, 7, 8],
+            provenance: None,
         }
     }
 

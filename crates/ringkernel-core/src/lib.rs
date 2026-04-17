@@ -70,6 +70,7 @@ pub mod message;
 pub mod multi_gpu;
 pub mod observability;
 pub mod persistent_message;
+pub mod provenance;
 pub mod pubsub;
 pub mod queue;
 pub mod reduction;
@@ -176,6 +177,10 @@ pub mod prelude {
         message_flags, DispatchTable, HandlerRegistration, PersistentMessage,
         MAX_INLINE_PAYLOAD_SIZE,
     };
+    pub use crate::provenance::{
+        validate_chain, ProvNodeType, ProvRelation, ProvRelationKind, ProvenanceBuilder,
+        ProvenanceError, ProvenanceHeader, INLINE_RELATION_SLOTS, MAX_CHAIN_DEPTH,
+    };
     pub use crate::pubsub::{PubSubBroker, PubSubBuilder, Publication, QoS, Subscription, Topic};
     pub use crate::queue::*;
     pub use crate::reduction::{
@@ -281,6 +286,10 @@ pub use error::{Result, RingKernelError};
 pub use hlc::HlcTimestamp;
 pub use memory::{DeviceMemory, GpuBuffer, MemoryPool, PinnedMemory};
 pub use message::{priority, MessageHeader, MessageId, Priority, RingMessage};
+pub use provenance::{
+    ProvNodeType, ProvRelation, ProvRelationKind, ProvenanceBuilder, ProvenanceError,
+    ProvenanceHeader,
+};
 pub use queue::{MessageQueue, QueueStats};
 pub use runtime::{
     Backend, KernelHandle, KernelId, KernelState, KernelStatus, LaunchOptions, RingKernelRuntime,

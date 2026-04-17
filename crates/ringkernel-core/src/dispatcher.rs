@@ -607,6 +607,7 @@ mod tests {
         let envelope = MessageEnvelope {
             header,
             payload: vec![],
+            provenance: None,
         };
 
         let result = dispatcher.dispatch(envelope).await;

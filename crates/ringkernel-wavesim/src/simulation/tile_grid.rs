@@ -427,7 +427,11 @@ impl TileActor {
             HlcTimestamp::now(0),
         );
 
-        MessageEnvelope { header, payload }
+        MessageEnvelope {
+            header,
+            payload,
+            provenance: None,
+        }
     }
 
     /// Parse a K2K envelope to extract halo data.

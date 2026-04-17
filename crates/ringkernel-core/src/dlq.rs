@@ -285,6 +285,7 @@ mod tests {
         MessageEnvelope {
             header: MessageHeader::new(1, 0, 1, 64, HlcTimestamp::now(1)),
             payload: vec![42u8; 64],
+            provenance: None,
         }
     }
 
