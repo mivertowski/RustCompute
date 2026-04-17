@@ -135,7 +135,7 @@ impl TraceBuffer {
     /// Get recent trace entries (most recent first).
     pub fn recent(&self, limit: usize) -> Vec<&TraceEntry> {
         let mut result: Vec<&TraceEntry> = self.entries.iter().collect();
-        result.sort_by(|a, b| b.received_at.cmp(&a.received_at));
+        result.sort_by_key(|e| std::cmp::Reverse(e.received_at));
         result.truncate(limit);
         result
     }

@@ -236,7 +236,7 @@ impl MemoryPressureMonitor {
             .iter()
             .map(|(&id, b)| (id, b.current_bytes))
             .collect();
-        actors.sort_by(|a, b| b.1.cmp(&a.1));
+        actors.sort_by_key(|a| std::cmp::Reverse(a.1));
         actors
     }
 

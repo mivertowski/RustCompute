@@ -96,9 +96,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+      - name: Run cargo audit
+        # Uses .cargo/audit.toml for ignored advisories (documented transitive deps).
+        # Unmaintained warnings are informational and do not fail the build.
+        run: cargo audit
 
   # Feature matrix: test key feature combinations that work without GPU hardware
   feature-matrix:

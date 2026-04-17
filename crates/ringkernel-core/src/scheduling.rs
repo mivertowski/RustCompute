@@ -468,7 +468,7 @@ impl LoadTable {
             .collect();
 
         // Sort victims by excess load (descending)
-        victims.sort_by(|a, b| b.1.cmp(&a.1));
+        victims.sort_by_key(|v| std::cmp::Reverse(v.1));
 
         // Match thieves to victims
         let mut victim_idx = 0;
