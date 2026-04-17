@@ -144,8 +144,9 @@ pub mod prelude {
         HybridStats, HybridStatsSnapshot, HybridWorkload, ProcessingMode,
     };
     pub use crate::k2k::{
-        DeliveryStatus, K2KBroker, K2KBuilder, K2KConfig, K2KEndpoint, K2KMessage,
-        K2KMessageRegistration, K2KTypeRegistry,
+        AuditTag, DeliveryStatus, K2KBroker, K2KBuilder, K2KConfig, K2KEndpoint, K2KMessage,
+        K2KMessageRegistration, K2KStats, K2KSubBroker, K2KTypeRegistry, TenantId, TenantInfo,
+        TenantQuota, TenantRegistry as K2KTenantRegistry, TenantStats, UNSPECIFIED_TENANT,
     };
     #[cfg(feature = "crypto")]
     pub use crate::k2k::{

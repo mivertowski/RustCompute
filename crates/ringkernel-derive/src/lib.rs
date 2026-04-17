@@ -669,6 +669,7 @@ pub fn ring_kernel(attr: TokenStream, item: TokenStream) -> TokenStream {
                 Ok(::ringkernel_core::message::MessageEnvelope {
                     header: response_header,
                     payload: response_payload,
+                    ..::std::default::Default::default()
                 })
             })
         }

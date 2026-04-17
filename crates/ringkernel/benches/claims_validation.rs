@@ -99,6 +99,7 @@ fn validate_message_latency_claim(c: &mut Criterion) {
         let envelope = MessageEnvelope {
             header: MessageHeader::new(1, 0, 1, 256, HlcTimestamp::now(1)),
             payload: vec![0u8; 256],
+            ..Default::default()
         };
 
         b.iter_custom(|iters| {
@@ -123,6 +124,7 @@ fn validate_message_latency_claim(c: &mut Criterion) {
                 let envelope = MessageEnvelope {
                     header: MessageHeader::new(1, 0, 1, 256, HlcTimestamp::now(1)),
                     payload: vec![0u8; 256],
+                    ..Default::default()
                 };
 
                 // Enqueue (host -> device transfer)
@@ -146,6 +148,7 @@ fn validate_message_latency_claim(c: &mut Criterion) {
             let envelope = MessageEnvelope {
                 header: MessageHeader::new(1, 0, 1, sz, HlcTimestamp::now(1)),
                 payload: vec![0u8; sz],
+                ..Default::default()
             };
 
             b.iter(|| {
@@ -371,6 +374,7 @@ fn validate_lock_free_claim(c: &mut Criterion) {
         let envelope = MessageEnvelope {
             header: MessageHeader::new(1, 0, 1, 256, HlcTimestamp::now(1)),
             payload: vec![0u8; 256],
+            ..Default::default()
         };
 
         b.iter(|| {
@@ -391,6 +395,7 @@ fn validate_lock_free_claim(c: &mut Criterion) {
                 let envelope = MessageEnvelope {
                     header: MessageHeader::new(1, 0, 1, 256, HlcTimestamp::now(1)),
                     payload: vec![0u8; 256],
+                    ..Default::default()
                 };
 
                 b.iter(|| {
@@ -488,6 +493,7 @@ fn validation_summary(c: &mut Criterion) {
             let envelope = MessageEnvelope {
                 header: MessageHeader::new(1, 0, 1, 64, HlcTimestamp::now(1)),
                 payload: vec![0u8; 64],
+                ..Default::default()
             };
             queue.try_enqueue(envelope).unwrap();
             let msg = queue.try_dequeue().unwrap();

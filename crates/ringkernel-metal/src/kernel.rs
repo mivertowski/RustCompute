@@ -526,7 +526,11 @@ impl MetalMessageQueue {
 
         self.head.fetch_add(1, Ordering::Release);
 
-        Some(MessageEnvelope { header, payload })
+        Some(MessageEnvelope {
+            header,
+            payload,
+            ..Default::default()
+        })
     }
 
     /// Get the headers buffer.

@@ -8,6 +8,8 @@ use rkyv::{Archive, Deserialize, Serialize};
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 use crate::hlc::HlcTimestamp;
+use crate::k2k::audit_tag::AuditTag;
+use crate::k2k::tenant::TenantId;
 use crate::provenance::ProvenanceHeader;
 
 /// Unique message identifier.
@@ -380,11 +382,20 @@ pub trait RingMessage: Send + Sync + 'static {
 /// populated, it adds a fixed-size [`ProvenanceHeader`] (see that type for
 /// size details).
 ///
-/// The `provenance` field is *not* included in the legacy
-/// [`MessageEnvelope::to_bytes`] / [`MessageEnvelope::from_bytes`] wire format,
-/// which is defined by `MessageHeader` + raw payload for backwards
-/// compatibility. Provenance travels separately (e.g. as part of rkyv-encoded
-/// envelope transfer on GPU) or is reattached by the router.
+/// The `tenant_id` field is the primary multi-tenant isolation key — it
+/// defaults to `0` (the unspecified tenant) which preserves single-tenant
+/// fast-path behavior and is free of HashMap lookups in the K2K broker.
+///
+/// The `audit_tag` field carries billable-unit attribution (org_id +
+/// engagement_id) and defaults to [`AuditTag::default`] (both fields zero).
+/// The K2K broker stamps the sender's tag into outgoing envelopes when the
+/// caller leaves this as the default.
+///
+/// Neither the `provenance`, `tenant_id`, nor `audit_tag` fields are included
+/// in the legacy [`MessageEnvelope::to_bytes`] / [`MessageEnvelope::from_bytes`]
+/// wire format, which is defined by `MessageHeader` + raw payload for
+/// backwards compatibility. These travel separately (e.g. as part of
+/// rkyv-encoded envelope transfer on GPU) or are reattached by the router.
 #[derive(Debug, Clone)]
 pub struct MessageEnvelope {
     /// Message header.
@@ -395,6 +406,13 @@ pub struct MessageEnvelope {
     /// populated when the message participates in an audited reasoning
     /// chain (e.g. VynGraph NSAI pipelines).
     pub provenance: Option<ProvenanceHeader>,
+    /// Multi-tenant isolation key. Defaults to `0` (unspecified tenant),
+    /// matching single-tenant deployments that never opt in to isolation.
+    pub tenant_id: TenantId,
+    /// Billable-unit attribution: `{org_id, engagement_id}`. Defaults to
+    /// `AuditTag::default()` (both fields zero). The K2K broker stamps the
+    /// sending kernel's tag into envelopes whose tag is still the default.
+    pub audit_tag: AuditTag,
 }
 
 impl MessageEnvelope {
@@ -420,6 +438,8 @@ impl MessageEnvelope {
             header,
             payload,
             provenance: None,
+            tenant_id: 0,
+            audit_tag: AuditTag::unspecified(),
         }
     }
 
@@ -442,8 +462,11 @@ impl MessageEnvelope {
 
     /// Deserialize from bytes.
     ///
-    /// Reconstructs an envelope with `provenance: None`. Callers that need
-    /// provenance must reattach it via [`MessageEnvelope::with_provenance`].
+    /// Reconstructs an envelope with `provenance: None` and default
+    /// tenant/audit fields. Callers that need provenance must reattach it via
+    /// [`MessageEnvelope::with_provenance`]; callers that need tenant
+    /// attribution must stamp it via [`MessageEnvelope::with_tenant_id`] /
+    /// [`MessageEnvelope::with_audit_tag`].
     pub fn from_bytes(bytes: &[u8]) -> crate::error::Result<Self> {
         if bytes.len() < std::mem::size_of::<MessageHeader>() {
             return Err(crate::error::RingKernelError::DeserializationError(
@@ -477,6 +500,8 @@ impl MessageEnvelope {
             header,
             payload,
             provenance: None,
+            tenant_id: 0,
+            audit_tag: AuditTag::unspecified(),
         })
     }
 
@@ -487,6 +512,8 @@ impl MessageEnvelope {
             header,
             payload: Vec::new(),
             provenance: None,
+            tenant_id: 0,
+            audit_tag: AuditTag::unspecified(),
         }
     }
 
@@ -501,6 +528,41 @@ impl MessageEnvelope {
     pub fn without_provenance(mut self) -> Self {
         self.provenance = None;
         self
+    }
+
+    /// Stamp the envelope with a tenant ID (builder-style).
+    ///
+    /// In the two-tier tenancy model the tenant ID is the primary isolation
+    /// key; the K2K broker uses it to route the message into the correct
+    /// per-tenant sub-broker. Defaults to `0` (unspecified tenant).
+    #[inline]
+    pub fn with_tenant_id(mut self, tenant_id: TenantId) -> Self {
+        self.tenant_id = tenant_id;
+        self
+    }
+
+    /// Attach an audit tag (builder-style).
+    ///
+    /// The audit tag carries billable-unit attribution (`org_id +
+    /// engagement_id`). The K2K broker preserves this tag across delivery
+    /// so downstream cost accounting can attribute GPU-seconds back to the
+    /// specific engagement.
+    #[inline]
+    pub fn with_audit_tag(mut self, audit_tag: AuditTag) -> Self {
+        self.audit_tag = audit_tag;
+        self
+    }
+}
+
+impl Default for MessageEnvelope {
+    fn default() -> Self {
+        Self {
+            header: MessageHeader::default(),
+            payload: Vec::new(),
+            provenance: None,
+            tenant_id: 0,
+            audit_tag: AuditTag::unspecified(),
+        }
     }
 }
 
@@ -546,6 +608,8 @@ mod tests {
             header,
             payload: vec![1, 2, 3, 4, 5, 6, 7, 8],
             provenance: None,
+            tenant_id: 0,
+            audit_tag: AuditTag::unspecified(),
         };
 
         let bytes = envelope.to_bytes();
@@ -553,9 +617,25 @@ mod tests {
 
         assert_eq!(envelope.header.message_type, restored.header.message_type);
         assert_eq!(envelope.payload, restored.payload);
-        // Provenance is intentionally not round-tripped through the legacy
-        // wire format; restored envelopes carry `None` until reattached.
+        // Provenance/tenant fields are intentionally not round-tripped through
+        // the legacy wire format; restored envelopes carry defaults until
+        // reattached.
         assert!(restored.provenance.is_none());
+        assert_eq!(restored.tenant_id, 0);
+        assert!(restored.audit_tag.is_unspecified());
+    }
+
+    #[test]
+    fn test_envelope_with_tenant_and_audit_tag() {
+        let envelope = MessageEnvelope::empty(0, 1, HlcTimestamp::zero());
+        assert_eq!(envelope.tenant_id, 0);
+        assert!(envelope.audit_tag.is_unspecified());
+
+        let tagged = envelope
+            .with_tenant_id(42)
+            .with_audit_tag(AuditTag::new(99, 7));
+        assert_eq!(tagged.tenant_id, 42);
+        assert_eq!(tagged.audit_tag, AuditTag::new(99, 7));
     }
 
     #[test]

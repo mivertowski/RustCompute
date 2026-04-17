@@ -70,15 +70,7 @@ pub const MAX_CHAIN_DEPTH: usize = 256;
 /// (Entity, Activity, Agent). `Plan` is a Plan-subclass of Entity tracked
 /// explicitly so we can recognize audit programs without an extra lookup.
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, Hash, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
 #[archive(compare(PartialEq))]
 #[repr(u8)]
@@ -203,15 +195,7 @@ impl ProvRelationKind {
 /// Compact 16-byte representation (after alignment padding) packed into the
 /// inline relation array of [`ProvenanceHeader`].
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Default,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
 #[repr(C)]
 pub struct ProvRelation {
@@ -248,16 +232,7 @@ impl ProvRelation {
 ///   test module.
 /// - With >4 relations: one extra cache line referenced by `overflow_ref`
 ///   (caller owns that off-band record).
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 #[repr(C)]
 pub struct ProvenanceHeader {
     /// Classification of the node this header describes.

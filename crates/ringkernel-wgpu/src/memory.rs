@@ -701,7 +701,11 @@ impl WgpuMessageQueue {
         self.head
             .store(new_head, std::sync::atomic::Ordering::Release);
 
-        Ok(ringkernel_core::message::MessageEnvelope { header, payload })
+        Ok(ringkernel_core::message::MessageEnvelope {
+            header,
+            payload,
+            ..Default::default()
+        })
     }
 
     /// Try to dequeue without blocking (returns None if empty).

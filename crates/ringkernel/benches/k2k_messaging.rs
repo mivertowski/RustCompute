@@ -22,6 +22,7 @@ fn make_envelope(payload_size: usize) -> MessageEnvelope {
     MessageEnvelope {
         header: MessageHeader::new(1, 1, 2, payload_size, HlcTimestamp::now(1)),
         payload: vec![0u8; payload_size],
+        ..Default::default()
     }
 }
 
@@ -267,6 +268,7 @@ fn bench_multi_sender(c: &mut Criterion) {
                                     HlcTimestamp::now(i as u64 + 1),
                                 ),
                                 payload: vec![0u8; 256],
+                                ..Default::default()
                             };
                             let _ = sender.send(KernelId::new("receiver"), envelope).await;
                         }

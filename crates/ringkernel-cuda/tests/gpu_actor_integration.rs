@@ -125,6 +125,7 @@ fn test_message_queue_envelope_roundtrip() {
     let envelope = MessageEnvelope {
         header,
         payload: payload.clone(),
+        ..Default::default()
     };
 
     // Write to slot 0
@@ -172,7 +173,11 @@ fn test_message_queue_multiple_slots() {
             HlcTimestamp::new(slot as u64 * 100, slot as u64, 0),
         );
         let payload = (slot as u32).to_le_bytes().to_vec();
-        let envelope = MessageEnvelope { header, payload };
+        let envelope = MessageEnvelope {
+            header,
+            payload,
+            ..Default::default()
+        };
 
         queue
             .write_envelope(slot, &envelope)

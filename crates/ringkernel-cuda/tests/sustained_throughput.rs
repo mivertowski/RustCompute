@@ -26,6 +26,7 @@ fn test_sustained_throughput_60s() {
     let envelope = MessageEnvelope {
         header: MessageHeader::new(1, 0, 1, 256, HlcTimestamp::now(1)),
         payload: vec![0u8; 256],
+        ..Default::default()
     };
 
     println!();
@@ -184,6 +185,7 @@ fn test_sustained_throughput_with_power_monitoring() {
     let envelope = MessageEnvelope {
         header: MessageHeader::new(1, 0, 1, 256, HlcTimestamp::now(1)),
         payload: vec![0u8; 256],
+        ..Default::default()
     };
 
     let start = Instant::now();

@@ -371,6 +371,8 @@ mod tests {
             header: MessageHeader::new(1, 0, 1, 8, HlcTimestamp::now(1)),
             payload: vec![1, 2, 3, 4, 5, 6, 7, 8],
             provenance: None,
+            tenant_id: 0,
+            audit_tag: ringkernel_core::k2k::AuditTag::unspecified(),
         }
     }
 

@@ -461,6 +461,8 @@ impl PyMessageEnvelope {
                 header: header.inner,
                 payload: payload.as_bytes().to_vec(),
                 provenance: None,
+                tenant_id: 0,
+                audit_tag: ringkernel_core::k2k::AuditTag::unspecified(),
             },
         }
     }

@@ -608,6 +608,8 @@ mod tests {
             header,
             payload: vec![],
             provenance: None,
+            tenant_id: 0,
+            audit_tag: crate::k2k::audit_tag::AuditTag::unspecified(),
         };
 
         let result = dispatcher.dispatch(envelope).await;

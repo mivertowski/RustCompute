@@ -9,6 +9,7 @@ fn make_envelope(size: usize) -> MessageEnvelope {
     MessageEnvelope {
         header: MessageHeader::new(1, 0, 1, size, HlcTimestamp::now(1)),
         payload: vec![0u8; size],
+        ..Default::default()
     }
 }
 

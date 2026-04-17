@@ -42,6 +42,7 @@ fn bench_envelope_creation(c: &mut Criterion) {
                     let envelope = MessageEnvelope {
                         header,
                         payload: payload.clone(),
+                        ..Default::default()
                     };
                     black_box(envelope);
                 });
@@ -71,6 +72,7 @@ fn bench_queue_latency(c: &mut Criterion) {
                 let envelope = MessageEnvelope {
                     header: MessageHeader::new(1, 0, 1, size, HlcTimestamp::now(1)),
                     payload: vec![0u8; size],
+                    ..Default::default()
                 };
 
                 b.iter(|| {
@@ -106,6 +108,7 @@ fn bench_end_to_end_latency(c: &mut Criterion) {
                     let envelope = MessageEnvelope {
                         header: MessageHeader::new(1, 0, 1, size, HlcTimestamp::now(1)),
                         payload: payload.clone(),
+                        ..Default::default()
                     };
 
                     // Enqueue
@@ -137,6 +140,7 @@ fn bench_latency_percentiles(c: &mut Criterion) {
         let envelope = MessageEnvelope {
             header: MessageHeader::new(1, 0, 1, 256, HlcTimestamp::now(1)),
             payload: vec![0u8; 256],
+            ..Default::default()
         };
 
         b.iter_custom(|iters| {
@@ -166,6 +170,7 @@ fn bench_burst_latency(c: &mut Criterion) {
                 let envelope = MessageEnvelope {
                     header: MessageHeader::new(1, 0, 1, 256, HlcTimestamp::now(1)),
                     payload: vec![0u8; 256],
+                    ..Default::default()
                 };
 
                 b.iter(|| {
@@ -200,6 +205,7 @@ fn bench_latency_validation(c: &mut Criterion) {
         let envelope = MessageEnvelope {
             header: MessageHeader::new(1, 0, 1, 256, HlcTimestamp::now(1)),
             payload: vec![0u8; 256],
+            ..Default::default()
         };
 
         b.iter_custom(|iters| {
@@ -229,6 +235,7 @@ fn bench_latency_validation(c: &mut Criterion) {
                 let envelope = MessageEnvelope {
                     header: MessageHeader::new(1, 0, 1, 256, timestamp),
                     payload: vec![0u8; 256],
+                    ..Default::default()
                 };
 
                 // Enqueue (simulates host -> device)

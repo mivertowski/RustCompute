@@ -200,6 +200,19 @@ pub enum RingKernelError {
     #[error("K2K delivery failed: {0}")]
     K2KDeliveryFailed(String),
 
+    /// Cross-tenant K2K send rejected.
+    ///
+    /// Raised by the K2K broker when a kernel attempts to send a message to
+    /// another kernel registered under a different tenant. Tenant isolation
+    /// is the primary security boundary in multi-tenant deployments.
+    #[error("cross-tenant K2K send rejected: from tenant {from} to tenant {to}")]
+    TenantMismatch {
+        /// Tenant ID of the sending kernel.
+        from: u64,
+        /// Tenant ID of the destination kernel.
+        to: u64,
+    },
+
     // ===== Pub/Sub Errors =====
     /// Pub/sub error.
     #[error("pub/sub error: {0}")]

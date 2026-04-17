@@ -2,6 +2,29 @@
 //!
 //! This module provides infrastructure for direct communication between
 //! GPU kernels without host-side mediation.
+//!
+//! # Submodules
+//!
+//! - [`tenant`] — [`tenant::TenantId`], [`tenant::TenantRegistry`],
+//!   [`tenant::TenantQuota`] with per-engagement cost tracking
+//! - [`audit_tag`] — [`audit_tag::AuditTag`] (org_id + engagement_id) for
+//!   audit trails and billable-time attribution
+//!
+//! # Multi-tenant overview
+//!
+//! The [`K2KBroker`] implements a two-tier tenancy model:
+//!
+//! 1. **Per-kernel `tenant_id`** — the primary security boundary. Kernels
+//!    registered under different tenants cannot exchange messages; sends
+//!    across the boundary return
+//!    [`crate::error::RingKernelError::TenantMismatch`].
+//! 2. **Per-message `AuditTag`** — the observability / billing tag, carried
+//!    inside every envelope alongside `tenant_id`. Cost tracking is
+//!    per-`(tenant_id, engagement_id)` via
+//!    [`tenant::TenantRegistry::track_usage`].
+//!
+//! Single-tenant deployments hit the backward-compatible fast path — see
+//! [`tenant::UNSPECIFIED_TENANT`] and [`K2KBroker::register`].
 
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -13,6 +36,12 @@ use crate::error::{Result, RingKernelError};
 use crate::hlc::HlcTimestamp;
 use crate::message::{MessageEnvelope, MessageId};
 use crate::runtime::KernelId;
+
+pub mod audit_tag;
+pub mod tenant;
+
+pub use audit_tag::AuditTag;
+pub use tenant::{TenantId, TenantInfo, TenantQuota, TenantRegistry, UNSPECIFIED_TENANT};
 
 /// Configuration for K2K messaging.
 #[derive(Debug, Clone)]
@@ -124,12 +153,15 @@ pub enum DeliveryStatus {
     Timeout,
     /// Maximum hops exceeded.
     MaxHopsExceeded,
+    /// Cross-tenant send rejected (also surfaces as
+    /// [`crate::error::RingKernelError::TenantMismatch`]).
+    TenantMismatch,
 }
 
 /// K2K endpoint for a single kernel.
 pub struct K2KEndpoint {
     /// Kernel ID.
-    kernel_id: KernelId,
+    pub(crate) kernel_id: KernelId,
     /// Incoming message channel.
     receiver: mpsc::Receiver<K2KMessage>,
     /// Reference to the broker.
@@ -177,37 +209,199 @@ impl K2KEndpoint {
     }
 }
 
-/// K2K message broker for routing messages between kernels.
-pub struct K2KBroker {
-    /// Configuration.
-    config: K2KConfig,
+// ============================================================================
+// K2KSubBroker — per-tenant routing table
+// ============================================================================
+
+/// Per-tenant sub-broker.
+///
+/// Each `K2KSubBroker` is an independent routing domain: its endpoint map and
+/// indirect-routing table are *not* visible to any other tenant. Cross-tenant
+/// sends therefore have no possible route and are rejected by the parent
+/// [`K2KBroker`] before they reach any sub-broker.
+pub struct K2KSubBroker {
+    /// The tenant this sub-broker serves. `0` = unspecified (legacy).
+    tenant_id: TenantId,
     /// Registered endpoints (kernel_id -> sender).
     endpoints: RwLock<HashMap<KernelId, mpsc::Sender<K2KMessage>>>,
-    /// Message counter.
-    message_counter: AtomicU64,
+    /// Indirect routing table (destination -> next-hop).
+    routing_table: RwLock<HashMap<KernelId, KernelId>>,
+    /// Default audit tag applied to messages if the sender doesn't provide
+    /// one (per-kernel tag, set at registration).
+    kernel_audit_tags: RwLock<HashMap<KernelId, AuditTag>>,
+    /// Messages successfully delivered from this sub-broker.
+    messages_delivered: AtomicU64,
+}
+
+impl K2KSubBroker {
+    fn new(tenant_id: TenantId) -> Self {
+        Self {
+            tenant_id,
+            endpoints: RwLock::new(HashMap::new()),
+            routing_table: RwLock::new(HashMap::new()),
+            kernel_audit_tags: RwLock::new(HashMap::new()),
+            messages_delivered: AtomicU64::new(0),
+        }
+    }
+
+    /// Tenant this sub-broker belongs to.
+    pub fn tenant_id(&self) -> TenantId {
+        self.tenant_id
+    }
+
+    /// Number of kernels registered in this sub-broker.
+    pub fn endpoint_count(&self) -> usize {
+        self.endpoints.read().len()
+    }
+
+    /// Number of messages successfully delivered by this sub-broker.
+    pub fn messages_delivered(&self) -> u64 {
+        self.messages_delivered.load(Ordering::Relaxed)
+    }
+
+    /// Returns `true` if this sub-broker has a route (direct or indirect)
+    /// for `kernel_id`.
+    pub fn knows(&self, kernel_id: &KernelId) -> bool {
+        self.endpoints.read().contains_key(kernel_id)
+            || self.routing_table.read().contains_key(kernel_id)
+    }
+
+    /// Get the audit tag associated with a kernel at registration time, or
+    /// [`AuditTag::unspecified`] if none was set.
+    pub fn audit_tag_for(&self, kernel_id: &KernelId) -> AuditTag {
+        self.kernel_audit_tags
+            .read()
+            .get(kernel_id)
+            .copied()
+            .unwrap_or_else(AuditTag::unspecified)
+    }
+}
+
+// ============================================================================
+// K2KBroker — per-tenant sub-broker aggregator
+// ============================================================================
+
+/// K2K message broker with per-tenant isolation.
+///
+/// Internally holds a `HashMap<TenantId, K2KSubBroker>`. Single-tenant
+/// deployments see exactly one entry (for `UNSPECIFIED_TENANT = 0`); the
+/// only overhead over the legacy broker is one additional HashMap lookup
+/// per send (~20 ns).
+pub struct K2KBroker {
+    /// Configuration (shared across sub-brokers).
+    config: K2KConfig,
+    /// Per-tenant sub-brokers.
+    tenants: RwLock<HashMap<TenantId, Arc<K2KSubBroker>>>,
+    /// Reverse index: which tenant does a kernel belong to?
+    kernel_tenant: RwLock<HashMap<KernelId, TenantId>>,
+    /// Tenant registry (quotas, audit sink, engagement cost tracking).
+    registry: Arc<TenantRegistry>,
     /// Delivery receipts (for acknowledgment).
     receipts: RwLock<HashMap<MessageId, DeliveryReceipt>>,
-    /// Routing table for indirect delivery.
-    routing_table: RwLock<HashMap<KernelId, KernelId>>,
+    /// Global message counter (sum across all sub-brokers, for legacy stats).
+    message_counter: AtomicU64,
+    /// Counter of cross-tenant attempts rejected.
+    cross_tenant_rejections: AtomicU64,
 }
 
 impl K2KBroker {
-    /// Create a new K2K broker.
+    /// Create a new K2K broker with an empty [`TenantRegistry`].
     pub fn new(config: K2KConfig) -> Arc<Self> {
+        Self::with_registry(config, Arc::new(TenantRegistry::new()))
+    }
+
+    /// Create a new K2K broker sharing the given [`TenantRegistry`].
+    ///
+    /// This is the multi-tenant constructor: wire up the registry (with its
+    /// audit sink) once, then pass the `Arc` to every broker that should
+    /// enforce against it.
+    pub fn with_registry(config: K2KConfig, registry: Arc<TenantRegistry>) -> Arc<Self> {
+        let mut tenants = HashMap::new();
+        // Always pre-create the unspecified-tenant sub-broker so legacy
+        // single-tenant callers hit it directly with no `or_insert_with` in
+        // the hot path.
+        tenants.insert(
+            UNSPECIFIED_TENANT,
+            Arc::new(K2KSubBroker::new(UNSPECIFIED_TENANT)),
+        );
         Arc::new(Self {
             config,
-            endpoints: RwLock::new(HashMap::new()),
-            message_counter: AtomicU64::new(0),
+            tenants: RwLock::new(tenants),
+            kernel_tenant: RwLock::new(HashMap::new()),
+            registry,
             receipts: RwLock::new(HashMap::new()),
-            routing_table: RwLock::new(HashMap::new()),
+            message_counter: AtomicU64::new(0),
+            cross_tenant_rejections: AtomicU64::new(0),
         })
     }
 
-    /// Register a kernel endpoint.
+    /// Shared reference to the tenant registry.
+    pub fn registry(&self) -> &Arc<TenantRegistry> {
+        &self.registry
+    }
+
+    /// Total number of active tenant sub-brokers.
+    pub fn tenant_count(&self) -> usize {
+        self.tenants.read().len()
+    }
+
+    /// Get the sub-broker for a tenant, if it exists.
+    pub fn sub_broker(&self, tenant_id: TenantId) -> Option<Arc<K2KSubBroker>> {
+        self.tenants.read().get(&tenant_id).cloned()
+    }
+
+    /// Register a kernel without a tenant / audit tag (legacy API).
+    ///
+    /// The kernel is placed in the unspecified-tenant sub-broker
+    /// (`UNSPECIFIED_TENANT = 0`). This is the backward-compatible entry
+    /// point for single-tenant deployments — existing callers don't need to
+    /// change anything.
     pub fn register(self: &Arc<Self>, kernel_id: KernelId) -> K2KEndpoint {
+        self.register_tenant(UNSPECIFIED_TENANT, AuditTag::unspecified(), kernel_id)
+    }
+
+    /// Register a kernel into the given tenant's sub-broker, stamping the
+    /// [`AuditTag`] that will be applied to outgoing messages from this
+    /// kernel.
+    ///
+    /// If the tenant doesn't yet have a sub-broker, one is created lazily.
+    /// If the kernel was previously registered under a different tenant,
+    /// the old registration is replaced (the old mpsc sender is dropped —
+    /// in-flight messages to the old registration are lost). This preserves
+    /// the invariant that a kernel belongs to exactly one tenant.
+    pub fn register_tenant(
+        self: &Arc<Self>,
+        tenant_id: TenantId,
+        audit_tag: AuditTag,
+        kernel_id: KernelId,
+    ) -> K2KEndpoint {
         let (sender, receiver) = mpsc::channel(self.config.max_pending_messages);
 
-        self.endpoints.write().insert(kernel_id.clone(), sender);
+        let sub = {
+            let mut tenants = self.tenants.write();
+            tenants
+                .entry(tenant_id)
+                .or_insert_with(|| Arc::new(K2KSubBroker::new(tenant_id)))
+                .clone()
+        };
+
+        let mut kernel_tenant = self.kernel_tenant.write();
+        if let Some(prev_tenant) = kernel_tenant.get(&kernel_id).copied() {
+            if prev_tenant != tenant_id {
+                if let Some(prev_sub) = self.tenants.read().get(&prev_tenant).cloned() {
+                    prev_sub.endpoints.write().remove(&kernel_id);
+                    prev_sub.kernel_audit_tags.write().remove(&kernel_id);
+                    prev_sub.routing_table.write().remove(&kernel_id);
+                }
+            }
+        }
+        kernel_tenant.insert(kernel_id.clone(), tenant_id);
+        drop(kernel_tenant);
+
+        sub.endpoints.write().insert(kernel_id.clone(), sender);
+        sub.kernel_audit_tags
+            .write()
+            .insert(kernel_id.clone(), audit_tag);
 
         K2KEndpoint {
             kernel_id,
@@ -216,23 +410,48 @@ impl K2KBroker {
         }
     }
 
-    /// Unregister a kernel endpoint.
+    /// Unregister a kernel from whichever tenant it belongs to.
     pub fn unregister(&self, kernel_id: &KernelId) {
-        self.endpoints.write().remove(kernel_id);
-        self.routing_table.write().remove(kernel_id);
+        let tenant_id = self.kernel_tenant.write().remove(kernel_id);
+        if let Some(tenant_id) = tenant_id {
+            if let Some(sub) = self.tenants.read().get(&tenant_id).cloned() {
+                sub.endpoints.write().remove(kernel_id);
+                sub.kernel_audit_tags.write().remove(kernel_id);
+                sub.routing_table.write().remove(kernel_id);
+            }
+        }
     }
 
-    /// Check if a kernel is registered.
+    /// Check if a kernel is registered (under any tenant).
     pub fn is_registered(&self, kernel_id: &KernelId) -> bool {
-        self.endpoints.read().contains_key(kernel_id)
+        self.kernel_tenant.read().contains_key(kernel_id)
     }
 
-    /// Get all registered kernels.
+    /// Get the tenant this kernel belongs to, if registered.
+    pub fn tenant_of(&self, kernel_id: &KernelId) -> Option<TenantId> {
+        self.kernel_tenant.read().get(kernel_id).copied()
+    }
+
+    /// All registered kernel IDs (across every tenant).
     pub fn registered_kernels(&self) -> Vec<KernelId> {
-        self.endpoints.read().keys().cloned().collect()
+        self.kernel_tenant.read().keys().cloned().collect()
     }
 
-    /// Send a message from one kernel to another.
+    /// Kernel IDs registered under a specific tenant.
+    pub fn registered_kernels_for(&self, tenant_id: TenantId) -> Vec<KernelId> {
+        self.tenants
+            .read()
+            .get(&tenant_id)
+            .map(|sub| sub.endpoints.read().keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Send a message from one kernel to another (normal priority).
+    ///
+    /// Enforces tenant isolation: the sender's and destination's tenants
+    /// must match, or the send is rejected with
+    /// [`crate::error::RingKernelError::TenantMismatch`] and an audit event
+    /// is emitted.
     pub async fn send(
         &self,
         source: KernelId,
@@ -250,25 +469,114 @@ impl K2KBroker {
         envelope: MessageEnvelope,
         priority: u8,
     ) -> Result<DeliveryReceipt> {
+        // Resolve source tenant (sender must be registered).
+        let source_tenant = self
+            .kernel_tenant
+            .read()
+            .get(&source)
+            .copied()
+            .unwrap_or(UNSPECIFIED_TENANT);
+
+        // Resolve destination tenant. If destination is unregistered we
+        // treat it as residing in the *sender's* tenant — that way the
+        // resulting delivery attempt will hit NotFound inside the sender's
+        // own sub-broker (preserving the legacy error behavior) rather than
+        // being misclassified as cross-tenant.
+        let dest_tenant = self
+            .kernel_tenant
+            .read()
+            .get(&destination)
+            .copied()
+            .unwrap_or(source_tenant);
+
+        // Cross-tenant check.
+        if source_tenant != dest_tenant {
+            self.cross_tenant_rejections.fetch_add(1, Ordering::Relaxed);
+            self.registry.audit_cross_tenant(
+                source_tenant,
+                dest_tenant,
+                source.as_str(),
+                destination.as_str(),
+                envelope.audit_tag,
+            );
+            return Err(RingKernelError::TenantMismatch {
+                from: source_tenant,
+                to: dest_tenant,
+            });
+        }
+
+        // Quota check (observability-driven — UNSPECIFIED_TENANT is a no-op).
+        self.registry
+            .check_quota(source_tenant, envelope.audit_tag)?;
+        self.registry.record_message(source_tenant);
+
+        // Stamp envelope with sender-derived audit tag if caller didn't
+        // supply one.
+        let mut envelope = envelope;
+        envelope.tenant_id = source_tenant;
+        if envelope.audit_tag.is_unspecified() {
+            let sub = self
+                .tenants
+                .read()
+                .get(&source_tenant)
+                .cloned()
+                .expect("tenant sub-broker must exist for registered sender");
+            envelope.audit_tag = sub.audit_tag_for(&source);
+        }
+
         let timestamp = envelope.header.timestamp;
         let mut message = K2KMessage::new(source.clone(), destination.clone(), envelope, timestamp);
         message.priority = priority;
 
-        self.deliver(message).await
+        self.deliver_in(source_tenant, message).await
     }
 
-    /// Deliver a message to its destination.
-    async fn deliver(&self, message: K2KMessage) -> Result<DeliveryReceipt> {
+    /// Send a message stamped with an explicit audit tag (overriding the
+    /// registration-time tag).
+    ///
+    /// Useful for the same kernel participating in multiple engagements —
+    /// e.g. a shared report-generation kernel that should bill different
+    /// engagements depending on which request it's serving.
+    pub async fn send_with_audit(
+        &self,
+        source: KernelId,
+        destination: KernelId,
+        envelope: MessageEnvelope,
+        audit_tag: AuditTag,
+    ) -> Result<DeliveryReceipt> {
+        let envelope = envelope.with_audit_tag(audit_tag);
+        self.send(source, destination, envelope).await
+    }
+
+    /// Deliver a message inside a specific sub-broker.
+    async fn deliver_in(
+        &self,
+        tenant_id: TenantId,
+        message: K2KMessage,
+    ) -> Result<DeliveryReceipt> {
+        let sub = self
+            .tenants
+            .read()
+            .get(&tenant_id)
+            .cloned()
+            .ok_or_else(|| {
+                RingKernelError::K2KError(format!(
+                    "tenant sub-broker {} disappeared mid-send",
+                    tenant_id
+                ))
+            })?;
+
         let message_id = message.id;
         let source = message.source.clone();
         let destination = message.destination.clone();
         let timestamp = message.sent_at;
 
-        // Try direct delivery first
-        let endpoints = self.endpoints.read();
+        // Try direct delivery first.
+        let endpoints = sub.endpoints.read();
         if let Some(sender) = endpoints.get(&destination) {
             match sender.try_send(message) {
                 Ok(()) => {
+                    sub.messages_delivered.fetch_add(1, Ordering::Relaxed);
                     self.message_counter.fetch_add(1, Ordering::Relaxed);
                     let receipt = DeliveryReceipt {
                         message_id,
@@ -302,16 +610,13 @@ impl K2KBroker {
         }
         drop(endpoints);
 
-        // Try routing table
-        let next_hop = {
-            let routing = self.routing_table.read();
-            routing.get(&destination).cloned()
-        };
-
+        // Try indirect routing (within the same tenant only — there is no
+        // cross-tenant routing by construction).
+        let next_hop = sub.routing_table.read().get(&destination).cloned();
         if let Some(next_hop) = next_hop {
             let routed_message = K2KMessage {
                 id: message_id,
-                source,
+                source: source.clone(),
                 destination: destination.clone(),
                 envelope: message.envelope,
                 hops: message.hops + 1,
@@ -322,21 +627,21 @@ impl K2KBroker {
             if routed_message.hops > self.config.max_hops {
                 return Ok(DeliveryReceipt {
                     message_id,
-                    source: routed_message.source,
+                    source,
                     destination,
                     status: DeliveryStatus::MaxHopsExceeded,
                     timestamp,
                 });
             }
 
-            // Try to deliver to next hop
-            let endpoints = self.endpoints.read();
+            let endpoints = sub.endpoints.read();
             if let Some(sender) = endpoints.get(&next_hop) {
                 if sender.try_send(routed_message).is_ok() {
+                    sub.messages_delivered.fetch_add(1, Ordering::Relaxed);
                     self.message_counter.fetch_add(1, Ordering::Relaxed);
                     return Ok(DeliveryReceipt {
                         message_id,
-                        source: message.source,
+                        source,
                         destination,
                         status: DeliveryStatus::Pending,
                         timestamp,
@@ -345,33 +650,72 @@ impl K2KBroker {
             }
         }
 
-        // Destination not found
+        // Destination not found within the tenant.
         Ok(DeliveryReceipt {
             message_id,
-            source: message.source,
+            source,
             destination,
             status: DeliveryStatus::NotFound,
             timestamp,
         })
     }
 
-    /// Add a route to the routing table.
+    /// Add an indirect route inside the unspecified-tenant sub-broker
+    /// (legacy API — single-tenant callers should use this).
     pub fn add_route(&self, destination: KernelId, next_hop: KernelId) {
-        self.routing_table.write().insert(destination, next_hop);
+        self.add_route_in(UNSPECIFIED_TENANT, destination, next_hop);
     }
 
-    /// Remove a route from the routing table.
+    /// Add an indirect route inside a specific tenant's sub-broker.
+    pub fn add_route_in(&self, tenant_id: TenantId, destination: KernelId, next_hop: KernelId) {
+        let sub = {
+            let mut tenants = self.tenants.write();
+            tenants
+                .entry(tenant_id)
+                .or_insert_with(|| Arc::new(K2KSubBroker::new(tenant_id)))
+                .clone()
+        };
+        sub.routing_table.write().insert(destination, next_hop);
+    }
+
+    /// Remove an indirect route from the unspecified-tenant sub-broker.
     pub fn remove_route(&self, destination: &KernelId) {
-        self.routing_table.write().remove(destination);
+        self.remove_route_in(UNSPECIFIED_TENANT, destination);
     }
 
-    /// Get statistics.
-    pub fn stats(&self) -> K2KStats {
-        K2KStats {
-            registered_endpoints: self.endpoints.read().len(),
-            messages_delivered: self.message_counter.load(Ordering::Relaxed),
-            routes_configured: self.routing_table.read().len(),
+    /// Remove an indirect route from a specific tenant's sub-broker.
+    pub fn remove_route_in(&self, tenant_id: TenantId, destination: &KernelId) {
+        if let Some(sub) = self.tenants.read().get(&tenant_id).cloned() {
+            sub.routing_table.write().remove(destination);
         }
+    }
+
+    /// Get aggregate stats across all sub-brokers.
+    pub fn stats(&self) -> K2KStats {
+        let tenants = self.tenants.read();
+        let mut registered = 0usize;
+        let mut routes = 0usize;
+        for sub in tenants.values() {
+            registered += sub.endpoints.read().len();
+            routes += sub.routing_table.read().len();
+        }
+        K2KStats {
+            registered_endpoints: registered,
+            messages_delivered: self.message_counter.load(Ordering::Relaxed),
+            routes_configured: routes,
+            tenant_count: tenants.len(),
+            cross_tenant_rejections: self.cross_tenant_rejections.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Get per-tenant stats (useful for billing / dashboards).
+    pub fn tenant_stats(&self, tenant_id: TenantId) -> Option<TenantStats> {
+        self.tenants.read().get(&tenant_id).map(|sub| TenantStats {
+            tenant_id,
+            registered_endpoints: sub.endpoints.read().len(),
+            routes_configured: sub.routing_table.read().len(),
+            messages_delivered: sub.messages_delivered.load(Ordering::Relaxed),
+        })
     }
 
     /// Get delivery receipt for a message.
@@ -380,20 +724,38 @@ impl K2KBroker {
     }
 }
 
-/// K2K messaging statistics.
+/// K2K messaging statistics (aggregate across all tenants).
 #[derive(Debug, Clone, Default)]
 pub struct K2KStats {
-    /// Number of registered endpoints.
+    /// Total number of registered endpoints across all tenants.
     pub registered_endpoints: usize,
-    /// Total messages delivered.
+    /// Total messages delivered (all tenants).
     pub messages_delivered: u64,
-    /// Number of routes configured.
+    /// Total configured routes across all tenants.
     pub routes_configured: usize,
+    /// Number of active tenant sub-brokers.
+    pub tenant_count: usize,
+    /// Cross-tenant send attempts rejected so far.
+    pub cross_tenant_rejections: u64,
+}
+
+/// Per-tenant stats (one entry per sub-broker).
+#[derive(Debug, Clone, Default)]
+pub struct TenantStats {
+    /// Tenant ID.
+    pub tenant_id: TenantId,
+    /// Endpoints registered under this tenant.
+    pub registered_endpoints: usize,
+    /// Routes configured under this tenant.
+    pub routes_configured: usize,
+    /// Messages delivered by this sub-broker.
+    pub messages_delivered: u64,
 }
 
 /// Builder for creating K2K infrastructure.
 pub struct K2KBuilder {
     config: K2KConfig,
+    registry: Option<Arc<TenantRegistry>>,
 }
 
 impl K2KBuilder {
@@ -401,6 +763,7 @@ impl K2KBuilder {
     pub fn new() -> Self {
         Self {
             config: K2KConfig::default(),
+            registry: None,
         }
     }
 
@@ -428,9 +791,18 @@ impl K2KBuilder {
         self
     }
 
+    /// Attach a shared [`TenantRegistry`] (for multi-tenant deployments).
+    pub fn with_registry(mut self, registry: Arc<TenantRegistry>) -> Self {
+        self.registry = Some(registry);
+        self
+    }
+
     /// Build the K2K broker.
     pub fn build(self) -> Arc<K2KBroker> {
-        K2KBroker::new(self.config)
+        match self.registry {
+            Some(registry) => K2KBroker::with_registry(self.config, registry),
+            None => K2KBroker::new(self.config),
+        }
     }
 }
 
@@ -1356,6 +1728,301 @@ mod tests {
         let config = K2KConfig::default();
         assert_eq!(config.max_pending_messages, 1024);
         assert_eq!(config.delivery_timeout_ms, 5000);
+    }
+
+    // ============================================================
+    // Multi-tenant K2K tests (§3.5)
+    // ============================================================
+
+    mod multi_tenant {
+        use super::*;
+        use crate::audit::MemorySink;
+
+        fn env() -> MessageEnvelope {
+            MessageEnvelope::empty(1, 2, HlcTimestamp::now(1))
+        }
+
+        // -- regression: single-tenant fast path unchanged --
+
+        #[tokio::test]
+        async fn legacy_single_tenant_send_unchanged() {
+            let broker = K2KBuilder::new().build();
+            let k1 = KernelId::new("k1");
+            let k2 = KernelId::new("k2");
+            let e1 = broker.register(k1.clone());
+            let mut e2 = broker.register(k2.clone());
+
+            let receipt = e1.send(k2.clone(), env()).await.unwrap();
+            assert_eq!(receipt.status, DeliveryStatus::Delivered);
+            let msg = e2.try_receive().unwrap();
+            assert_eq!(msg.source, k1);
+            assert_eq!(msg.envelope.tenant_id, UNSPECIFIED_TENANT);
+        }
+
+        #[tokio::test]
+        async fn single_tenant_fast_path_uses_unspecified_tenant() {
+            let broker = K2KBuilder::new().build();
+            let k = KernelId::new("k");
+            let _e = broker.register(k.clone());
+            assert_eq!(broker.tenant_of(&k), Some(UNSPECIFIED_TENANT));
+            assert_eq!(broker.tenant_count(), 1);
+        }
+
+        // -- cross-tenant rejection with audit --
+
+        #[tokio::test]
+        async fn cross_tenant_send_rejected_with_tenant_mismatch() {
+            let broker = K2KBuilder::new().build();
+            broker
+                .registry()
+                .register(1, TenantQuota::default())
+                .unwrap();
+            broker
+                .registry()
+                .register(2, TenantQuota::default())
+                .unwrap();
+
+            let ka = KernelId::new("tenant1_kernel");
+            let kb = KernelId::new("tenant2_kernel");
+            let ea = broker.register_tenant(1, AuditTag::new(10, 100), ka.clone());
+            let _eb = broker.register_tenant(2, AuditTag::new(20, 200), kb.clone());
+
+            let err = ea.send(kb.clone(), env()).await.unwrap_err();
+            match err {
+                RingKernelError::TenantMismatch { from, to } => {
+                    assert_eq!(from, 1);
+                    assert_eq!(to, 2);
+                }
+                other => panic!("expected TenantMismatch, got {:?}", other),
+            }
+            assert_eq!(broker.stats().cross_tenant_rejections, 1);
+        }
+
+        #[tokio::test]
+        async fn cross_tenant_attempt_recorded_in_audit_sink() {
+            let sink = Arc::new(MemorySink::new(100));
+            let registry = Arc::new(TenantRegistry::with_audit_sink(sink.clone()));
+            registry.register(1, TenantQuota::default()).unwrap();
+            registry.register(2, TenantQuota::default()).unwrap();
+
+            let broker = K2KBuilder::new().with_registry(registry).build();
+            let ka = KernelId::new("ka");
+            let kb = KernelId::new("kb");
+            let ea = broker.register_tenant(1, AuditTag::new(10, 100), ka.clone());
+            let _eb = broker.register_tenant(2, AuditTag::new(20, 200), kb.clone());
+
+            let _ = ea.send(kb.clone(), env()).await.unwrap_err();
+            let events = sink.events();
+            assert_eq!(events.len(), 1);
+            assert!(events[0].description.contains("cross-tenant"));
+            let md: std::collections::HashMap<_, _> = events[0]
+                .metadata
+                .iter()
+                .cloned()
+                .collect::<std::collections::HashMap<_, _>>();
+            assert_eq!(md.get("from_tenant"), Some(&"1".to_string()));
+            assert_eq!(md.get("to_tenant"), Some(&"2".to_string()));
+        }
+
+        // -- same-tenant sends stamped with audit_tag --
+
+        #[tokio::test]
+        async fn same_tenant_send_succeeds_with_audit_tag() {
+            let broker = K2KBuilder::new().build();
+            broker
+                .registry()
+                .register(1, TenantQuota::default())
+                .unwrap();
+
+            let ka = KernelId::new("a");
+            let kb = KernelId::new("b");
+            let ea = broker.register_tenant(1, AuditTag::new(10, 100), ka.clone());
+            let mut eb = broker.register_tenant(1, AuditTag::new(10, 100), kb.clone());
+
+            let receipt = ea.send(kb.clone(), env()).await.unwrap();
+            assert_eq!(receipt.status, DeliveryStatus::Delivered);
+
+            let msg = eb.try_receive().unwrap();
+            assert_eq!(msg.envelope.tenant_id, 1);
+            assert_eq!(msg.envelope.audit_tag, AuditTag::new(10, 100));
+        }
+
+        // -- engagement cost tracking --
+
+        #[tokio::test]
+        async fn engagement_cost_accumulates_across_sends() {
+            let broker = K2KBuilder::new().build();
+            broker
+                .registry()
+                .register(1, TenantQuota::unlimited())
+                .unwrap();
+
+            let ka = KernelId::new("a");
+            let kb = KernelId::new("b");
+            let ea = broker.register_tenant(1, AuditTag::new(10, 100), ka.clone());
+            let _eb = broker.register_tenant(1, AuditTag::new(10, 100), kb.clone());
+
+            for _ in 0..4 {
+                let _ = ea.send(kb.clone(), env()).await.unwrap();
+                broker.registry().track_usage(
+                    1,
+                    AuditTag::new(10, 100),
+                    std::time::Duration::from_millis(50),
+                );
+            }
+            let cost = broker
+                .registry()
+                .get_engagement_cost_for(1, AuditTag::new(10, 100));
+            assert_eq!(cost, std::time::Duration::from_millis(200));
+        }
+
+        #[tokio::test]
+        async fn engagement_cost_separate_across_audit_tags() {
+            let broker = K2KBuilder::new().build();
+            broker
+                .registry()
+                .register(1, TenantQuota::unlimited())
+                .unwrap();
+
+            let tag_a = AuditTag::new(10, 1);
+            let tag_b = AuditTag::new(10, 2);
+            broker
+                .registry()
+                .track_usage(1, tag_a, std::time::Duration::from_millis(150));
+            broker
+                .registry()
+                .track_usage(1, tag_b, std::time::Duration::from_millis(300));
+
+            assert_eq!(
+                broker.registry().get_engagement_cost_for(1, tag_a),
+                std::time::Duration::from_millis(150)
+            );
+            assert_eq!(
+                broker.registry().get_engagement_cost_for(1, tag_b),
+                std::time::Duration::from_millis(300)
+            );
+        }
+
+        // -- quota enforcement --
+
+        #[tokio::test]
+        async fn quota_enforcement_rejects_over_rate_limit() {
+            let broker = K2KBuilder::new().build();
+            let mut quota = TenantQuota::default();
+            quota.max_messages_per_sec = 2;
+            broker.registry().register(1, quota).unwrap();
+
+            let ka = KernelId::new("a");
+            let kb = KernelId::new("b");
+            let ea = broker.register_tenant(1, AuditTag::new(10, 1), ka.clone());
+            let _eb = broker.register_tenant(1, AuditTag::new(10, 1), kb.clone());
+
+            assert!(ea.send(kb.clone(), env()).await.is_ok());
+            assert!(ea.send(kb.clone(), env()).await.is_ok());
+            let err = ea.send(kb.clone(), env()).await.unwrap_err();
+            assert!(matches!(err, RingKernelError::LoadSheddingRejected { .. }));
+        }
+
+        // -- registration / deregistration --
+
+        #[tokio::test]
+        async fn register_tenant_kernel_and_unregister() {
+            let broker = K2KBuilder::new().build();
+            broker
+                .registry()
+                .register(7, TenantQuota::default())
+                .unwrap();
+            let k = KernelId::new("k");
+            let _ep = broker.register_tenant(7, AuditTag::new(1, 1), k.clone());
+            assert_eq!(broker.tenant_of(&k), Some(7));
+            assert_eq!(broker.registered_kernels_for(7), vec![k.clone()]);
+
+            broker.unregister(&k);
+            assert!(!broker.is_registered(&k));
+            assert!(broker.registered_kernels_for(7).is_empty());
+        }
+
+        #[tokio::test]
+        async fn tenant_stats_reports_per_tenant_counts() {
+            let broker = K2KBuilder::new().build();
+            broker
+                .registry()
+                .register(1, TenantQuota::default())
+                .unwrap();
+            broker
+                .registry()
+                .register(2, TenantQuota::default())
+                .unwrap();
+
+            let _ea = broker.register_tenant(1, AuditTag::unspecified(), KernelId::new("a"));
+            let _eb = broker.register_tenant(1, AuditTag::unspecified(), KernelId::new("b"));
+            let _ec = broker.register_tenant(2, AuditTag::unspecified(), KernelId::new("c"));
+
+            let s1 = broker.tenant_stats(1).unwrap();
+            let s2 = broker.tenant_stats(2).unwrap();
+            assert_eq!(s1.registered_endpoints, 2);
+            assert_eq!(s2.registered_endpoints, 1);
+        }
+
+        #[tokio::test]
+        async fn re_registering_kernel_moves_it_between_tenants() {
+            let broker = K2KBuilder::new().build();
+            broker
+                .registry()
+                .register(1, TenantQuota::default())
+                .unwrap();
+            broker
+                .registry()
+                .register(2, TenantQuota::default())
+                .unwrap();
+
+            let k = KernelId::new("roaming");
+            let _e1 = broker.register_tenant(1, AuditTag::unspecified(), k.clone());
+            assert_eq!(broker.tenant_of(&k), Some(1));
+
+            let _e2 = broker.register_tenant(2, AuditTag::unspecified(), k.clone());
+            assert_eq!(broker.tenant_of(&k), Some(2));
+            assert!(broker.registered_kernels_for(1).is_empty());
+            assert_eq!(broker.registered_kernels_for(2), vec![k]);
+        }
+
+        #[tokio::test]
+        async fn send_with_audit_overrides_registration_tag() {
+            let broker = K2KBuilder::new().build();
+            broker
+                .registry()
+                .register(1, TenantQuota::unlimited())
+                .unwrap();
+
+            let ka = KernelId::new("a");
+            let kb = KernelId::new("b");
+            let _ea = broker.register_tenant(1, AuditTag::new(10, 1), ka.clone());
+            let mut eb = broker.register_tenant(1, AuditTag::new(10, 1), kb.clone());
+
+            let receipt = broker
+                .send_with_audit(ka.clone(), kb.clone(), env(), AuditTag::new(10, 99))
+                .await
+                .unwrap();
+            assert_eq!(receipt.status, DeliveryStatus::Delivered);
+            let msg = eb.try_receive().unwrap();
+            assert_eq!(msg.envelope.audit_tag, AuditTag::new(10, 99));
+        }
+
+        #[tokio::test]
+        async fn default_audit_tag_behavior() {
+            // Single-tenant deployment (tenant_id = 0) should preserve the
+            // default unspecified audit tag when no explicit tag is set.
+            let broker = K2KBuilder::new().build();
+            let ka = KernelId::new("a");
+            let kb = KernelId::new("b");
+            let _ea = broker.register(ka.clone());
+            let mut eb = broker.register(kb.clone());
+
+            let _ = broker.send(ka.clone(), kb.clone(), env()).await.unwrap();
+            let msg = eb.try_receive().unwrap();
+            assert_eq!(msg.envelope.tenant_id, UNSPECIFIED_TENANT);
+            assert!(msg.envelope.audit_tag.is_unspecified());
+        }
     }
 
     // K2K Encryption tests (requires crypto feature)

@@ -286,6 +286,8 @@ mod tests {
             header: MessageHeader::new(1, 0, 1, 64, HlcTimestamp::now(1)),
             payload: vec![42u8; 64],
             provenance: None,
+            tenant_id: 0,
+            audit_tag: crate::k2k::audit_tag::AuditTag::unspecified(),
         }
     }
 

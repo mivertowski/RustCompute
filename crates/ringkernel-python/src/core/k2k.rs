@@ -105,6 +105,8 @@ pub enum PyDeliveryStatus {
     Timeout = 4,
     /// Maximum routing hops exceeded.
     MaxHopsExceeded = 5,
+    /// Cross-tenant send rejected by the broker.
+    TenantMismatch = 6,
 }
 
 #[pymethods]
@@ -123,7 +125,11 @@ impl PyDeliveryStatus {
     fn is_failure(&self) -> bool {
         matches!(
             self,
-            Self::NotFound | Self::QueueFull | Self::Timeout | Self::MaxHopsExceeded
+            Self::NotFound
+                | Self::QueueFull
+                | Self::Timeout
+                | Self::MaxHopsExceeded
+                | Self::TenantMismatch
         )
     }
 
@@ -135,6 +141,7 @@ impl PyDeliveryStatus {
             Self::QueueFull => "DeliveryStatus.QueueFull".to_string(),
             Self::Timeout => "DeliveryStatus.Timeout".to_string(),
             Self::MaxHopsExceeded => "DeliveryStatus.MaxHopsExceeded".to_string(),
+            Self::TenantMismatch => "DeliveryStatus.TenantMismatch".to_string(),
         }
     }
 }
@@ -148,6 +155,7 @@ impl From<DeliveryStatus> for PyDeliveryStatus {
             DeliveryStatus::QueueFull => Self::QueueFull,
             DeliveryStatus::Timeout => Self::Timeout,
             DeliveryStatus::MaxHopsExceeded => Self::MaxHopsExceeded,
+            DeliveryStatus::TenantMismatch => Self::TenantMismatch,
         }
     }
 }

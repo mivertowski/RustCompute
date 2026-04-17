@@ -365,7 +365,11 @@ impl CudaMessageQueue {
                 .copy_to_host_at(&mut payload, payload_offset)?;
         }
 
-        Ok(MessageEnvelope { header, payload })
+        Ok(MessageEnvelope {
+            header,
+            payload,
+            ..Default::default()
+        })
     }
 }
 

@@ -430,7 +430,7 @@ impl TileActor {
         MessageEnvelope {
             header,
             payload,
-            provenance: None,
+            ..Default::default()
         }
     }
 

@@ -343,15 +343,15 @@ fn probe_impl() -> Result<NvlinkTopology> {
     // Step 1: ask CUDA how many devices are visible. We guard against cudarc
     // panicking when the driver isn't installed (same pattern used by
     // `crate::is_cuda_available`).
-    let device_count = match std::panic::catch_unwind(|| {
-        cudarc::driver::CudaContext::device_count().unwrap_or(0)
-    }) {
-        Ok(count) => count,
-        Err(_) => {
-            tracing::debug!("CUDA driver unavailable — returning single-GPU topology");
-            return Ok(NvlinkTopology::single_gpu());
-        }
-    };
+    let device_count =
+        match std::panic::catch_unwind(|| cudarc::driver::CudaContext::device_count().unwrap_or(0))
+        {
+            Ok(count) => count,
+            Err(_) => {
+                tracing::debug!("CUDA driver unavailable — returning single-GPU topology");
+                return Ok(NvlinkTopology::single_gpu());
+            }
+        };
 
     if device_count == 0 {
         tracing::debug!("no CUDA devices visible — returning single-GPU topology");
@@ -375,9 +375,7 @@ fn probe_impl() -> Result<NvlinkTopology> {
     {
         match enrich_with_nvml(n, &mut matrix) {
             Ok(()) => tracing::debug!("NVLink topology enriched via NVML"),
-            Err(e) => tracing::warn!(
-                "NVML probe failed ({e}); using CUDA P2P fallback bandwidths"
-            ),
+            Err(e) => tracing::warn!("NVML probe failed ({e}); using CUDA P2P fallback bandwidths"),
         }
     }
 
@@ -418,9 +416,8 @@ fn p2p_matrix_from_cuda(n: usize) -> Result<Vec<Vec<u32>>> {
             // SAFETY: both device handles come from `cuDeviceGet` above and
             // are valid for the lifetime of this function. `can_access` is a
             // stack-allocated `i32` we own.
-            let rc = unsafe {
-                cuda_sys::cuDeviceCanAccessPeer(&mut can_access, devices[i], devices[j])
-            };
+            let rc =
+                unsafe { cuda_sys::cuDeviceCanAccessPeer(&mut can_access, devices[i], devices[j]) };
             if rc == cuda_sys::cudaError_enum::CUDA_SUCCESS && can_access == 1 {
                 matrix[i][j] = FALLBACK_P2P_BANDWIDTH_GBPS;
             }
@@ -455,9 +452,7 @@ fn enrich_with_nvml(n: usize, matrix: &mut [Vec<u32>]) -> Result<()> {
             ))
         })?;
         let pci = nvml_dev.pci_info().map_err(|e| {
-            RingKernelError::BackendError(format!(
-                "nvmlDeviceGetPciInfo_v3({ordinal}) failed: {e}"
-            ))
+            RingKernelError::BackendError(format!("nvmlDeviceGetPciInfo_v3({ordinal}) failed: {e}"))
         })?;
         slots.push(Slot {
             ordinal: ordinal as u32,
