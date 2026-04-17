@@ -7,6 +7,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-16
+
+First production-grade release. Focuses exclusively on NVIDIA CUDA. H100-verified with paper-quality benchmarks.
+
+### Headline Results (NVIDIA H100 NVL)
+
+- **8,698x faster** than traditional `cuLaunchKernel`
+- **3,005x faster** than CUDA Graph replay
+- **5.54M ops/s** sustained throughput (CV 0.05%, 60 seconds)
+- **0.628 us** cluster.sync() (2.98x vs grid.sync())
+- **116.9x** faster async memory alloc vs `cuMemAlloc`
+- All benchmarks with 95% CI, Cohen's d, Welch's t-test
+
+### Added
+
+#### Hopper (H100) Architecture Support
+- Thread Block Clusters via `cuLaunchKernelEx` with `CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION`
+- Distributed Shared Memory (DSMEM) for intra-cluster K2K messaging
+- TMA (Tensor Memory Accelerator) async copy configuration
+- Green Contexts for SM partitioning via `cuGreenCtxCreate`
+- Async memory pool (`cuMemAllocAsync`)
+- `GpuArchitecture::blackwell()` preset for B200 (sm_100)
+
+#### Runtime & API Improvements
+- `CudaRuntime::launch()` now bridges to `PersistentSimulation` for real GPU execution
+  when `mode=Persistent && cooperative=true`
+- Architecture auto-detection via `RINGKERNEL_CUDA_ARCH` env var
+- Multi-arch PTX compilation fallback (sm_75/sm_80/sm_89/sm_90)
+- libcu++ ordered atomics enabled by default for persistent kernels
+- `cargo-audit` security scanning in CI
+- Feature matrix CI jobs (no features / cpu / enterprise)
+
+#### Actor Framework
+- GPU actor lifecycle (create/destroy/restart/supervise) in single persistent kernel
+- Supervision trees with cascading kill, escalation, tree_view
+- Named actor registry with wildcard service discovery
+- Credit-based backpressure with watermarks and flow metrics
+- Dead letter queue with replay, filter, TTL expiry
+- Memory pressure handling (budgets, levels, mitigation strategies)
+- Idempotency dedup cache with TTL
+- `GracefulShutdown` with SIGTERM/SIGINT handling
+- `CheckpointManager` for periodic actor state snapshots
+- Dynamic scheduling framework (scheduler warp pattern + work stealing codegen)
+- Hot config reload with versioning and audit trail
+
+#### Error Handling & Safety
+- Typed error enums across all application crates (AccNet, WaveSim, TxMon, ProcInt)
+- Zero bare `.unwrap()` in production code
+- `clippy::unwrap_used` warning lint on 12 crates
+- Graceful shutdown handler
+- 24 unsafe blocks documented with `// SAFETY:` comments in CUDA code
+
+#### Documentation & Benchmarks
+- `docs/benchmarks/ACADEMIC_PROOF.md` — 15-section paper with 95% CI
+- `docs/benchmarks/METHODOLOGY.md` — statistical protocol (8 experiments)
+- `docs/benchmarks/h100-b200-baseline.md` — H100 results populated
+- `benches/academic_harness.rs` — statistical framework (percentiles, Cohen's d, Welch's t-test)
+- `scripts/run-academic-benchmarks.sh` — automated benchmark suite
+
+### Changed
+
+- Upgraded `cudarc` from 0.18.2 to 0.19.3
+- TLS PEM certificate parsing implemented (was placeholder returning empty vectors)
+- CloudWatch audit sink implemented with AWS SDK (feature-gated)
+- OTLP export via dedicated `otel` feature flag
+- `println!/eprintln!` migrated to structured `tracing` (64 instances across 10 crates)
+- XOR crypto fallback emits `#[deprecated]` warning
+- Bumped all 19 crates from 0.4.2 to 1.0.0
+
+### Removed (BREAKING)
+
+- **`ringkernel-wgpu`** — WebGPU backend (no persistent kernel support)
+- **`ringkernel-wgpu-codegen`** — WGSL transpiler (17 unimplemented intrinsics due to spec limits)
+- **`ringkernel-metal`** — Apple Metal backend (no persistent kernel support)
+- **`ringkernel-wavesim3d`** — 3D showcase (hard dependency on wgpu for rendering)
+- `wgpu`, `metal`, `all-backends` features from all remaining crates
+- `persistent-wgpu` feature from `ringkernel-ecosystem`
+- `Backend::WebGpu` and `Backend::Metal` re-exports (enum variants kept as `#[doc(hidden)]` for future use)
+- 4,739 lines of dead backend code
+- `docs/14-wgpu-codegen.md` and `docs/PRODUCTION_READINESS_ROADMAP.md` (superseded)
+
+### Fixed
+
+- `CudaRuntime::launch()` no longer loads a trivial template kernel; launches real cooperative persistent kernels when requested
+- `ringkernel-accnet` and `ringkernel-procint` migrated from cudarc 0.11 API to 0.19.3
+- CLI project name validation (unsafe unwrap removed)
+- All WGSL transpiler marker `unimplemented!()` calls now have descriptive error messages
+
+### Migration from 0.4.x
+
+- Remove `wgpu`, `metal`, `all-backends` features from `Cargo.toml`
+- Replace `ringkernel-wavesim3d` usage with `ringkernel-wavesim` (2D) or custom CUDA code
+- Update `ringkernel = "0.4"` to `ringkernel = "1.0"`
+- `Result<_, String>` in application crates replaced with typed error enums
+
 ## [0.4.2] - 2026-02-06
 
 ### Added
