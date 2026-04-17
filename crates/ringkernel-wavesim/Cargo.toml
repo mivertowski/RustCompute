@@ -49,11 +49,11 @@ syn = { workspace = true, optional = true }
 criterion = { workspace = true }
 
 [features]
-default = ["cpu", "simd"]
+default = ["cpu"]
 cpu = ["ringkernel/cpu"]
 cuda = ["ringkernel/cuda", "dep:ringkernel-cuda", "dep:cudarc", "dep:bytemuck"]
 cuda-codegen = ["cuda", "dep:ringkernel-cuda-codegen", "dep:syn", "ringkernel-derive/cuda-codegen"]
-simd = []  # Enable SIMD optimizations (requires nightly)
+simd = []  # Enable SIMD optimizations (requires nightly Rust, opt-in only)
 
 [[bin]]
 name = "wavesim"

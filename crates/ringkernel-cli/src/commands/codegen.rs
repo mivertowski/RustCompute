@@ -190,10 +190,8 @@ fn parse_ring_kernel_attr(attr: &syn::Attribute, fn_name: &syn::Ident) -> (Strin
                                 _ => {}
                             }
                         }
-                        syn::Lit::Int(i) => {
-                            if key == "block_size" {
-                                block_size = i.base10_parse().unwrap_or(256);
-                            }
+                        syn::Lit::Int(i) if key == "block_size" => {
+                            block_size = i.base10_parse().unwrap_or(256);
                         }
                         _ => {}
                     }
