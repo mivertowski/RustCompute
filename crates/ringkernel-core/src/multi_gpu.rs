@@ -1746,6 +1746,9 @@ pub struct HotReloadConfig {
     pub validate_before_swap: bool,
     /// Keep old code as fallback in case of failure.
     pub keep_fallback: bool,
+    /// Number of compiled-rule versions retained per rule for rollback
+    /// (FIFO eviction, see `rules::RuleRegistry`). Default: 5.
+    pub max_rule_history: usize,
 }
 
 impl Default for HotReloadConfig {
@@ -1758,6 +1761,7 @@ impl Default for HotReloadConfig {
             retry_backoff: Duration::from_millis(500),
             validate_before_swap: true,
             keep_fallback: true,
+            max_rule_history: 5,
         }
     }
 }
@@ -2104,11 +2108,30 @@ pub struct HotReloadManager {
     version_counter: AtomicU64,
     /// Statistics.
     stats: HotReloadStats,
+    /// Compiled-rule registry (v1.1, per spec 3.3). Hot-swaps whole
+    /// inference-rule actors identified by opaque `CompiledRule`
+    /// artifacts produced by upstream compilers (e.g. VynGraph).
+    rule_registry: Arc<crate::rules::RuleRegistry>,
 }
 
 impl HotReloadManager {
     /// Create a new hot reload manager.
     pub fn new(config: HotReloadConfig) -> Arc<Self> {
+        Self::with_rule_backend(config, Arc::new(crate::rules::NoopSwapBackend))
+    }
+
+    /// Create a new hot reload manager with a custom rule-swap backend.
+    ///
+    /// Production code (e.g. `ringkernel-cuda`) should use this to inject
+    /// a backend that actually performs the GPU-side atomic actor swap.
+    pub fn with_rule_backend(
+        config: HotReloadConfig,
+        rule_backend: Arc<dyn crate::rules::RuleSwapBackend>,
+    ) -> Arc<Self> {
+        let rule_registry = Arc::new(crate::rules::RuleRegistry::new(
+            config.max_rule_history,
+            rule_backend,
+        ));
         Arc::new(Self {
             config,
             kernels: RwLock::new(HashMap::new()),
@@ -2116,7 +2139,13 @@ impl HotReloadManager {
             active_requests: RwLock::new(HashMap::new()),
             version_counter: AtomicU64::new(1),
             stats: HotReloadStats::default(),
+            rule_registry,
         })
+    }
+
+    /// Access the compiled-rule registry for hot-swap of inference rules.
+    pub fn rule_registry(&self) -> &Arc<crate::rules::RuleRegistry> {
+        &self.rule_registry
     }
 
     /// Create with default configuration.

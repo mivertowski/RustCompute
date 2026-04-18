@@ -76,6 +76,7 @@ pub mod queue;
 pub mod reduction;
 pub mod registry;
 pub mod resource;
+pub mod rules;
 pub mod runtime;
 pub mod runtime_context;
 pub mod scheduling;
@@ -191,6 +192,10 @@ pub mod prelude {
         global_guard, LinearEstimator, MemoryEstimate, MemoryEstimator, ReservationGuard,
         ResourceError, ResourceGuard, ResourceResult, DEFAULT_MAX_MEMORY_BYTES,
         SYSTEM_MEMORY_MARGIN,
+    };
+    pub use crate::rules::{
+        ActorConfig, CompiledRule, NoopSwapBackend, ReloadReport, RuleError, RuleHandle,
+        RuleMetadata, RuleRegistry, RuleStatus, RuleSwapBackend, SignatureVerifier,
     };
     pub use crate::runtime::*;
     pub use crate::runtime_context::{
