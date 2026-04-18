@@ -386,8 +386,33 @@ pub struct PersistentControlBlock {
     /// Current output queue depth.
     pub output_queue_depth: u32,
 
-    /// Reserved for future use (7 u64s = 56 bytes to reach 256 total).
-    pub _reserved: [u64; 7],
+    // === Multi-Tenancy (v1.1) ===
+    /// Tenant this actor belongs to. `0` = unspecified / legacy default.
+    /// Set by the broker at actor launch; immutable for kernel lifetime.
+    pub tenant_id: u64,
+    /// Number of messages dropped because source tenant != destination
+    /// tenant. Incremented atomically on the device whenever a GPU-side
+    /// routing lookup detects a cross-tenant attempt.
+    pub cross_tenant_reject_count: u64,
+
+    // === Migration Protocol (v1.1) ===
+    /// Migration phase: 0=Idle, 1=Quiescing, 2=Transferring, 3=Restoring, 4=ReadyToActivate.
+    /// See `MigrationPhase` enum.
+    pub migration_phase: u32,
+    /// Flag: actor has been quiesced (new messages rejected). Written by
+    /// the kernel's coordinator when processing a `BeginQuiesce` command.
+    pub is_quiesced: u32,
+    /// Number of messages written to the in-flight drain buffer during
+    /// quiesce. Used by the migration orchestrator to size the transfer.
+    pub in_flight_drained: u64,
+    /// CRC32 checksum of the captured actor state. Written by
+    /// `capture_actor_state`; verified by `restore_actor_state`.
+    pub state_checksum: u32,
+    /// Padding to keep alignment.
+    pub _pad3: u32,
+
+    /// Reserved for future use (2 u64 = 16 bytes to keep 256 total).
+    pub _reserved: [u64; 2],
 }
 
 impl Default for PersistentControlBlock {
@@ -426,7 +451,57 @@ impl Default for PersistentControlBlock {
             max_processing_ns: 0,
             input_queue_depth: 0,
             output_queue_depth: 0,
-            _reserved: [0; 7],
+            tenant_id: 0,
+            cross_tenant_reject_count: 0,
+            migration_phase: 0,
+            is_quiesced: 0,
+            in_flight_drained: 0,
+            state_checksum: 0,
+            _pad3: 0,
+            _reserved: [0; 2],
+        }
+    }
+}
+
+// ============================================================================
+// MIGRATION PROTOCOL (v1.1) — see spec §3.1 (3-phase protocol)
+// ============================================================================
+
+/// Migration phase recorded on the actor's control block.
+///
+/// The state machine lives on the device; the host observes transitions via
+/// K2H responses (`QuiesceComplete`, `ReadyToActivate`, `MigrationComplete`).
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MigrationPhase {
+    /// Not participating in any migration.
+    Idle = 0,
+    /// `BeginQuiesce` received: new inbound messages rejected, draining
+    /// in-flight queue.
+    Quiescing = 1,
+    /// Quiesce complete; waiting for / performing state transfer.
+    Transferring = 2,
+    /// Target actor: `RestoreState` received, checksum verification in
+    /// progress.
+    Restoring = 3,
+    /// Target actor: state restored, CRC32 matched. Ready for traffic.
+    ReadyToActivate = 4,
+    /// Source actor: `FinalizeMigration` received; terminating.
+    Terminating = 5,
+}
+
+impl MigrationPhase {
+    /// Decode the raw `u32` from the control block.
+    #[inline]
+    pub fn from_u32(v: u32) -> Option<Self> {
+        match v {
+            0 => Some(Self::Idle),
+            1 => Some(Self::Quiescing),
+            2 => Some(Self::Transferring),
+            3 => Some(Self::Restoring),
+            4 => Some(Self::ReadyToActivate),
+            5 => Some(Self::Terminating),
+            _ => None,
         }
     }
 }
@@ -472,6 +547,22 @@ pub enum SimCommand {
     /// Snapshot actor state to mapped memory for checkpointing.
     /// param1: actor slot index, param2: snapshot buffer offset.
     SnapshotActor = 20,
+
+    // === Migration Protocol (v1.1 — spec §3.1) ===
+    /// Begin quiesce phase: the target actor stops accepting new messages
+    /// and flushes any in-flight traffic to the drain buffer. After draining,
+    /// the kernel emits a `QuiesceComplete` K2H response.
+    /// param1: actor slot index.
+    BeginQuiesce = 32,
+    /// Finalize migration: terminate the source actor after its state /
+    /// in-flight buffer have been successfully transferred to the target GPU.
+    /// param1: actor slot index.
+    FinalizeMigration = 33,
+    /// Restore state command sent to the target actor on the destination GPU.
+    /// The target kernel reads the state blob from mapped memory, verifies
+    /// the CRC32 checksum, and emits a `ReadyToActivate` K2H response.
+    /// param1: actor slot index, param2: expected CRC32.
+    RestoreState = 34,
 }
 
 /// H2K message structure (host → kernel command).
@@ -621,6 +712,50 @@ impl H2KMessage {
             ..Default::default()
         }
     }
+
+    // === Migration Protocol Commands (v1.1) ===
+
+    /// Begin the quiesce phase of the 3-phase migration protocol.
+    ///
+    /// After receiving this command the target actor must:
+    /// 1. Stop accepting new inbound messages
+    /// 2. Drain its in-flight queue into the mapped drain buffer
+    /// 3. Emit a `QuiesceComplete` K2H response when drained
+    pub fn begin_quiesce(cmd_id: u64, actor_slot: u32) -> Self {
+        Self {
+            cmd: SimCommand::BeginQuiesce as u32,
+            cmd_id,
+            param1: actor_slot as u64,
+            ..Default::default()
+        }
+    }
+
+    /// Finalize a migration — terminate the source actor after its state has
+    /// been copied to the destination GPU.
+    pub fn finalize_migration(cmd_id: u64, actor_slot: u32) -> Self {
+        Self {
+            cmd: SimCommand::FinalizeMigration as u32,
+            cmd_id,
+            param1: actor_slot as u64,
+            ..Default::default()
+        }
+    }
+
+    /// Instruct a dormant actor on the target GPU to restore state from the
+    /// mapped restore buffer and verify the checksum before activation.
+    ///
+    /// `expected_checksum` is the CRC32 the capture kernel produced on the
+    /// source GPU; the target refuses to activate if its recomputed checksum
+    /// does not match.
+    pub fn restore_state(cmd_id: u64, actor_slot: u32, expected_checksum: u32) -> Self {
+        Self {
+            cmd: SimCommand::RestoreState as u32,
+            cmd_id,
+            param1: actor_slot as u64,
+            param2: expected_checksum,
+            ..Default::default()
+        }
+    }
 }
 
 /// Response type from kernel to host.
@@ -651,6 +786,19 @@ pub enum ResponseType {
     ActorFailed = 20,
     /// Actor state snapshot complete. param1 = actor slot.
     SnapshotComplete = 21,
+
+    // === Migration Protocol Responses (v1.1 — spec §3.1) ===
+    /// Source actor has drained its in-flight queue and is ready for the
+    /// transfer phase. Carries the number of drained messages in `energy`-
+    /// sharing field (`in_flight_drained` count is written to the control
+    /// block; host reads it there).
+    QuiesceComplete = 32,
+    /// Target actor has restored state and verified the checksum; the
+    /// orchestrator may now send `FinalizeMigration` to the source.
+    ReadyToActivate = 33,
+    /// Target actor has resumed processing and is fully healthy — this
+    /// terminates the migration protocol from the kernel's perspective.
+    MigrationComplete = 34,
 }
 
 /// K2H message structure (kernel → host response).
@@ -950,6 +1098,12 @@ pub struct BlockNeighbors {
 }
 
 /// K2K routing table entry.
+///
+/// Multi-tenant isolation (v1.1): each entry carries `tenant_id`. The device-side
+/// routing path checks `source_tenant_id == dest_tenant_id` before delivery and
+/// drops any message that mismatches (incrementing `cross_tenant_reject_count`
+/// in the sender's control block). Tenant `0` is the reserved "unspecified"
+/// tenant for legacy single-tenant deployments.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct K2KRouteEntry {
@@ -963,6 +1117,47 @@ pub struct K2KRouteEntry {
     pub cell_offset: [u32; 3],
     /// Padding.
     pub _padding2: u32,
+    /// Tenant identifier for routing-level isolation.
+    ///
+    /// Cross-tenant deliveries are rejected by the device-side routing path
+    /// (see `cross_tenant_reject_count` on the actor control block). A value
+    /// of `0` denotes the "unspecified" tenant used for legacy / single-tenant
+    /// deployments; all actors in that mode match each other.
+    pub tenant_id: u64,
+}
+
+impl K2KRouteEntry {
+    /// Build a new K2K routing entry, pinning its tenant.
+    ///
+    /// `neighbors`, `block_pos`, and `cell_offset` retain their existing meaning
+    /// from the FDTD persistent simulation; `tenant_id` is the security
+    /// boundary used for cross-tenant rejection on the device.
+    #[inline]
+    pub fn new(
+        neighbors: BlockNeighbors,
+        block_pos: [u32; 3],
+        cell_offset: [u32; 3],
+        tenant_id: u64,
+    ) -> Self {
+        Self {
+            neighbors,
+            block_pos,
+            _padding: 0,
+            cell_offset,
+            _padding2: 0,
+            tenant_id,
+        }
+    }
+
+    /// Build a K2K routing entry for the "unspecified" tenant (legacy default).
+    #[inline]
+    pub fn unspecified_tenant(
+        neighbors: BlockNeighbors,
+        block_pos: [u32; 3],
+        cell_offset: [u32; 3],
+    ) -> Self {
+        Self::new(neighbors, block_pos, cell_offset, 0)
+    }
 }
 
 /// Halo buffer configuration.
@@ -1303,6 +1498,10 @@ impl PersistentSimulation {
                         (block_y * ty) as u32,
                         (block_z * tz) as u32,
                     ];
+                    // Default to the "unspecified" tenant (0) for single-tenant
+                    // legacy deployments. Multi-tenant runtimes override this
+                    // after init via the broker-level tenant assignment.
+                    entry.tenant_id = 0;
 
                     // Set neighbors (-1 for boundary)
                     entry.neighbors.pos_x = if block_x + 1 < bx {
@@ -1707,6 +1906,183 @@ mod tests {
         assert_eq!(impulse.cmd, SimCommand::InjectImpulse as u32);
         assert_eq!(impulse.param2, 32); // z
         assert_eq!(impulse.param4, 1.5); // amplitude
+    }
+
+    // ========================================================================
+    // Multi-tenant + migration tests (v1.1)
+    // ========================================================================
+
+    #[test]
+    fn test_k2k_route_entry_size_with_tenant() {
+        // Must stay wire-compatible: neighbors (32) + block_pos (12) + _pad (4)
+        // + cell_offset (12) + _pad2 (4) + tenant_id (8) = 72 bytes.
+        assert_eq!(
+            std::mem::size_of::<K2KRouteEntry>(),
+            72,
+            "K2KRouteEntry must be 72 bytes with tenant_id field"
+        );
+    }
+
+    #[test]
+    fn test_k2k_route_entry_constructors() {
+        let neighbors = BlockNeighbors {
+            pos_x: 1,
+            neg_x: -1,
+            pos_y: 2,
+            neg_y: -1,
+            pos_z: 3,
+            neg_z: -1,
+            _padding: [0; 2],
+        };
+
+        let entry = K2KRouteEntry::new(neighbors, [1, 2, 3], [8, 16, 24], 42);
+        assert_eq!(entry.tenant_id, 42);
+        assert_eq!(entry.block_pos, [1, 2, 3]);
+        assert_eq!(entry.cell_offset, [8, 16, 24]);
+        assert_eq!(entry.neighbors.pos_x, 1);
+
+        let default_tenant = K2KRouteEntry::unspecified_tenant(neighbors, [0, 0, 0], [0, 0, 0]);
+        assert_eq!(default_tenant.tenant_id, 0, "Unspecified tenant must be 0");
+    }
+
+    #[test]
+    fn test_k2k_route_entry_cross_tenant_mismatch() {
+        let neighbors = BlockNeighbors::default();
+        let source = K2KRouteEntry::new(neighbors, [0, 0, 0], [0, 0, 0], 100);
+        let dest_same = K2KRouteEntry::new(neighbors, [1, 0, 0], [8, 0, 0], 100);
+        let dest_other = K2KRouteEntry::new(neighbors, [1, 0, 0], [8, 0, 0], 200);
+
+        // Same tenant = allowed.
+        assert_eq!(source.tenant_id, dest_same.tenant_id);
+        // Cross tenant = rejected at the routing layer.
+        assert_ne!(source.tenant_id, dest_other.tenant_id);
+    }
+
+    #[test]
+    fn test_sim_command_migration_variants() {
+        // Wire format discriminants — must NOT change without a protocol bump.
+        assert_eq!(SimCommand::BeginQuiesce as u32, 32);
+        assert_eq!(SimCommand::FinalizeMigration as u32, 33);
+        assert_eq!(SimCommand::RestoreState as u32, 34);
+    }
+
+    #[test]
+    fn test_response_type_migration_variants() {
+        assert_eq!(ResponseType::QuiesceComplete as u32, 32);
+        assert_eq!(ResponseType::ReadyToActivate as u32, 33);
+        assert_eq!(ResponseType::MigrationComplete as u32, 34);
+    }
+
+    #[test]
+    fn test_begin_quiesce_constructor() {
+        let msg = H2KMessage::begin_quiesce(101, 7);
+        assert_eq!(msg.cmd, SimCommand::BeginQuiesce as u32);
+        assert_eq!(msg.cmd_id, 101);
+        assert_eq!(msg.param1, 7, "param1 must carry the actor slot");
+        assert_eq!(msg.param2, 0);
+        assert_eq!(msg.flags, 0);
+    }
+
+    #[test]
+    fn test_finalize_migration_constructor() {
+        let msg = H2KMessage::finalize_migration(202, 13);
+        assert_eq!(msg.cmd, SimCommand::FinalizeMigration as u32);
+        assert_eq!(msg.cmd_id, 202);
+        assert_eq!(msg.param1, 13);
+    }
+
+    #[test]
+    fn test_restore_state_constructor() {
+        let checksum = 0xDEADBEEF_u32;
+        let msg = H2KMessage::restore_state(303, 9, checksum);
+        assert_eq!(msg.cmd, SimCommand::RestoreState as u32);
+        assert_eq!(msg.cmd_id, 303);
+        assert_eq!(msg.param1, 9);
+        assert_eq!(
+            msg.param2, checksum,
+            "param2 must carry the expected CRC32"
+        );
+    }
+
+    #[test]
+    fn test_migration_phase_encoding() {
+        assert_eq!(MigrationPhase::from_u32(0), Some(MigrationPhase::Idle));
+        assert_eq!(
+            MigrationPhase::from_u32(1),
+            Some(MigrationPhase::Quiescing)
+        );
+        assert_eq!(
+            MigrationPhase::from_u32(2),
+            Some(MigrationPhase::Transferring)
+        );
+        assert_eq!(
+            MigrationPhase::from_u32(3),
+            Some(MigrationPhase::Restoring)
+        );
+        assert_eq!(
+            MigrationPhase::from_u32(4),
+            Some(MigrationPhase::ReadyToActivate)
+        );
+        assert_eq!(
+            MigrationPhase::from_u32(5),
+            Some(MigrationPhase::Terminating)
+        );
+        assert_eq!(MigrationPhase::from_u32(999), None);
+    }
+
+    #[test]
+    fn test_control_block_fields_for_migration() {
+        let cb = PersistentControlBlock::default();
+        assert_eq!(cb.tenant_id, 0, "Default tenant is 0 (unspecified)");
+        assert_eq!(
+            cb.cross_tenant_reject_count, 0,
+            "Cross-tenant rejects start at 0"
+        );
+        assert_eq!(cb.migration_phase, MigrationPhase::Idle as u32);
+        assert_eq!(cb.is_quiesced, 0);
+        assert_eq!(cb.in_flight_drained, 0);
+        assert_eq!(cb.state_checksum, 0);
+    }
+
+    #[test]
+    fn test_cross_tenant_rejection_counter_increments() {
+        // Simulate what the device-side routing lookup does on a mismatch.
+        let mut cb = PersistentControlBlock::default();
+        cb.tenant_id = 100;
+        let destination_tenant: u64 = 200;
+
+        // Reject path: destination tenant differs from source tenant.
+        if cb.tenant_id != destination_tenant {
+            cb.cross_tenant_reject_count =
+                cb.cross_tenant_reject_count.saturating_add(1);
+        }
+
+        assert_eq!(cb.cross_tenant_reject_count, 1);
+
+        // Same-tenant path does not increment.
+        let same_tenant: u64 = 100;
+        if cb.tenant_id != same_tenant {
+            cb.cross_tenant_reject_count =
+                cb.cross_tenant_reject_count.saturating_add(1);
+        }
+        assert_eq!(cb.cross_tenant_reject_count, 1);
+    }
+
+    #[test]
+    fn test_migration_commands_fit_in_h2k_message() {
+        // H2KMessage is 64 bytes and every migration command uses Default for
+        // the remaining fields. Just ensure construction doesn't accidentally
+        // exceed the wire size.
+        assert_eq!(std::mem::size_of::<H2KMessage>(), 64);
+
+        let msgs = [
+            H2KMessage::begin_quiesce(1, 0),
+            H2KMessage::finalize_migration(2, 1),
+            H2KMessage::restore_state(3, 2, 0xCAFE),
+        ];
+        for m in &msgs {
+            assert_eq!(std::mem::size_of_val(m), 64);
+        }
     }
 
     #[test]

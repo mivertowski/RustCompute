@@ -505,6 +505,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cooperative")]
     #[test]
     #[ignore] // Requires H100 GPU
     fn test_cluster_kernel_loading() {

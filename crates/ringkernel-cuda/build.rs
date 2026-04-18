@@ -15,6 +15,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/cuda/cooperative_kernels.cu");
     println!("cargo:rerun-if-changed=src/cuda/cluster_kernels.cu");
     println!("cargo:rerun-if-changed=src/cuda/actor_lifecycle_kernel.cu");
+    println!("cargo:rerun-if-changed=src/cuda/migration_kernels.cu");
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
     println!("cargo:rerun-if-env-changed=CUDA_HOME");
     println!("cargo:rerun-if-env-changed=RINGKERNEL_CUDA_ARCH");
@@ -25,8 +26,12 @@ fn main() {
     let cooperative_enabled = env::var("CARGO_FEATURE_COOPERATIVE").is_ok();
 
     if !cooperative_enabled {
-        // Generate stub when cooperative feature is not enabled
+        // Generate stubs for every kernel group so `include!` sites compile
+        // regardless of feature selection.
         generate_stub(&out_dir, "Cooperative feature not enabled");
+        generate_cluster_stub(&out_dir, "Cooperative feature not enabled");
+        generate_lifecycle_stub(&out_dir, "Cooperative feature not enabled");
+        generate_migration_stub(&out_dir, "Cooperative feature not enabled");
         return;
     }
 
@@ -68,12 +73,25 @@ fn main() {
                     generate_lifecycle_stub(&out_dir, &format!("Compilation failed: {}", e));
                 }
             }
+
+            // Compile migration kernels (portable sm_75+)
+            match compile_migration_kernels(&nvcc, &out_dir) {
+                Ok(()) => {
+                    println!("cargo:rustc-cfg=has_migration_kernels");
+                    println!("cargo:warning=Migration kernels compiled successfully");
+                }
+                Err(e) => {
+                    println!("cargo:warning=Migration kernels not available: {}", e);
+                    generate_migration_stub(&out_dir, &format!("Compilation failed: {}", e));
+                }
+            }
         }
         None => {
             println!("cargo:warning=nvcc not found - cooperative groups will use fallback");
             generate_stub(&out_dir, "nvcc not found at build time");
             generate_cluster_stub(&out_dir, "nvcc not found at build time");
             generate_lifecycle_stub(&out_dir, "nvcc not found at build time");
+            generate_migration_stub(&out_dir, "nvcc not found at build time");
         }
     }
 }
@@ -391,12 +409,14 @@ fn write_cluster_rust_code(
     code.push_str(ptx);
     code.push_str("\"####;\n\n");
 
+    code.push_str("/// Whether Hopper cluster kernel support was compiled in.\n");
     code.push_str(&format!(
         "pub const HAS_CLUSTER_KERNEL_SUPPORT: bool = {};\n\n",
         has_support
     ));
 
     let escaped_message = message.replace('\\', "\\\\").replace('"', "\\\"");
+    code.push_str("/// Build-time message about Hopper cluster kernel support.\n");
     code.push_str(&format!(
         "pub const CLUSTER_KERNEL_BUILD_MESSAGE: &str = \"{}\";\n",
         escaped_message
@@ -443,9 +463,11 @@ fn compile_lifecycle_kernel(nvcc: &Path, out_dir: &Path) -> Result<(), String> {
     let rust_file = out_dir.join("actor_lifecycle_kernel.rs");
     let mut code = String::new();
     code.push_str("// Auto-generated actor lifecycle kernel PTX.\n\n");
+    code.push_str("/// Pre-compiled PTX for the actor lifecycle kernel.\n");
     code.push_str("pub const LIFECYCLE_KERNEL_PTX: &str = r####\"");
     code.push_str(&ptx_content);
     code.push_str("\"####;\n\n");
+    code.push_str("/// Whether the actor lifecycle kernel was compiled in.\n");
     code.push_str("pub const HAS_LIFECYCLE_KERNEL: bool = true;\n");
 
     fs::write(&rust_file, code).map_err(|e| format!("Write failed: {}", e))
@@ -456,9 +478,114 @@ fn generate_lifecycle_stub(out_dir: &Path, reason: &str) {
     let rust_file = out_dir.join("actor_lifecycle_kernel.rs");
     let code = format!(
         "// Actor lifecycle kernel not available: {}\n\n\
+         /// Pre-compiled PTX for the actor lifecycle kernel (empty stub).\n\
          pub const LIFECYCLE_KERNEL_PTX: &str = \"\";\n\
+         /// Whether the actor lifecycle kernel was compiled in.\n\
          pub const HAS_LIFECYCLE_KERNEL: bool = false;\n",
         reason
     );
     fs::write(&rust_file, code).expect("Failed to write lifecycle stub");
+}
+
+/// Compile the migration kernels (portable `sm_75+`) to PTX.
+///
+/// Migration kernels handle the state capture / restore / in-flight queue
+/// drain side of the 3-phase multi-GPU migration protocol (v1.1). The PTX
+/// is embedded as a `const &str` for runtime loading via cudarc.
+fn compile_migration_kernels(nvcc: &Path, out_dir: &Path) -> Result<(), String> {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let cuda_src = manifest_dir.join("src/cuda/migration_kernels.cu");
+
+    if !cuda_src.exists() {
+        return Err(format!(
+            "Migration CUDA source not found: {:?}",
+            cuda_src
+        ));
+    }
+
+    let ptx_file = out_dir.join("migration_kernels.ptx");
+
+    // Migration kernels are portable — compile for the same multi-arch set
+    // as the cooperative kernels so they run on any supported device.
+    let arch_args = determine_cuda_arch(nvcc);
+
+    let mut cmd = Command::new(nvcc);
+    cmd.args(["-ptx", "-O3", "--generate-line-info"]);
+    for arg in &arch_args {
+        cmd.arg(arg);
+    }
+    cmd.args(["-std=c++17", "-w", "-o"]);
+    cmd.arg(ptx_file.to_str().unwrap());
+    cmd.arg(cuda_src.to_str().unwrap());
+
+    let status = cmd
+        .status()
+        .map_err(|e| format!("Failed to execute nvcc for migration kernels: {}", e))?;
+
+    if !status.success() {
+        return Err(format!(
+            "nvcc migration kernel compilation failed with exit code: {:?}",
+            status.code()
+        ));
+    }
+
+    let ptx_content = fs::read_to_string(&ptx_file)
+        .map_err(|e| format!("Failed to read migration PTX: {}", e))?;
+
+    let rust_file = out_dir.join("migration_kernels.rs");
+    write_migration_rust_code(
+        &rust_file,
+        &ptx_content,
+        true,
+        "Migration kernels compiled successfully",
+    )
+    .map_err(|e| format!("Failed to write migration Rust bindings: {}", e))?;
+
+    Ok(())
+}
+
+/// Generate migration kernel stub when nvcc is unavailable.
+fn generate_migration_stub(out_dir: &Path, reason: &str) {
+    let rust_file = out_dir.join("migration_kernels.rs");
+    write_migration_rust_code(&rust_file, "", false, reason)
+        .expect("Failed to write migration Rust stub");
+}
+
+/// Emit the Rust file that wraps the migration PTX blob.
+fn write_migration_rust_code(
+    path: &Path,
+    ptx: &str,
+    has_support: bool,
+    message: &str,
+) -> std::io::Result<()> {
+    let mut code = String::new();
+
+    code.push_str("// Auto-generated migration kernel PTX.\n");
+    code.push_str("// Generated by build.rs at build time.\n");
+    code.push_str("// Portable: sm_75+ (Turing through Hopper).\n\n");
+
+    code.push_str("/// Pre-compiled PTX for v1.1 migration kernels.\n");
+    code.push_str("/// Contains:\n");
+    code.push_str("/// - capture_actor_state: snapshot live actor state with CRC32\n");
+    code.push_str("/// - restore_actor_state: reload captured state with CRC32 verify\n");
+    code.push_str("/// - drain_inflight_queue: drain K2K queue to external buffer\n");
+
+    code.push_str("pub const MIGRATION_KERNEL_PTX: &str = r####\"");
+    code.push_str(ptx);
+    code.push_str("\"####;\n\n");
+
+    code.push_str("/// `true` if the migration kernels were compiled and embedded.\n");
+    code.push_str(&format!(
+        "pub const HAS_MIGRATION_KERNEL_SUPPORT: bool = {};\n\n",
+        has_support
+    ));
+
+    code.push_str("/// Build-time message describing migration kernel availability.\n");
+    let escaped_message = message.replace('\\', "\\\\").replace('"', "\\\"");
+    code.push_str(&format!(
+        "pub const MIGRATION_KERNEL_BUILD_MESSAGE: &str = \"{}\";\n",
+        escaped_message
+    ));
+
+    fs::write(path, code)
 }
