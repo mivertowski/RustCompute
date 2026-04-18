@@ -50,6 +50,7 @@ nvml-wrapper = { version = "0.12", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+tempfile = { workspace = true }
 
 # Note: GPU execution tests require the `cuda` feature to be enabled.
 # Run with: cargo test -p ringkernel-cuda --features cuda
