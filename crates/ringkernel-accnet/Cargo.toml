@@ -6,7 +6,9 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-rust-version.workspace = true
+# Showcase app (GUI via eframe/egui) tracks latest stable Rust, not the
+# workspace MSRV — core library stays at 1.75 for downstream users.
+rust-version = "1.87"
 description = "GPU-accelerated accounting network analytics with real-time visualization"
 keywords = ["gpu", "accounting", "graph-analytics", "fraud-detection", "visualization"]
 categories = ["visualization", "finance", "science"]

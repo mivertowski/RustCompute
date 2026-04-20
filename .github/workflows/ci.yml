@@ -129,5 +129,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.75.0
       - uses: Swatinem/rust-cache@v2
-      - name: Check MSRV
-        run: cargo check --workspace
+      # Core library + backends honor MSRV 1.75 for downstream users.
+      # Showcase apps with GUIs (accnet, procint) track latest stable.
+      - name: Check MSRV (core + backends)
+        run: cargo check --workspace --exclude ringkernel-accnet --exclude ringkernel-procint
