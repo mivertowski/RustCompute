@@ -91,15 +91,13 @@ been initiated:
 to \(a\); there is no step in which both accept.
 
 \item \emph{No message loss}: every message identifier admitted by
-the system into the source's inbox, the in-flight buffer, or the
-target's inbox is in exactly one of the following sets:
-the source's inbox (for \(\mathit{phase} \in
-\{\state{Running}\}\)); the in-flight buffer (for
-\(\mathit{phase} \in \{\state{Quiesced}, \state{Transferring},
-\state{Swapping}\}\)); the target's inbox (for
-\(\mathit{phase} \in \{\state{Swapping}, \state{Complete}\}\) after
-\textsc{Transfer}); the delivered set; or, after \textsc{Finalize},
-inertia (drained from the source).
+the system is, at every reachable configuration, in at least one
+of the following sets: the source's inbox; the in-flight buffer;
+the target's inbox; the delivered set.  (Source and target may
+hold the same identifier between \textsc{Transfer} and
+\textsc{Finalize}; this is the protocol's window in which a copy
+exists on both sides for resilience against a transfer abort.
+After \textsc{Finalize}, the source's representation is drained.)
 
 \item \emph{FIFO across cutover}: for any two messages \(m_1, m_2\)
 with the same source actor and \(\mathit{mid}_1 < \mathit{mid}_2\),
@@ -176,15 +174,18 @@ channel tiers:
 \item \textbf{NVLink P2P}: when source and destination GPUs are
 connected by NVLink, the runtime issues a peer-to-peer copy
 (\texttt{cuMemcpyPeerAsync}) directly from source-device memory to
-target-device memory.  Latency is bounded by the NVLink fabric
-($\sim$5~$\mu$s for a 4-KiB payload on H100~NVL with NVLink~4).
+target-device memory.  Latency is bounded by the NVLink fabric and
+is roughly an order of magnitude lower than the host-staged
+fallback below; we report \emph{single-GPU} numbers in
+\Cref{sec:evaluation} and defer multi-GPU latency measurement to
+the future-work program described in \Cref{sec:disc:hw}.
 
 \item \textbf{Host stage}: when no NVLink path exists, the runtime
 falls back to a two-hop copy through host memory:
 \texttt{cuMemcpyDtoHAsync} from source to a pinned host buffer,
 then \texttt{cuMemcpyHtoDAsync} from the host buffer to target.
-Latency is bounded by host memory bandwidth and the PCIe round
-trip ($\sim$25~$\mu$s for the same 4-KiB payload).
+Latency is bounded by host memory bandwidth and the PCIe
+round-trip; the dominant cost is the second device-side copy.
 \end{itemize}
 
 The runtime selects the path based on a static NVLink-topology

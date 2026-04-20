@@ -40,7 +40,12 @@ keyed on a two-tuple audit boundary (\(\mathit{org\_id},
 \mathit{engagement\_id}\)) and cross-tenant flow is forbidden by
 construction, with an information-flow argument that the supervisor's
 routing function admits no cross-tenant trace;
-\textbf{(v)}~empirical validation on NVIDIA H100~NVL silicon: 75\,ns
+\textbf{(v)}~a multi-GPU actor migration protocol with
+phase-machine semantics and proofs of atomic-swap, no-message-loss,
+FIFO-across-cutover, and state-consistency, plus a structural
+guarantee that NVLink-paired actors never fall back to the
+host-staged path;
+\textbf{(vi)}~empirical validation on NVIDIA H100~NVL silicon: 75\,ns
 mapped-memory command injection (8{,}698\(\times\) faster than
 \texttt{cuLaunchKernel}), 5.54\,M~messages/second sustained
 throughput with a coefficient of variation of 0.05\% over 60~seconds,

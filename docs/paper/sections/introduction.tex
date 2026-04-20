@@ -79,7 +79,7 @@ host driving every transition.
 
 \subsection{Contribution}
 
-We claim five contributions, presented in the order they unfold in
+We claim six contributions, presented in the order they unfold in
 the paper:
 
 \begin{enumerate}
@@ -126,15 +126,30 @@ in tenant~\(T_2 \ne T_1\).  This is the property that makes the
 model usable in regulated domains (audit, compliance) where the
 isolation guarantee is itself a deliverable.
 
+\item A \textbf{multi-GPU migration protocol}
+(\Cref{sec:migration}) that relocates a live actor from a source
+GPU to a target GPU through a five-phase machine
+(\state{Running}~\(\to\)~\state{Quiesced}~\(\to\)~%
+\state{Transferring}~\(\to\)~\state{Swapping}~\(\to\)~\state{Complete}).
+We prove (\Cref{thm:migration-safety}) the conjunction of
+atomic-swap, no-message-loss, FIFO-across-cutover, and
+state-consistency, and (\Cref{thm:bounded-latency}) that
+NVLink-paired actor pairs are never routed through the host stage.
+The HLC-restart-monotonicity argument extends to migration via the
+\(\hlc.\mathsf{merge}\) operation at restore.
+
 \item \textbf{Empirical validation} on NVIDIA H100~NVL silicon
-(\Cref{sec:evaluation}): 75\,ns mapped-memory command injection,
-5.54\,M~messages/second sustained throughput, 0.628\,\(\mu\)s
-cluster-level synchronization, and 12,500\(\times\) speedup
-relative to the kernel-launch model on a workload representative of
-streaming graph analytics.
+(\Cref{sec:evaluation}): 75\,ns mapped-memory command injection
+(8{,}698\(\times\) faster than \texttt{cuLaunchKernel}),
+5.54\,M~messages/second sustained throughput at coefficient of
+variation 0.05\% over 60~seconds, 0.628\,\(\mu\)s cluster-level
+synchronization (2.98\(\times\) faster than grid-wide
+synchronization), and 116.9\(\times\) async memory-allocation
+speedup over classical \texttt{cuMemAlloc}.
 All measurements were collected under locked GPU clocks, exclusive
 compute mode, and a statistical protocol calibrated against the
-reproducibility criteria of \citet{moss2002benchmarks}.
+reproducibility criteria of \citet{moss2002benchmarks}
+and~\citet{georges2007rigorous}.
 \end{enumerate}
 
 \subsection{Audience and Scope}

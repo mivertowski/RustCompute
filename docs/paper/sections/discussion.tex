@@ -71,7 +71,7 @@ small configurations or do not show up at any) but does not cover
 production scales (thousands of actors, millions of messages).
 Scaling the verification will likely require symbolic abstraction
 techniques or compositional reasoning; a TLAPS-style proof of a
-scale-invariant invariant, separately verified by TLC at small
+scale-independent invariant, separately validated by TLC at small
 scales, is one direction.
 
 \paragraph{Heterogeneous backends}
@@ -122,21 +122,25 @@ verifiable.  We catalog each here as a starting point for follow-on
 work; we do not predict performance.
 
 \paragraph{Cluster size and per-cluster supervision}
-Blackwell's nonportable cluster size of 16
-blocks~\citep{nvidia2024blackwell-tuning,colfax2024clusters} (versus
-8 portable on Hopper) doubles the number of actors a single
-cluster-resident supervisor block can address through DSMEM.  The
+Blackwell preserves Hopper's cluster geometry: up to 8 blocks
+portable, 16 blocks
+nonportable~\citep{nvidia2024blackwell-tuning,colfax2024clusters}.
+Cluster size therefore is not a Blackwell-specific extension.  The
 formal model's per-supervisor child count
 (\Cref{sec:supervision:policies}) is an implementation parameter
-rather than a soundness parameter, so the change does not affect
-\Cref{thm:lifecycle-soundness} directly; it does, however, let one
-prove a tighter \emph{cluster-locality} bound on a fault's blast
-radius, since a 16-actor supervisor whose children all reside in
-the same cluster has cross-cluster K2K traffic only when escalating
-to its own supervisor.  Whether Rubin extends the cluster-size
-bound further is not publicly disclosed at the time of writing
-(NVIDIA's Rubin platform documentation describes per-die SM count
-and NVLink-6 bandwidth but not cluster
+rather than a soundness parameter, so it does not affect
+\Cref{thm:lifecycle-soundness} regardless.  The relevant new
+opportunity is to prove a \emph{cluster-locality} bound on a
+fault's blast radius: a supervisor whose children all reside in
+the same nonportable-size-16 cluster has cross-cluster K2K traffic
+only when escalating to its own supervisor.  This bound is
+expressible on Hopper too, but Blackwell's larger
+shared-memory-per-block (up to 227~KiB on
+B200~\citep{nvidia2024blackwell-tuning}) makes 16-actor clusters
+practical for state-heavy supervisor workloads.  Whether Rubin
+changes cluster geometry is not publicly disclosed at the time of
+writing (NVIDIA's Rubin platform documentation describes per-die
+SM count and NVLink-6 bandwidth but not cluster
 geometry~\citep{nvidia2025rubin}).
 
 \paragraph{Subset-synchronization barriers}
