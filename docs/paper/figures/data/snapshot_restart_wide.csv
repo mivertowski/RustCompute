@@ -1,0 +1,5 @@
+size,capture_us,copy_us,ack_us
+1KiB,5.1,1.4,28.3
+4KiB,5.0,2.7,29.1
+16KiB,5.1,4.2,28.7
+64KiB,5.0,7.3,29.4

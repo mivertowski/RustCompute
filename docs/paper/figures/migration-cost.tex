@@ -1,0 +1,29 @@
+% figures/migration-cost.tex — NVLink P2P vs host-stage migration cost.
+\documentclass[tikz]{standalone}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+\begin{document}
+\begin{tikzpicture}
+\begin{loglogaxis}[
+    width=11cm, height=6cm,
+    xlabel={State size (bytes, log)},
+    ylabel={Per-transfer wall-clock (ns, log)},
+    legend pos=north west,
+    grid=major, grid style={dashed, gray!30},
+    log basis x=2,
+]
+
+\addplot+[mark=*, blue, thick, error bars/.cd, y dir=both, y explicit]
+    table[x=size_bytes, y=mean_ns, y error=ci_halfwidth, col sep=comma]
+    {data/migration_p2p.csv};
+\addlegendentry{NVLink P2P}
+
+\addplot+[mark=square*, red, thick, error bars/.cd, y dir=both, y explicit]
+    table[x=size_bytes, y=mean_ns, y error=ci_halfwidth, col sep=comma]
+    {data/migration_host.csv};
+\addlegendentry{Host-staged}
+
+\end{loglogaxis}
+\end{tikzpicture}
+\end{document}

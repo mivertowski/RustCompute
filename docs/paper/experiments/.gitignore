@@ -1,0 +1,4 @@
+# Per-run results: timestamped outputs + tarball archives.
+# Track only the runner scripts + extractors; keep raw GPU runs out of git.
+results/
+*.tar.gz

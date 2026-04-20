@@ -1,0 +1,9 @@
+# Figure build artifacts (PDFs are regenerated from .tex + data/)
+*.aux
+*.log
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+# Built figure PDFs are tracked manually; uncomment if you want to ignore:
+# *.pdf

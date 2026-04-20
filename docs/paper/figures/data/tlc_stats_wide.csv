@@ -1,0 +1,7 @@
+spec,bound,distinct_states,wall_s,invariants,result
+actor\_lifecycle,actors$\le$5 steps$\le$30,10300042,182,3,OK
+hlc,nodes$\le$3 phys$\le$5 events$\le$10,184722,42,4,OK
+k2k\_delivery,actors$\le$3 msgs$\le$4 qcap$\le$2,55301,9,5,OK
+tenant\_isolation,tenants$\le$2 kernels$\le$3 msgs$\le$4,18472,3,4,OK
+migration,msgs$\le$4,4823,2,4,OK
+multi\_gpu\_k2k,gpus$\le$3 actors$\le$4 msgs$\le$4,73104,12,2,OK

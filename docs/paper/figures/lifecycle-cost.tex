@@ -1,0 +1,27 @@
+% figures/lifecycle-cost.tex — bar chart of per-rule lifecycle overhead.
+\documentclass[tikz]{standalone}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+\begin{document}
+\begin{tikzpicture}
+\begin{axis}[
+    width=10cm, height=5.5cm,
+    ybar,
+    bar width=18pt,
+    enlarge x limits=0.18,
+    xlabel={Lifecycle rule},
+    ylabel={Issue-to-ack latency (ns)},
+    symbolic x coords={Spawn,Activate,Quiesce,Terminate,Restart},
+    xtick=data,
+    nodes near coords,
+    nodes near coords style={font=\scriptsize, /pgf/number format/fixed,
+                              /pgf/number format/precision=0},
+    grid=major, grid style={dashed, gray!30},
+]
+\addplot+[fill=blue!50, error bars/.cd, y dir=both, y explicit]
+    table[x=rule, y=mean_ns, y error=ci_halfwidth, col sep=comma]
+    {data/lifecycle.csv};
+\end{axis}
+\end{tikzpicture}
+\end{document}

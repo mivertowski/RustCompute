@@ -1,0 +1,21 @@
+% figures/tlc-stats.tex — booktabs table of TLA+ model-checking statistics.
+% Standalone-buildable via:  pdflatex tlc-stats.tex
+% Or \input from the paper inside a \begin{table}\centering ... \end{table}.
+\documentclass[10pt]{standalone}
+\usepackage{booktabs}
+\usepackage{pgfplotstable}
+
+\begin{document}
+\pgfplotstabletypeset[
+    col sep=comma,
+    string type,
+    every head row/.style={before row=\toprule, after row=\midrule},
+    every last row/.style={after row=\bottomrule},
+    columns/spec/.style={column name={Spec}, column type=l},
+    columns/bound/.style={column name={Bounds}, column type=l},
+    columns/distinct_states/.style={column name={Distinct states}, column type=r},
+    columns/wall_s/.style={column name={Wall-clock (s)}, column type=r},
+    columns/invariants/.style={column name={Invariants}, column type=c},
+    columns/result/.style={column name={Result}, column type=c},
+]{data/tlc_stats_wide.csv}
+\end{document}

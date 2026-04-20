@@ -1,0 +1,41 @@
+% figures/tier-latency.tex — K2K tier latency (SMEM/DSMEM/HBM) vs payload.
+% Build with:  pdflatex tier-latency.tex
+% Reads:       data/tier_latency_{smem,dsmem,hbm}.csv (per-series CSVs).
+%
+% extract.py writes per-tier CSVs in addition to the long-form one;
+% see experiments/01-tier-latency/extract.py.
+
+\documentclass[tikz]{standalone}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+\begin{document}
+\begin{tikzpicture}
+\begin{semilogyaxis}[
+    width=11cm, height=6cm,
+    xlabel={Payload size (bytes)},
+    ylabel={Per-iteration latency (ns, log)},
+    xtick={64, 256, 1024, 4096},
+    xticklabels={64 B, 256 B, 1 KiB, 4 KiB},
+    legend pos=north west,
+    grid=major, grid style={dashed, gray!30},
+]
+
+\addplot+[mark=*, blue, thick, error bars/.cd, y dir=both, y explicit]
+    table[x=payload_bytes, y=mean_ns, y error=ci_halfwidth, col sep=comma]
+    {data/tier_latency_smem.csv};
+\addlegendentry{SMEM (intra-block)}
+
+\addplot+[mark=square*, red, thick, error bars/.cd, y dir=both, y explicit]
+    table[x=payload_bytes, y=mean_ns, y error=ci_halfwidth, col sep=comma]
+    {data/tier_latency_dsmem.csv};
+\addlegendentry{DSMEM (intra-cluster)}
+
+\addplot+[mark=triangle*, teal, thick, error bars/.cd, y dir=both, y explicit]
+    table[x=payload_bytes, y=mean_ns, y error=ci_halfwidth, col sep=comma]
+    {data/tier_latency_hbm.csv};
+\addlegendentry{HBM (inter-cluster)}
+
+\end{semilogyaxis}
+\end{tikzpicture}
+\end{document}

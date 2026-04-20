@@ -1,0 +1,27 @@
+% figures/snapshot-restart.tex — stacked-bar of phase durations vs state size.
+\documentclass[tikz]{standalone}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+\begin{document}
+\begin{tikzpicture}
+\begin{axis}[
+    width=11cm, height=6cm,
+    ybar stacked,
+    bar width=14pt,
+    xlabel={Actor state size},
+    ylabel={Wall-clock per phase ($\mu$s)},
+    symbolic x coords={1KiB,4KiB,16KiB,64KiB},
+    xtick=data,
+    legend pos=north west,
+    grid=major, grid style={dashed, gray!30},
+]
+\addplot+[fill=blue!50]   table[x=size, y=capture_us, col sep=comma]{data/snapshot_restart_wide.csv};
+\addlegendentry{capture (HLC + flag)}
+\addplot+[fill=teal!60]   table[x=size, y=copy_us,    col sep=comma]{data/snapshot_restart_wide.csv};
+\addlegendentry{copy (live to snap)}
+\addplot+[fill=orange!70] table[x=size, y=ack_us,     col sep=comma]{data/snapshot_restart_wide.csv};
+\addlegendentry{ack (event sync)}
+\end{axis}
+\end{tikzpicture}
+\end{document}
