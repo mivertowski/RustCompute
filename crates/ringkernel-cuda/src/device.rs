@@ -48,9 +48,24 @@ impl CudaDevice {
         // Create default stream
         let stream = inner.default_stream();
 
-        // Get total memory - use a reasonable default for modern GPUs
-        // cudarc 0.18 doesn't expose direct memory query easily
-        let total_memory = 8 * 1024 * 1024 * 1024; // 8GB default
+        // Query actual GPU memory via the CUDA driver API. Prior
+        // versions hardcoded 8 GiB because cudarc 0.18 didn't expose
+        // the query; 0.19's `sys` module makes it straightforward.
+        // Falls back to the 8 GiB default on a query failure so
+        // downstream memory-estimation code still sees a sane value
+        // rather than zero.
+        let total_memory = unsafe {
+            use cudarc::driver::sys;
+            let mut free_bytes: usize = 0;
+            let mut total_bytes: usize = 0;
+            if sys::cuMemGetInfo_v2(&mut free_bytes, &mut total_bytes)
+                == sys::CUresult::CUDA_SUCCESS
+            {
+                total_bytes
+            } else {
+                8 * 1024 * 1024 * 1024
+            }
+        };
 
         Ok(Self {
             inner,
