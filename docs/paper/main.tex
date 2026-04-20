@@ -38,12 +38,18 @@
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{multirow}
+\usepackage{pifont}                 % \cmark / \xmark
+\newcommand{\cmark}{\ding{51}}
+\newcommand{\xmark}{\ding{55}}
 \usepackage{subcaption}
 \usepackage{float}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta, automata, positioning, shapes, calc}
+\usetikzlibrary{arrows.meta, automata, positioning, shapes, calc, fit, backgrounds}
+% Declare a background layer for fit-based grouping figures.
+\pgfdeclarelayer{background}
+\pgfsetlayers{background,main}
 
 % ── Algorithms ─────────────────────────────────────────────────────────
 % algorithm2e ships in texlive-science; load only when present so the
@@ -156,6 +162,7 @@
 \input{sections/k2k}
 \input{sections/supervision}
 \input{sections/tenancy}
+\input{sections/migration}
 \input{sections/implementation}
 \input{sections/evaluation}
 \input{sections/discussion}

@@ -106,6 +106,142 @@ them (in particular, workloads with long-lived per-actor state and
 fine-grained inter-actor messaging).  Sketching the trade-off
 landscape is future work.
 
+\subsection{Future Hardware}
+\label{sec:disc:hw}
+
+The formal model is parameterized by a small set of hardware
+primitives: cluster size, DSMEM scope and latency, cooperative
+launch semantics, atomic-allocation cost, and the per-device
+fault-detection surface.  Two NVIDIA architectures already
+announced in some detail—Blackwell (B100/B200, GB200~NVL72,
+shipping) and Rubin (R100/R200, NVL144, in production
+Q1~2026)—change one or more of these parameters in ways that
+either tighten existing theorems, suggest new ones, or make a
+previously implementation-specific defense structurally
+verifiable.  We catalog each here as a starting point for follow-on
+work; we do not predict performance.
+
+\paragraph{Cluster size and per-cluster supervision}
+Blackwell's nonportable cluster size of 16
+blocks~\citep{nvidia2024blackwell-tuning,colfax2024clusters} (versus
+8 portable on Hopper) doubles the number of actors a single
+cluster-resident supervisor block can address through DSMEM.  The
+formal model's per-supervisor child count
+(\Cref{sec:supervision:policies}) is an implementation parameter
+rather than a soundness parameter, so the change does not affect
+\Cref{thm:lifecycle-soundness} directly; it does, however, let one
+prove a tighter \emph{cluster-locality} bound on a fault's blast
+radius, since a 16-actor supervisor whose children all reside in
+the same cluster has cross-cluster K2K traffic only when escalating
+to its own supervisor.  Whether Rubin extends the cluster-size
+bound further is not publicly disclosed at the time of writing
+(NVIDIA's Rubin platform documentation describes per-die SM count
+and NVLink-6 bandwidth but not cluster
+geometry~\citep{nvidia2025rubin}).
+
+\paragraph{Subset-synchronization barriers}
+Blackwell's \texttt{tcgen05.commit} bitmask synchronization
+primitive~\citep{colfax2024clusters} permits a cluster-scoped
+barrier on a strict subset of the cluster's blocks rather than the
+entire cluster.  In K2K terms, this lets the
+\textsc{Dsmem} tier of \Cref{sec:k2k:tiers} synchronize only the
+blocks involved in a given conversation, rather than draining the
+whole cluster's tick.  A new theorem becomes stateable:
+\emph{per-conversation liveness}—if blocks $B_1, B_2$ exchange a
+message, the conversation makes progress without quiescing the
+cluster's other blocks.  The current K2K calculus does not state
+this; doing so would require a refinement of the tick semantics
+to expose the subset structure.  This is the most attractive
+extension we see for a Blackwell-targeted v2 of the model.
+
+\paragraph{Confidential computing for tenant isolation}
+Blackwell is the first NVIDIA GPU with TEE-I/O capability
+(hardware-enforced encrypted I/O paths) and Multi-Instance GPU /
+Confidential Computing
+composability~\citep{nvidia2024secureai}.  Rubin
+extends this to NVLink-C2C (CPU--GPU) and NVLink (GPU--GPU)
+encryption~\citep{nvidia2025rubin}.  The cross-tenant isolation
+theorem (\Cref{thm:cross-tenant-isolation}) is currently a
+structural argument over the runtime's routing function, with the
+limitation noted in \Cref{sec:tenancy:limits} that the model does
+not formalize the adversary's hardware capabilities.  A
+Blackwell-or-later target lets the theorem be stated against an
+adversary with the standard hardware-attacker model: the
+encrypted I/O paths reduce the adversary's surface to one that the
+TEE specification already characterizes, and the isolation theorem
+becomes a corollary of the TEE's confidentiality guarantee
+composed with the runtime's routing function.  This would close
+the gap between the structural argument and the cryptographic
+argument.
+
+\paragraph{Self-healing actor systems}
+Rubin's second-generation RAS engine includes in-field SRAM repair
+and zero-downtime self-testing~\citep{nvidia2025rubin}, replacing
+Blackwell's detection-and-localization capability with active
+remediation.  The actor model gains the ability to migrate
+actors off a degrading SM \emph{before} the SM fails, rather than
+restart actors after a fault has already occurred.  A new
+predictive-restart rule could be added to
+\Cref{sec:supervision:policies}; the corresponding safety
+property would be that the new instance starts before the old
+instance's HLC is observable to be ``stuck.''  Stating and
+mechanizing this requires modeling the supervisor's view of
+device-health telemetry, which is currently outside the model.
+
+\paragraph{Rack-scale collapses the K2K tier hierarchy}
+GB200~NVL72 (Blackwell) and the Rubin~NVL144 follow-on present 72
+or 144 GPUs as a single all-to-all NVLink fabric (1.8~TB/s and
+3.6~TB/s per GPU, respectively~\citep{nvidia2024gb200,%
+nvidia2025rubin}).  At this scale, the cost gap between intra-cluster
+K2K (\textsc{Dsmem}) and inter-GPU K2K (NVLink P2P, per
+\Cref{sec:migration:cross-gpu}) narrows to a single order of
+magnitude rather than two; the fallback-to-host path of
+\Cref{thm:bounded-latency} simply does not occur for any pair of
+GPUs in the rack.  The formal model's three-tier K2K hierarchy can
+be collapsed to two tiers in this regime (intra-cluster and
+intra-rack), with a new \emph{rack-locality} theorem stating that
+no cross-rack message exists in a single-rack deployment.  The
+operational reading is that an entire rack acts as a logical GPU
+to the actor system; the supervisor tree of
+\Cref{fig:supervisor-tree} extends naturally without changing the
+restart-policy semantics.
+
+\paragraph{Hardware decompression as a system actor}
+Blackwell's Decompression Engine is a fixed-function block on the
+copy engine, executing LZ4/Snappy/Deflate at $\sim$800~GB/s in
+parallel with SM kernels~\citep{nvidia2024decomp}.  Within our
+formal model, this maps cleanly to a \emph{system actor}: an actor
+whose \(\delta\) function is implemented in hardware rather than
+in CUDA, with bounded per-tick throughput and no SM-cycle
+consumption.  Adding a new actor class for hardware-implemented
+\(\delta\) functions—keeping the lifecycle, K2K, and supervisor
+machinery, but bypassing the persistent-kernel substrate for the
+\textsc{Process} step—is a small extension that opens the model to
+a class of accelerator primitives that are otherwise difficult to
+expose in actor-style code.
+
+\paragraph{Tensor Memory: a constraint, not an extension}
+Blackwell's per-SM 256~KiB Tensor Memory (TMEM) is reachable only
+via \texttt{tcgen05.*} instructions, not from ordinary
+SMEM/DSMEM addresses~\citep{microbench-blackwell}.  Actor state
+must therefore continue to live in HBM, SMEM, DSMEM, or
+registers; TMEM is a substrate for matrix operations that the
+\(\delta\) function may invoke but not a substrate for actor
+state.  This is worth saying explicitly because a reader might
+otherwise expect a 256~KiB on-chip extension of \(\mathit{snap}\)
+to be available; it is not.
+
+\paragraph{Caveats on the road map}
+The Blackwell features are documented and benchmarked; the Rubin
+figures are NVIDIA's announced specifications and are subject to
+change before silicon is available.  Cluster geometry, DSMEM
+scope, and \texttt{cluster.sync()} latency on Rubin have not been
+publicly disclosed at the time of writing.  We treat the listed
+extensions as research \emph{directions} contingent on those
+parameters; a formal-model update for any specific extension would
+follow a hardware-availability checkpoint similar to the one the
+H100~NVL evaluation of \Cref{sec:evaluation} represents.
+
 \subsection{The Bigger Picture}
 \label{sec:disc:big}
 

@@ -128,6 +128,63 @@ The choice of policy is a configuration of the supervisor, not of the
 child; from the child's point of view, restart is a single semantic
 event regardless of which policy provoked it.  The HLC argument below
 is therefore independent of which restart policy fired.
+\Cref{fig:supervisor-tree} shows a representative supervisor tree
+with the four policies in use.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+    every node/.style={font=\footnotesize\sffamily},
+    sup/.style={draw, rounded corners=2pt, fill=blue!8,
+                minimum width=15mm, minimum height=6mm, inner sep=2pt},
+    actor/.style={draw, rounded corners=8pt, fill=green!8,
+                  minimum width=12mm, minimum height=5mm, inner sep=2pt,
+                  font=\scriptsize\sffamily},
+    edge/.style={->, >=Stealth, semithick}
+  ]
+  \node[sup] (root) at (4.5, 2.5) {Root Sup};
+  \node[sup] (s1)   at (1.5, 1.0) {Sup A};
+  \node[sup] (s2)   at (4.5, 1.0) {Sup B};
+  \node[sup] (s3)   at (7.5, 1.0) {Sup C};
+
+  \node[actor] (a1) at (0, -0.5)   {Actor 1};
+  \node[actor] (a2) at (1.5, -0.5) {Actor 2};
+  \node[actor] (a3) at (3, -0.5)   {Actor 3};
+
+  \node[actor] (b1) at (4.0, -0.5) {Actor 4};
+  \node[actor] (b2) at (5.0, -0.5) {Actor 5};
+
+  \node[actor] (c1) at (6.5, -0.5) {Actor 6};
+  \node[actor] (c2) at (8.0, -0.5) {Actor 7};
+  \node[actor] (c3) at (9.0, -0.5) {Actor 8};
+
+  \draw[edge] (root) -- (s1)
+        node[midway, sloped, above, font=\tiny]{OneForOne};
+  \draw[edge] (root) -- (s2)
+        node[midway, above, font=\tiny]{OneForOne};
+  \draw[edge] (root) -- (s3)
+        node[midway, sloped, above, font=\tiny]{OneForOne};
+
+  \draw[edge] (s1) -- (a1) node[midway, sloped, above, font=\tiny]{OneForOne};
+  \draw[edge] (s1) -- (a2);
+  \draw[edge] (s1) -- (a3);
+
+  \draw[edge] (s2) -- (b1) node[midway, sloped, above, font=\tiny]{OneForAll};
+  \draw[edge] (s2) -- (b2);
+
+  \draw[edge] (s3) -- (c1) node[midway, sloped, above, font=\tiny]{RestForOne};
+  \draw[edge] (s3) -- (c2);
+  \draw[edge] (s3) -- (c3);
+\end{tikzpicture}
+\caption{Representative supervisor tree.  Each supervisor declares a
+restart policy that governs how it reacts to a fault among its
+children.  \textsc{OneForOne} restarts only the failed child;
+\textsc{OneForAll} restarts the failed child and all siblings;
+\textsc{RestForOne} restarts the failed child and all siblings
+created after it (in spawn order).  A fourth policy,
+\textsc{Permanent}, applies per-child rather than per-supervisor.}
+\label{fig:supervisor-tree}
+\end{figure}
 
 The supervisor also tracks a per-child restart counter
 (\(\mathit{rcount}\) in the actor's state vector,

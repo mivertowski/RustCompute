@@ -91,7 +91,45 @@ The lifecycle of an actor is governed by six rules: spawn, activate,
 process, quiesce, terminate, and fail.  Each is given as a
 small-step transition over configurations.  We use the notation
 \(C \trans{r} C'\) to mean ``configuration \(C\) takes one step under
-rule~\(r\) to configuration \(C'\).''
+rule~\(r\) to configuration \(C'\).''  \Cref{fig:lifecycle} summarizes
+the resulting state machine.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+    node distance=15mm and 22mm,
+    every state/.style={draw, rounded corners=2pt, minimum size=10mm,
+                        font=\small\sffamily, inner sep=2pt},
+    every edge/.style={draw, ->, >=Stealth, thin},
+    every node/.style={font=\footnotesize\sffamily}
+  ]
+  \node[state] (D)  {Dormant};
+  \node[state, right=of D]  (I)  {Initializing};
+  \node[state, right=of I]  (A)  {Active};
+  \node[state, right=of A]  (Dr) {Draining};
+  \node[state, right=of Dr] (T)  {Terminated};
+  \node[state, below=12mm of A, fill=red!8] (F) {Failed};
+
+  \path (D)  edge node[above]{\textsc{Spawn}}     (I);
+  \path (I)  edge node[above]{\textsc{Activate}}  (A);
+  \path (A)  edge node[above]{\textsc{Quiesce}}   (Dr);
+  \path (Dr) edge node[above]{\textsc{Terminate}} (T);
+  \path (T)  edge[bend left=35] node[below]{\textsc{Release}} (D);
+
+  \path (A)  edge[loop above] node{\textsc{Process}} (A);
+  \path (I)  edge[bend left=20] node[left, near end]{\textsc{Fail}} (F);
+  \path (A)  edge node[right]{\textsc{Fail}} (F);
+  \path (Dr) edge[bend right=20] node[right, near end]{\textsc{Fail}} (F);
+  \path (F)  edge[bend left=40] node[below left]{\textsc{Restart}} (I);
+\end{tikzpicture}
+\caption{Lifecycle state machine.  Solid edges are SOS rules
+(\Cref{rule:spawn,rule:activate,rule:process} and the appendix
+rules).  \Failed{} is a fault attractor reachable from any
+non-terminal state; \textsc{Restart}~(\Cref{rule:restart}) returns
+to \Initializing{} via the snapshot-restore protocol of
+\Cref{sec:supervision:restart}.}
+\label{fig:lifecycle}
+\end{figure}
 
 \paragraph{Spawn}
 A previously-unallocated identifier becomes allocated in

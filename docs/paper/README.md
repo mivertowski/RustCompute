@@ -29,6 +29,7 @@ paper/
     ├── k2k.tex                  # K2K calculus + delivery theorem
     ├── supervision.tex          # HLC + restart-monotonicity theorem
     ├── tenancy.tex              # Audit boundaries + cross-tenant isolation
+    ├── migration.tex            # Multi-GPU migration: phase machine + safety theorem
     ├── implementation.tex       # RingKernel runtime, CUDA driver surface
     ├── evaluation.tex           # H100 NVL benchmarks
     ├── discussion.tex           # Limits, future work
@@ -58,11 +59,11 @@ in `../verification/`:
 | Theorem (paper)                  | TLA+ spec (`../verification/`) |
 |----------------------------------|--------------------------------|
 | Lifecycle Soundness (Thm 4.1)    | `actor_lifecycle.tla`          |
-| K2K Delivery Properties          | `k2k_delivery.tla`             |
+| K2K No-Loss / FIFO / Dedup       | `k2k_delivery.tla`             |
 | HLC Restart Monotonicity         | `hlc.tla`                      |
 | Cross-Tenant Isolation           | `tenant_isolation.tla`         |
-| Migration Safety (deferred)      | `migration.tla`                |
-| Multi-GPU K2K (deferred)         | `multi_gpu_k2k.tla`            |
+| Migration Safety                 | `migration.tla`                |
+| Bounded Latency (NVLink path)    | `multi_gpu_k2k.tla`            |
 
 Run `make verify` (or `./tlc.sh` from `../verification/`) to model-check
 all specs.
@@ -85,14 +86,23 @@ without editing every section.
 
 ## Status
 
-First-pass draft complete. All 13 sections plus appendix are written;
-the paper compiles to a 40-page PDF on stock TeX Live 2023 (Debian)
-with no undefined references. Each formal claim is accompanied by a
-proof sketch and a pointer to the corresponding TLA+ spec under
-`../verification/`.
+Second-pass draft complete. The paper now compiles to a 48-page PDF on
+stock TeX Live 2023 (Debian), no undefined references, with:
 
-Next iteration: figures (lifecycle state diagram, K2K channel
-hierarchy, supervisor tree), an additional theorem on multi-GPU
-migration safety (currently model-checked but not analytically
-proved), and a comparison table against Triton / JAX / CUDA Graphs
-in the related-work section.
+- Six theorems, each accompanied by a proof sketch and a pointer to the
+  corresponding TLA+ spec under `../verification/`.
+- Three TikZ figures: lifecycle state machine, K2K channel hierarchy,
+  supervisor tree.
+- A multi-GPU migration section with the Migration Safety theorem and
+  a Bounded-Latency theorem for NVLink routing.
+- A comparison table positioning RingKernel against persistent kernels,
+  CUDA Graphs, Triton/JAX, and CPU actor systems (Erlang, Akka, Pony).
+- A "Future Hardware" subsection in the discussion covering Blackwell
+  (B100/B200, GB200 NVL72) and Rubin (R100/R200, NVL144) features
+  relevant to the actor model.
+
+Next iteration candidates: a worked example showing an end-to-end
+NSAI workload built on the calculus; an extended evaluation against
+CUDA Graphs and Triton on a comparable workload; and a v2 calculus
+that lifts subset-synchronization barriers (Blackwell `tcgen05.commit`)
+to a per-conversation liveness theorem.

@@ -1,0 +1,256 @@
+% sections/migration.tex — Multi-GPU Migration
+\section{Multi-GPU Migration}
+\label{sec:migration}
+
+The lifecycle of \Cref{sec:model} treats actors as bound to a single
+device.  Multi-tenant deployments and rebalancing workloads need
+something stronger: the ability to relocate a live actor from a
+source GPU to a target GPU without losing in-flight messages,
+breaking causal ordering, or violating the cross-tenant isolation of
+\Cref{sec:tenancy}.  This section formalizes the migration protocol
+\system{} uses for that purpose, gives a small-step semantics for
+its phases, states the central safety theorem, and describes the
+cross-GPU K2K extensions that the protocol relies on.  Both the
+migration protocol and the cross-GPU K2K calculus are mechanized in
+\TLA{}: \texttt{docs/verification/migration.tla} for the migration
+state machine, \texttt{docs/verification/multi\_gpu\_k2k.tla} for the
+NVLink-versus-host-stage routing.
+
+\subsection{Phase Machine}
+\label{sec:migration:phases}
+
+A migration of actor \(a\) from source GPU \(g_s\) to target GPU
+\(g_t\) proceeds through five phases:
+
+\begin{description}
+\item[\textsc{Running}] Source is authoritative; new messages land
+in the source's inbox, processed normally.
+\item[\textsc{Quiesced}] Source stops accepting new messages into
+its inbox; new messages from senders unaware of the migration are
+diverted to an in-flight buffer.
+\item[\textsc{Transferring}] Source's state, inbox, and in-flight
+buffer are copied to the target via a peer-to-peer transfer
+(NVLink) or a host-mediated stage.
+\item[\textsc{Swapping}] The routing table flips atomically from
+\(g_s\) to \(g_t\); senders' next K2K \textsc{Send} resolves to
+\(g_t\).
+\item[\textsc{Complete}] Target is authoritative; source is inert
+and may be reaped.
+\end{description}
+
+The phase variable is held in supervisor-private memory, polled by
+both source and target on every tick.  The full transition
+semantics, given as small-step rules, mirrors the \TLA{} actions
+\texttt{BeginQuiesce}, \texttt{CaptureState}, \texttt{Transfer},
+\texttt{SwapRouting}, and \texttt{Finalize} in
+\texttt{migration.tla}; we give one representative rule and refer
+the reader to the spec for the rest.
+
+\begin{equation}
+\inference[\textsc{SwapRouting}]
+{
+  \mathit{phase} = \state{Swapping} \\
+  \mathit{checksum}_s = \mathit{checksum}_t
+}
+{
+  \langle \Theta, M, t\rangle
+  \trans{\mathsf{swap}(a, g_s, g_t)}
+  \langle \Theta', M, t+1\rangle
+}
+\label{rule:migration-swap}
+\end{equation}
+
+\noindent where \(\Theta'\) updates the routing table for \(a\)
+from \(g_s\) to \(g_t\) and advances \(\mathit{phase}\) to
+\state{Complete}.  The premise
+\(\mathit{checksum}_s = \mathit{checksum}_t\) refuses the swap if
+the state captured at the source does not match what the target
+restored: the state transfer is verified before the cutover, so a
+corrupted transfer cannot land an inconsistent target as
+authoritative.
+
+\subsection{Safety Property}
+\label{sec:migration:safety}
+
+The safety guarantee of the migration protocol is the conjunction
+of three statements: every message accepted before, during, or
+after migration is eventually delivered (or in flight) at the
+target; the relative order of two messages from the same source is
+preserved across the cutover; and the routing table flips
+atomically (no observable state in which both \(g_s\) and \(g_t\)
+accept simultaneously).  We state this as a single theorem.
+
+\begin{theorem}[Migration Safety]
+\label{thm:migration-safety}
+For every reachable configuration \(\langle \Theta, M, t\rangle\)
+in which a migration of actor \(a\) from \(g_s\) to \(g_t\) has
+been initiated:
+\begin{enumerate}
+\item \emph{Atomic swap}: at every step, exactly one of
+\(\{g_s, g_t\}\) is the routing destination for messages addressed
+to \(a\); there is no step in which both accept.
+
+\item \emph{No message loss}: every message identifier admitted by
+the system into the source's inbox, the in-flight buffer, or the
+target's inbox is in exactly one of the following sets:
+the source's inbox (for \(\mathit{phase} \in
+\{\state{Running}\}\)); the in-flight buffer (for
+\(\mathit{phase} \in \{\state{Quiesced}, \state{Transferring},
+\state{Swapping}\}\)); the target's inbox (for
+\(\mathit{phase} \in \{\state{Swapping}, \state{Complete}\}\) after
+\textsc{Transfer}); the delivered set; or, after \textsc{Finalize},
+inertia (drained from the source).
+
+\item \emph{FIFO across cutover}: for any two messages \(m_1, m_2\)
+with the same source actor and \(\mathit{mid}_1 < \mathit{mid}_2\),
+if both arrive in the target's inbox after \textsc{SwapRouting},
+then \(m_1\) is at a lower index than \(m_2\).
+
+\item \emph{State consistency}: at the moment of
+\textsc{SwapRouting}, the target's restored state has the same
+checksum as the source's captured state; the protocol refuses to
+swap if they differ.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+By induction on the migration trace.  The atomic-swap clause~(1)
+follows from the structure of the phase machine: the routing table
+is a single variable updated only by
+\textsc{SwapRouting}~(\Cref{rule:migration-swap}), and that rule
+moves the value from \(g_s\) to \(g_t\) in one step;
+\texttt{AcceptOnSrc} is gated by
+\(\mathit{routing\_table} = \text{``src''}\) and
+\texttt{AcceptOnTgt} by \(\mathit{routing\_table} = \text{``tgt''}\),
+which are mutually exclusive.
+
+The no-loss clause~(2) follows from a case analysis on which rule
+applied last.  In phase \state{Running},
+\texttt{AcceptOnSrc} appends to \(\mathit{src\_queue}\).  In phases
+\(\{\state{Quiesced}, \state{Transferring}, \state{Swapping}\}\),
+\texttt{AcceptDuringQuiesce} appends to
+\(\mathit{in\_flight\_buffer}\) instead.  \texttt{Transfer}
+concatenates \(\mathit{src\_queue}\) and
+\(\mathit{in\_flight\_buffer}\) onto \(\mathit{tgt\_queue}\), so no
+in-flight message is lost.  After \textsc{Swapping}, only
+\texttt{AcceptOnTgt} can admit a message (and lands it in
+\(\mathit{tgt\_queue}\)); \texttt{Finalize} drains
+\(\mathit{src\_queue}\) and \(\mathit{src\_state}\) but only after
+the cutover, so anything in those structures has already been
+copied to the target.
+
+The FIFO clause~(3) follows from the queue-concatenation property
+of \texttt{Transfer}: \(\mathit{tgt\_queue}\) is constructed as
+\(\mathit{src\_queue} \mathbin{\circ} \mathit{in\_flight\_buffer}\),
+which preserves the relative order of any two messages from the
+same source.  Subsequent \texttt{AcceptOnTgt} appends to the tail,
+preserving order with respect to anything already in the queue.
+
+The state-consistency clause~(4) is the precondition of
+\Cref{rule:migration-swap}: \textsc{SwapRouting} is only enabled
+when \(\mathit{checksum}_s = \mathit{checksum}_t\).  In the
+runtime, the checksum is a CRC-32 computed over the captured state
+bytes; a transfer error that flipped any bit would leave the two
+checksums different, and the swap would be refused.  The
+supervisor's escalation policy on a refused swap is to abort the
+migration and leave the source authoritative.
+\qed
+\end{proof}
+
+\Cref{thm:migration-safety} corresponds to the conjunction of the
+\TLA{} invariants \texttt{AtomicSwap}, \texttt{NoMessageLoss},
+\texttt{FIFOPreserved}, and \texttt{ChecksumMatch} in
+\texttt{migration.tla} (lines 187--208).  The bounded model checker
+under \texttt{migration.cfg} explores configurations of up to four
+in-flight messages and verifies all four invariants
+exhaustively.
+
+\subsection{Cross-GPU K2K}
+\label{sec:migration:cross-gpu}
+
+The migration protocol relies on a cross-GPU extension of the K2K
+calculus of \Cref{sec:k2k}.  The extension introduces two new
+channel tiers:
+
+\begin{itemize}
+\item \textbf{NVLink P2P}: when source and destination GPUs are
+connected by NVLink, the runtime issues a peer-to-peer copy
+(\texttt{cuMemcpyPeerAsync}) directly from source-device memory to
+target-device memory.  Latency is bounded by the NVLink fabric
+($\sim$5~$\mu$s for a 4-KiB payload on H100~NVL with NVLink~4).
+
+\item \textbf{Host stage}: when no NVLink path exists, the runtime
+falls back to a two-hop copy through host memory:
+\texttt{cuMemcpyDtoHAsync} from source to a pinned host buffer,
+then \texttt{cuMemcpyHtoDAsync} from the host buffer to target.
+Latency is bounded by host memory bandwidth and the PCIe round
+trip ($\sim$25~$\mu$s for the same 4-KiB payload).
+\end{itemize}
+
+The runtime selects the path based on a static NVLink-topology
+query at startup; the choice is captured in the cross-GPU routing
+table.  The relevant \TLA{} actions in
+\texttt{multi\_gpu\_k2k.tla} are \texttt{RouteP2P} (NVLink path)
+and \texttt{RouteHost} (host-stage fallback).
+
+\begin{theorem}[Bounded Latency]
+\label{thm:bounded-latency}
+For every reachable configuration of the cross-GPU K2K calculus, no
+message addressed to a destination on an NVLink-connected GPU is
+ever placed on the host-stage queue.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+\texttt{RouteP2P} and \texttt{RouteHost} have mutually exclusive
+preconditions: \texttt{RouteP2P} requires
+\texttt{HasNVLink(sg, dg)} and \texttt{RouteHost} requires
+\(\neg\)\texttt{HasNVLink(sg, dg)}.  By the well-formedness of the
+NVLink topology (a static input to the runtime), exactly one of the
+two preconditions holds for any given pair of GPUs, so a message
+takes the P2P path if and only if NVLink is available.  This is the
+\texttt{BoundedLatency} invariant of
+\texttt{multi\_gpu\_k2k.tla} (lines 158--168), and is preserved on
+every reachable trace.
+\qed
+\end{proof}
+
+\Cref{thm:bounded-latency} is operationally important: it
+guarantees that adding more GPUs to a deployment never silently
+degrades latency for actor pairs that should remain on the fast
+path.  An NVLink topology change that severs the path between two
+GPUs would cause new messages between actors on those GPUs to fall
+back to the host-stage tier; the runtime exposes this transition
+as a metric (\texttt{ringkernel\_k2k\_host\_stage\_messages\_total})
+and the operator can observe and react.
+
+\subsection{HLC Across Devices}
+\label{sec:migration:hlc-cross}
+
+When an actor migrates from \(g_s\) to \(g_t\), its HLC must
+continue to increase monotonically (per the per-actor monotonicity
+property of \Cref{prop:hlc-per-actor-monotone}).  The complication
+is that \(g_s\) and \(g_t\) may have different host wall-clock
+sources; even with NTP synchronization, sub-microsecond skew is
+expected.  The protocol handles this by treating the source's HLC
+at the moment of \textsc{CaptureState} as the retreat timestamp
+for the purposes of \Cref{thm:hlc-restart-monotone}, applied at
+the target.
+
+Concretely, when the target restores the actor's state in
+\textsc{Transferring}, it initializes the actor's HLC to
+\(\hlc.\mathsf{merge}(h_s, h_t, w_t)\) where \(h_s\) is the
+source's HLC at capture, \(h_t\) is the target's clock prior to the
+restore, and \(w_t\) is the target's wall clock.  This ensures the
+restored actor's HLC dominates both \(h_s\) and \(h_t\) and is
+consistent with the target's wall clock.  The
+\(\hlc.\mathsf{merge}\) operation is the same one used for
+intra-device message receipt (\Cref{sec:supervision:hlc}); the only
+unusual move is using it on a state restore rather than a message
+receive.
+
+The HLC-restart-monotonicity argument
+(\Cref{thm:hlc-restart-monotone}) extends to migration with this
+additional move: the proof goes through unchanged, with
+\(h_{\mathrm{ret}}\) replaced by the merged value
+\(\hlc.\mathsf{merge}(h_s, h_t, w_t)\), which dominates
+\(h_{\mathrm{fault}} = h_s\).

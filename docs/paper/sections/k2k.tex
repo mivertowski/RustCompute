@@ -55,6 +55,64 @@ channel-tier tag carried in the envelope, and the small-step rules
 treat all three uniformly.  The runtime makes the placement decision
 (\Cref{sec:implementation}); the calculus is concerned only with the
 end-to-end semantics each tier implements.
+\Cref{fig:k2k-tiers} sketches the three tiers and their relationship
+to the GPU memory hierarchy.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+    every node/.style={font=\footnotesize\sffamily},
+    block/.style={draw, rounded corners=1pt, minimum width=14mm,
+                  minimum height=6mm, inner sep=2pt, font=\scriptsize\sffamily},
+    cluster/.style={draw, dashed, rounded corners=3pt, inner sep=4mm,
+                    fill=blue!4},
+    gpu/.style={draw, very thick, rounded corners=4pt, inner sep=6mm,
+                fill=gray!4},
+    arrow/.style={->, >=Stealth, semithick}
+  ]
+  \begin{scope}
+  \node[block] (b1) at (0, 0)   {Block 1};
+  \node[block] (b2) at (1.7, 0) {Block 2};
+  \node[block] (b3) at (3.4, 0) {Block 3};
+  \node[block] (b4) at (0, -1.0)   {Block 4};
+  \node[block] (b5) at (1.7, -1.0) {Block 5};
+  \node[block] (b6) at (3.4, -1.0) {Block 6};
+  \begin{pgfonlayer}{background}
+    \node[cluster, fit=(b1)(b2)(b3)(b4)(b5)(b6),
+          label={[anchor=north, font=\scriptsize]above:Cluster (1 GPC)}] (cl) {};
+  \end{pgfonlayer}
+
+  \node[block] (b7) at (6.5, -0.5) {Block 7};
+  \node[block] (b8) at (8.2, -0.5) {Block 8};
+  \begin{pgfonlayer}{background}
+    \node[cluster, fit=(b7)(b8),
+          label={[anchor=north, font=\scriptsize]above:Other Cluster}] (cl2) {};
+  \end{pgfonlayer}
+  \end{scope}
+
+  \begin{pgfonlayer}{background}
+    \node[gpu, fit=(cl)(cl2),
+          label={[anchor=north west, font=\scriptsize]north west:GPU device (HBM)}] (g) {};
+  \end{pgfonlayer}
+
+  % Arrows
+  \path[arrow, blue] (b1.east) edge[bend left=10]
+        node[above, font=\tiny]{\textsc{Smem} (intra-block, $\sim$0 cy)} (b1.east);
+  \draw[arrow, blue, dashed] (b1) to[bend left=18]
+        node[above, font=\tiny]{\textsc{Dsmem} ($\sim$30 cy)} (b3);
+  \draw[arrow, red, thick] (b6.east) to[bend right=20]
+        node[below, font=\tiny]{\textsc{Hbm} ($\sim$400 cy)} (b7.west);
+
+\end{tikzpicture}
+\caption{K2K channel tiers.  \textsc{Smem} (intra-block) lives in
+each block's shared memory; \textsc{Dsmem} (intra-cluster) uses
+distributed shared memory addressed via
+\texttt{cluster.map\_shared\_rank()}; \textsc{Hbm} (inter-cluster)
+goes through global memory.  Latencies are H100~NVL measurements
+from \Cref{sec:evaluation}.  The runtime selects the tier based on
+the placement of source and destination actors.}
+\label{fig:k2k-tiers}
+\end{figure}
 
 \subsection{Message Envelope}
 \label{sec:k2k:envelope}

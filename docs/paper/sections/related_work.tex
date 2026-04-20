@@ -67,6 +67,59 @@ kernels, and the host still drives every iteration.  \system{}'s
 persistent kernel runs continuously; the host injects work into
 mapped memory but does not orchestrate the kernel's tick loop.
 
+\paragraph{Comparison summary}
+\Cref{tab:comparison} summarizes the design space along the axes
+that the formal model isolates: programming-model granularity,
+lifecycle abstraction, message-passing primitive, fault tolerance,
+causal time, and multi-tenant isolation.  The table is intended as
+a positioning aid rather than a performance comparison; for each
+row, ``\cmark'' means the system provides a first-class abstraction
+of the property, ``\textit{ext}'' means the property is achievable
+by the user's own glue code, and ``--'' means there is no support.
+
+\begin{table}[h]
+\centering
+\small
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{lcccccc}
+\toprule
+System & Granularity & Lifecycle & Msg.\ pass & Fault tol.\ & Causal time & Multi-tenant \\
+\midrule
+\system{}                   & actor    & \cmark    & \cmark & \cmark   & HLC      & \cmark \\
+Persistent kernels          & loop body & --       & queue  & --       & --       & -- \\
+\quad\citep{aila2009raytrace,gupta2012persistent,steinberger2014whippletree}
+                            &          &           &        &          &          & \\
+CUDA Graphs                 & kernel   & --        & --     & --       & --       & -- \\
+Triton / JAX / TVM          & function & --        & --     & --       & --       & -- \\
+Erlang OTP \citep{armstrong2007erlang}
+                            & actor    & \cmark    & \cmark & \cmark   & seq.\ ID & \textit{ext} \\
+Akka \citep{akka2010}       & actor    & \cmark    & \cmark & \cmark   & seq.\ ID & \textit{ext} \\
+Pony \citep{clebsch2015pony}
+                            & actor    & \cmark    & \cmark & --       & --       & static \\
+\bottomrule
+\end{tabular}
+\caption{Design-space comparison of \system{} against representative
+GPU programming abstractions and CPU actor systems.  ``\cmark'' = first-class
+abstraction; ``\textit{ext}'' = achievable via external glue;
+``static'' = compile-time enforcement only;
+``--'' = unsupported; ``HLC'' = Hybrid Logical Clock; ``seq.\ ID'' =
+monotone sequence number per actor.  GPU-side rows are above
+the dividing line; CPU-side actor systems are shown below for
+context.  The table makes plain that no other GPU programming
+abstraction provides any of the rightmost four columns as a
+first-class feature, which is the gap \system{} fills.}
+\label{tab:comparison}
+\end{table}
+
+The table's rightmost columns—causal time, multi-tenant isolation,
+fault tolerance, lifecycle—are the formal-model territory.  The
+GPU-side abstractions either treat them as out-of-scope (CUDA
+Graphs, Triton, JAX) or approximate them through a single
+all-or-nothing pattern (the persistent-kernel literature).  The
+CPU-side actor systems handle them at the operating-system layer
+that does not exist on the GPU.  \system{}'s contribution is a
+single substrate that handles all four on the device.
+
 \paragraph{GPU memory consistency}
 Lustig et~al.~\citep{lustig2014abstraction} and Hower
 et~al.~\citep{hower2014} formalized the memory consistency models of
