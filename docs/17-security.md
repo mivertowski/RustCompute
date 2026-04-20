@@ -65,6 +65,10 @@ let decrypted: ControlBlock = encryption.decrypt(&encrypted)?;
 encryption.rotate_key()?;
 ```
 
+### XOR Fallback Deprecation
+
+Building without the `crypto` feature falls back to an XOR-based demonstration cipher. As of v1.1 (landed in `crates/ringkernel-core/src/security.rs`), every XOR-path entry point is annotated `#[deprecated]` so builds emit a compile-time warning. The fallback exists for unit-test convenience only; production deployments must enable `crypto` to get real AES-256-GCM / ChaCha20-Poly1305. Ignoring the deprecation warning is an explicit acceptance of insecure-by-default behavior.
+
 ### Key Derivation Functions
 
 | Function | Description |
@@ -540,6 +544,65 @@ ctx.track_memory(1024 * 1024)?;
 let utilization = ctx.quota_utilization();
 println!("Memory: {:.1}%", utilization.memory_percent());
 ```
+
+---
+
+## Per-Tenant K2K Audit and Isolation (v1.1)
+
+v1.1 extends the multi-tenant model from coarse resource quotas to per-kernel identity and per-message audit metadata on the K2K path, with a TLA+-verified isolation guarantee. The implementation lives in [`crates/ringkernel-core/src/k2k/tenant.rs`](../crates/ringkernel-core/src/k2k/tenant.rs) and is covered by the `tenant_isolation.tla` specification (no counterexamples under `Tenants = {t1, t2}`, `Kernels = {k1, k2, k3}`, `MaxMsgs = 3`).
+
+### Isolation Model
+
+Every kernel registered with the K2K broker carries a `tenant_id`. Every message carries both a `tenant_id` and an `AuditTag { org_id, engagement_id }` — either inherited from registration or overridden on a per-send basis via `send_with_audit`. Single-tenant deployments use `LegacyTenant::Unspecified`, which selects the v1.0 fast path and adds no overhead.
+
+```rust
+// Register with engagement-scoped audit metadata
+broker.register_tenant_kernel(
+    tenant_a,
+    kernel_id,
+    AuditTag { org_id, engagement_id: engagement_foo },
+)?;
+
+// Same-tenant send: fast path, audit tag inherited from registration
+broker.send(dest_in_tenant_a, msg).await?;
+
+// Per-send override: different engagement within the same tenant
+broker.send_with_audit(
+    dest_in_tenant_a,
+    msg,
+    AuditTag { org_id, engagement_id: engagement_bar },
+).await?;
+```
+
+### Cross-Tenant Rejection Path
+
+Any send whose sender and destination differ in `tenant_id` is rejected before the message enters the destination kernel's inbox. The rejection writes a record to the configurable audit sink — **the attempt is observable even though the message was never delivered**. This is the mechanism that makes the isolation property auditable rather than merely "best effort".
+
+```rust
+// Cross-tenant attempt: rejected + audit record written
+let result = broker.send(kernel_in_tenant_b, msg).await;
+assert!(matches!(result, Err(TenantError::Mismatch { .. })));
+// audit_sink now contains one CrossTenantAttempt record with both tenant ids
+```
+
+Across the 13 `multi_tenant` subtests in v1.1, **no message crossed tenant boundaries in any rejection path**. The TLA+ invariant `NoSameMessageInBothTenants` independently proves this under bounded model checking.
+
+### Quota Enforcement
+
+Each tenant carries a set of enforced quotas; exceeding any of them causes the broker to reject the send and (if configured) write to the audit sink. Quotas are checked at enqueue time, not on a periodic sweep, so over-budget sends fail immediately.
+
+| Quota | Scope | Purpose |
+|-------|-------|---------|
+| `max_concurrent_kernels` | Tenant | Cap on simultaneously registered kernels. |
+| `gpu_memory_bytes` | Tenant | Cumulative device memory owned by the tenant. |
+| `messages_per_sec` | Tenant | Rate cap on outbound K2K sends. |
+| `engagement_cost_budget` | Engagement (`AuditTag`) | Cost units accumulated across sends with the same `engagement_id`, independent of `org_id`. |
+
+The engagement-cost accumulator is scoped by `AuditTag`, so a single tenant can carry multiple concurrent engagements with independent budgets; this is what lets multi-tenant deployments charge usage to the correct downstream customer on the same GPU.
+
+### Integration with the Audit Sink
+
+Applications provide an `AuditSink` at runtime construction; cross-tenant rejections, quota violations, and rule-compilation failures all write structured records to it. The sink is async and batched so audit write latency does not appear on the K2K hot path.
 
 ---
 

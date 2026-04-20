@@ -47,10 +47,14 @@ guarantee that NVLink-paired actors never fall back to the
 host-staged path;
 \textbf{(vi)}~empirical validation on NVIDIA H100~NVL silicon: 75\,ns
 mapped-memory command injection (8{,}698\(\times\) faster than
-\texttt{cuLaunchKernel}), 5.54\,M~messages/second sustained
-throughput with a coefficient of variation of 0.05\% over 60~seconds,
-and 0.628\,\(\mu\)s cluster-level synchronization
-(2.98\(\times\) faster than grid-wide synchronization).  The \TLA{}
+\texttt{cuLaunchKernel}), 5.10\,M~messages/second sustained
+throughput with a coefficient of variation of 0.66\% over four
+60-second trials, and 0.628\,\(\mu\)s cluster-level synchronization
+(2.98\(\times\) faster than grid-wide synchronization).  On a
+2\(\times\) H100~NVL system the NVLink P2P migration path reaches
+257.78\,GB/s (81\% of the 12-link NVLink bundle's theoretical peak)
+and runs 8.65\(\times\) faster than the host-staged fallback at
+16~MiB.  The \TLA{}
 specifications backing each formal claim are open and machine-checked.
 
 The model and its proofs subsume three apparently unrelated design

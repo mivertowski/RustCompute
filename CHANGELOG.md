@@ -106,8 +106,9 @@ carry a link dependency.
 #### Regressions
 
 - `cargo test --workspace --release --exclude ringkernel-txmon`:
-  1,595 tests pass, 0 failures (up from 1,590 in v1.1.0 because of
-  new delta-checkpoint and Blackwell-capability unit tests).
+  1,617 tests pass, 0 failures (up from 1,590 in v1.1.0 because of
+  new delta-checkpoint, Blackwell-capability, hierarchical work-stealing,
+  and HBM-tier direct-measurement unit tests).
 
 ## [1.1.0] - 2026-04-20
 

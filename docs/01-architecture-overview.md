@@ -6,9 +6,17 @@ nav_order: 2
 
 # Architecture Overview
 
+## Release Status
+
+- **v1.0.0** (shipped, 2026-04-16) — Single-GPU persistent actor framework. H100-verified: 55 ns command injection (8,698× vs `cuLaunchKernel`), 5.54 Mops/s sustained over 60 s at CV 0.05%, 0.628 µs `cluster.sync()` (2.98× vs `grid.sync()`), 878 ns async-pool allocation. Paper-quality benchmarks under 95 % CI + Welch's t-test. See [`benchmarks/ACADEMIC_PROOF.md`](benchmarks/ACADEMIC_PROOF.md).
+
+- **v1.1.0** (shipped, 2026-04-20) — Multi-GPU + VynGraph NSAI integration, proven on 2× NVIDIA H100 NVL (Azure NC80adis_H100_v5, NV12 NVLink topology). Real `cuCtxEnablePeerAccess` + `cuMemcpyPeerAsync`; NVLink P2P migration **8.7× faster than host-staging at 16 MiB**, 258 GB/s sustained K2K bandwidth (~81 % of 318 GB/s NV12 peak), lifecycle rules flat at 23 ns mean / 30 ns p99. VynGraph integration points: PROV-O provenance header (8 relations), multi-tenant K2K isolation (per-tenant sub-brokers, 0 cross-tenant leaks across 13 tests), live introspection streaming, hot rule reload with `CompiledRule`. Formal verification: 6 TLA+ specifications (`hlc`, `k2k_delivery`, `migration`, `multi_gpu_k2k`, `tenant_isolation`, `actor_lifecycle`) pass under TLC 2.19 with no counterexamples. Full results in [`benchmarks/v1.1-2x-h100-results.md`](benchmarks/v1.1-2x-h100-results.md) and [`verification/v1.1-tlc-report.md`](verification/v1.1-tlc-report.md).
+
+- **v1.2 groundwork on `main`** (not yet tagged) — Hierarchical work stealing completing the block → cluster → grid hierarchy (`cluster_dsmem_work_steal`, `grid_hbm_work_steal`); opt-in NVSHMEM symmetric-heap bindings (`NvshmemHeap` RAII wrapper over the NVSHMEM host ABI; bootstrap is the caller's responsibility); Blackwell / sm_100 capability queries plus post-Hopper codegen scalar types (BF16, FP8 E4M3/E5M2, FP6 E3M2/E2M3, FP4 E2M1) with per-type `min_compute_capability()`; Rubin preset placeholder; SPSC queue cache-line padding plus split producer/consumer stats; workspace dep consolidation across eight crates. See `[Unreleased]` in [`../CHANGELOG.md`](../CHANGELOG.md).
+
 ## Current Status
 
-RingKernel v1.0.0 is a CUDA-focused persistent GPU actor framework. The core runtime, CPU backend, and NVIDIA CUDA backend are production-quality with H100-verified performance.
+RingKernel v1.1.0 is a CUDA-focused persistent GPU actor framework. The core runtime, CPU backend, and NVIDIA CUDA backend are production-quality. v1.1 adds a multi-GPU runtime that drives real CUDA P2P on 2-GPU hardware.
 
 **Working today:**
 - Runtime creation and kernel lifecycle management
@@ -22,7 +30,7 @@ RingKernel v1.0.0 is a CUDA-focused persistent GPU actor framework. The core run
 - Actor lifecycle on GPU (create, destroy, restart, supervise)
 - Message passing infrastructure (queues, serialization, HLC timestamps)
 - Pub/Sub messaging with topic wildcards
-- K2K (kernel-to-kernel) direct messaging via device memory and DSMEM
+- K2K (kernel-to-kernel) direct messaging via device memory and DSMEM; in v1.1 all three tiers (SMEM, DSMEM, HBM) are measured directly via `cluster_hbm_k2k` with a clean monotonic SMEM < DSMEM < HBM hierarchy across payload sizes
 - Telemetry and metrics collection with NVTX profiling
 - Rust-to-CUDA transpiler with 155+ intrinsics (ringkernel-cuda-codegen)
 - Size-stratified memory pools with pressure handling
@@ -30,9 +38,13 @@ RingKernel v1.0.0 is a CUDA-focused persistent GPU actor framework. The core run
 - Multi-kernel dispatch with domain-based routing
 - Queue tiering for throughput-based capacity selection
 - Enterprise features (auth, rate limiting, TLS, multi-tenancy)
+- Multi-GPU runtime: NVLink topology probe, `PlacementHint::NvlinkPreferred`, 3-phase migration with `cuMemcpyPeerAsync`, CRC32 byte-for-byte integrity verification (v1.1)
+- PROV-O provenance, multi-tenant K2K, hot rule reload, live introspection streaming (v1.1)
+- Incremental / delta checkpoints with recorded parent digest (v1.1)
+- Intra-block warp work stealing (v1.1); intra-cluster DSMEM and cross-cluster HBM stealing (v1.2 groundwork on `main`)
 - 20+ working examples
 - 4 showcase applications: WaveSim, TxMon, AccNet, ProcInt
-- 1,496+ tests across the workspace
+- 1,617+ tests across the workspace
 
 ## DotCompute Ring Kernel Architecture
 

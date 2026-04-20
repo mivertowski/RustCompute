@@ -141,11 +141,12 @@ The HLC-restart-monotonicity argument extends to migration via the
 \item \textbf{Empirical validation} on NVIDIA H100~NVL silicon
 (\Cref{sec:evaluation}): 75\,ns mapped-memory command injection
 (8{,}698\(\times\) faster than \texttt{cuLaunchKernel}),
-5.54\,M~messages/second sustained throughput at coefficient of
-variation 0.05\% over 60~seconds, 0.628\,\(\mu\)s cluster-level
-synchronization (2.98\(\times\) faster than grid-wide
-synchronization), and 116.9\(\times\) async memory-allocation
-speedup over classical \texttt{cuMemAlloc}.
+5.10\,M~messages/second sustained throughput at coefficient of
+variation 0.66\% over four 60-second trials, 0.628\,\(\mu\)s
+cluster-level synchronization (2.98\(\times\) faster than grid-wide
+synchronization), 116.9\(\times\) async memory-allocation speedup
+over classical \texttt{cuMemAlloc}, and 257.78\,GB/s NVLink P2P
+bandwidth at 16~MiB on a 2\(\times\) H100~NVL system (81\% of peak).
 All measurements were collected under locked GPU clocks, exclusive
 compute mode, and a statistical protocol calibrated against the
 reproducibility criteria of \citet{moss2002benchmarks}

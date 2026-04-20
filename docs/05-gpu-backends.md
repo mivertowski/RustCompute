@@ -171,12 +171,12 @@ let ptx = compile_ptx(cuda_source)?;
 println!("Generated PTX:\n{}", ptx);
 ```
 
-### cudarc 0.18.2 API (Updated)
+### cudarc 0.19.3 API
 
-The CUDA backend uses cudarc 0.18.2 with these patterns:
+The CUDA backend uses cudarc 0.19.3 with these patterns:
 
 ```rust
-// Module loading (NEW in 0.18.2)
+// Module loading
 let module = device.inner().load_module(ptx)?;  // Returns Arc<CudaModule>
 let func = module.load_function("kernel_name")?; // Load specific function
 

@@ -4,7 +4,7 @@
 [![Documentation](https://docs.rs/ringkernel-core/badge.svg)](https://docs.rs/ringkernel-core)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-1595%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1617%20passed-brightgreen.svg)]()
 
 **Persistent GPU actors for NVIDIA CUDA, proven on H100 and 2x H100 NVL.**
 
@@ -206,7 +206,7 @@ cargo build --workspace                          # Build entire workspace
 cargo build --workspace --features cuda           # With CUDA backend
 
 # Test
-cargo test --workspace                            # Run all tests (1,595 passing)
+cargo test --workspace                            # Run all tests (1,617 passing)
 cargo test -p ringkernel-core                     # Core tests (600+ tests, incl. multi-tenant / provenance / rules / delta checkpoints)
 cargo test -p ringkernel-cuda --test gpu_execution_verify  # CUDA GPU tests (requires NVIDIA GPU)
 cargo test -p ringkernel-ecosystem --features "persistent,actix,tower,axum,grpc"

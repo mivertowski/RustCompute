@@ -126,33 +126,70 @@ per trial, 20 trials, in-block (\textsc{Smem}) tier.}
 \toprule
 Metric & Value \\
 \midrule
-Duration & 60.0 s \\
-Total operations & 315{,}169{,}092 \\
-Mean throughput & \textbf{5.54~M~msg/s} \\
-Coefficient of variation & \textbf{0.05\%} \\
-p50 latency & 70 ns \\
-p95 latency & 80 ns \\
-p99 latency & 100 ns \\
-Throughput drift (first vs.\ last 1-s window) & 0.1\% \\
+Duration per trial & 60.0 s \\
+Trials & 4 \\
+Mean throughput & \textbf{5.10~M~msg/s} \\
+Coefficient of variation (across all 48 windows) & \textbf{0.66\%} \\
+p50 latency & 90 ns \\
+p95 latency & 100 ns \\
+p99 latency & 110 ns \\
+Throughput drift (first vs.\ last window per trial) & $<$2\% \\
 Memory growth & 0 MiB \\
-ECC errors & 0 \\
+ECC errors (pre $\to$ post per GPU) & 0 / 0 \\
 \bottomrule
 \end{tabular}
-\caption{K2K sustained run, 60 seconds, 1~KiB payload.  CV of
-0.05\% is two orders of magnitude below the conventional
-``extremely stable'' threshold (1\%) and three orders below the
-``stable'' threshold (5\%).}
+\caption{K2K sustained run, four 60-second trials at 1~KiB payload
+on 2$\times$ H100~NVL.  Per-window samples taken every 5 seconds (12
+windows per trial); the CV of 0.66\% across the resulting
+48-window pool sits well below the conventional ``extremely
+stable'' threshold of 1\%.  Per-window p99 latency is flat at
+110~ns across all 48 windows — no thermal throttle, no drift.}
 \label{tab:k2k-sustained}
 \end{table}
 
 The throughput in \Cref{tab:k2k-sustained} is lower than the
-inverse of the 70~ns~p50 latency would suggest: the gap is the
+inverse of the 90~ns~p50 latency would suggest: the gap is the
 device-side BSP barrier between phases of the persistent kernel
 (per \Cref{sec:implementation:kernel}).  Each iteration of the
 kernel processes one message per actor; the throughput is the
-product of actor count and tick rate.  At 5.54~M~msg/s with a
-4-block, 256-thread cluster, this is roughly 5.4~K
+product of actor count and tick rate.  At 5.10~M~msg/s with a
+4-block, 256-thread cluster, this is roughly 5.0~K
 messages/actor/second, sustained for 60 seconds without drift.
+
+\paragraph{Per-tier round-trip latency}
+The K2K channel hierarchy of \Cref{sec:k2k:tiers} predicts a
+clean monotonic ordering \textsc{Smem}~$<$~\textsc{Dsmem}~$<$~\textsc{Hbm}.
+\Cref{tab:k2k-tier} measures all three tiers at the same four
+payload sizes via a host-observed kernel launch + synchronization
+round-trip (the relevant operational cost for the actor system,
+which always reaches each tier through a launch).  The per-message
+\emph{device-cycle} latency is sub-microsecond on every
+tier~\citep{nvidia2022hopper}; what
+\Cref{tab:k2k-tier} reports is the host-side wall-clock that the
+actor runtime actually pays.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Payload & SMEM (ns) & DSMEM (ns) & HBM (ns) & HBM/SMEM \\
+\midrule
+64 B   & 6{,}793 $\pm$ 41 &  9{,}012 $\pm$ 40 & 10{,}460 $\pm$ 39 & 1.54$\times$ \\
+256 B  & 6{,}702 $\pm$ 31 & 10{,}598 $\pm$ 34 & 12{,}066 $\pm$ 33 & 1.80$\times$ \\
+1 KiB  & 6{,}722 $\pm$ 34 & 14{,}059 $\pm$ 34 & 15{,}811 $\pm$ 145 & 2.35$\times$ \\
+4 KiB  & 6{,}749 $\pm$ 43 & 15{,}289 $\pm$ 106 & 18{,}237 $\pm$ 30 & 2.70$\times$ \\
+\bottomrule
+\end{tabular}
+\caption{K2K tier-by-tier host-observed wall-clock, 1{,}000 trials
+per cell, 200 warmup iterations.  SMEM is payload-independent
+(state lives in each block's shared memory; the launch cost
+dominates).  DSMEM scales with payload as data flows through the
+DSMEM addressing path.  HBM adds the global-memory round-trip on
+top of DSMEM, growing the HBM/SMEM ratio from 1.54$\times$ at 64~B
+to 2.70$\times$ at 4~KiB — clean monotonic hierarchy across every
+payload size, validating the calculus in \Cref{sec:k2k:tiers}.}
+\label{tab:k2k-tier}
+\end{table}
 
 \subsection{Cluster-Level Synchronization}
 \label{sec:eval:cluster}

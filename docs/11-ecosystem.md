@@ -285,6 +285,54 @@ impl RingKernel for RingKernelGrpc {
 
 ---
 
+## VynGraph NSAI Integration Points (v1.1)
+
+v1.1 adds four integration points for neuro-symbolic AI use cases where each K2K envelope must carry provenance, tenant audit metadata, or participate in a hot-reloadable rule system. All four are part of `ringkernel-core` and usable outside VynGraph. The full specification with design rationale, ABI, and test matrix is in [`docs/superpowers/specs/2026-04-17-v1.1-vyngraph-gaps.md`](superpowers/specs/2026-04-17-v1.1-vyngraph-gaps.md); the sections below summarize what ships.
+
+### PROV-O Provenance Headers
+
+Every K2K envelope can optionally carry a `ProvenanceHeader` implementing the W3C PROV-O vocabulary with all eight relation kinds (`wasGeneratedBy`, `used`, `wasInformedBy`, `wasDerivedFrom`, `wasAttributedTo`, `wasAssociatedWith`, `actedOnBehalfOf`, `hadMember`). Headers are opt-in per send, support bounded-depth chain walk with cycle detection, and expose an ECDSA / P-256 signature verification hook. A builder API keeps the common case (single generation + single attribution) to two fluent calls.
+
+```rust
+let header = ProvenanceHeader::builder()
+    .generated_by(activity_id)
+    .attributed_to(agent_id)
+    .build();
+runtime.send_with_provenance(dest, msg, header).await?;
+```
+
+22 subtests cover chain walk depth bound, cycle detection, signature validation, and round-trip attach/detach on the envelope.
+
+### Multi-Tenant K2K Isolation
+
+`ringkernel-core/src/k2k/tenant.rs` adds per-tenant sub-brokers, `AuditTag { org_id, engagement_id }` metadata on every message, and cross-tenant send rejection. Per-tenant quotas (`max_concurrent_kernels`, `gpu_memory`, `messages_per_sec`, per-engagement cost budgets) are enforced at enqueue time; rejections write to the configurable audit sink.
+
+```rust
+broker.register_tenant_kernel(tenant_id, kernel_id, AuditTag { org_id, engagement_id })?;
+broker.send(dest, msg).await?;                        // same-tenant: fast path
+broker.send_with_audit(dest, msg, override_tag).await?; // override audit on send
+```
+
+Single-tenant deployments use `LegacyTenant::Unspecified` and retain the v1.0 fast path unchanged. v1.1 measured **0 cross-tenant leaks** across 13 subtests (including rejection audit records, engagement-cost accumulation separation, and registration moves between tenants); the TLA+ spec `tenant_isolation.tla` independently proves the invariant.
+
+### Hot Rule Reload
+
+Inference-rule engines (Rete, forward chaining, and custom) can be live-reloaded via the `CompiledRule` artifact API. Version numbers are strictly monotonic — equal or lower versions are rejected — and activation quiesces in-flight evaluators before swapping the rule set. Rollback is supported by re-submitting an earlier artifact with a new version header.
+
+```rust
+registry.register_rule(CompiledRule { version: 2, bytes, signature, .. })?;  // activates
+registry.register_rule(CompiledRule { version: 1, .. })?;                    // rejected
+registry.register_rule(CompiledRule { version: 3, .. /* = v1 bytes */ })?;  // rollback OK
+```
+
+32 subtests cover version-bump rejection policy, signature verification, rollback semantics, quiescence of in-flight evaluators, and dependency compilation.
+
+### Live Introspection Streaming
+
+`IntrospectionStream` emits per-kernel telemetry through a drop-tolerant ring buffer with EWMA decay on the consumer side. Designed for high-frequency observability without back-pressuring the host path; consumers that cannot keep up see older samples overwritten rather than blocking the producer.
+
+---
+
 ## Machine Learning
 
 ### Candle Integration

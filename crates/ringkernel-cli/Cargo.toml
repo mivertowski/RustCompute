@@ -5,7 +5,10 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "CLI tool for RingKernel project scaffolding, kernel code generation, and profiling"
+readme = "README.md"
 keywords = ["gpu", "cli", "codegen", "scaffold"]
 categories = ["command-line-utilities", "development-tools"]
 

@@ -2,9 +2,13 @@
 name = "ringkernel-graph"
 version.workspace = true
 edition.workspace = true
-description = "GPU-accelerated graph algorithm primitives"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/ringkernel/ringkernel"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "GPU-accelerated graph algorithm primitives for RingKernel (CSR, BFS, SCC, Union-Find, SpMV)"
+readme = "README.md"
 keywords = ["gpu", "graph", "bfs", "cuda", "parallel"]
 categories = ["science", "algorithms", "mathematics"]
 

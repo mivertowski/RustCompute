@@ -8,6 +8,21 @@ nav_order: 19
 
 RingKernel provides bridges to popular ML frameworks for seamless tensor interop and model execution.
 
+## v1.1 Status and v1.3 Roadmap
+
+Be explicit about what ships vs. what is still on the roadmap so integrators can plan accordingly.
+
+**Shipped in v1.1 (feature-gated on `ringkernel-ecosystem`):**
+- Candle integration — tensor interop with persistent GPU actors (`candle_core::Tensor` ↔ `RingMessage` conversion) via `ringkernel-ecosystem`, gated behind the relevant Candle feature flags.
+- PyTorch tensor-layout helpers and ONNX executor scaffolding documented below are part of the ecosystem surface. Model-execution depth depends on the underlying bridge crate's maturity; treat the examples as the stable contract and the surrounding code as evolving.
+
+**v1.3 target (not yet shipped), per [`../ROADMAP.md`](../ROADMAP.md):**
+- **LLM provider bridge** — OpenAI, Anthropic, and local-model adapters with GPU-resident tokenization. Not in v1.1 or v1.2 groundwork; bring your own HTTP/gRPC client for now.
+- **GPU vector store** — GPU-resident embedding index with approximate-nearest-neighbor search as persistent actors. Not in v1.1; use the Candle or external (Qdrant / Milvus) route.
+- **PyTorch training-loop interop** — persistent actors as a training-loop backend. Inference-side interop is available today; the training-loop hooks are v1.3.
+
+The code examples in this document describe the current ecosystem bridge surface; examples marked with `v1.3` in inline comments indicate interfaces not yet available.
+
 ## PyTorch Bridge
 
 Bidirectional tensor conversion between RingKernel and PyTorch.

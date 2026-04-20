@@ -301,7 +301,7 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 
 # GPU backends
-cudarc = { version = "0.18.2", optional = true }       # CUDA (updated API)
+cudarc = { version = "0.19.3", optional = true }       # CUDA driver (v1.1+)
 
 # Web frameworks
 axum = { version = "0.8", optional = true }

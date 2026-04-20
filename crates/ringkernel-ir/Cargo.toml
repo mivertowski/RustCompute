@@ -2,10 +2,13 @@
 name = "ringkernel-ir"
 version.workspace = true
 edition.workspace = true
-authors = ["RingKernel Contributors"]
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "Intermediate Representation for RingKernel GPU code generation"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/ringkernel/ringkernel"
+readme = "README.md"
 keywords = ["gpu", "ir", "codegen", "cuda", "wgsl"]
 categories = ["compilers", "development-tools"]
 

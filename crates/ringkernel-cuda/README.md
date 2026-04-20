@@ -4,21 +4,26 @@ NVIDIA CUDA backend for RingKernel.
 
 ## Overview
 
-This crate provides GPU compute support for RingKernel using NVIDIA CUDA via the `cudarc` library (v0.18.2). It implements the `RingKernelRuntime` trait for launching and managing persistent GPU kernels.
+This crate provides NVIDIA GPU support for RingKernel via the `cudarc` library
+(v0.19.3). It implements the `RingKernelRuntime` trait for launching and
+managing persistent GPU kernels.
 
 ## Requirements
 
-- NVIDIA GPU with Compute Capability 7.0 or higher (Volta, Turing, Ampere, Ada, Hopper)
+- NVIDIA GPU with Compute Capability 7.0 or higher (Volta, Turing, Ampere, Ada,
+  Hopper, Blackwell)
 - CUDA Toolkit 12.x or later
-- cudarc 0.18.2 (managed via workspace)
-- Linux (native) or Windows (WSL2 with limitations)
+- cudarc 0.19.3 (pinned via workspace)
+- Linux (native) or Windows (WSL2, with cooperative-group limitations)
 
 ## Features
 
 - Persistent kernel execution using cooperative groups
 - Lock-free message queues in GPU global memory
-- PTX compilation at runtime via NVRTC
-- Multi-GPU device enumeration
+- PTX compilation at runtime via NVRTC, with an optional on-disk PTX cache
+- NVTX profiling hooks and optional Chrome-trace export
+- Multi-GPU runtime: device enumeration, P2P setup, NVLink topology detection
+  (via `nvml-wrapper`), and cross-device actor migration
 - Stencil kernel loading and execution
 
 ## Usage
@@ -64,9 +69,9 @@ let config = LaunchConfig {
 kernel.launch(&config, &[&input_buf, &output_buf])?;
 ```
 
-## cudarc 0.18.2 API
+## cudarc 0.19.3 API
 
-This crate uses cudarc 0.18.2 with the builder pattern for kernel launches:
+This crate uses cudarc 0.19.3 with the builder pattern for kernel launches:
 
 ```rust
 use cudarc::driver::{CudaModule, CudaFunction, PushKernelArg};
@@ -109,11 +114,47 @@ unsafe {
 | `CudaMessageQueue` | Lock-free queue in GPU memory |
 | `StencilKernelLoader` | Loads CUDA stencil kernels |
 
-## Platform Notes
+## Feature flags
 
-**Native Linux**: Full support for persistent kernels using CUDA cooperative groups.
+| Flag | Description |
+|------|-------------|
+| `cuda` | Enable the CUDA backend (pulls in `cudarc`). |
+| `cooperative` | Grid-wide synchronization via cooperative kernel launch. Requires `nvcc` at build time. |
+| `profiling` | NVTX ranges, CUDA events, and Chrome-trace export (adds `serde`/`serde_json`). |
+| `ptx-cache` | On-disk PTX cache to eliminate first-tick compilation overhead. |
+| `multi-gpu` | NVLink topology probing via `nvml-wrapper` (falls back to `cudarc` P2P otherwise). |
+| `nvshmem` | Opt-in NVSHMEM symmetric-heap bindings (v1.2 groundwork). Requires a working NVSHMEM install; set `NVSHMEM_LIB_DIR` if it lives outside `/usr`. |
 
-**WSL2**: Persistent kernels may not work due to cooperative group limitations. Falls back to event-driven execution.
+## v1.1 multi-GPU runtime
+
+Version 1.1 ships a multi-GPU runtime built on this backend:
+
+- Device enumeration and per-device stream management
+- P2P enablement between peers that support it
+- NVLink topology detection (when the `multi-gpu` feature is enabled)
+- Cross-device actor migration through the core runtime's migration primitives
+
+See `ringkernel-cuda`'s `multi_gpu` module for the concrete APIs.
+
+## v1.2 groundwork on `main`
+
+The `main` branch also contains groundwork for v1.2 that is opt-in and not yet
+stabilised:
+
+- NVSHMEM bindings behind the `nvshmem` feature for symmetric-heap allocations
+- Hierarchical work stealing for persistent-actor scheduling
+- Blackwell codegen stubs
+
+These paths compile but are exercised by a limited test set. Treat them as
+preview quality.
+
+## Platform notes
+
+**Native Linux**: Full support for persistent kernels using CUDA cooperative
+groups.
+
+**WSL2**: Persistent kernels may not work due to cooperative-group
+limitations. Falls back to event-driven execution.
 
 **Windows Native**: Not currently supported. Use WSL2.
 

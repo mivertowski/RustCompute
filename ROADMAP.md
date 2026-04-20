@@ -170,7 +170,7 @@ Listed in rough priority order:
 | Multi-GPU K2K bandwidth | n/a | 258 GB/s @ 16 MiB (81% of NV12 peak) | NVSHMEM symmetric heap (bootstrap wired) |
 | Cross-tenant leaks | n/a | 0 across 13 isolation tests | same baseline |
 | TLA+ specs verified | n/a | 6 / 6 (no counterexamples) | same, plus capability query tests |
-| Test count | 1,496+ | 1,590 (stable Rust 1.95) | 1,595 |
+| Test count | 1,496+ | 1,590 (stable Rust 1.95) | 1,617 |
 | GPU architectures | Hopper (H100) | Hopper multi-GPU (NV12) | Hopper + Blackwell codegen (FP4/FP6/FP8) |
 | Multi-GPU support | Single GPU | 2-8 GPUs | 2-16 GPUs |
 

@@ -1,11 +1,14 @@
 [package]
 name = "ringkernel-python"
-version = "1.1.0"
-edition = "2021"
-description = "Python bindings for RingKernel GPU-native actor framework"
-license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Python bindings for RingKernel GPU-native persistent actor framework"
 readme = "README.md"
-repository = "https://github.com/ringkernel/ringkernel"
 keywords = ["gpu", "cuda", "actor", "python", "bindings"]
 categories = ["api-bindings", "science", "concurrency"]
 
