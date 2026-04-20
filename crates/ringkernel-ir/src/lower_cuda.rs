@@ -690,6 +690,17 @@ impl CudaLowering {
             ScalarType::F16 => "__half",
             ScalarType::F32 => "float",
             ScalarType::F64 => "double",
+            // bfloat16 / FP8 lowerings require `<cuda_bf16.h>` /
+            // `<cuda_fp8.h>` in the prelude.
+            ScalarType::BF16 => "__nv_bfloat16",
+            ScalarType::FP8E4M3 => "__nv_fp8_e4m3",
+            ScalarType::FP8E5M2 => "__nv_fp8_e5m2",
+            // FP6/FP4 Blackwell types ship as `__nv_fp6_*` / `__nv_fp4_*`
+            // in CUDA 12.9+; older toolkits emit an unresolved
+            // identifier which build-time diagnostics will surface.
+            ScalarType::FP6E3M2 => "__nv_fp6_e3m2",
+            ScalarType::FP6E2M3 => "__nv_fp6_e2m3",
+            ScalarType::FP4E2M1 => "__nv_fp4_e2m1",
         }
         .to_string()
     }

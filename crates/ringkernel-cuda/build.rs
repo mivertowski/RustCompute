@@ -19,6 +19,19 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
     println!("cargo:rerun-if-env-changed=CUDA_HOME");
     println!("cargo:rerun-if-env-changed=RINGKERNEL_CUDA_ARCH");
+    println!("cargo:rerun-if-env-changed=NVSHMEM_LIB_DIR");
+
+    // NVSHMEM feature: add standard linker search path + link directive.
+    // Also bake the library directory into the binary's DT_RUNPATH so
+    // users don't have to set LD_LIBRARY_PATH (the NVSHMEM Ubuntu
+    // package installs to a non-default dir).
+    if env::var("CARGO_FEATURE_NVSHMEM").is_ok() {
+        let lib_dir = env::var("NVSHMEM_LIB_DIR")
+            .unwrap_or_else(|_| "/usr/lib/x86_64-linux-gnu/nvshmem/12".to_string());
+        println!("cargo:rustc-link-search=native={lib_dir}");
+        println!("cargo:rustc-link-lib=dylib=nvshmem_host");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{lib_dir}");
+    }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 

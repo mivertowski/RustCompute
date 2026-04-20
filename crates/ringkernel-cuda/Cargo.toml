@@ -68,3 +68,8 @@ ptx-cache = ["cuda", "sha2", "tempfile"]
 # Multi-GPU topology detection via NVML (NvlinkTopology::probe uses nvml-wrapper
 # when enabled, otherwise falls back to cudarc P2P-only detection).
 multi-gpu = ["cuda", "nvml-wrapper"]
+# NVSHMEM symmetric-heap bindings (requires libnvshmem3-dev-cuda-12 or manual
+# NVSHMEM install — see `multi_gpu::nvshmem` for bootstrap options).
+# When enabled, a build-time linker search path is added; users whose
+# NVSHMEM install lives outside /usr can set NVSHMEM_LIB_DIR.
+nvshmem = ["cuda", "multi-gpu"]

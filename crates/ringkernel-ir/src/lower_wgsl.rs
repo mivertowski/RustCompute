@@ -587,6 +587,16 @@ impl WgslLowering {
             ScalarType::F16 => "f16",
             ScalarType::F32 => "f32",
             ScalarType::F64 => "f32", // Downcast (WGSL doesn't support f64)
+            // WGSL has no native bf16 / FP8 / FP6 / FP4 — down-cast
+            // to f32 for portability. Callers that care about the
+            // low-precision storage layout should emit a manual
+            // pack/unpack around the cast.
+            ScalarType::BF16
+            | ScalarType::FP8E4M3
+            | ScalarType::FP8E5M2
+            | ScalarType::FP6E3M2
+            | ScalarType::FP6E2M3
+            | ScalarType::FP4E2M1 => "f32",
         }
         .to_string()
     }

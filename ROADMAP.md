@@ -89,27 +89,28 @@ Transform GPU computing from batch-oriented kernel launches to a true actor-base
 - [x] **Incremental/delta checkpoints** -- `Checkpoint::delta_from` / `applied_with_delta` / `content_digest`
 - [x] **Intra-block warp work stealing** -- `warp_work_steal` kernel + audit tests
 
-### Deferred to v1.2
-
-- [ ] NVSHMEM integration for symmetric heap across GPU cluster (larger integration than v1.1 scope)
-- [ ] Intra-cluster (DSMEM-backed) and cross-cluster (HBM-backed) work stealing -- the hierarchical tiers above intra-block
-- [ ] Multi-GPU linear scaling benchmarks (4, 8 GPUs) -- infra-bound for NC80adis (2 GPUs only)
-
 ---
 
-## v1.2 -- Blackwell / B200 (Target: Q4 2026)
+## v1.2 -- Blackwell prep + hierarchical work stealing + NVSHMEM (in progress on `main`)
 
-### Blackwell Architecture Support
-- [ ] Cluster Launch Control for dynamic cluster sizing
-- [ ] Enhanced DSMEM bandwidth (2x vs Hopper)
-- [ ] FP4/FP6 precision for ML inference actors
-- [ ] Confidential Computing (TEE) for secure persistent actors
-- [ ] NVLink 5.0 inter-GPU actor communication
+**v1.2 groundwork is on `main` but not yet tagged** -- see the `[Unreleased]` section of `CHANGELOG.md` for full detail.
 
-### Performance Targets
-- [ ] Sub-50 ns command injection on B200
-- [ ] 20+ Mmsg/s lock-free queue throughput
-- [ ] Multi-GPU linear scaling benchmarks (2, 4, 8 GPUs)
+### Landed
+
+- [x] **Intra-cluster DSMEM work stealing** -- `cluster_dsmem_work_steal` CUDA kernel; blocks atomically share a DSMEM-hosted counter via `cluster.map_shared_rank`
+- [x] **Cross-cluster HBM work stealing** -- `grid_hbm_work_steal` CUDA kernel; completes the block -> cluster -> grid stealing hierarchy
+- [x] **NVSHMEM symmetric-heap bindings** -- opt-in `nvshmem` feature on `ringkernel-cuda`, `NvshmemHeap` RAII wrapper over the NVSHMEM host ABI; bootstrap (MPI / `nvshmrun` / unique-ID) is caller's responsibility
+- [x] **Blackwell / sm_100 capability queries** -- `GpuArchitecture::supports_{cluster_launch_control,fp8,fp6,fp4,nvlink5,tee}`
+- [x] **Post-Hopper codegen types** -- `ScalarType::BF16`, `FP8E4M3`, `FP8E5M2`, `FP6E3M2`, `FP6E2M3`, `FP4E2M1` with per-type `min_compute_capability()`; CUDA / MSL / WGSL lowerings wired
+- [x] **Rubin preset** -- `GpuArchitecture::rubin()` placeholder (compute cap 12.x)
+
+### Still open for v1.2 (hardware / integration blockers)
+
+- [ ] **Blackwell runtime validation** -- requires B200 hardware; codegen stubs compile, runtime paths untested
+- [ ] **4- / 8-GPU linear scaling benchmarks** -- bound by NC80adis having only 2 GPUs
+- [ ] **NVSHMEM end-to-end smoke** -- requires dual-process bootstrap (mpirun or unique-ID); the wrapper handles post-bootstrap operations but the launch harness is still manual
+- [ ] **Sub-50 ns command injection on B200** -- needs B200 silicon
+- [ ] **20+ Mmsg/s lock-free queue** -- optimization path; current sustained is 5.10 Mops/s
 
 ---
 
@@ -137,12 +138,16 @@ Transform GPU computing from batch-oriented kernel launches to a true actor-base
 
 ## Success Metrics
 
-| Metric | v1.0 (Achieved) | v1.1 Target | v1.2 Target |
-|--------|-----------------|-------------|-------------|
-| Command latency | 55 ns (H100) | 55 ns (multi-GPU) | <50 ns (B200) |
-| Sustained throughput | 5.54 Mops/s | 20+ Mops/s (multi-GPU) | 50+ Mops/s |
-| Test count | 1,496+ | 1,800+ | 2,000+ |
-| GPU architectures | Hopper (H100) | Hopper + Ampere | Hopper + Blackwell |
+| Metric | v1.0 | v1.1 (Achieved) | v1.2 (groundwork on `main`) |
+|--------|------|-----------------|-----------------------------|
+| Command latency | 55 ns (H100) | 23 ns mean / 30 ns p99 on all 5 lifecycle rules | <50 ns (B200 target, needs silicon) |
+| Sustained throughput | 5.54 Mops/s | 5.10 Mops/s (CV 0.66%, flat over 4x60 s) | 20+ Mops/s (queue opt path) |
+| NVLink P2P migration | n/a | 8.7x vs host-stage @ 16 MiB | 4/8-GPU scaling (hardware-bound) |
+| Multi-GPU K2K bandwidth | n/a | 258 GB/s @ 16 MiB (81% of NV12 peak) | NVSHMEM symmetric heap (bootstrap wired) |
+| Cross-tenant leaks | n/a | 0 across 13 isolation tests | same baseline |
+| TLA+ specs verified | n/a | 6 / 6 (no counterexamples) | same, plus capability query tests |
+| Test count | 1,496+ | 1,590 (stable Rust 1.95) | 1,595 |
+| GPU architectures | Hopper (H100) | Hopper multi-GPU (NV12) | Hopper + Blackwell codegen (FP4/FP6/FP8) |
 | Multi-GPU support | Single GPU | 2-8 GPUs | 2-16 GPUs |
 
 ---

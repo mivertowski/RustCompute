@@ -31,22 +31,68 @@ pub enum ScalarType {
     F32,
     /// 64-bit floating point (not supported on all backends).
     F64,
+    /// bfloat16 (8-bit exponent, 7-bit mantissa). Ampere+ for
+    /// mixed-precision training / inference.
+    BF16,
+    /// 8-bit float, E4M3 variant (4-bit exponent, 3-bit mantissa).
+    /// Hopper+ via Tensor Cores; ML inference.
+    FP8E4M3,
+    /// 8-bit float, E5M2 variant (5-bit exponent, 2-bit mantissa).
+    /// Hopper+ via Tensor Cores; ML training gradients.
+    FP8E5M2,
+    /// 6-bit float, E3M2 variant. Blackwell+ (sm_100+); ML inference.
+    FP6E3M2,
+    /// 6-bit float, E2M3 variant. Blackwell+ (sm_100+); ML inference.
+    FP6E2M3,
+    /// 4-bit float, E2M1 variant. Blackwell+ (sm_100+); ML inference.
+    FP4E2M1,
 }
 
 impl ScalarType {
-    /// Get the size in bytes.
+    /// Get the size in bytes. Sub-byte precisions (FP6, FP4) round
+    /// up — the intended use is packed storage but the IR itself
+    /// operates on logical elements.
     pub fn size_bytes(&self) -> usize {
         match self {
-            ScalarType::Bool | ScalarType::I8 | ScalarType::U8 => 1,
-            ScalarType::I16 | ScalarType::U16 | ScalarType::F16 => 2,
+            ScalarType::FP4E2M1 => 1,       // packs 2 per byte when laid out densely
+            ScalarType::FP6E3M2 | ScalarType::FP6E2M3 => 1, // packs 4 per 3 bytes densely
+            ScalarType::Bool
+            | ScalarType::I8
+            | ScalarType::U8
+            | ScalarType::FP8E4M3
+            | ScalarType::FP8E5M2 => 1,
+            ScalarType::I16 | ScalarType::U16 | ScalarType::F16 | ScalarType::BF16 => 2,
             ScalarType::I32 | ScalarType::U32 | ScalarType::F32 => 4,
             ScalarType::I64 | ScalarType::U64 | ScalarType::F64 => 8,
         }
     }
 
-    /// Check if this is a floating point type.
+    /// Check if this is a floating point type (any width).
     pub fn is_float(&self) -> bool {
-        matches!(self, ScalarType::F16 | ScalarType::F32 | ScalarType::F64)
+        matches!(
+            self,
+            ScalarType::F16
+                | ScalarType::F32
+                | ScalarType::F64
+                | ScalarType::BF16
+                | ScalarType::FP8E4M3
+                | ScalarType::FP8E5M2
+                | ScalarType::FP6E3M2
+                | ScalarType::FP6E2M3
+                | ScalarType::FP4E2M1
+        )
+    }
+
+    /// Minimum compute capability required. `(0, 0)` means no
+    /// restriction. Used by the codegen backend to reject kernels
+    /// that ask for types the target GPU can't execute.
+    pub fn min_compute_capability(&self) -> (u32, u32) {
+        match self {
+            ScalarType::BF16 => (8, 0),
+            ScalarType::FP8E4M3 | ScalarType::FP8E5M2 => (9, 0),
+            ScalarType::FP6E3M2 | ScalarType::FP6E2M3 | ScalarType::FP4E2M1 => (10, 0),
+            _ => (0, 0),
+        }
     }
 
     /// Check if this is a signed integer type.
@@ -96,6 +142,12 @@ impl fmt::Display for ScalarType {
             ScalarType::F16 => write!(f, "f16"),
             ScalarType::F32 => write!(f, "f32"),
             ScalarType::F64 => write!(f, "f64"),
+            ScalarType::BF16 => write!(f, "bf16"),
+            ScalarType::FP8E4M3 => write!(f, "fp8e4m3"),
+            ScalarType::FP8E5M2 => write!(f, "fp8e5m2"),
+            ScalarType::FP6E3M2 => write!(f, "fp6e3m2"),
+            ScalarType::FP6E2M3 => write!(f, "fp6e2m3"),
+            ScalarType::FP4E2M1 => write!(f, "fp4e2m1"),
         }
     }
 }

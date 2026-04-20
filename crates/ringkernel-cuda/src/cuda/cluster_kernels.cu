@@ -394,3 +394,150 @@ extern "C" __global__ void warp_work_steal(
         atomicAdd(&warps_done, 1u);
     }
 }
+
+// ============================================================================
+// Cluster-scope work stealing — DSMEM-backed cross-block queue
+// ============================================================================
+
+/**
+ * Intra-cluster work stealing over DSMEM.
+ *
+ * Every block in the cluster shares a single counter that lives in
+ * block-0's distributed shared memory. Every block in the cluster
+ * steals tasks from that single counter via `cluster.map_shared_rank`.
+ * Once the counter is drained, blocks drop out.
+ *
+ * This generalizes `warp_work_steal` one tier up: tasks are
+ * dynamically redistributed across the cluster with no host round-
+ * trip, and no global memory writes for the coordinator. The cost
+ * of a steal is a DSMEM atomic (~same latency as an SMEM atomic on
+ * Hopper).
+ *
+ * `stats[block_rank]` receives the per-block tally. Host-side audit:
+ * sum of `stats` must equal `total_tasks`.
+ *
+ * Launch expectations:
+ *   - grid(cluster_size, 1, 1)   — one cluster
+ *   - block(threads_per_block, 1, 1)
+ *   - cluster(cluster_size, 1, 1)
+ */
+extern "C" __global__ void cluster_dsmem_work_steal(
+    const float* __restrict__ input,
+    float* __restrict__ output,
+    unsigned int* __restrict__ stats,   // [cluster_size]
+    unsigned int total_tasks
+) {
+    cg::cluster_group cluster = cg::this_cluster();
+    unsigned int rank = cluster.block_rank();
+
+    // Shared-memory counter lives only in block 0; every other block
+    // reaches it via `map_shared_rank`.
+    __shared__ int local_remaining;
+    if (rank == 0 && threadIdx.x == 0) {
+        local_remaining = (int)total_tasks;
+    }
+    cluster.sync();
+
+    int* shared_counter = cluster.map_shared_rank(&local_remaining, 0);
+
+    unsigned int my_done = 0;
+    while (true) {
+        int base = -1;
+        if (threadIdx.x == 0) {
+            base = atomicSub(shared_counter, (int)blockDim.x);
+        }
+        // Broadcast the claimed base to every thread in the block.
+        __shared__ int shared_base;
+        if (threadIdx.x == 0) {
+            shared_base = base;
+        }
+        __syncthreads();
+        base = shared_base;
+        if (base <= 0) {
+            break;
+        }
+        unsigned int idx = (unsigned int)base - 1u - threadIdx.x;
+        if ((int)idx >= 0 && idx < total_tasks) {
+            float v = input[idx];
+            output[idx] = v * 3.0f - 2.0f;
+            my_done++;
+        }
+    }
+
+    // Reduce my_done across the block into thread 0.
+    __shared__ unsigned int block_total;
+    if (threadIdx.x == 0) block_total = 0;
+    __syncthreads();
+    atomicAdd(&block_total, my_done);
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+        stats[rank] = block_total;
+    }
+
+    cluster.sync();
+}
+
+// ============================================================================
+// Grid-scope work stealing — HBM-backed global queue across all blocks
+// ============================================================================
+
+/**
+ * Cross-cluster (grid-scope) work stealing over HBM.
+ *
+ * A single `unsigned int` global counter lives in HBM; every block
+ * atomically decrements it to claim a stripe of `blockDim.x` tasks.
+ * This is the hierarchical top tier above `cluster_dsmem_work_steal`
+ * — useful when workload doesn't fit in a single cluster.
+ *
+ * The cost per steal is a global atomic (uncached on Hopper: ~50 ns
+ * per atomic), so this is the slowest stealing tier. It's the
+ * natural fallback when clusters run dry and you still have work
+ * queued on other clusters.
+ *
+ * `stats[block_rank_global]` receives the per-block tally. Host-side
+ * audit: sum of `stats` must equal `total_tasks`.
+ *
+ * Launch expectations:
+ *   - grid(n_blocks, 1, 1)   — any number of blocks; no clusters needed
+ *   - block(threads_per_block, 1, 1)
+ *   - `counter` must be a pre-zeroed HBM pointer; caller writes
+ *     `total_tasks` into `*counter` before launch.
+ */
+extern "C" __global__ void grid_hbm_work_steal(
+    const float* __restrict__ input,
+    float* __restrict__ output,
+    int* __restrict__ counter,          // HBM: initialized to total_tasks
+    unsigned int* __restrict__ stats,   // [gridDim.x]
+    unsigned int total_tasks
+) {
+    unsigned int my_done = 0;
+    while (true) {
+        int base = -1;
+        if (threadIdx.x == 0) {
+            base = atomicSub(counter, (int)blockDim.x);
+        }
+        __shared__ int shared_base;
+        if (threadIdx.x == 0) shared_base = base;
+        __syncthreads();
+        base = shared_base;
+        if (base <= 0) break;
+
+        unsigned int idx = (unsigned int)base - 1u - threadIdx.x;
+        if ((int)idx >= 0 && idx < total_tasks) {
+            float v = input[idx];
+            output[idx] = v * 4.0f + 3.0f;
+            my_done++;
+        }
+    }
+
+    __shared__ unsigned int block_total;
+    if (threadIdx.x == 0) block_total = 0;
+    __syncthreads();
+    atomicAdd(&block_total, my_done);
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+        stats[blockIdx.x] = block_total;
+    }
+}

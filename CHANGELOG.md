@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### v1.2 groundwork (on `main`, not yet released)
+
+Work landed while v1.1.0 is still being validated; these items fulfill
+deferred v1.2 roadmap goals that are implementable on the current 2x
+H100 NVL hardware. They do not require a new minor version on their
+own — they are additive and behind opt-in feature flags where they
+carry a link dependency.
+
+#### Hierarchical work stealing
+
+- `cluster_dsmem_work_steal` CUDA kernel — blocks within a cluster
+  share a DSMEM-hosted task counter via `cluster.map_shared_rank`;
+  every block steals tasks atomically with no host round-trip and no
+  global memory traffic for the coordinator.
+- `grid_hbm_work_steal` CUDA kernel — every block in the grid steals
+  from a single HBM counter; completes the
+  intra-block → intra-cluster → grid hierarchy.
+- `tests/hierarchical_work_steal.rs` — two integration tests audit
+  work-conservation (sum of per-block tallies equals task count) and
+  load distribution on 1,009 / 8,191 prime-sized workloads.
+
+#### NVSHMEM symmetric-heap bindings
+
+- New `nvshmem` Cargo feature on `ringkernel-cuda` (opt-in, off by
+  default; requires `libnvshmem3-dev-cuda-12` or a manual NVSHMEM
+  install).
+- `multi_gpu::nvshmem::NvshmemHeap` RAII wrapper exposing
+  `attach` / `malloc` / `free` / `put` / `get` / `barrier_all` /
+  `fence` / `my_pe` / `n_pes` on top of the stable NVSHMEM host
+  ABI (`libnvshmem_host.so`).
+- `build.rs` adds `-L/usr/lib/x86_64-linux-gnu/nvshmem/12` +
+  `-Wl,-rpath,...` automatically; overridable with `NVSHMEM_LIB_DIR`.
+- Bootstrap (MPI / `nvshmrun` / unique-ID) is left to the caller;
+  the wrapper refuses to attach when `nvshmem_n_pes() <= 0` so
+  mis-configured runs fail fast rather than crash the process.
+
+#### Blackwell / sm_100 + post-Hopper codegen stubs
+
+- `GpuArchitecture::blackwell()` expanded with feature queries:
+  `supports_cluster_launch_control`, `supports_fp8`, `supports_fp6`,
+  `supports_fp4`, `supports_nvlink5`, `supports_tee`.
+- `GpuArchitecture::rubin()` preset added for the post-Blackwell
+  tier (compute cap 12.x placeholder; updated when silicon is
+  available).
+- `GpuArchitecture::from_compute_capability` routes 10.x / 11.x to
+  Blackwell and 12.x to Rubin.
+- `ringkernel-ir::ScalarType` gains `BF16`, `FP8E4M3`, `FP8E5M2`,
+  `FP6E3M2`, `FP6E2M3`, `FP4E2M1`. Each carries a
+  `min_compute_capability()` so the codegen backend can reject
+  kernels that ask for types the target GPU can't execute.
+- Lowering updated in `lower_cuda.rs` (emits `__nv_bfloat16`,
+  `__nv_fp8_*`, `__nv_fp6_*`, `__nv_fp4_*`), `lower_msl.rs` (uses
+  `bfloat` / `float` fallback), `lower_wgsl.rs` (`f32` fallback).
+- `build.rs` already compiles multi-arch fallback including sm_100;
+  runtime validation still waits for B200 hardware.
+
+#### Regressions
+
+- `cargo test --workspace --release --exclude ringkernel-txmon`:
+  1,595 tests pass, 0 failures (up from 1,590 in v1.1.0 because of
+  new delta-checkpoint and Blackwell-capability unit tests).
+
 ## [1.1.0] - 2026-04-20
 
 Second release. Adds multi-GPU runtime, VynGraph NSAI integration points, and

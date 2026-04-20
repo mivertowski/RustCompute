@@ -29,6 +29,8 @@
 pub mod migration;
 pub mod migration_controller;
 pub mod migration_kernels;
+#[cfg(feature = "nvshmem")]
+pub mod nvshmem;
 pub mod registry;
 pub mod runtime;
 pub mod staging;

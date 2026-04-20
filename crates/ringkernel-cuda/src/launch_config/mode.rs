@@ -270,7 +270,19 @@ impl GpuArchitecture {
         }
     }
 
-    /// Blackwell (B200/B100) architecture preset.
+    /// Blackwell (B200 / B100) architecture preset.
+    ///
+    /// Blackwell brings (vs Hopper):
+    ///   - Cluster Launch Control — dynamic cluster sizing per grid
+    ///   - FP4 / FP6 Tensor Core types (see [`ScalarType::FP4E2M1`]
+    ///     etc. in `ringkernel-ir`)
+    ///   - 2× DSMEM bandwidth
+    ///   - NVLink 5 (18 × 50 GB/s per H100 NVL-class GPU → 900 GB/s)
+    ///   - Optional Confidential Computing (TEE) for persistent actors
+    ///
+    /// Compile-time queries: see [`Self::supports_fp4`],
+    /// [`Self::supports_cluster_launch_control`],
+    /// [`Self::supports_nvlink5`].
     #[must_use]
     pub fn blackwell() -> Self {
         Self {
@@ -284,6 +296,70 @@ impl GpuArchitecture {
         }
     }
 
+    /// Rubin preset — placeholder for the post-Blackwell architecture.
+    /// Dimensions reflect publicly-announced targets and will be
+    /// updated once silicon is available to us for verification.
+    #[must_use]
+    pub fn rubin() -> Self {
+        Self {
+            compute_capability: (12, 0),
+            sm_count: 256,
+            max_threads_per_sm: 2048,
+            max_threads_per_block: 1024,
+            warp_size: 32,
+            shared_mem_per_sm: 256 * 1024,
+            l2_cache_bytes: 192 * 1024 * 1024,
+        }
+    }
+
+    // ---------- Capability queries (compile-time only) ----------
+
+    /// Supports cluster launch via `cuLaunchKernelEx` + cluster dims
+    /// (Hopper+, compute cap >= 9.0).
+    #[must_use]
+    pub fn supports_cluster_launch(&self) -> bool {
+        self.compute_capability.0 >= 9
+    }
+
+    /// Supports *dynamic* Cluster Launch Control (Blackwell+, 10.0).
+    #[must_use]
+    pub fn supports_cluster_launch_control(&self) -> bool {
+        self.compute_capability.0 >= 10
+    }
+
+    /// Supports FP8 tensor ops (Hopper+, 9.0).
+    #[must_use]
+    pub fn supports_fp8(&self) -> bool {
+        self.compute_capability.0 >= 9
+    }
+
+    /// Supports FP6 tensor ops (Blackwell+, 10.0).
+    #[must_use]
+    pub fn supports_fp6(&self) -> bool {
+        self.compute_capability.0 >= 10
+    }
+
+    /// Supports FP4 tensor ops (Blackwell+, 10.0).
+    #[must_use]
+    pub fn supports_fp4(&self) -> bool {
+        self.compute_capability.0 >= 10
+    }
+
+    /// Supports NVLink 5 (Blackwell+, 10.0). NVLink 4 (Hopper) gives
+    /// up to 900 GB/s aggregate on H100 NVL; NVLink 5 doubles this
+    /// per-link to 200 GB/s per NVLink with up to 18 links.
+    #[must_use]
+    pub fn supports_nvlink5(&self) -> bool {
+        self.compute_capability.0 >= 10
+    }
+
+    /// Supports Confidential Computing / Trusted Execution
+    /// Environment (Hopper H100 TEE, Blackwell TEE-I/O).
+    #[must_use]
+    pub fn supports_tee(&self) -> bool {
+        self.compute_capability.0 >= 9
+    }
+
     /// Creates an architecture profile from a compute capability version.
     ///
     /// Maps major/minor compute capability to the closest known architecture preset.
@@ -291,7 +367,8 @@ impl GpuArchitecture {
     #[must_use]
     pub fn from_compute_capability(major: u32, minor: u32) -> Self {
         match (major, minor) {
-            (10, _) => Self::blackwell(),
+            (12, _) => Self::rubin(),
+            (10, _) | (11, _) => Self::blackwell(),
             (9, _) => Self::hopper(),
             (8, 9) => Self::ada(),
             (8, _) => Self::ampere(),
@@ -632,5 +709,55 @@ mod tests {
         let config = LaunchConfig::simple_1d(1000, 256);
         assert_eq!(config.grid_dim.0, 4); // ceil(1000/256) = 4
         assert_eq!(config.block_dim.0, 256);
+    }
+
+    // ---- Blackwell / post-Hopper capability queries ----
+
+    #[test]
+    fn hopper_supports_cluster_launch_and_fp8_not_fp4() {
+        let arch = GpuArchitecture::hopper();
+        assert!(arch.supports_cluster_launch());
+        assert!(arch.supports_fp8());
+        assert!(!arch.supports_fp6());
+        assert!(!arch.supports_fp4());
+        assert!(!arch.supports_cluster_launch_control());
+        assert!(!arch.supports_nvlink5());
+        assert!(arch.supports_tee());
+    }
+
+    #[test]
+    fn blackwell_supports_everything_hopper_does_plus_fp4() {
+        let arch = GpuArchitecture::blackwell();
+        assert!(arch.supports_cluster_launch());
+        assert!(arch.supports_cluster_launch_control());
+        assert!(arch.supports_fp8());
+        assert!(arch.supports_fp6());
+        assert!(arch.supports_fp4());
+        assert!(arch.supports_nvlink5());
+        assert!(arch.supports_tee());
+    }
+
+    #[test]
+    fn rubin_preset_is_post_blackwell() {
+        let arch = GpuArchitecture::rubin();
+        assert_eq!(arch.compute_capability.0, 12);
+        assert!(arch.supports_cluster_launch_control());
+        assert!(arch.supports_fp4());
+    }
+
+    #[test]
+    fn from_compute_capability_routes_to_blackwell_and_rubin() {
+        assert_eq!(
+            GpuArchitecture::from_compute_capability(10, 0).compute_capability.0,
+            10
+        );
+        assert_eq!(
+            GpuArchitecture::from_compute_capability(12, 0).compute_capability.0,
+            12
+        );
+        assert_eq!(
+            GpuArchitecture::from_compute_capability(9, 0).compute_capability.0,
+            9
+        );
     }
 }

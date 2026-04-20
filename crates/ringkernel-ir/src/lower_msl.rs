@@ -702,6 +702,14 @@ impl MslLowering {
             ScalarType::F16 => "half",
             ScalarType::F32 => "float",
             ScalarType::F64 => "float", // Metal doesn't support f64
+            // Metal has native bf16 (MSL 3.0+); FP8/FP6/FP4 fall back
+            // to float since Metal has no native sub-16-bit floats.
+            ScalarType::BF16 => "bfloat",
+            ScalarType::FP8E4M3
+            | ScalarType::FP8E5M2
+            | ScalarType::FP6E3M2
+            | ScalarType::FP6E2M3
+            | ScalarType::FP4E2M1 => "float",
         }
         .to_string()
     }
