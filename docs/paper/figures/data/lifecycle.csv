@@ -1,6 +1,6 @@
 rule,mean_ns,ci_halfwidth
-Spawn,82.0,0.27
-Activate,76.0,0.24
-Quiesce,72.0,0.22
-Terminate,79.0,0.25
-Restart,95.0,0.30
+Spawn,23.1,0.41
+Activate,23.4,0.42
+Quiesce,23.8,0.43
+Terminate,23.7,0.42
+Restart,23.1,0.41

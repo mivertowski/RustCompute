@@ -38,14 +38,15 @@ VARIABLES
   tgt_queue,        \* Seq of msgs at the target
   src_state,        \* symbolic src state: set of accepted msg ids
   tgt_state,        \* symbolic tgt state: set of received msg ids
+  captured_state,   \* immutable snapshot taken at CaptureState
   in_flight_buffer, \* messages arriving during quiesce/transfer (staging)
   routing_table,    \* "src" or "tgt" -- which GPU is authoritative
   next_msg,         \* next fresh message id
   delivered,        \* multiset of delivered msg ids on the actor
-  checksum_src,     \* checksum captured at source
+  checksum_src,     \* checksum captured at source (of captured_state)
   checksum_tgt      \* checksum observed at target after restore
 
-vars == <<phase, src_queue, tgt_queue, src_state, tgt_state,
+vars == <<phase, src_queue, tgt_queue, src_state, tgt_state, captured_state,
           in_flight_buffer, routing_table, next_msg, delivered,
           checksum_src, checksum_tgt>>
 
@@ -65,6 +66,7 @@ Init ==
   /\ tgt_queue        = <<>>
   /\ src_state        = {}
   /\ tgt_state        = {}
+  /\ captured_state   = {}
   /\ in_flight_buffer = <<>>
   /\ routing_table    = "src"
   /\ next_msg         = 1
@@ -82,7 +84,7 @@ AcceptOnSrc ==
   /\ src_queue' = Append(src_queue, next_msg)
   /\ src_state' = src_state \cup {next_msg}
   /\ next_msg'  = next_msg + 1
-  /\ UNCHANGED <<phase, tgt_queue, tgt_state, in_flight_buffer,
+  /\ UNCHANGED <<phase, tgt_queue, tgt_state, captured_state, in_flight_buffer,
                  routing_table, delivered, checksum_src, checksum_tgt>>
 
 (***************************************************************************)
@@ -95,7 +97,7 @@ AcceptOnTgt ==
   /\ tgt_queue' = Append(tgt_queue, next_msg)
   /\ tgt_state' = tgt_state \cup {next_msg}
   /\ next_msg'  = next_msg + 1
-  /\ UNCHANGED <<phase, src_queue, src_state, in_flight_buffer,
+  /\ UNCHANGED <<phase, src_queue, src_state, captured_state, in_flight_buffer,
                  routing_table, delivered, checksum_src, checksum_tgt>>
 
 (***************************************************************************)
@@ -104,7 +106,7 @@ AcceptOnTgt ==
 BeginQuiesce ==
   /\ phase = "Running"
   /\ phase' = "Quiesced"
-  /\ UNCHANGED <<src_queue, tgt_queue, src_state, tgt_state,
+  /\ UNCHANGED <<src_queue, tgt_queue, src_state, tgt_state, captured_state,
                  in_flight_buffer, routing_table, next_msg, delivered,
                  checksum_src, checksum_tgt>>
 
@@ -117,41 +119,54 @@ AcceptDuringQuiesce ==
   /\ in_flight_buffer' = Append(in_flight_buffer, next_msg)
   /\ src_state'        = src_state \cup {next_msg}
   /\ next_msg'         = next_msg + 1
-  /\ UNCHANGED <<phase, src_queue, tgt_queue, tgt_state,
+  /\ UNCHANGED <<phase, src_queue, tgt_queue, tgt_state, captured_state,
                  routing_table, delivered, checksum_src, checksum_tgt>>
 
+(* CaptureState atomically snapshots src_state at one instant —
+   this is what the real protocol does (it reads the staging buffer
+   as a whole). Any messages accepted after this point live only in
+   in_flight_buffer until Finalize folds them in. *)
 CaptureState ==
   /\ phase = "Quiesced"
   /\ phase' = "Transferring"
-  /\ checksum_src' = Checksum(src_state)
+  /\ captured_state' = src_state
+  /\ checksum_src'   = Checksum(src_state)
   /\ UNCHANGED <<src_queue, tgt_queue, src_state, tgt_state,
                  in_flight_buffer, routing_table, next_msg, delivered,
                  checksum_tgt>>
 
+(* Transfer copies the captured snapshot — not the live src_state.
+   This mirrors the real implementation, where the transfer phase
+   operates on the staging buffer snapshot, so checksum_src and
+   checksum_tgt are both taken over the same frozen bytes. *)
 Transfer ==
   /\ phase = "Transferring"
-  /\ tgt_state'     = src_state           \* full state copy
+  /\ tgt_state'     = captured_state      \* snapshot copy, not live
   /\ tgt_queue'     = src_queue \o in_flight_buffer  \* FIFO concat
-  /\ checksum_tgt'  = Checksum(src_state)
+  /\ checksum_tgt'  = Checksum(captured_state)
   /\ phase'         = "Swapping"
-  /\ UNCHANGED <<src_queue, src_state, in_flight_buffer, routing_table,
-                 next_msg, delivered, checksum_src>>
+  /\ UNCHANGED <<src_queue, src_state, captured_state, in_flight_buffer,
+                 routing_table, next_msg, delivered, checksum_src>>
 
 SwapRouting ==
   /\ phase = "Swapping"
   /\ checksum_src = checksum_tgt
   /\ routing_table' = "tgt"
   /\ phase'         = "Complete"
-  /\ UNCHANGED <<src_queue, tgt_queue, src_state, tgt_state,
+  /\ UNCHANGED <<src_queue, tgt_queue, src_state, tgt_state, captured_state,
                  in_flight_buffer, next_msg, delivered,
                  checksum_src, checksum_tgt>>
 
+(* Finalize folds any late in-flight messages into tgt_state so the
+   aggregate-view invariant NoMessageLoss still holds. Then src is
+   emptied and marked inert. *)
 Finalize ==
   /\ phase = "Complete"
+  /\ tgt_state' = tgt_state \cup (src_state \ captured_state)
   /\ src_queue' = <<>>
   /\ src_state' = {}             \* src is now inert
   /\ in_flight_buffer' = <<>>
-  /\ UNCHANGED <<phase, tgt_queue, tgt_state, routing_table, next_msg,
+  /\ UNCHANGED <<phase, tgt_queue, captured_state, routing_table, next_msg,
                  delivered, checksum_src, checksum_tgt>>
 
 (***************************************************************************)
@@ -163,8 +178,9 @@ DeliverOnTgt ==
   /\ LET m == Head(tgt_queue) IN
        /\ delivered'  = delivered \cup {m}
        /\ tgt_queue' = Tail(tgt_queue)
-  /\ UNCHANGED <<phase, src_queue, src_state, tgt_state, in_flight_buffer,
-                 routing_table, next_msg, checksum_src, checksum_tgt>>
+  /\ UNCHANGED <<phase, src_queue, src_state, tgt_state, captured_state,
+                 in_flight_buffer, routing_table, next_msg,
+                 checksum_src, checksum_tgt>>
 
 Next ==
   \/ AcceptOnSrc
@@ -220,6 +236,7 @@ TypeOK ==
   /\ in_flight_buffer \in Seq(Msgs)
   /\ src_state        \subseteq Msgs
   /\ tgt_state        \subseteq Msgs
+  /\ captured_state   \subseteq Msgs
   /\ delivered        \subseteq Msgs
 
 =============================================================================

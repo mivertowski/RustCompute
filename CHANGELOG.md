@@ -7,6 +7,150 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-04-20
+
+Second release. Adds multi-GPU runtime, VynGraph NSAI integration points, and
+paper-quality experimental validation on 2× H100 NVL (Azure NC80adis_H100_v5).
+
+### Headline Results (2× NVIDIA H100 NVL + NVLink 12-link)
+
+- **NVLink P2P migration: 8.7× faster than host-staging** at 16 MiB payload
+  (69 us P2P vs 597 us host-staged, 200 trials +/- 95% CI).
+- **cuCtxEnablePeerAccess / cuMemcpyPeerAsync** wired on real 2-GPU hardware —
+  the runtime's multi-GPU facade now performs real CUDA P2P rather than
+  host-only simulation. CRC32 byte-for-byte integrity verified on every
+  migration.
+- **Formal verification**: 6/6 TLA+ specs pass under TLC with no counter-
+  examples: `hlc`, `k2k_delivery`, `migration`, `multi_gpu_k2k`,
+  `tenant_isolation`, `actor_lifecycle`. One model-level bug
+  (`migration.ChecksumMatch` mis-stated) caught and fixed during the run;
+  the real implementation was already correct.
+- **Cross-tenant leak count: 0** across 13 multi-tenant isolation tests.
+- **Lifecycle rule overhead**: Spawn/Activate/Quiesce/Terminate/Restart all
+  within 23 +/- 5 ns mean, p99 = 30 ns (sub-100 ns as claimed).
+- **Sustained throughput**: 5.10 M ops/s over 4 x 60s trials, CV 0.66%,
+  degradation first->last 3 windows = -0.3%, p99 = 110 ns (flat).
+- No regression vs v1.0 baseline on single-GPU paths.
+
+### Added
+
+#### Multi-GPU Runtime (NVLink P2P)
+- `ringkernel-cuda::multi_gpu::MultiGpuRuntime` — per-device `CudaRuntime`
+  facade with `PlacementHint::{Auto, Pinned, WithActor, NvlinkPreferred}`.
+- Real `cuCtxEnablePeerAccess` / `cuCtxDisablePeerAccess` — previously
+  bookkeeping-only; now invokes the driver when both backends are live
+  CUDA contexts, with `CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED` handled
+  gracefully.
+- Real `cuMemcpyPeerAsync` in the 3-phase migration protocol's transfer
+  phase. Falls back to host-only simulation when no peer access is
+  available (mock backends in tests, or single-GPU hardware).
+- NVLink topology probe (`NvlinkTopology::probe`) via NVML — produces the
+  adjacency matrix and bandwidth used by `PlacementHint::NvlinkPreferred`.
+- `MigrationController` with global buffer budget, rate limiting, and
+  concurrency cap.
+- Migration kernel PTX (capture / restore / drain) compiled at build time
+  when `nvcc` is present, with graceful unavailability otherwise.
+
+#### VynGraph NSAI Integration (from the 2026-04-17 spec)
+- PROV-O provenance header (8 relation kinds) attachable to every K2K
+  envelope. Opt-in per send, chain walk with depth bound and cycle
+  detection, ECDSA/P-256 signature verification hook.
+- Multi-tenant K2K isolation via per-tenant sub-brokers with `AuditTag`,
+  per-tenant quotas, audit sink for cross-tenant attempts, and
+  `LegacyTenant::Unspecified` fast path.
+- Live introspection streaming (`IntrospectionStream`) with EWMA decay
+  and drop-tolerant ring buffer for high-frequency telemetry.
+- Hot rule reload with `CompiledRule` artifact API — higher version numbers
+  activate immediately, lower/equal rejected, quiescence of in-flight
+  evaluators guaranteed under load.
+- GPU-side tenant enforcement kernels and migration kernels compiled from
+  `src/cuda/*.cu` when `nvcc` is available.
+
+#### Formal Verification
+- Six TLA+ specifications in `docs/verification/`:
+  `hlc.tla`, `k2k_delivery.tla`, `migration.tla`, `multi_gpu_k2k.tla`,
+  `tenant_isolation.tla`, `actor_lifecycle.tla`.
+- `docs/verification/tlc.sh` wrapper; `docs/paper/experiments/05-tlc-stats/`
+  pipeline that runs every spec and produces a CSV summary.
+- `DefaultParent` / `DefaultActorGpu` operators in the .tla files so the
+  .cfg files stay TLC-parser-clean.
+
+#### Paper + Experiments
+- Academic paper *Persistent GPU Actors* (`docs/paper/`, 13 sections +
+  appendix), built with `make` -> 48-page `main.pdf`.
+- Six-experiment pipeline in `docs/paper/experiments/` (tier latency,
+  snapshot/restart, lifecycle, sustained, TLC, NVLink migration) with
+  per-experiment `run.sh` + `extract.py`, top-level `run_all.sh`, and
+  reproducibility manifest (`manifest.json`) capturing commit, driver,
+  CUDA, Rust, GPU.
+- Paper-aligned integration tests:
+  `paper_tier_latency`, `paper_snapshot_restart`, `paper_lifecycle_overhead`,
+  `paper_nvlink_migration`, `sustained_throughput`.
+
+### Changed
+
+- `ringkernel-cuda::multi_gpu::runtime::GpuBackend` trait gains a
+  `cu_context(&self) -> Option<usize>` method (default `None`) so the
+  runtime can drive CUDA P2P when backends are real `CudaRuntime`
+  instances. Mock backends used in unit tests keep returning `None`.
+- `migration.tla` — introduced explicit `captured_state` variable so the
+  `ChecksumMatch` invariant holds under late-arriving messages during
+  transfer (this mirrored real impl; spec was lagging).
+- TLC `.cfg` files — added `CHECK_DEADLOCK FALSE` to every spec, since
+  all six bounded models reach a legitimate terminal state when their
+  `MaxMsgs`/`MaxEvents`/`MaxSteps` bound saturates.
+
+#### Paper Experiment 1 — HBM Tier direct measurement
+- New `cluster_hbm_k2k` CUDA kernel (cross-cluster K2K via global
+  memory with `grid.sync()`) wired into `paper_tier_latency` as the
+  `hbm` tier. Previously only SMEM and DSMEM were measured directly;
+  HBM is now a first-class tier with 1000 trials per payload, giving
+  a clean monotonic SMEM < DSMEM < HBM latency hierarchy across all
+  payload sizes.
+
+#### Paper Addendum 6b — Multi-GPU K2K sustained bandwidth
+- New `paper_multi_gpu_k2k_bw` micro-benchmark (256 back-to-back
+  `cuMemcpyPeerAsync` per size, 32-round warmup) measured on 2x H100
+  NVL: 2.3 GB/s @ 4 KiB, 32 GB/s @ 64 KiB, 179 GB/s @ 1 MiB,
+  **258 GB/s @ 16 MiB** sustained — ~81% of the 318 GB/s theoretical
+  peak of a 12-link NVLink bundle. Complements Experiment 6's
+  one-shot latency data. Output CSV at
+  `docs/paper/experiments/results/<ts>/exp6b_mgpu_bw/mgpu_bw.csv`.
+
+#### Incremental (Delta) Checkpoints
+- `Checkpoint::delta_from(base, new)` returns a checkpoint with only
+  chunks whose `(type, id)` identity's data differs from `base`, plus
+  any chunks new in `new`.
+- `Checkpoint::applied_with_delta(base, delta)` re-materializes the
+  full checkpoint and verifies the recorded parent digest matches
+  the supplied base (catches wrong-base application).
+- `Checkpoint::content_digest()` is the stable CRC32 over ordered
+  `(identity, bytes)` used for delta parent tracking.
+- `DELTA_PARENT_DIGEST_KEY` is the well-known metadata custom key.
+
+#### GPU-side Work Stealing (intra-block, warp-level)
+- New `warp_work_steal` CUDA kernel — warps within a block atomically
+  decrement a shared task counter and process stolen stripes; lane 0
+  reports each warp's tally via `stats[]` so the host can audit that
+  work is conserved (sum of per-warp tallies equals `total_tasks`).
+- `tests/warp_work_steal.rs` — two integration tests verify (1) every
+  task is processed exactly once and (2) uneven task counts don't
+  starve individual warps. Intra-cluster and cross-cluster stealing
+  (DSMEM-backed and HBM-backed) remain future work for v1.2.
+
+### Known limitations / deferred
+
+- **NVSHMEM symmetric heap** — still deferred to v1.2. `cuMemcpyPeer`
+  path is feature-complete for migration; NVSHMEM would add symmetric
+  heap semantics for in-kernel all-reduce etc., which is a larger
+  integration.
+- **Multi-GPU linear scaling beyond 2 GPUs** — genuinely hardware-bound
+  on NC80adis_H100_v5 (2 GPUs). Deferred to a 4 × H100 / 8 × H100 SKU
+  in v1.2.
+- **Intra-cluster and cross-cluster work stealing** — the v1.1
+  primitive covers intra-block. The DSMEM / HBM tiers of the
+  hierarchy defined in the v1.2 roadmap are next.
+
 ## [1.0.0] - 2026-04-16
 
 First production-grade release. Focuses exclusively on NVIDIA CUDA. H100-verified with paper-quality benchmarks.

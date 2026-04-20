@@ -22,6 +22,13 @@ CONSTANTS
 
 ROOT == "ROOT"
 
+(* Default parent map for bounded models: one CHOOSE-picked actor is
+   ROOT-parented, all others parent to it. Use with `Parent <- DefaultParent`
+   in the TLC config file to avoid encoding the mapping in the .cfg. *)
+DefaultParentRoot == CHOOSE a \in Actors : TRUE
+DefaultParent == [a \in Actors |->
+  IF a = DefaultParentRoot THEN ROOT ELSE DefaultParentRoot]
+
 ActorState == {"Spawning", "Active", "Quiescing", "Terminated"}
 
 VARIABLES

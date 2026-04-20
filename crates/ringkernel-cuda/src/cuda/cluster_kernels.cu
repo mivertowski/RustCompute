@@ -241,3 +241,156 @@ extern "C" __global__ void cluster_persistent_actor(
         atomicExch(&control[2], 1); // Mark terminated
     }
 }
+
+// ============================================================================
+// HBM K2K — Cross-Cluster Inter-Block Messaging via Global Memory (HBM tier)
+// ============================================================================
+
+/**
+ * One-shot kernel that exercises the HBM tier of the K2K hierarchy.
+ *
+ * Each block writes a message into its own global-memory (HBM) slot,
+ * grid-syncs, then reads the neighbor block's slot and reduces into a
+ * per-block result. This is a deliberately HBM-only path — no DSMEM,
+ * no shared-memory map — so the paper-tier-latency harness can
+ * measure the inter-cluster K2K cost directly (complementing SMEM
+ * and DSMEM tiers measured by `cluster_test_sync` and
+ * `cluster_dsmem_k2k`).
+ *
+ * `message_size_floats` must fit in `hbm_buf` at slot `blockIdx.x`
+ * (caller allocates `gridDim.x * message_size_floats * 4` bytes).
+ * `rounds` == 1 gives single-trip latency; larger values amortize
+ * launch overhead for bandwidth measurements.
+ *
+ * Launch expectations:
+ *   - grid(num_blocks, 1, 1)
+ *   - block(threads_per_block, 1, 1)  — any size; one thread per lane
+ *   - cluster(1, 1, 1) or omitted — this kernel does not rely on
+ *     cluster groups. The launch config may still set `cluster_dim=2`
+ *     so that `launch_kernel_with_cluster` works; the kernel will
+ *     behave the same because we only use `grid.sync()`.
+ */
+extern "C" __global__ void cluster_hbm_k2k(
+    float* __restrict__ hbm_buf,
+    float* __restrict__ results,
+    unsigned int message_size_floats,
+    unsigned int rounds
+) {
+    cg::grid_group grid = cg::this_grid();
+
+    unsigned int my_slot     = blockIdx.x * message_size_floats;
+    unsigned int num_blocks  = gridDim.x;
+    unsigned int neighbor    = (blockIdx.x + 1) % num_blocks;
+    unsigned int nbr_slot    = neighbor * message_size_floats;
+
+    // Each block writes a unique stamp into its own HBM slot.
+    for (unsigned int i = threadIdx.x; i < message_size_floats; i += blockDim.x) {
+        hbm_buf[my_slot + i] = (float)(blockIdx.x * 1000 + i);
+    }
+
+    for (unsigned int round = 0; round < rounds; round++) {
+        grid.sync(); // Inter-cluster visibility via HBM
+
+        // Read neighbor's HBM slot and reduce.
+        float sum = 0.0f;
+        for (unsigned int i = threadIdx.x; i < message_size_floats; i += blockDim.x) {
+            sum += hbm_buf[nbr_slot + i];
+        }
+
+        __shared__ float block_sum;
+        if (threadIdx.x == 0) block_sum = 0.0f;
+        __syncthreads();
+        atomicAdd(&block_sum, sum);
+        __syncthreads();
+
+        if (round == rounds - 1 && threadIdx.x == 0) {
+            results[blockIdx.x] = block_sum;
+        }
+
+        // Update our slot for the next round (so reads see fresh data).
+        for (unsigned int i = threadIdx.x; i < message_size_floats; i += blockDim.x) {
+            hbm_buf[my_slot + i] += 1.0f;
+        }
+
+        grid.sync();
+    }
+}
+
+// ============================================================================
+// Intra-block Work Stealing — one shared task queue per block
+// ============================================================================
+
+/**
+ * Warp-level work stealing within a block.
+ *
+ * Each block maintains a single shared-memory task counter that warps
+ * atomically decrement to claim work units. The first warp that reaches
+ * zero drops out; the others keep stealing. This is the minimum useful
+ * pattern for dynamic redistribution of uneven work (branches where
+ * some warps finish early) without host involvement.
+ *
+ * `total_tasks` tasks are numbered 0..total_tasks-1. Each task `t` is
+ * processed by computing `output[t] = f(t, input[t])` where `f` is a
+ * trivial float accumulator. The resulting `output` array is written
+ * out; the kernel does not recompute across rounds.
+ *
+ * Per-warp per-block counters (`tasks_done`) are written to the
+ * `stats` buffer so the host can assert that the total equals
+ * `total_tasks * gridDim.x`, proving every task was processed
+ * exactly once and that the stealing protocol conserves work.
+ *
+ * Launch expectations:
+ *   - grid(n_blocks, 1, 1)
+ *   - block(threads_per_block, 1, 1)  — a multiple of 32 (one warp per stripe)
+ */
+extern "C" __global__ void warp_work_steal(
+    const float* __restrict__ input,
+    float* __restrict__ output,
+    unsigned int* __restrict__ stats,   // [gridDim.x * warps_per_block]
+    unsigned int total_tasks
+) {
+    __shared__ int remaining; // signed so we can detect "below zero"
+    __shared__ unsigned int warps_done;
+
+    const unsigned int warp_id   = threadIdx.x / 32;
+    const unsigned int lane      = threadIdx.x & 31;
+    const unsigned int warps_pb  = (blockDim.x + 31) / 32;
+
+    if (threadIdx.x == 0) {
+        remaining  = (int)total_tasks;
+        warps_done = 0;
+    }
+    __syncthreads();
+
+    unsigned int my_done = 0;
+
+    // Each warp repeatedly steals a batch of `warpSize` tasks.
+    while (true) {
+        int base = -1;
+        if (lane == 0) {
+            base = atomicSub(&remaining, (int)warpSize);
+        }
+        base = __shfl_sync(0xFFFFFFFFu, base, 0);
+        if (base <= 0) {
+            break;
+        }
+        unsigned int idx = (unsigned int)base - 1u - lane;
+        if ((int)idx >= 0 && idx < total_tasks) {
+            float v = input[idx];
+            output[idx] = v * 2.0f + 1.0f;
+            my_done++;
+        }
+    }
+
+    // Per-warp tally for host-side audit.
+    unsigned int warp_total = my_done;
+    // Warp-reduce my_done to lane 0 via __shfl_down_sync so stats
+    // holds the per-warp count (not per-thread).
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        warp_total += __shfl_down_sync(0xFFFFFFFFu, warp_total, offset);
+    }
+    if (lane == 0) {
+        stats[blockIdx.x * warps_pb + warp_id] = warp_total;
+        atomicAdd(&warps_done, 1u);
+    }
+}

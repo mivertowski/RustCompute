@@ -13,10 +13,10 @@ categories = ["simulation", "graphics", "visualization"]
 readme = "README.md"
 
 [dependencies]
-ringkernel = { version = "1.0.0", path = "../ringkernel" }
-ringkernel-core = { version = "1.0.0", path = "../ringkernel-core" }
-ringkernel-derive = { version = "1.0.0", path = "../ringkernel-derive" }
-ringkernel-cuda-codegen = { version = "1.0.0", path = "../ringkernel-cuda-codegen", optional = true }
+ringkernel = { version = "1.1.0", path = "../ringkernel" }
+ringkernel-core = { version = "1.1.0", path = "../ringkernel-core" }
+ringkernel-derive = { version = "1.1.0", path = "../ringkernel-derive" }
+ringkernel-cuda-codegen = { version = "1.1.0", path = "../ringkernel-cuda-codegen", optional = true }
 inventory = { workspace = true }
 
 # GUI
@@ -39,7 +39,7 @@ rand = "0.8"
 bytemuck = { version = "1.24", features = ["derive"], optional = true }
 
 # CUDA compute (optional, for NVIDIA GPU acceleration)
-ringkernel-cuda = { version = "1.0.0", path = "../ringkernel-cuda", optional = true }
+ringkernel-cuda = { version = "1.1.0", path = "../ringkernel-cuda", optional = true }
 cudarc = { workspace = true, optional = true }
 
 # Code generation (optional, for DSL-to-CUDA transpilation)

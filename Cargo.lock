@@ -7908,7 +7908,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -7945,7 +7945,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-accnet"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "chrono",
  "criterion",
@@ -7981,7 +7981,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-audio-fft"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "async-trait",
  "atomic",
@@ -8005,7 +8005,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-cli"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -8038,7 +8038,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-codegen"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "handlebars 5.1.2",
  "proc-macro2",
@@ -8052,7 +8052,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-core"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -8096,7 +8096,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-cpu"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "async-trait",
  "crossbeam",
@@ -8114,7 +8114,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-cuda"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "async-trait",
  "cudarc",
@@ -8133,7 +8133,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-cuda-codegen"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8144,7 +8144,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-derive"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "bytemuck",
  "darling 0.20.11",
@@ -8161,7 +8161,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-ecosystem"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "actix",
  "actix-rt",
@@ -8194,7 +8194,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-graph"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -8207,7 +8207,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-ir"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "petgraph",
  "pretty_assertions",
@@ -8218,7 +8218,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-montecarlo"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -8233,7 +8233,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-procint"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "chrono",
  "criterion",
@@ -8269,7 +8269,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-python"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "numpy",
  "pyo3",
@@ -8293,7 +8293,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-txmon"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -8314,7 +8314,7 @@ dependencies = [
 
 [[package]]
 name = "ringkernel-wavesim"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "bytemuck",
  "criterion",

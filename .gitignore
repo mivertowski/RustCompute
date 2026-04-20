@@ -25,3 +25,12 @@ docs/ringkernel-executive-overview.aux
 docs/ringkernel-executive-overview.log
 docs/ringkernel-executive-overview.out
 docs/ringkernel-executive-overview.toc
+
+# TLA+ / TLC artifacts
+docs/verification/tla2tools.jar
+docs/verification/states/
+
+# LaTeX intermediates from paper figures
+docs/paper/figures/*.aux
+docs/paper/figures/*.log
+docs/paper/figures/*.out

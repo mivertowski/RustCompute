@@ -31,6 +31,20 @@ CONSTANTS
                    \* (every pair within this set has NVLink)
   MaxMsgs
 
+(* Default actor-to-GPU placement for bounded models: the first actor
+   lives on the first GPU, every other actor on the second GPU. Use
+   with `ActorGpu <- DefaultActorGpu` in the TLC config file. *)
+DefaultActorGpuHead == CHOOSE a \in Actors : TRUE
+DefaultActorGpuFirstGpu == CHOOSE g \in GPUs : TRUE
+DefaultActorGpuSecondGpu ==
+  IF Cardinality(GPUs) > 1
+  THEN CHOOSE g \in GPUs : g /= DefaultActorGpuFirstGpu
+  ELSE DefaultActorGpuFirstGpu
+DefaultActorGpu == [a \in Actors |->
+  IF a = DefaultActorGpuHead
+  THEN DefaultActorGpuFirstGpu
+  ELSE DefaultActorGpuSecondGpu]
+
 VARIABLES
   send_queue,       \* per-sender outgoing queue: Actors -> Seq(msg)
   p2p_queues,       \* Device-to-device queues keyed by <<src_gpu, dst_gpu>>
@@ -140,12 +154,12 @@ Spec == Init /\ [][Next]_vars
 (* All live messages are somewhere: send queue, p2p queue, host stage,    *)
 (* recv queue, or already delivered. Nothing silently vanishes.           *)
 MsgInStage(m) ==
-  \/ \E a \in Actors, i \in 1..Len(send_queue[a]) :
+  \/ \E a \in Actors : \E i \in 1..Len(send_queue[a]) :
         send_queue[a][i][2] = m
-  \/ \E p \in GPUPair, i \in 1..Len(p2p_queues[p]) :
+  \/ \E p \in GPUPair : \E i \in 1..Len(p2p_queues[p]) :
         p2p_queues[p][i][2] = m
   \/ \E i \in 1..Len(host_stage) : host_stage[i][2] = m
-  \/ \E a \in Actors, i \in 1..Len(recv_queue[a]) :
+  \/ \E a \in Actors : \E i \in 1..Len(recv_queue[a]) :
         recv_queue[a][i] = m
   \/ m \in delivered
 

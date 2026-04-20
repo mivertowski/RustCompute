@@ -763,6 +763,162 @@ impl Checkpoint {
 }
 
 // ============================================================================
+// Incremental (Delta) Checkpoints
+// ============================================================================
+
+/// Metadata custom key that records a delta checkpoint's parent.
+///
+/// A checkpoint produced via [`Checkpoint::delta_from`] sets this key to
+/// the string returned by [`Checkpoint::content_digest`] of the base
+/// checkpoint it was diffed against. [`Checkpoint::applied_with_delta`]
+/// (and anyone reading the delta) can use it to validate the delta is
+/// being applied on top of the correct base.
+pub const DELTA_PARENT_DIGEST_KEY: &str = "ringkernel.delta.parent_digest";
+
+/// Key per chunk that records a stable identity across checkpoints.
+///
+/// [`DataChunk::chunk_identity`] builds a `(ChunkType, Option<chunk_id>)`
+/// pair which is stable across snapshots of the same kernel: a control
+/// block or HLC-state chunk has identity `(ControlBlock, None)`; a
+/// device-memory chunk has identity `(DeviceMemory, Some(name_hash))`.
+/// Two chunks with the same identity refer to the same region —
+/// potentially with different bytes — across a base + delta.
+impl DataChunk {
+    /// Stable (kind, id) identity used for delta diffing. `None` id is
+    /// used for chunk kinds that appear at most once in a checkpoint.
+    pub fn chunk_identity(&self) -> Option<(ChunkType, Option<u64>)> {
+        let kind = self.chunk_type()?;
+        let id = match kind {
+            ChunkType::DeviceMemory | ChunkType::Custom => Some(self.header.chunk_id),
+            _ => None,
+        };
+        Some((kind, id))
+    }
+}
+
+impl Checkpoint {
+    /// Stable content digest of the checkpoint's data chunks.
+    ///
+    /// This is a CRC32 over each chunk's `(identity, data)` in the order
+    /// they were added. Two checkpoints with the same content digest
+    /// have identical chunk contents at identical identities. Used as
+    /// the stable "parent id" for delta checkpoints.
+    pub fn content_digest(&self) -> String {
+        let mut acc: u32 = 0xFFFF_FFFF;
+        for chunk in &self.chunks {
+            if let Some((kind, id)) = chunk.chunk_identity() {
+                let mut header = [0u8; 16];
+                header[0..4].copy_from_slice(&(kind as u32).to_le_bytes());
+                header[4..12].copy_from_slice(&id.unwrap_or(0).to_le_bytes());
+                acc = crc32_update(acc, &header);
+                acc = crc32_update(acc, &chunk.data);
+            }
+        }
+        format!("{:08x}", !acc)
+    }
+
+    /// Produce a delta checkpoint: chunks present in `new` whose bytes
+    /// differ from the corresponding chunk in `base` (same identity),
+    /// plus chunks that are new in `new`. Unchanged chunks are omitted.
+    ///
+    /// The delta's `metadata.custom` records the base's content digest
+    /// under [`DELTA_PARENT_DIGEST_KEY`] so the reader can verify it
+    /// before applying.
+    ///
+    /// Restore via [`Checkpoint::applied_with_delta`].
+    pub fn delta_from(base: &Checkpoint, new: &Checkpoint) -> Checkpoint {
+        use std::collections::HashMap;
+        let mut base_index: HashMap<(ChunkType, Option<u64>), &DataChunk> = HashMap::new();
+        for chunk in &base.chunks {
+            if let Some(id) = chunk.chunk_identity() {
+                base_index.insert(id, chunk);
+            }
+        }
+
+        let mut delta = Checkpoint::new(new.metadata.clone());
+        delta.metadata = delta.metadata.with_custom(
+            DELTA_PARENT_DIGEST_KEY,
+            base.content_digest(),
+        );
+        for chunk in &new.chunks {
+            let Some(identity) = chunk.chunk_identity() else {
+                continue;
+            };
+            match base_index.get(&identity) {
+                Some(old) if old.data == chunk.data => { /* unchanged, skip */ }
+                _ => delta.chunks.push(chunk.clone()),
+            }
+        }
+        delta
+    }
+
+    /// Apply a delta produced by [`Checkpoint::delta_from`] on top of
+    /// `base`, returning the resulting full checkpoint. Chunks in the
+    /// delta replace chunks with the same identity in `base`; chunks
+    /// only in `base` carry over unchanged.
+    ///
+    /// Errors if the delta's recorded parent digest does not match
+    /// `base.content_digest()` — this catches accidental application
+    /// on top of the wrong base.
+    pub fn applied_with_delta(base: &Checkpoint, delta: &Checkpoint) -> Result<Checkpoint> {
+        if let Some(recorded) = delta.metadata.custom.get(DELTA_PARENT_DIGEST_KEY) {
+            let actual = base.content_digest();
+            if recorded != &actual {
+                return Err(RingKernelError::InvalidCheckpoint(format!(
+                    "delta parent digest mismatch: expected {recorded}, got {actual}"
+                )));
+            }
+        }
+
+        use std::collections::HashMap;
+        let mut out = Checkpoint::new(delta.metadata.clone());
+        let mut delta_index: HashMap<(ChunkType, Option<u64>), &DataChunk> = HashMap::new();
+        for chunk in &delta.chunks {
+            if let Some(id) = chunk.chunk_identity() {
+                delta_index.insert(id, chunk);
+            }
+        }
+
+        // Base chunks first, replaced by delta if present.
+        let mut replaced: std::collections::HashSet<(ChunkType, Option<u64>)> =
+            std::collections::HashSet::new();
+        for chunk in &base.chunks {
+            match chunk.chunk_identity() {
+                Some(id) if delta_index.contains_key(&id) => {
+                    out.chunks.push(delta_index[&id].clone());
+                    replaced.insert(id);
+                }
+                _ => out.chunks.push(chunk.clone()),
+            }
+        }
+        // Chunks in delta that weren't in base.
+        for chunk in &delta.chunks {
+            if let Some(id) = chunk.chunk_identity() {
+                if !replaced.contains(&id) {
+                    out.chunks.push(chunk.clone());
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// CRC32 rolling update used by [`Checkpoint::content_digest`].
+/// Takes the current reverse-XOR accumulator (so `!crc` gives the
+/// final digest) and updates it with the input bytes.
+fn crc32_update(mut crc: u32, data: &[u8]) -> u32 {
+    const POLY: u32 = 0xEDB88320;
+    for &b in data {
+        crc ^= b as u32;
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (POLY & mask);
+        }
+    }
+    crc
+}
+
+// ============================================================================
 // Simple CRC32 Implementation
 // ============================================================================
 
@@ -2105,5 +2261,88 @@ mod tests {
 
         // Clean up
         let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    // ========== Delta / incremental checkpoints ==========
+
+    fn build_sample_checkpoint(control: &[u8], mem: &[u8]) -> Checkpoint {
+        let meta = CheckpointMetadata::new("delta_test", "sim").with_step(0);
+        let mut cp = Checkpoint::new(meta);
+        cp.add_control_block(control.to_vec());
+        cp.add_device_memory("pressure", mem.to_vec());
+        cp
+    }
+
+    #[test]
+    fn delta_from_empty_when_new_matches_base() {
+        let base = build_sample_checkpoint(&[1, 2, 3], &[4, 5, 6, 7]);
+        let new = build_sample_checkpoint(&[1, 2, 3], &[4, 5, 6, 7]);
+        let delta = Checkpoint::delta_from(&base, &new);
+        assert!(delta.chunks.is_empty(), "unchanged chunks should be omitted");
+        assert_eq!(
+            delta.metadata.custom.get(DELTA_PARENT_DIGEST_KEY).cloned(),
+            Some(base.content_digest())
+        );
+    }
+
+    #[test]
+    fn delta_captures_changed_and_new_chunks() {
+        let base = build_sample_checkpoint(&[1, 2, 3], &[4, 5, 6, 7]);
+        let mut new = build_sample_checkpoint(&[1, 2, 3], &[4, 5, 9, 9]); // mem changed
+        new.add_h2k_queue(vec![42, 42]); // new chunk
+        let delta = Checkpoint::delta_from(&base, &new);
+
+        // Device memory should be in delta; control block should not be.
+        assert!(delta
+            .chunks
+            .iter()
+            .any(|c| c.chunk_type() == Some(ChunkType::DeviceMemory)));
+        assert!(delta
+            .chunks
+            .iter()
+            .any(|c| c.chunk_type() == Some(ChunkType::H2KQueue)));
+        assert!(!delta
+            .chunks
+            .iter()
+            .any(|c| c.chunk_type() == Some(ChunkType::ControlBlock)));
+    }
+
+    #[test]
+    fn delta_apply_recovers_new_checkpoint() {
+        let base = build_sample_checkpoint(&[1, 2, 3], &[4, 5, 6, 7]);
+        let mut new = build_sample_checkpoint(&[1, 2, 3], &[4, 5, 9, 9]);
+        new.add_h2k_queue(vec![42, 42]);
+        let delta = Checkpoint::delta_from(&base, &new);
+
+        let restored = Checkpoint::applied_with_delta(&base, &delta).expect("apply");
+        // Restored should have same chunk identities as `new`.
+        assert_eq!(restored.chunks.len(), new.chunks.len());
+        for chunk in &new.chunks {
+            let id = chunk.chunk_identity().unwrap();
+            let found = restored
+                .chunks
+                .iter()
+                .find(|c| c.chunk_identity() == Some(id))
+                .expect("identity present");
+            assert_eq!(found.data, chunk.data, "chunk {id:?} bytes match");
+        }
+    }
+
+    #[test]
+    fn delta_apply_rejects_wrong_base() {
+        let base_a = build_sample_checkpoint(&[1, 2, 3], &[4, 5, 6, 7]);
+        let base_b = build_sample_checkpoint(&[9, 9, 9], &[8, 8, 8, 8]);
+        let new = build_sample_checkpoint(&[1, 2, 3], &[4, 5, 9, 9]);
+        let delta = Checkpoint::delta_from(&base_a, &new);
+        let err = Checkpoint::applied_with_delta(&base_b, &delta)
+            .expect_err("different base should fail");
+        assert!(matches!(err, RingKernelError::InvalidCheckpoint(_)));
+    }
+
+    #[test]
+    fn content_digest_stable_across_identical_chunks() {
+        let a = build_sample_checkpoint(&[1, 2, 3], &[4, 5, 6, 7]);
+        let b = build_sample_checkpoint(&[1, 2, 3], &[4, 5, 6, 7]);
+        assert_eq!(a.content_digest(), b.content_digest());
     }
 }

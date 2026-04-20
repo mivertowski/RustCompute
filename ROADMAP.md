@@ -62,24 +62,38 @@ Transform GPU computing from batch-oriented kernel launches to a true actor-base
 
 ---
 
-## v1.1 -- Multi-GPU (Target: Q3 2026)
+## v1.1 -- Multi-GPU + VynGraph NSAI -- Completed (April 2026)
+
+**2x H100 NVL-verified. See `docs/benchmarks/v1.1-2x-h100-results.md`.**
 
 ### Multi-GPU P2P Communication
-- [ ] NVLink-aware actor placement (co-locate communicating actors on connected GPUs)
-- [ ] P2P direct memory access between persistent actors on different GPUs
-- [ ] NVSHMEM integration for symmetric heap across GPU cluster
-- [ ] Multi-GPU actor migration with state transfer
-- [ ] Load balancing across GPU pool with topology awareness
+- [x] NVLink-aware actor placement (`PlacementHint::NvlinkPreferred` uses `NvlinkTopology::probe`)
+- [x] P2P direct memory access via `cuCtxEnablePeerAccess` + `cuMemcpyPeerAsync`
+- [x] Multi-GPU actor migration with 3-phase transfer (8.7x faster than host-stage at 16 MiB)
+- [x] Load balancing across GPU pool (LoadBalance + CommunicationAware rebalance strategies)
 
-### GPU-Side Work Stealing
-- [ ] Intra-kernel work stealing within persistent actors
-- [ ] Dynamic task redistribution without host involvement
-- [ ] Hierarchical stealing: intra-block -> intra-cluster -> cross-cluster
+### VynGraph NSAI Integration Points
+- [x] PROV-O provenance header (8 relation kinds, chain walk, signature hook)
+- [x] Multi-tenant K2K isolation (per-tenant sub-brokers, audit sink, quota enforcement)
+- [x] Live introspection streaming (EWMA, drop-tolerant ring)
+- [x] Hot rule reload (`CompiledRule`, version-monotonic, quiescence under load)
 
-### State Checkpointing
-- [ ] Periodic GPU actor state snapshots to host memory
-- [ ] Incremental checkpoint (delta-only) for large actor state
-- [ ] Checkpoint-based fault recovery with actor restart
+### Formal Verification
+- [x] 6 TLA+ specs (hlc, k2k_delivery, migration, multi_gpu_k2k, tenant_isolation, actor_lifecycle)
+- [x] TLC model-checking pipeline (no counterexamples)
+
+### Added late in v1.1
+
+- [x] **HBM-tier direct measurement** -- new `cluster_hbm_k2k` kernel, included as paper Exp 1 hbm tier
+- [x] **Multi-GPU K2K sustained bandwidth** micro-bench (paper Addendum 6b): 258 GB/s @ 16 MiB (~81% of 318 GB/s peak)
+- [x] **Incremental/delta checkpoints** -- `Checkpoint::delta_from` / `applied_with_delta` / `content_digest`
+- [x] **Intra-block warp work stealing** -- `warp_work_steal` kernel + audit tests
+
+### Deferred to v1.2
+
+- [ ] NVSHMEM integration for symmetric heap across GPU cluster (larger integration than v1.1 scope)
+- [ ] Intra-cluster (DSMEM-backed) and cross-cluster (HBM-backed) work stealing -- the hierarchical tiers above intra-block
+- [ ] Multi-GPU linear scaling benchmarks (4, 8 GPUs) -- infra-bound for NC80adis (2 GPUs only)
 
 ---
 

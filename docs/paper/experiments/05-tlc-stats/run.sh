@@ -39,7 +39,7 @@ for spec in "${SPECS[@]}"; do
     LOG="${OUT}/tlc_${spec}.log"
     START=$(date +%s)
     set +e
-    ${TLC} -config "${spec}.cfg" "${spec}.tla" > "${LOG}" 2>&1
+    ${TLC} -workers "${TLC_WORKERS:-4}" -config "${spec}.cfg" "${spec}.tla" > "${LOG}" 2>&1
     RC=$?
     set -e
     ELAPSED=$(($(date +%s) - START))
