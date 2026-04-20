@@ -836,10 +836,9 @@ impl Checkpoint {
         }
 
         let mut delta = Checkpoint::new(new.metadata.clone());
-        delta.metadata = delta.metadata.with_custom(
-            DELTA_PARENT_DIGEST_KEY,
-            base.content_digest(),
-        );
+        delta.metadata = delta
+            .metadata
+            .with_custom(DELTA_PARENT_DIGEST_KEY, base.content_digest());
         for chunk in &new.chunks {
             let Some(identity) = chunk.chunk_identity() else {
                 continue;
@@ -2278,7 +2277,10 @@ mod tests {
         let base = build_sample_checkpoint(&[1, 2, 3], &[4, 5, 6, 7]);
         let new = build_sample_checkpoint(&[1, 2, 3], &[4, 5, 6, 7]);
         let delta = Checkpoint::delta_from(&base, &new);
-        assert!(delta.chunks.is_empty(), "unchanged chunks should be omitted");
+        assert!(
+            delta.chunks.is_empty(),
+            "unchanged chunks should be omitted"
+        );
         assert_eq!(
             delta.metadata.custom.get(DELTA_PARENT_DIGEST_KEY).cloned(),
             Some(base.content_digest())

@@ -85,20 +85,10 @@ pub mod sys {
 
         /// Put `bytes` bytes from `source` (local) into `dest`
         /// (symmetric-heap slot on `pe`). Blocking.
-        pub fn nvshmem_putmem(
-            dest: *mut c_void,
-            source: *const c_void,
-            bytes: usize,
-            pe: i32,
-        );
+        pub fn nvshmem_putmem(dest: *mut c_void, source: *const c_void, bytes: usize, pe: i32);
         /// Get `bytes` bytes from `source` (symmetric-heap slot on
         /// `pe`) into `dest` (local). Blocking.
-        pub fn nvshmem_getmem(
-            dest: *mut c_void,
-            source: *const c_void,
-            bytes: usize,
-            pe: i32,
-        );
+        pub fn nvshmem_getmem(dest: *mut c_void, source: *const c_void, bytes: usize, pe: i32);
 
         /// Collective barrier over every PE.
         pub fn nvshmem_barrier_all();

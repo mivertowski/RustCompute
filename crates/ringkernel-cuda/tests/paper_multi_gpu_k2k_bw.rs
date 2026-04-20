@@ -41,9 +41,7 @@ fn paper_multi_gpu_k2k_bw() {
             return;
         }
         let mut count: i32 = 0;
-        if cuda_sys::cuDeviceGetCount(&mut count) != cuda_sys::CUresult::CUDA_SUCCESS
-            || count < 2
-        {
+        if cuda_sys::cuDeviceGetCount(&mut count) != cuda_sys::CUresult::CUDA_SUCCESS || count < 2 {
             eprintln!("SKIP: requires >= 2 GPUs (found {count})");
             return;
         }
@@ -59,14 +57,10 @@ fn paper_multi_gpu_k2k_bw() {
 
         let mut ctx0: cuda_sys::CUcontext = ptr::null_mut();
         let mut ctx1: cuda_sys::CUcontext = ptr::null_mut();
-        if cuda_sys::cuDevicePrimaryCtxRetain(&mut ctx0, dev0)
-            != cuda_sys::CUresult::CUDA_SUCCESS
-        {
+        if cuda_sys::cuDevicePrimaryCtxRetain(&mut ctx0, dev0) != cuda_sys::CUresult::CUDA_SUCCESS {
             return;
         }
-        if cuda_sys::cuDevicePrimaryCtxRetain(&mut ctx1, dev1)
-            != cuda_sys::CUresult::CUDA_SUCCESS
-        {
+        if cuda_sys::cuDevicePrimaryCtxRetain(&mut ctx1, dev1) != cuda_sys::CUresult::CUDA_SUCCESS {
             cuda_sys::cuDevicePrimaryCtxRelease_v2(dev0);
             return;
         }

@@ -748,15 +748,21 @@ mod tests {
     #[test]
     fn from_compute_capability_routes_to_blackwell_and_rubin() {
         assert_eq!(
-            GpuArchitecture::from_compute_capability(10, 0).compute_capability.0,
+            GpuArchitecture::from_compute_capability(10, 0)
+                .compute_capability
+                .0,
             10
         );
         assert_eq!(
-            GpuArchitecture::from_compute_capability(12, 0).compute_capability.0,
+            GpuArchitecture::from_compute_capability(12, 0)
+                .compute_capability
+                .0,
             12
         );
         assert_eq!(
-            GpuArchitecture::from_compute_capability(9, 0).compute_capability.0,
+            GpuArchitecture::from_compute_capability(9, 0)
+                .compute_capability
+                .0,
             9
         );
     }

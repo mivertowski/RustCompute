@@ -3,11 +3,45 @@
 //! This module provides the core message queue abstraction used for
 //! communication between host and GPU kernels. The queue uses a ring
 //! buffer design with atomic operations for lock-free access.
+//!
+//! ## Cache-line padding
+//!
+//! SPSC queue throughput under concurrent producer/consumer load is
+//! dominated by cache-line bouncing between cores. When `head` and
+//! `tail` live on the same cache line, every producer `store(head)`
+//! invalidates the consumer's cached view of `tail` and vice versa
+//! — turning every operation into a forced cache-coherence round-
+//! trip. [`CachePadded`] places each hot field on its own 128-byte
+//! cache line (the widest modern line, covering both x86 spatial
+//! prefetching pairs and NVIDIA Hopper-era L2), so producer and
+//! consumer do not contend at the line granularity.
+//!
+//! 128 bytes is a conservative choice: AMD Zen 4 / Intel Sapphire
+//! Rapids use 64-byte lines but prefetch in pairs (the "destructive
+//! interference pair"), which `std::sync::atomic::hint::spin_loop`
+//! and crossbeam-utils both target with 128 bytes of padding.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{Result, RingKernelError};
 use crate::message::MessageEnvelope;
+
+/// 128-byte aligned wrapper that puts a field on its own cache
+/// line, avoiding false sharing between producer and consumer of an
+/// SPSC ring.
+///
+/// Using explicit `repr(align(128))` rather than depending on
+/// `crossbeam-utils::CachePadded` so the core crate stays lean.
+#[repr(align(128))]
+#[derive(Default)]
+pub(crate) struct CachePadded<T>(pub T);
+
+impl<T> std::ops::Deref for CachePadded<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
 
 /// Statistics for a message queue.
 #[derive(Debug, Clone, Default)]
@@ -79,11 +113,17 @@ pub struct SpscQueue {
     /// Mask for index wrapping (capacity - 1).
     mask: usize,
     /// Head pointer (producer writes here, only modified by producer).
-    head: AtomicU64,
+    /// Cache-line padded to avoid false sharing with `tail`.
+    head: CachePadded<AtomicU64>,
     /// Tail pointer (consumer reads from here, only modified by consumer).
-    tail: AtomicU64,
-    /// Statistics.
-    stats: QueueStatsInner,
+    /// Cache-line padded to avoid false sharing with `head` and stats.
+    tail: CachePadded<AtomicU64>,
+    /// Producer-side counters (enqueued / dropped / max_depth).
+    /// Separate cache line from consumer stats so the two sides do
+    /// not false-share.
+    producer_stats: CachePadded<ProducerStats>,
+    /// Consumer-side counters (dequeued).
+    consumer_stats: CachePadded<ConsumerStats>,
 }
 
 // SAFETY: SpscQueue is Send+Sync because:
@@ -97,12 +137,35 @@ pub struct SpscQueue {
 unsafe impl Send for SpscQueue {}
 unsafe impl Sync for SpscQueue {}
 
-/// Internal statistics with atomics.
-struct QueueStatsInner {
+/// Producer-side stats (counters modified only by the producer).
+/// Split from consumer stats so the two sides don't false-share.
+#[derive(Default)]
+struct ProducerStats {
     enqueued: AtomicU64,
-    dequeued: AtomicU64,
     dropped: AtomicU64,
     max_depth: AtomicU64,
+}
+
+/// Consumer-side stats (counters modified only by the consumer).
+#[derive(Default)]
+struct ConsumerStats {
+    dequeued: AtomicU64,
+}
+
+impl From<(&ProducerStats, &ConsumerStats)> for QueueStats {
+    fn from(split: (&ProducerStats, &ConsumerStats)) -> Self {
+        let (p, c) = split;
+        QueueStats {
+            enqueued: p.enqueued.load(Ordering::Relaxed),
+            dequeued: c.dequeued.load(Ordering::Relaxed),
+            dropped: p.dropped.load(Ordering::Relaxed),
+            depth: p
+                .enqueued
+                .load(Ordering::Relaxed)
+                .wrapping_sub(c.dequeued.load(Ordering::Relaxed)),
+            max_depth: p.max_depth.load(Ordering::Relaxed),
+        }
+    }
 }
 
 impl SpscQueue {
@@ -122,14 +185,10 @@ impl SpscQueue {
             buffer,
             capacity,
             mask,
-            head: AtomicU64::new(0),
-            tail: AtomicU64::new(0),
-            stats: QueueStatsInner {
-                enqueued: AtomicU64::new(0),
-                dequeued: AtomicU64::new(0),
-                dropped: AtomicU64::new(0),
-                max_depth: AtomicU64::new(0),
-            },
+            head: CachePadded(AtomicU64::new(0)),
+            tail: CachePadded(AtomicU64::new(0)),
+            producer_stats: CachePadded(ProducerStats::default()),
+            consumer_stats: CachePadded(ConsumerStats::default()),
         }
     }
 
@@ -141,21 +200,14 @@ impl SpscQueue {
         head.wrapping_sub(tail)
     }
 
-    /// Update max depth statistic.
+    /// Update max depth statistic. Single producer means no
+    /// contention on max_depth — we use `fetch_max` which is a
+    /// single atomic RMW rather than the earlier CAS loop.
     fn update_max_depth(&self) {
         let depth = self.depth();
-        let mut max = self.stats.max_depth.load(Ordering::Relaxed);
-        while depth > max {
-            match self.stats.max_depth.compare_exchange_weak(
-                max,
-                depth,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => break,
-                Err(current) => max = current,
-            }
-        }
+        self.producer_stats
+            .max_depth
+            .fetch_max(depth, Ordering::Relaxed);
     }
 }
 
@@ -177,7 +229,7 @@ impl MessageQueue for SpscQueue {
 
         // Check if full
         if head.wrapping_sub(tail) >= self.capacity as u64 {
-            self.stats.dropped.fetch_add(1, Ordering::Relaxed);
+            self.producer_stats.dropped.fetch_add(1, Ordering::Relaxed);
             return Err(RingKernelError::QueueFull {
                 capacity: self.capacity,
             });
@@ -198,8 +250,9 @@ impl MessageQueue for SpscQueue {
         // before the consumer sees the new head value.
         self.head.store(head.wrapping_add(1), Ordering::Release);
 
-        // Update stats
-        self.stats.enqueued.fetch_add(1, Ordering::Relaxed);
+        // Update stats (producer side only — no coherence traffic
+        // with consumer).
+        self.producer_stats.enqueued.fetch_add(1, Ordering::Relaxed);
         self.update_max_depth();
 
         Ok(())
@@ -233,27 +286,21 @@ impl MessageQueue for SpscQueue {
         // sees the new tail and potentially reuses this slot.
         self.tail.store(tail.wrapping_add(1), Ordering::Release);
 
-        // Update stats
-        self.stats.dequeued.fetch_add(1, Ordering::Relaxed);
+        // Update stats (consumer side only).
+        self.consumer_stats.dequeued.fetch_add(1, Ordering::Relaxed);
 
         Ok(envelope)
     }
 
     fn stats(&self) -> QueueStats {
-        QueueStats {
-            enqueued: self.stats.enqueued.load(Ordering::Relaxed),
-            dequeued: self.stats.dequeued.load(Ordering::Relaxed),
-            dropped: self.stats.dropped.load(Ordering::Relaxed),
-            depth: self.depth(),
-            max_depth: self.stats.max_depth.load(Ordering::Relaxed),
-        }
+        QueueStats::from((&*self.producer_stats, &*self.consumer_stats))
     }
 
     fn reset_stats(&self) {
-        self.stats.enqueued.store(0, Ordering::Relaxed);
-        self.stats.dequeued.store(0, Ordering::Relaxed);
-        self.stats.dropped.store(0, Ordering::Relaxed);
-        self.stats.max_depth.store(0, Ordering::Relaxed);
+        self.producer_stats.enqueued.store(0, Ordering::Relaxed);
+        self.producer_stats.dropped.store(0, Ordering::Relaxed);
+        self.producer_stats.max_depth.store(0, Ordering::Relaxed);
+        self.consumer_stats.dequeued.store(0, Ordering::Relaxed);
     }
 }
 

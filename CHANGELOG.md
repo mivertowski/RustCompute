@@ -63,6 +63,46 @@ carry a link dependency.
 - `build.rs` already compiles multi-arch fallback including sm_100;
   runtime validation still waits for B200 hardware.
 
+#### SPSC queue hot-path optimizations
+
+- **Cache-line padding**: `head`, `tail`, producer-side stats, and
+  consumer-side stats each live on their own 128-byte line. Before
+  this, every `try_enqueue` invalidated the consumer's cached view
+  of `tail` (and vice versa) — every op paid a cross-core cache
+  coherence round-trip. The 128-byte line matches AMD Zen 4 / Intel
+  spatial-prefetching pair width and aligns to Hopper L2 lines.
+- **Stats split**: producer counters (`enqueued`, `dropped`,
+  `max_depth`) and consumer counters (`dequeued`) no longer share a
+  cache line. Before: consumer's `fetch_add(dequeued)` invalidated
+  the producer's cached line that also held `enqueued`.
+- **`update_max_depth` CAS loop → single `fetch_max`**: the old
+  compare-and-swap loop is replaced by `AtomicU64::fetch_max`
+  (Rust 1.45+) — one atomic RMW instead of a potentially-spinning
+  CAS loop under contention.
+- New `tests/spsc_two_thread_throughput.rs` benchmark (dedicated
+  producer/consumer threads) measures the actual concurrent
+  throughput. Single-threaded `sustained_throughput.rs` (used in
+  paper Exp 4) only measures round-trip latency and does not
+  observe false sharing.
+
+#### Codebase cleanup
+
+- Workspace deps: 8 crates (`ringkernel-accnet`, `ringkernel-cli`,
+  `ringkernel-graph`, `ringkernel-montecarlo`, `ringkernel-procint`,
+  `ringkernel-txmon`, `ringkernel-wavesim`, `ringkernel-wavesim3d`)
+  migrated from hardcoded `version = "1.1.0", path = "../..."` to
+  `{ workspace = true }`. Root `[workspace.dependencies]` gains a
+  `ringkernel` entry so the facade crate is also usable that way.
+  Future version bumps touch one line, not twenty.
+- `MockBackend::launches` / `deliveries` methods annotated
+  `#[allow(dead_code)]` with "kept for manual test debugging" — the
+  dead-code warning was signal noise.
+- `cargo fmt --all` across all code edited this session.
+- `cargo clippy --workspace --lib --bins -- -D warnings` (matching
+  CI invocation) is clean. Pre-existing clippy warnings in
+  cuda-gated hopper modules (async_mem, cluster, green_ctx) not
+  triggered — they are outside CI's default scope.
+
 #### Regressions
 
 - `cargo test --workspace --release --exclude ringkernel-txmon`:

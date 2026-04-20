@@ -120,7 +120,11 @@ fn warp_work_steal_processes_every_task_exactly_once() {
         );
         let mut stats_host = vec![0u32; (n_blocks * warps_per_block) as usize];
         assert_eq!(
-            cuda_sys::cuMemcpyDtoH_v2(stats_host.as_mut_ptr() as *mut c_void, stats_dev, stats_bytes),
+            cuda_sys::cuMemcpyDtoH_v2(
+                stats_host.as_mut_ptr() as *mut c_void,
+                stats_dev,
+                stats_bytes
+            ),
             cuda_sys::CUresult::CUDA_SUCCESS
         );
 
@@ -212,7 +216,11 @@ fn warp_work_steal_distributes_unevenly_without_starvation() {
 
         let mut stats_host = vec![0u32; warps_per_block as usize];
         assert_eq!(
-            cuda_sys::cuMemcpyDtoH_v2(stats_host.as_mut_ptr() as *mut c_void, stats_dev, stats_bytes),
+            cuda_sys::cuMemcpyDtoH_v2(
+                stats_host.as_mut_ptr() as *mut c_void,
+                stats_dev,
+                stats_bytes
+            ),
             cuda_sys::CUresult::CUDA_SUCCESS
         );
 

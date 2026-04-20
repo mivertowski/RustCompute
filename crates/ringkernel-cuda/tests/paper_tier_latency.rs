@@ -132,21 +132,14 @@ fn paper_tier_latency() {
             unsafe {
                 match tier {
                     "smem" => {
-                        let r = cuda_sys::cuMemAlloc_v2(
-                            &mut counter_dev,
-                            std::mem::size_of::<u32>(),
-                        );
+                        let r =
+                            cuda_sys::cuMemAlloc_v2(&mut counter_dev, std::mem::size_of::<u32>());
                         assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS);
-                        let r = cuda_sys::cuMemsetD8_v2(
-                            counter_dev,
-                            0,
-                            std::mem::size_of::<u32>(),
-                        );
+                        let r = cuda_sys::cuMemsetD8_v2(counter_dev, 0, std::mem::size_of::<u32>());
                         assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS);
                     }
                     "dsmem" => {
-                        let results_bytes =
-                            (num_blocks as usize) * std::mem::size_of::<f32>();
+                        let results_bytes = (num_blocks as usize) * std::mem::size_of::<f32>();
                         let r = cuda_sys::cuMemAlloc_v2(&mut results_dev, results_bytes);
                         assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS);
                         let r = cuda_sys::cuMemsetD8_v2(results_dev, 0, results_bytes);
@@ -154,15 +147,13 @@ fn paper_tier_latency() {
                     }
                     "hbm" => {
                         // hbm_buf: one slot per block × payload bytes.
-                        let hbm_bytes =
-                            (num_blocks as usize) * (payload.max(4));
+                        let hbm_bytes = (num_blocks as usize) * (payload.max(4));
                         let r = cuda_sys::cuMemAlloc_v2(&mut hbm_buf_dev, hbm_bytes);
                         assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS);
                         let r = cuda_sys::cuMemsetD8_v2(hbm_buf_dev, 0, hbm_bytes);
                         assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS);
                         // results: one float per block.
-                        let results_bytes =
-                            (num_blocks as usize) * std::mem::size_of::<f32>();
+                        let results_bytes = (num_blocks as usize) * std::mem::size_of::<f32>();
                         let r = cuda_sys::cuMemAlloc_v2(&mut results_dev, results_bytes);
                         assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS);
                         let r = cuda_sys::cuMemsetD8_v2(results_dev, 0, results_bytes);
@@ -242,9 +233,7 @@ fn paper_tier_latency() {
                     cuda_sys::cuCtxSynchronize();
                 }
                 let ns = t0.elapsed().as_nanos();
-                println!(
-                    "PAPER_TIER_LATENCY tier={tier} payload={payload} trial={trial} ns={ns}"
-                );
+                println!("PAPER_TIER_LATENCY tier={tier} payload={payload} trial={trial} ns={ns}");
             }
 
             unsafe {

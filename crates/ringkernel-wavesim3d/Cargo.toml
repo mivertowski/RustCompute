@@ -13,10 +13,10 @@ categories = ["simulation", "graphics", "visualization", "multimedia::audio"]
 readme = "README.md"
 
 [dependencies]
-ringkernel = { version = "1.1.0", path = "../ringkernel" }
-ringkernel-core = { version = "1.1.0", path = "../ringkernel-core" }
-ringkernel-derive = { version = "1.1.0", path = "../ringkernel-derive" }
-ringkernel-cuda-codegen = { version = "1.1.0", path = "../ringkernel-cuda-codegen", optional = true }
+ringkernel = { workspace = true }
+ringkernel-core = { workspace = true }
+ringkernel-derive = { workspace = true }
+ringkernel-cuda-codegen = { workspace = true, optional = true }
 inventory = { workspace = true }
 
 # 3D Rendering
@@ -51,7 +51,7 @@ cpal = { version = "0.15", optional = true }
 rustfft = { version = "6.2", optional = true }  # FFT for frequency analysis
 
 # CUDA compute (optional)
-ringkernel-cuda = { version = "1.1.0", path = "../ringkernel-cuda", optional = true }
+ringkernel-cuda = { workspace = true, optional = true }
 cudarc = { workspace = true, optional = true }
 
 # Code generation (optional)

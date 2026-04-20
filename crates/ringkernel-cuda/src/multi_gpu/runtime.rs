@@ -726,7 +726,10 @@ impl MultiGpuRuntime {
 /// `CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED` (the driver is already
 /// in the desired state). Other failures are mapped to a string error.
 #[cfg(feature = "cuda")]
-fn hw_enable_peer_access(src_ctx_addr: usize, tgt_ctx_addr: usize) -> std::result::Result<(), String> {
+fn hw_enable_peer_access(
+    src_ctx_addr: usize,
+    tgt_ctx_addr: usize,
+) -> std::result::Result<(), String> {
     use cudarc::driver::sys;
     unsafe {
         let src_ctx = src_ctx_addr as sys::CUcontext;
@@ -740,8 +743,9 @@ fn hw_enable_peer_access(src_ctx_addr: usize, tgt_ctx_addr: usize) -> std::resul
         let rc = sys::cuCtxEnablePeerAccess(tgt_ctx, 0);
         let _ = sys::cuCtxSetCurrent(saved);
         match rc {
-            sys::CUresult::CUDA_SUCCESS
-            | sys::CUresult::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => Ok(()),
+            sys::CUresult::CUDA_SUCCESS | sys::CUresult::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => {
+                Ok(())
+            }
             other => Err(format!("cuCtxEnablePeerAccess = {other:?}")),
         }
     }
@@ -750,7 +754,10 @@ fn hw_enable_peer_access(src_ctx_addr: usize, tgt_ctx_addr: usize) -> std::resul
 /// Hardware peer-access disable. Symmetric of [`hw_enable_peer_access`].
 /// `CUDA_ERROR_PEER_ACCESS_NOT_ENABLED` is treated as success.
 #[cfg(feature = "cuda")]
-fn hw_disable_peer_access(src_ctx_addr: usize, tgt_ctx_addr: usize) -> std::result::Result<(), String> {
+fn hw_disable_peer_access(
+    src_ctx_addr: usize,
+    tgt_ctx_addr: usize,
+) -> std::result::Result<(), String> {
     use cudarc::driver::sys;
     unsafe {
         let src_ctx = src_ctx_addr as sys::CUcontext;
@@ -764,8 +771,9 @@ fn hw_disable_peer_access(src_ctx_addr: usize, tgt_ctx_addr: usize) -> std::resu
         let rc = sys::cuCtxDisablePeerAccess(tgt_ctx);
         let _ = sys::cuCtxSetCurrent(saved);
         match rc {
-            sys::CUresult::CUDA_SUCCESS
-            | sys::CUresult::CUDA_ERROR_PEER_ACCESS_NOT_ENABLED => Ok(()),
+            sys::CUresult::CUDA_SUCCESS | sys::CUresult::CUDA_ERROR_PEER_ACCESS_NOT_ENABLED => {
+                Ok(())
+            }
             other => Err(format!("cuCtxDisablePeerAccess = {other:?}")),
         }
     }
@@ -846,7 +854,8 @@ fn hw_p2p_transfer(
             return Err("cuCtxSetCurrent(src for peer copy)".into());
         }
         let start = Instant::now();
-        let rc = sys::cuMemcpyPeerAsync(tgt_dev, tgt_ctx, src_dev, src_ctx, bytes.len(), src_stream);
+        let rc =
+            sys::cuMemcpyPeerAsync(tgt_dev, tgt_ctx, src_dev, src_ctx, bytes.len(), src_stream);
         if rc != sys::CUresult::CUDA_SUCCESS {
             let _ = sys::cuMemFree_v2(src_dev);
             let _ = sys::cuCtxSetCurrent(tgt_ctx);
@@ -877,11 +886,7 @@ fn hw_p2p_transfer(
             return Err("cuCtxSetCurrent(tgt for DtoH)".into());
         }
         let mut target_bytes = vec![0u8; bytes.len()];
-        let rc = sys::cuMemcpyDtoH_v2(
-            target_bytes.as_mut_ptr() as *mut _,
-            tgt_dev,
-            bytes.len(),
-        );
+        let rc = sys::cuMemcpyDtoH_v2(target_bytes.as_mut_ptr() as *mut _, tgt_dev, bytes.len());
         if rc != sys::CUresult::CUDA_SUCCESS {
             let _ = sys::cuMemFree_v2(tgt_dev);
             let _ = sys::cuCtxSetCurrent(src_ctx);
@@ -952,10 +957,12 @@ mod tests {
             }
         }
 
+        #[allow(dead_code)] // kept for manual test debugging
         async fn launches(&self) -> Vec<(String, u64)> {
             self.launched.lock().await.clone()
         }
 
+        #[allow(dead_code)] // kept for manual test debugging
         async fn deliveries(&self) -> Vec<(KernelId, MessageEnvelope)> {
             self.delivered.lock().await.clone()
         }

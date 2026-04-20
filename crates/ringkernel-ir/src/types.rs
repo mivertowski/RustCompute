@@ -54,7 +54,7 @@ impl ScalarType {
     /// operates on logical elements.
     pub fn size_bytes(&self) -> usize {
         match self {
-            ScalarType::FP4E2M1 => 1,       // packs 2 per byte when laid out densely
+            ScalarType::FP4E2M1 => 1, // packs 2 per byte when laid out densely
             ScalarType::FP6E3M2 | ScalarType::FP6E2M3 => 1, // packs 4 per 3 bytes densely
             ScalarType::Bool
             | ScalarType::I8
