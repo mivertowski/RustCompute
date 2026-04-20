@@ -103,6 +103,30 @@ Transform GPU computing from batch-oriented kernel launches to a true actor-base
 - [x] **Blackwell / sm_100 capability queries** -- `GpuArchitecture::supports_{cluster_launch_control,fp8,fp6,fp4,nvlink5,tee}`
 - [x] **Post-Hopper codegen types** -- `ScalarType::BF16`, `FP8E4M3`, `FP8E5M2`, `FP6E3M2`, `FP6E2M3`, `FP4E2M1` with per-type `min_compute_capability()`; CUDA / MSL / WGSL lowerings wired
 - [x] **Rubin preset** -- `GpuArchitecture::rubin()` placeholder (compute cap 12.x)
+- [x] **SpscQueue cache-line padding + split stats** -- `head` / `tail` / producer stats / consumer stats each on their own 128-byte line; `fetch_max` replaces CAS loop in `update_max_depth`
+- [x] **2-thread SPSC throughput benchmark** -- `tests/spsc_two_thread_throughput.rs` measures actual concurrent shape (not single-thread round-trip latency)
+- [x] **Workspace dep consolidation** -- 8 crates migrated from `version + path` to `{ workspace = true }`; root `[workspace.dependencies]` has a `ringkernel` facade entry
+
+### Deferred GPU-native persistent-actor optimizations
+
+Each of these is a focused opt pass worth a dedicated session; all
+are doable on the current 2 × H100 NVL hardware (no B200 needed).
+Listed in rough priority order:
+
+#### Hot-path wins
+- [ ] **Tier-aware K2K routing at send time** -- broker picks SMEM / DSMEM / HBM based on sender/receiver co-location (same block / same cluster / other). Paper data shows 2.2× to 2.7× latency ratio across tiers — wins scale with fraction of traffic that stays inside a block or cluster.
+- [ ] **DSMEM-hosted K2K routing table** -- for intra-cluster traffic, move the per-actor route entries from HBM to DSMEM via `cluster.map_shared_rank`. Lookup latency drops from ~500 ns (HBM) to ~20 ns (SMEM/DSMEM) per message.
+- [ ] **Batched device-side dequeue in the persistent kernel** -- current inner loop dequeues one message per iteration; batch 8–16 to amortize atomic coherence cost. Targeting the 20+ Mmsg/s queue goal.
+- [ ] **TMA-accelerated state capture for snapshot/restart** -- Hopper's Tensor Memory Accelerator does async tiled copies with lower SM occupancy cost than `memcpy_async`. Exp 2 capture is 1.3 µs at 1 KiB; TMA should take it sub-microsecond.
+
+#### Correctness / tuning
+- [ ] **Persistent kernel occupancy tuning** -- audit `min_blocks_per_sm` across every persistent kernel; under-occupancy on H100 adds latency, over-occupancy causes register spills. Use NCU profiles to tune.
+- [ ] **K2K route table layout: AoS vs SoA** -- `K2KRouteEntry` is 72 bytes (> H100 L2 line pair). For broadcast-style routing (one sender, many destinations) SoA wins; for direct pair lookups AoS is fine. Measure before flipping.
+- [ ] **HLC tick amortization** -- HLC tick is ~30 ns; at 5 Mops/s that's 15% of host overhead. Batch tick every N messages for workloads where inter-event causality is coarser than single-message granularity (opt-in per-actor).
+
+#### Infra wins with persistent-actor semantics
+- [ ] **Adaptive actor placement on warm restart** -- after a migration or restart, re-evaluate `PlacementHint::NvlinkPreferred` with the current traffic matrix rather than the launch-time hint. Works with the `rebalance(CommunicationAware)` strategy but runs per-actor, not bulk.
+- [ ] **Device-side `CompiledRule` cache** -- hot rule-reload currently stages to HBM then activates. Keeping a warm DSMEM-resident cached copy for the most-active rules cuts activation from ~100 ns to ~10 ns.
 
 ### Still open for v1.2 (hardware / integration blockers)
 
@@ -110,7 +134,7 @@ Transform GPU computing from batch-oriented kernel launches to a true actor-base
 - [ ] **4- / 8-GPU linear scaling benchmarks** -- bound by NC80adis having only 2 GPUs
 - [ ] **NVSHMEM end-to-end smoke** -- requires dual-process bootstrap (mpirun or unique-ID); the wrapper handles post-bootstrap operations but the launch harness is still manual
 - [ ] **Sub-50 ns command injection on B200** -- needs B200 silicon
-- [ ] **20+ Mmsg/s lock-free queue** -- optimization path; current sustained is 5.10 Mops/s
+- [ ] **20+ Mmsg/s lock-free queue** -- optimization path; current sustained is 5.10 Mops/s (single-thread latency test); two-thread concurrent is ~2 Mmsg/s and scaling is the goal
 
 ---
 
