@@ -41,9 +41,11 @@ timing is reported with a 95\% confidence interval.
 \(t\)-test \(p\)-value; the difference is considered significant if
 \(p < 10^{-3}\) and \(|d| > 2\) (very large effect).
 
-\item All measurements are taken on the same host (Azure NC80adis
-H100~v5; AMD EPYC 9V84 96-core, 314~GiB DDR5, 1\(\times\)
-H100~NVL with 95{,}830~MiB HBM3 and ECC enabled), CUDA Toolkit
+\item All measurements are taken on Azure
+\texttt{Standard\_NC80adis\_H100\_v5} (AMD EPYC 9V84 80-vCPU,
+314~GiB DDR5, 2\(\times\) H100~NVL with 95{,}830~MiB HBM3 each
+and ECC enabled, NV12 NVLink topology between GPU0 and GPU1),
+CUDA Toolkit
 12.8 (V12.8.93), driver 595.58.03.
 
 \item ECC error counts are sampled before and after each trial;
@@ -260,6 +262,115 @@ serialize against every other CUDA stream; at 878~ns, the same
 thousand spawns consume under 1~ms and overlap freely with other
 stream work.
 
+\subsection{Lifecycle Rule Overhead}
+\label{sec:eval:lifecycle}
+
+The lifecycle calculus of \Cref{sec:model:lifecycle} prescribes one
+SOS rule per supervisor-issued event (\textsc{Spawn}, \textsc{Activate},
+\textsc{Quiesce}, \textsc{Terminate}, \textsc{Restart}).  The
+host-side cost of each rule is the time from the supervisor writing
+the command into mapped memory to reading back the device-issued
+acknowledgement.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Rule & Mean (ns) & Std dev & p99 (ns) \\
+\midrule
+\textsc{Spawn}     & 23.1 & 4.7 & 30 \\
+\textsc{Activate}  & 23.4 & 4.7 & 30 \\
+\textsc{Quiesce}   & 23.8 & 4.8 & 30 \\
+\textsc{Terminate} & 23.7 & 4.8 & 30 \\
+\textsc{Restart}   & 23.1 & 4.6 & 30 \\
+\bottomrule
+\end{tabular}
+\caption{Lifecycle rule wall-clock, 500 trials per rule, 50
+warmup iterations.  All five rules cluster around 23~ns mean /
+30~ns p99 — flat within measurement noise.  This is the cost
+of issuing a single SOS rule from the host; the device-side
+processing overlaps with the next supervisor action through the
+mapped-memory ring.}
+\label{tab:lifecycle}
+\end{table}
+
+The 23-ns mean is two orders of magnitude below the
+\emph{sub-microsecond} ceiling we set in \Cref{sec:disc:limits}; in
+operational terms, a supervisor can issue 40~M~rule events/second
+to the device without saturating the mapped-memory channel.  The
+cost is the same for every rule because the device-side dispatch
+is a single switch on the command opcode — no per-rule state
+machinery on the issue path.
+
+\subsection{Multi-GPU NVLink Bandwidth}
+\label{sec:eval:mgpu-bw}
+
+For the cross-GPU K2K calculus of \Cref{sec:migration:cross-gpu},
+the central question is whether the runtime can saturate NVLink
+P2P bandwidth at realistic transfer sizes.  We measured back-to-back
+\texttt{cuMemcpyPeerAsync} bursts (256 transfers per measurement,
+32 warmup iterations, single stream) on a 2$\times$ H100~NVL
+system with the 12-link bonded NVLink bundle, theoretical peak
+$\sim$318~GB/s unidirectional.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Size & Total (ns) & Bandwidth (GB/s) & Peak utilization \\
+\midrule
+4 KiB   &        455{,}097 &   2.30 &  0.7\% \\
+64 KiB  &        535{,}035 &  31.36 &  9.9\% \\
+1 MiB   &      1{,}500{,}029 & 178.95 & 56.3\% \\
+16 MiB  &     16{,}661{,}095 & 257.78 & \textbf{81.1\%} \\
+\bottomrule
+\end{tabular}
+\caption{Multi-GPU K2K sustained bandwidth via NVLink P2P,
+2$\times$ H100~NVL on Azure NC80adis\_H100\_v5 (NV12 topology).
+At 16~MiB the runtime reaches 81\% of the NVLink bundle's
+theoretical peak — the stream is saturating the fabric.  The
+small-payload path is dominated by per-call overhead, not
+bandwidth.  This validates the cross-GPU K2K design: the
+inter-GPU tier is bandwidth-bound, not setup-bound, at the
+sizes where it matters operationally.}
+\label{tab:mgpu-bw}
+\end{table}
+
+A complementary one-shot latency measurement at the same sizes
+(\Cref{tab:migration} below) characterizes the small-payload
+regime: NVLink P2P is 1.96$\times$ faster than host-staged at
+1~KiB, growing to 8.65$\times$ at 16~MiB.  The two tables
+together cover the bandwidth/latency Pareto front for
+cross-GPU actor migration.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Size   & NVLink p99 (ns) & Host p99 (ns) & P2P speedup (mean) \\
+\midrule
+1 KiB   &      8{,}029 &     13{,}840 & 1.96$\times$ \\
+4 KiB   &      7{,}850 &     16{,}770 & 2.02$\times$ \\
+64 KiB  &      8{,}180 &     20{,}120 & 2.44$\times$ \\
+1 MiB   &     12{,}630 &     57{,}510 & 5.08$\times$ \\
+16 MiB  &     71{,}439 &    603{,}605 & \textbf{8.65$\times$} \\
+\bottomrule
+\end{tabular}
+\caption{NVLink P2P vs.\ host-staged migration latency, 200 trials
+per cell, 50 warmup iterations.  At small payloads the per-call
+driver overhead dominates and NVLink wins by $\sim$2$\times$; at
+16~MiB the bandwidth gap dominates and NVLink wins by 8.65$\times$.
+The host path's per-MiB cost grows roughly linearly with size
+because the data crosses the PCIe + host-memory boundary twice.}
+\label{tab:migration}
+\end{table}
+
+\Cref{thm:bounded-latency} of \Cref{sec:migration:cross-gpu}
+guarantees by construction that NVLink-paired actors never take
+the host path; \Cref{tab:migration} quantifies what that
+construction is worth, from $\sim$2$\times$ at the K2K scale to
+$\sim$9$\times$ at the bulk-state-transfer scale.
+
 \subsection{Application Workloads}
 \label{sec:eval:apps}
 
@@ -297,6 +408,41 @@ workloads where the abstraction is essential (multi-actor
 composition, supervisor-driven restart, cross-tenant isolation),
 the cost is paid once for the framework rather than rebuilt per
 application.
+
+\subsection{Mechanized Verification Coverage}
+\label{sec:eval:tlc}
+
+The four core theorems of \Cref{thm:lifecycle-soundness,%
+thm:no-message-loss,thm:hlc-restart-monotone,thm:cross-tenant-isolation}
+plus the migration-safety and bounded-latency theorems of
+\Cref{sec:migration} are mechanized in six \TLA{} modules under
+\texttt{docs/verification/}.  \Cref{tab:tlc-stats} reports the
+state-space size and wall-clock for each spec under its bounded
+configuration; all six pass with no counterexamples.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrrl}
+\toprule
+Spec & Bounds & Distinct states & Generated & Wall (s) & Result \\
+\midrule
+\texttt{actor\_lifecycle} & $|A|\!\le\!3,$ MaxSteps$\!\le\!8$              &   2{,}681 &   7{,}015 & $<$1 & OK \\
+\texttt{hlc}              & $|N|\!\le\!2,$ MaxPhys$\!\le\!3$               & 4{,}600{,}000 & 16{,}700{,}000 &   29 & OK \\
+\texttt{k2k\_delivery}    & $|A|\!\le\!2,$ MaxMsgs$\!\le\!4,$ QCap$\!\le\!2$ &     241 &     399 & $<$1 & OK \\
+\texttt{tenant\_isolation}& $|T|\!\le\!2,$ $|K|\!\le\!3,$ MaxMsgs$\!\le\!3$ & 12{,}261 & 26{,}953 & $<$1 & OK \\
+\texttt{migration}        & MaxMsgs$\!\le\!4$                              &     725 &   1{,}445 & $<$1 & OK \\
+\texttt{multi\_gpu\_k2k}  & $|G|\!\le\!2,$ $|A|\!\le\!3,$ MaxMsgs$\!\le\!3$ &   3{,}452 &   9{,}571 & $<$1 & OK \\
+\bottomrule
+\end{tabular}
+\caption{TLC model-checking statistics for the six \TLA{}
+specifications.  Run on TLC 2.19 (Java 17, 8 worker threads on
+the 80-vCPU EPYC host).  All specs pass under the bounded
+configurations listed; no invariant violations were observed.
+The \texttt{hlc} spec has the largest state space because the
+Hybrid Logical Clock state vector is structurally larger than the
+other modules' state.}
+\label{tab:tlc-stats}
+\end{table}
 
 \subsection{Reproducibility}
 \label{sec:eval:repro}

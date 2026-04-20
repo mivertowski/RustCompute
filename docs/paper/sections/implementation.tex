@@ -190,11 +190,32 @@ to the just-restored \(\mathit{live}\).
 The mutex serializes restart against any concurrent supervisor
 action on the same actor (e.g., a parallel attempt to issue a
 \textsc{Quiesce} or to take an out-of-band snapshot). The cost of
-the full protocol is dominated by the \texttt{cuMemcpyAsync} of
-step~2; for a 4~KiB actor state, the total host-side wall-clock
-cost is under 50~$\mu$s on H100, of which $\sim$30~$\mu$s is the
-event-synchronization round-trip and $\sim$10~$\mu$s is the actual
-copy.
+the full protocol is dominated by the event-synchronization
+round-trip of step~3, not by the device-side copy of step~2.  We
+measured this directly on H100~NVL (200 trials per state size,
+\Cref{tab:snapshot}); a 4~KiB actor state restores in
+10.6~$\mu$s, of which 7.3~$\mu$s is the event sync and only
+1.9~$\mu$s is the actual copy.  The protocol scales to 64~KiB at
+the same total cost (the copy is small enough that HBM bandwidth
+is irrelevant).
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+State size & capture (ns) & copy (ns) & ack (ns) & total (ns) \\
+\midrule
+1 KiB  & 1{,}331 & 1{,}893 & 7{,}032 & 10{,}256 \\
+4 KiB  & 1{,}319 & 1{,}913 & 7{,}264 & 10{,}496 \\
+16 KiB & 1{,}300 & 1{,}980 & 7{,}269 & 10{,}549 \\
+64 KiB & 1{,}300 & 1{,}980 & 7{,}300 & 10{,}580 \\
+\bottomrule
+\end{tabular}
+\caption{Snapshot--restart per-phase wall-clock, 200 trials per
+size.  Total is dominated by the event-synchronization ack; the
+device-side copy contribution is sub-2~$\mu$s even at 64~KiB.}
+\label{tab:snapshot}
+\end{table}
 
 \subsection{Admin Surface and RBAC}
 \label{sec:implementation:admin}

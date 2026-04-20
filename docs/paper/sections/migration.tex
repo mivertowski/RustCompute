@@ -174,18 +174,21 @@ channel tiers:
 \item \textbf{NVLink P2P}: when source and destination GPUs are
 connected by NVLink, the runtime issues a peer-to-peer copy
 (\texttt{cuMemcpyPeerAsync}) directly from source-device memory to
-target-device memory.  Latency is bounded by the NVLink fabric and
-is roughly an order of magnitude lower than the host-staged
-fallback below; we report \emph{single-GPU} numbers in
-\Cref{sec:evaluation} and defer multi-GPU latency measurement to
-the future-work program described in \Cref{sec:disc:hw}.
+target-device memory.  On a 2$\times$ H100~NVL system with the
+12-link NVLink bundle, the runtime reaches 257.78~GB/s sustained
+bandwidth at 16~MiB (81\% of the bundle's $\sim$318~GB/s
+theoretical peak; \Cref{tab:mgpu-bw}) and runs 8.65$\times$ faster
+than the host-staged fallback at the same size
+(\Cref{tab:migration}).
 
 \item \textbf{Host stage}: when no NVLink path exists, the runtime
 falls back to a two-hop copy through host memory:
 \texttt{cuMemcpyDtoHAsync} from source to a pinned host buffer,
 then \texttt{cuMemcpyHtoDAsync} from the host buffer to target.
 Latency is bounded by host memory bandwidth and the PCIe
-round-trip; the dominant cost is the second device-side copy.
+round-trip; at 16~MiB the host path is bounded at $\sim$28~GB/s
+effective throughput because the data crosses the PCIe + host
+boundary twice.
 \end{itemize}
 
 The runtime selects the path based on a static NVLink-topology

@@ -60,6 +60,47 @@ protection guarantees, which depend on hardware features (e.g.,
 Multi-Instance GPU, Confidential Computing for Hopper) we have
 not yet incorporated.
 
+\subsection{What the Verification Pass Caught}
+\label{sec:disc:tlc-bug}
+
+The model-checking pass against the six \TLA{} specifications
+(\Cref{sec:eval:tlc}) is normally a confirmation step — it checks
+that the spec the paper describes still satisfies the invariants
+the paper claims.  In the v1.1 verification pass it caught a real
+specification-level bug.
+
+The migration spec (\texttt{migration.tla}) declares a
+\texttt{ChecksumMatch} invariant: at the moment of
+\textsc{SwapRouting}, the source's captured checksum equals the
+target's restored checksum (\Cref{thm:migration-safety}, clause~4).
+The original spec computed both checksums from the live
+\texttt{src\_state} variable.  But \texttt{AcceptDuringQuiesce}
+(the action that handles late messages arriving during
+\state{Quiesced}, \state{Transferring}, and \state{Swapping})
+mutates \texttt{src\_state} while the migration is in progress.
+A trace exists in which a late message lands in
+\texttt{src\_state} between \texttt{CaptureState} and
+\texttt{Transfer}; the source's checksum is recomputed before the
+swap and now disagrees with the target's restored checksum.  TLC
+reported the counterexample after $\sim$2 minutes of search.
+
+The Rust implementation was already correct: it captures the
+staging buffer as a single immutable byte slice at
+\textsc{CaptureState} and both sides compute CRC32 over those
+bytes.  The spec's bug was that it did not model the immutability
+of the captured snapshot.  We patched the spec to introduce an
+explicit \texttt{captured\_state} variable, frozen at
+\texttt{CaptureState}, used by both \texttt{Transfer} and the
+checksum check.  After the patch the invariant holds under the
+full bound.
+
+The episode is the kind of bug formal methods are sensible to
+catch: a divergence between the spec's idealization of an
+implementation detail and the implementation itself.  In this
+case the implementation was the more careful party; in another
+project the asymmetry could easily go the other way.  The
+verification pass is what surfaces the disagreement.
+
 \subsection{Open Questions}
 \label{sec:disc:open}
 

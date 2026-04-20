@@ -280,5 +280,8 @@ a \TLA{} action, and the variables \(\mathit{state},
 those bounds, no violation of \Cref{thm:lifecycle-soundness} or its
 companion invariants (snapshot-equals-live-at-activation; restart
 preserves snapshot) was observed across the explored state space of
-\(\sim 10^7\) distinct configurations.  The mechanized proof is the
-empirical floor of the analytical proof above.
+2{,}681 distinct configurations (7{,}015 generated; TLC
+2.19, Java 17, single-threaded, $<$1~s wall-clock).  The
+mechanized proof is the empirical floor of the analytical proof
+above; \Cref{tab:tlc-stats} summarizes the per-spec model-checking
+statistics across all six \TLA{} modules covered by the paper.

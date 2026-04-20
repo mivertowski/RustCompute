@@ -108,9 +108,12 @@ to the GPU memory hierarchy.
 each block's shared memory; \textsc{Dsmem} (intra-cluster) uses
 distributed shared memory addressed via
 \texttt{cluster.map\_shared\_rank()}; \textsc{Hbm} (inter-cluster)
-goes through global memory.  Latencies are H100~NVL measurements
-from \Cref{sec:evaluation}.  The runtime selects the tier based on
-the placement of source and destination actors.}
+goes through global memory.  Annotated latencies are NVIDIA's
+documented \emph{device-cycle} costs per
+access~\citep{nvidia2022hopper}; the host-observed wall-clock for a
+full kernel launch + synchronization round-trip on each tier is
+reported separately in \Cref{tab:k2k-tier}.  The runtime selects
+the tier based on the placement of source and destination actors.}
 \label{fig:k2k-tiers}
 \end{figure}
 
