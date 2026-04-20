@@ -357,7 +357,9 @@ fi
 # Verify all crates exist and workspace consistency
 print_header "Verifying Crates"
 
-# Check that removed v0.4 crates are NOT in workspace (safety check)
+# Check that removed v0.4 crates are NOT in workspace (safety check).
+# Skip commented-out lines (they're valid historical documentation inside
+# the [workspace.members] array). Only uncommented entries trigger the abort.
 REMOVED_CRATES=(
     "ringkernel-wgpu"
     "ringkernel-wgpu-codegen"
@@ -365,9 +367,18 @@ REMOVED_CRATES=(
     "ringkernel-wavesim3d"
 )
 for removed in "${REMOVED_CRATES[@]}"; do
-    if [ -d "crates/$removed" ] && grep -q "\"crates/$removed\"" Cargo.toml; then
+    # grep: find the path, ignore lines beginning with '#'
+    if grep -E "^\s*\"crates/$removed\"" Cargo.toml >/dev/null 2>&1; then
         print_error "Removed crate '$removed' still in workspace members!"
         echo "  This crate was removed in v1.0.0. Remove from Cargo.toml [workspace.members]"
+        exit 1
+    fi
+    # Also guard against stale [workspace.dependencies] entries pointing
+    # at the removed crate — they can't resolve once the directory is
+    # deleted or excluded from the workspace.
+    if grep -E "^$removed\s*=" Cargo.toml >/dev/null 2>&1; then
+        print_error "Removed crate '$removed' still in [workspace.dependencies]!"
+        echo "  Remove the '$removed = { ... }' line from Cargo.toml."
         exit 1
     fi
 done
