@@ -35,8 +35,8 @@ use ringkernel_core::message::MessageEnvelope;
 use ringkernel_core::runtime::{KernelHandle, KernelId, LaunchOptions};
 
 use super::migration::{
-    run_quiesce_phase, run_swap_phase_duration, run_transfer_phase, MigrationPlan,
-    MigrationReport, MultiGpuError, PhaseDurations, RebalanceStrategy,
+    run_quiesce_phase, run_swap_phase_duration, run_transfer_phase, MigrationPlan, MigrationReport,
+    MultiGpuError, PhaseDurations, RebalanceStrategy,
 };
 use super::migration_controller::{MigrationController, MigrationControllerConfig};
 use super::registry::MultiGpuRegistry;
@@ -61,11 +61,7 @@ pub trait GpuBackend: Send + Sync {
 
     /// Send a raw envelope to a kernel on this GPU (terminal hop of a
     /// cross-GPU send).
-    async fn deliver_local(
-        &self,
-        to: &KernelId,
-        msg: MessageEnvelope,
-    ) -> Result<()>;
+    async fn deliver_local(&self, to: &KernelId, msg: MessageEnvelope) -> Result<()>;
 }
 
 #[cfg(feature = "cuda")]
@@ -84,15 +80,10 @@ impl GpuBackend for CudaRuntime {
         <CudaRuntime as ringkernel_core::runtime::RingKernelRuntime>::get_kernel(self, kernel_id)
     }
 
-    async fn deliver_local(
-        &self,
-        to: &KernelId,
-        msg: MessageEnvelope,
-    ) -> Result<()> {
-        let handle = <CudaRuntime as ringkernel_core::runtime::RingKernelRuntime>::get_kernel(
-            self, to,
-        )
-        .ok_or_else(|| RingKernelError::KernelNotFound(to.to_string()))?;
+    async fn deliver_local(&self, to: &KernelId, msg: MessageEnvelope) -> Result<()> {
+        let handle =
+            <CudaRuntime as ringkernel_core::runtime::RingKernelRuntime>::get_kernel(self, to)
+                .ok_or_else(|| RingKernelError::KernelNotFound(to.to_string()))?;
         handle.send_envelope(msg).await
     }
 }
@@ -320,8 +311,7 @@ impl MultiGpuRuntime {
         let gpu = self.resolve_placement(&placement);
         let backend = self.backend_for(gpu)?;
         let handle = backend.launch(kernel_id, opts).await?;
-        self.actor_registry
-            .register(KernelId::new(kernel_id), gpu);
+        self.actor_registry.register(KernelId::new(kernel_id), gpu);
         Ok(handle)
     }
 
@@ -371,10 +361,9 @@ impl MultiGpuRuntime {
     /// alongside the 2×H100 hardware verification.
     pub fn enable_peer_access(&self, from: u32, to: u32) -> Result<()> {
         if from == to {
-            return Err(RingKernelError::from(MultiGpuError::PeerAccessNotAvailable {
-                from,
-                to,
-            }));
+            return Err(RingKernelError::from(
+                MultiGpuError::PeerAccessNotAvailable { from, to },
+            ));
         }
         if !self.device_ordinals.contains_key(&from) {
             return Err(RingKernelError::from(MultiGpuError::UnknownGpu(from)));
@@ -383,10 +372,9 @@ impl MultiGpuRuntime {
             return Err(RingKernelError::from(MultiGpuError::UnknownGpu(to)));
         }
         if !self.topology.direct_link_exists(from, to) {
-            return Err(RingKernelError::from(MultiGpuError::PeerAccessNotAvailable {
-                from,
-                to,
-            }));
+            return Err(RingKernelError::from(
+                MultiGpuError::PeerAccessNotAvailable { from, to },
+            ));
         }
         self.peer_access.write().insert((from, to));
         Ok(())
@@ -449,7 +437,8 @@ impl MultiGpuRuntime {
             // migration is still a meaningful operation. This matches
             // the "lazy registration" flow used by the persistent
             // simulation.
-            self.actor_registry.register(actor_kernel.clone(), plan.source_gpu);
+            self.actor_registry
+                .register(actor_kernel.clone(), plan.source_gpu);
         }
 
         let permit = self
@@ -457,12 +446,8 @@ impl MultiGpuRuntime {
             .try_acquire(plan.estimated_bytes())?;
 
         // Phase 1 — quiesce.
-        let spill = self
-            .migration_coordinator
-            .disk_staging()
-            .cloned();
-        let mut staging =
-            StagingBuffer::with_disk_spill(plan.in_flight_buffer_slots, 100, spill)?;
+        let spill = self.migration_coordinator.disk_staging().cloned();
+        let mut staging = StagingBuffer::with_disk_spill(plan.in_flight_buffer_slots, 100, spill)?;
         let quiesce_start = Instant::now();
         let (messages, bytes, quiesce_dur) =
             run_quiesce_phase(&mut staging, in_flight_samples, plan.quiesce_window)?;
@@ -525,10 +510,7 @@ impl MultiGpuRuntime {
     }
 
     /// Batch migrate. Stops at the first error.
-    pub async fn migrate_batch(
-        &self,
-        plans: Vec<MigrationPlan>,
-    ) -> Result<Vec<MigrationReport>> {
+    pub async fn migrate_batch(&self, plans: Vec<MigrationPlan>) -> Result<Vec<MigrationReport>> {
         let mut reports = Vec::with_capacity(plans.len());
         for plan in plans {
             reports.push(self.migrate_actor(plan).await?);
@@ -538,10 +520,7 @@ impl MultiGpuRuntime {
 
     /// Strategy-driven rebalance. Returns the migrations that were
     /// executed.
-    pub async fn rebalance(
-        &self,
-        strategy: RebalanceStrategy,
-    ) -> Result<Vec<MigrationReport>> {
+    pub async fn rebalance(&self, strategy: RebalanceStrategy) -> Result<Vec<MigrationReport>> {
         let plans = match strategy {
             RebalanceStrategy::LoadBalance { target_imbalance } => {
                 self.plan_load_balance(target_imbalance)
@@ -584,10 +563,7 @@ impl MultiGpuRuntime {
         }
 
         loop {
-            let mut loads: Vec<(u32, usize)> = shadow
-                .iter()
-                .map(|(g, v)| (*g, v.len()))
-                .collect();
+            let mut loads: Vec<(u32, usize)> = shadow.iter().map(|(g, v)| (*g, v.len())).collect();
             loads.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
             if loads.is_empty() {
                 break;
@@ -606,14 +582,9 @@ impl MultiGpuRuntime {
                 break;
             }
             // Pop one actor off the shadow of `max_gpu`.
-            let picked = shadow
-                .get_mut(&max_gpu)
-                .and_then(|v| v.pop());
+            let picked = shadow.get_mut(&max_gpu).and_then(|v| v.pop());
             if let Some((actor_id, kernel)) = picked {
-                shadow
-                    .entry(min_gpu)
-                    .or_default()
-                    .push((actor_id, kernel));
+                shadow.entry(min_gpu).or_default().push((actor_id, kernel));
                 plans.push(MigrationPlan::new(max_gpu, min_gpu, actor_id));
             } else {
                 break;
@@ -720,16 +691,9 @@ mod tests {
             self.ordinal
         }
 
-        async fn launch(
-            &self,
-            kernel_id: &str,
-            _opts: LaunchOptions,
-        ) -> Result<KernelHandle> {
+        async fn launch(&self, kernel_id: &str, _opts: LaunchOptions) -> Result<KernelHandle> {
             let id = self.id_counter.fetch_add(1, Ordering::Relaxed) as u64;
-            self.launched
-                .lock()
-                .await
-                .push((kernel_id.to_string(), id));
+            self.launched.lock().await.push((kernel_id.to_string(), id));
             Ok(mock_kernel_handle(kernel_id, id))
         }
 
@@ -737,11 +701,7 @@ mod tests {
             None
         }
 
-        async fn deliver_local(
-            &self,
-            to: &KernelId,
-            msg: MessageEnvelope,
-        ) -> Result<()> {
+        async fn deliver_local(&self, to: &KernelId, msg: MessageEnvelope) -> Result<()> {
             self.delivered.lock().await.push((to.clone(), msg));
             Ok(())
         }
@@ -750,9 +710,7 @@ mod tests {
     fn mock_kernel_handle(kernel_id: &str, kernel_id_num: u64) -> KernelHandle {
         use ringkernel_core::hlc::HlcTimestamp;
         use ringkernel_core::message::MessageEnvelope;
-        use ringkernel_core::runtime::{
-            KernelHandleInner, KernelState, KernelStatus,
-        };
+        use ringkernel_core::runtime::{KernelHandleInner, KernelState, KernelStatus};
         use ringkernel_core::telemetry::KernelMetrics;
         use ringkernel_core::types::KernelMode;
         use std::time::Duration;
@@ -779,10 +737,7 @@ mod tests {
             async fn receive(&self) -> Result<MessageEnvelope> {
                 Err(RingKernelError::QueueEmpty)
             }
-            async fn receive_timeout(
-                &self,
-                _timeout: Duration,
-            ) -> Result<MessageEnvelope> {
+            async fn receive_timeout(&self, _timeout: Duration) -> Result<MessageEnvelope> {
                 Err(RingKernelError::QueueEmpty)
             }
             fn try_receive(&self) -> Result<MessageEnvelope> {
@@ -831,18 +786,15 @@ mod tests {
     }
 
     fn two_gpu_runtime(with_nvlink: bool) -> MultiGpuRuntime {
-        let backends: Vec<Arc<dyn GpuBackend>> = vec![
-            Arc::new(MockBackend::new(0)),
-            Arc::new(MockBackend::new(1)),
-        ];
+        let backends: Vec<Arc<dyn GpuBackend>> =
+            vec![Arc::new(MockBackend::new(0)), Arc::new(MockBackend::new(1))];
         let topology = if with_nvlink {
             NvlinkTopology::from_adjacency(vec![vec![0, 50], vec![50, 0]])
                 .expect("valid 2-gpu topology")
         } else {
             NvlinkTopology::disconnected(2)
         };
-        MultiGpuRuntime::with_backends_and_topology(backends, topology)
-            .expect("construct runtime")
+        MultiGpuRuntime::with_backends_and_topology(backends, topology).expect("construct runtime")
     }
 
     // ---- Basic construction ----
@@ -855,10 +807,8 @@ mod tests {
 
     #[test]
     fn runtime_rejects_duplicate_ordinals() {
-        let backends: Vec<Arc<dyn GpuBackend>> = vec![
-            Arc::new(MockBackend::new(0)),
-            Arc::new(MockBackend::new(0)),
-        ];
+        let backends: Vec<Arc<dyn GpuBackend>> =
+            vec![Arc::new(MockBackend::new(0)), Arc::new(MockBackend::new(0))];
         let err = MultiGpuRuntime::with_backends(backends).expect_err("duplicate ordinals");
         assert!(matches!(err, RingKernelError::MultiGpuError(_)));
     }
@@ -1022,17 +972,13 @@ mod tests {
         assert_eq!(report.target_gpu, 1);
         assert!(report.state_checksum_match);
         assert!(report.used_nvlink);
-        assert_eq!(
-            rt.actor_registry.locate(&KernelId::new("actor:7")),
-            Some(1)
-        );
+        assert_eq!(rt.actor_registry.locate(&KernelId::new("actor:7")), Some(1));
     }
 
     #[tokio::test]
     async fn migrate_reports_messages_transferred() {
         let rt = two_gpu_runtime(true);
-        let plan =
-            MigrationPlan::new(0, 1, ActorId(42)).with_in_flight_slots(64);
+        let plan = MigrationPlan::new(0, 1, ActorId(42)).with_in_flight_slots(64);
         let samples = vec![vec![1u8; 50], vec![2u8; 50], vec![3u8; 50]];
         let report = rt
             .migrate_actor_with_samples(plan, &samples)
@@ -1149,17 +1095,13 @@ mod tests {
         cfg.global_buffer_budget = 10 * 1024 * 1024;
         cfg.rate_limit_per_sec = 100;
         let rt = MultiGpuRuntime::with_backends_and_topology_config(
-            vec![
-                Arc::new(MockBackend::new(0)),
-                Arc::new(MockBackend::new(1)),
-            ],
+            vec![Arc::new(MockBackend::new(0)), Arc::new(MockBackend::new(1))],
             NvlinkTopology::from_adjacency(vec![vec![0, 50], vec![50, 0]]).unwrap(),
             cfg,
         )
         .expect("construct");
         let before = rt.migration_coordinator.current_buffer_used();
-        let plan = MigrationPlan::new(0, 1, ActorId(3))
-            .with_in_flight_slots(128);
+        let plan = MigrationPlan::new(0, 1, ActorId(3)).with_in_flight_slots(128);
         let _ = rt.migrate_actor(plan).await.expect("migrate");
         let after = rt.migration_coordinator.current_buffer_used();
         assert_eq!(before, after, "budget must be refunded after migration");
@@ -1173,10 +1115,7 @@ mod tests {
             ..Default::default()
         };
         let rt = MultiGpuRuntime::with_backends_and_topology_config(
-            vec![
-                Arc::new(MockBackend::new(0)),
-                Arc::new(MockBackend::new(1)),
-            ],
+            vec![Arc::new(MockBackend::new(0)), Arc::new(MockBackend::new(1))],
             NvlinkTopology::from_adjacency(vec![vec![0, 50], vec![50, 0]]).unwrap(),
             cfg,
         )

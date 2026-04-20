@@ -497,10 +497,7 @@ fn compile_migration_kernels(nvcc: &Path, out_dir: &Path) -> Result<(), String> 
     let cuda_src = manifest_dir.join("src/cuda/migration_kernels.cu");
 
     if !cuda_src.exists() {
-        return Err(format!(
-            "Migration CUDA source not found: {:?}",
-            cuda_src
-        ));
+        return Err(format!("Migration CUDA source not found: {:?}", cuda_src));
     }
 
     let ptx_file = out_dir.join("migration_kernels.ptx");

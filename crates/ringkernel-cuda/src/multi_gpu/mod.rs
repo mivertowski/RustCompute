@@ -37,9 +37,7 @@ pub mod topology;
 pub use migration::{
     MigrationPlan, MigrationReport, MultiGpuError, PhaseDurations, RebalanceStrategy,
 };
-pub use migration_controller::{
-    MigrationController, MigrationControllerConfig, MigrationPermit,
-};
+pub use migration_controller::{MigrationController, MigrationControllerConfig, MigrationPermit};
 pub use migration_kernels::{CaptureResult, DrainResult, MigrationKernels};
 pub use registry::MultiGpuRegistry;
 pub use runtime::{MultiGpuRuntime, PlacementHint};

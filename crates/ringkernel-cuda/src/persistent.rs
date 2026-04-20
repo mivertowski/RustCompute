@@ -1998,27 +1998,18 @@ mod tests {
         assert_eq!(msg.cmd, SimCommand::RestoreState as u32);
         assert_eq!(msg.cmd_id, 303);
         assert_eq!(msg.param1, 9);
-        assert_eq!(
-            msg.param2, checksum,
-            "param2 must carry the expected CRC32"
-        );
+        assert_eq!(msg.param2, checksum, "param2 must carry the expected CRC32");
     }
 
     #[test]
     fn test_migration_phase_encoding() {
         assert_eq!(MigrationPhase::from_u32(0), Some(MigrationPhase::Idle));
-        assert_eq!(
-            MigrationPhase::from_u32(1),
-            Some(MigrationPhase::Quiescing)
-        );
+        assert_eq!(MigrationPhase::from_u32(1), Some(MigrationPhase::Quiescing));
         assert_eq!(
             MigrationPhase::from_u32(2),
             Some(MigrationPhase::Transferring)
         );
-        assert_eq!(
-            MigrationPhase::from_u32(3),
-            Some(MigrationPhase::Restoring)
-        );
+        assert_eq!(MigrationPhase::from_u32(3), Some(MigrationPhase::Restoring));
         assert_eq!(
             MigrationPhase::from_u32(4),
             Some(MigrationPhase::ReadyToActivate)
@@ -2053,8 +2044,7 @@ mod tests {
 
         // Reject path: destination tenant differs from source tenant.
         if cb.tenant_id != destination_tenant {
-            cb.cross_tenant_reject_count =
-                cb.cross_tenant_reject_count.saturating_add(1);
+            cb.cross_tenant_reject_count = cb.cross_tenant_reject_count.saturating_add(1);
         }
 
         assert_eq!(cb.cross_tenant_reject_count, 1);
@@ -2062,8 +2052,7 @@ mod tests {
         // Same-tenant path does not increment.
         let same_tenant: u64 = 100;
         if cb.tenant_id != same_tenant {
-            cb.cross_tenant_reject_count =
-                cb.cross_tenant_reject_count.saturating_add(1);
+            cb.cross_tenant_reject_count = cb.cross_tenant_reject_count.saturating_add(1);
         }
         assert_eq!(cb.cross_tenant_reject_count, 1);
     }

@@ -69,9 +69,7 @@ use std::time::{Duration, SystemTime};
 
 pub mod registry;
 
-pub use registry::{
-    NoopSwapBackend, RuleRegistry, RuleSwapBackend, SignatureVerifier,
-};
+pub use registry::{NoopSwapBackend, RuleRegistry, RuleSwapBackend, SignatureVerifier};
 
 /// A compiled rule artifact ready for GPU hot-swap.
 ///

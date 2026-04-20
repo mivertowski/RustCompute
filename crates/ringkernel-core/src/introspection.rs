@@ -377,7 +377,9 @@ impl LatencyHistogram {
         buf.sort_unstable();
         let p = p.clamp(0.0, 1.0);
         // Nearest-rank: ceil(p * n) - 1, clamped to [0, n-1].
-        let rank = ((p * n as f64).ceil() as usize).saturating_sub(1).min(n - 1);
+        let rank = ((p * n as f64).ceil() as usize)
+            .saturating_sub(1)
+            .min(n - 1);
         buf[rank]
     }
 }
@@ -566,10 +568,7 @@ impl MetricAggregator {
     pub fn snapshot(&self, actor_id: &ActorId) -> Option<LiveMetrics> {
         let mut guard = self.per_actor.write();
         let state = guard.get_mut(actor_id)?;
-        let (p50, p99) = (
-            state.latency_histogram.p50(),
-            state.latency_histogram.p99(),
-        );
+        let (p50, p99) = (state.latency_histogram.p50(), state.latency_histogram.p99());
         let metrics = Self::fold_snapshot(*actor_id, state, self.ewma_alpha, p50, p99);
         Some(metrics)
     }
@@ -580,10 +579,7 @@ impl MetricAggregator {
         let alpha = self.ewma_alpha;
         let mut out = Vec::with_capacity(guard.len());
         for (id, state) in guard.iter_mut() {
-            let (p50, p99) = (
-                state.latency_histogram.p50(),
-                state.latency_histogram.p99(),
-            );
+            let (p50, p99) = (state.latency_histogram.p50(), state.latency_histogram.p99());
             out.push(Self::fold_snapshot(*id, state, alpha, p50, p99));
         }
         out
@@ -619,8 +615,7 @@ impl MetricAggregator {
             state.outbound_ewma = outbound_rate_sample;
             state.initialized = true;
         } else {
-            state.inbound_ewma =
-                alpha * inbound_rate_sample + (1.0 - alpha) * state.inbound_ewma;
+            state.inbound_ewma = alpha * inbound_rate_sample + (1.0 - alpha) * state.inbound_ewma;
             state.outbound_ewma =
                 alpha * outbound_rate_sample + (1.0 - alpha) * state.outbound_ewma;
         }

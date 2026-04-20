@@ -143,8 +143,7 @@ impl std::error::Error for MultiGpuError {}
 impl From<MultiGpuError> for RingKernelError {
     fn from(err: MultiGpuError) -> Self {
         match &err {
-            MultiGpuError::PeerAccessNotAvailable { .. }
-            | MultiGpuError::UnknownGpu(_) => {
+            MultiGpuError::PeerAccessNotAvailable { .. } | MultiGpuError::UnknownGpu(_) => {
                 RingKernelError::MultiGpuError(err.to_string())
             }
             MultiGpuError::ActorNotOnSource { .. }

@@ -35,10 +35,14 @@ const SIZES: &[usize] = &[1 << 10, 4 << 10, 64 << 10, 1 << 20, 16 << 20];
 /// Initialize CUDA, retain primary contexts on devices 0 and 1, return them.
 /// Returns None if fewer than 2 devices are available.
 unsafe fn setup_dual_gpu() -> Option<(cuda_sys::CUcontext, cuda_sys::CUcontext)> {
-    if cuda_sys::cuInit(0) != cuda_sys::CUresult::CUDA_SUCCESS { return None; }
+    if cuda_sys::cuInit(0) != cuda_sys::CUresult::CUDA_SUCCESS {
+        return None;
+    }
 
     let mut count: i32 = 0;
-    if cuda_sys::cuDeviceGetCount(&mut count) != cuda_sys::CUresult::CUDA_SUCCESS { return None; }
+    if cuda_sys::cuDeviceGetCount(&mut count) != cuda_sys::CUresult::CUDA_SUCCESS {
+        return None;
+    }
     if count < 2 {
         eprintln!("SKIP: requires >= 2 GPUs (found {count})");
         return None;
@@ -46,8 +50,12 @@ unsafe fn setup_dual_gpu() -> Option<(cuda_sys::CUcontext, cuda_sys::CUcontext)>
 
     let mut dev0: cuda_sys::CUdevice = 0;
     let mut dev1: cuda_sys::CUdevice = 0;
-    if cuda_sys::cuDeviceGet(&mut dev0, 0) != cuda_sys::CUresult::CUDA_SUCCESS { return None; }
-    if cuda_sys::cuDeviceGet(&mut dev1, 1) != cuda_sys::CUresult::CUDA_SUCCESS { return None; }
+    if cuda_sys::cuDeviceGet(&mut dev0, 0) != cuda_sys::CUresult::CUDA_SUCCESS {
+        return None;
+    }
+    if cuda_sys::cuDeviceGet(&mut dev1, 1) != cuda_sys::CUresult::CUDA_SUCCESS {
+        return None;
+    }
 
     let mut ctx0: cuda_sys::CUcontext = ptr::null_mut();
     let mut ctx1: cuda_sys::CUcontext = ptr::null_mut();

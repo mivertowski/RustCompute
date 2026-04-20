@@ -69,9 +69,9 @@ fn paper_tier_latency() {
     for &payload in PAYLOAD_SIZES {
         for &tier in TIERS {
             let kernel_name = match tier {
-                "smem"  => "cluster_test_sync",       // intra-block round-trip via shared mem
-                "dsmem" => "cluster_dsmem_k2k",       // cross-block via DSMEM
-                "hbm"   => "cluster_persistent_actor",// inter-cluster via global mem
+                "smem" => "cluster_test_sync", // intra-block round-trip via shared mem
+                "dsmem" => "cluster_dsmem_k2k", // cross-block via DSMEM
+                "hbm" => "cluster_persistent_actor", // inter-cluster via global mem
                 _ => unreachable!(),
             };
 
@@ -110,8 +110,7 @@ fn paper_tier_latency() {
                 for _ in 0..N_WARMUP {
                     let mut buf_arg = buf_dev;
                     let mut params: [*mut c_void; 1] = [&mut buf_arg as *mut _ as *mut c_void];
-                    cluster::launch_kernel_with_cluster(
-                        func, &cfg, &mut params, ptr::null_mut())
+                    cluster::launch_kernel_with_cluster(func, &cfg, &mut params, ptr::null_mut())
                         .expect("warmup launch");
                 }
                 cuda_sys::cuCtxSynchronize();
@@ -123,8 +122,7 @@ fn paper_tier_latency() {
                     let mut buf_arg = buf_dev;
                     let mut params: [*mut c_void; 1] = [&mut buf_arg as *mut _ as *mut c_void];
                     let t0 = Instant::now();
-                    cluster::launch_kernel_with_cluster(
-                        func, &cfg, &mut params, ptr::null_mut())
+                    cluster::launch_kernel_with_cluster(func, &cfg, &mut params, ptr::null_mut())
                         .expect("trial launch");
                     cuda_sys::cuCtxSynchronize();
                     let ns = t0.elapsed().as_nanos();
@@ -134,7 +132,9 @@ fn paper_tier_latency() {
                 }
             }
 
-            unsafe { let _ = cuda_sys::cuMemFree_v2(buf_dev); }
+            unsafe {
+                let _ = cuda_sys::cuMemFree_v2(buf_dev);
+            }
         }
     }
 }

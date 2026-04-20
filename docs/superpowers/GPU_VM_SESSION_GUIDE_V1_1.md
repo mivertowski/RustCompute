@@ -11,6 +11,8 @@ RingKernel v1.0.0 shipped (CUDA-focused, H100-verified, 8,698x vs traditional la
 
 **Budget-conscious mandate:** The user approved NC80adis_H100_v5 (2× H100, ~$8/hr) over ND96 ($80k/month out of budget). Work efficiently — deallocate the VM when idle. Target session length: minimize GPU-hours.
 
+**Total budget for full hardware run: ~4 hours of GPU time** (3h experiments + 1h buffer). The paper team has pre-written the experiment pipeline — see `docs/paper/experiments/RUNBOOK.md`.
+
 ## Primary Goal
 
 **Formally prove the GPU-native persistent actor paradigm works across 2× H100 with NVLink**, producing:
@@ -23,10 +25,12 @@ RingKernel v1.0.0 shipped (CUDA-focused, H100-verified, 8,698x vs traditional la
 
 1. **`CLAUDE.md`** — project architecture, build commands, gotchas
 2. **`docs/superpowers/specs/2026-04-17-v1.1-vyngraph-gaps.md`** — v1.1 master spec (5 gaps, 3-phase migration, formal verification plan, 8-test hardware matrix in §5.3)
-3. **`docs/benchmarks/METHODOLOGY.md`** — statistical protocol (CI, Cohen's d, MAD outlier detection)
-4. **`docs/benchmarks/h100-b200-baseline.md`** — v1.0 single-GPU baseline (reference only)
-5. **`docs/verification/README.md`** — TLA+ model checking instructions
-6. **`docs/superpowers/GPU_VM_SESSION_GUIDE.md`** — prior H100 session guide (for context on what worked last time)
+3. **`docs/paper/experiments/RUNBOOK.md`** — pre-written 6-experiment pipeline by the paper team (CSV → pgfplots figures) — **primary runbook for Task 4/6**
+4. **`docs/paper/main.tex` + `docs/paper/sections/`** — academic paper being validated by these runs ("Persistent GPU Actors" — 13 sections)
+5. **`docs/benchmarks/METHODOLOGY.md`** — statistical protocol (CI, Cohen's d, MAD outlier detection)
+6. **`docs/benchmarks/h100-b200-baseline.md`** — v1.0 single-GPU baseline (reference only)
+7. **`docs/verification/README.md`** — TLA+ model checking instructions (Experiment 5)
+8. **`docs/superpowers/GPU_VM_SESSION_GUIDE.md`** — prior H100 session guide (context on what worked last time)
 
 ## What's Already Done on `main`
 
@@ -41,7 +45,10 @@ RingKernel v1.0.0 shipped (CUDA-focused, H100-verified, 8,698x vs traditional la
 | Multi-GPU runtime facade + migration orchestrator | Done (simulated) | `84f0b61` |
 | GPU-side tenant enforcement + migration kernels | Done | `febb724` |
 | TLA+ specs (6 models: hlc, k2k, migration, multi_gpu, tenants, lifecycle) | Done | `fd95dd8` |
-| Tests | **1,612 passing, 0 failures, 97 hardware-gated** | |
+| Academic paper draft (13 sections + appendix) | Done | `019b0d2`..`a92f42c` |
+| Paper experiment pipeline (6 experiments + run_all.sh) | Done | `620d9dc` |
+| Paper-aligned integration tests (tier_latency, lifecycle, snapshot_restart, nvlink_migration) | Done | `620d9dc` |
+| Tests | **1,612+ passing, 0 failures, paper experiments hardware-gated** | |
 
 ## Hardware-Phase Work (Your Job)
 
@@ -118,69 +125,124 @@ Currently simulated on host. Replace with `cuMemcpyPeer` (or `cudaMemcpyPeerAsyn
 
 The staging buffer CRC32 should match pre- and post-transfer — the existing test asserts this on simulated path; verify it holds with real P2P.
 
-### Task 4 — Run the 8-Test Hardware Matrix
+### Task 4 — Run the Paper Experiment Suite
 
-From spec §5.3:
+The paper team has written a full 6-experiment pipeline. **Use it first** — it produces paper figures + reproducibility manifest + benchmark CSVs all at once.
 
 ```bash
-# Each test: 3 trials for statistical rigor
-cargo test -p ringkernel-cuda --features "cuda,cooperative,multi-gpu" --release \
-  --test multi_gpu_migration_proof -- --ignored --test-threads=1
-
-cargo test -p ringkernel-cuda --features "cuda,cooperative,multi-gpu" --release \
-  --test multi_gpu_nvlink_k2k_proof -- --ignored --test-threads=1
-# ... etc
+cd docs/paper/experiments
+./run_all.sh                    # runs all 6 in recommended order
+# OR selectively:
+./run_all.sh --skip=4,6         # skip long + 2-GPU experiments
 ```
 
-**You may need to write some of these integration tests** — check `crates/ringkernel-cuda/tests/` for existing proof tests (actor_lifecycle_proof, streaming_pipeline_proof) as templates. Required tests per spec §5.3:
+The 6 experiments:
 
-1. Migration 1M msgs — move actor with 1M in-flight — <100ms, zero loss
-2. Migration loop — 100 back-and-forth migrations — no leak, checksum stable
-3. NVLink K2K latency — cross-GPU latency — p99 < 5us
-4. NVLink K2K throughput — >10M/s sustained 60s
-5. Multi-tenant isolation — 4 tenants, 1000 cross-tenant attempts — 0 leaks, all audited
-6. Provenance chain — 10-step NSAI chain — PROV-O attribution verified
-7. Rule reload under load — swap at 100K msg/s — <1s quiescence, no loss
-8. Full stress — all features + 60s sustained — all invariants hold
+| # | Experiment | Wall-clock | GPUs | Paper § |
+|---|------------|-----------|------|---------|
+| 1 | K2K tier latency (SMEM/DSMEM/HBM × payload) | ~25 min | 1 | §6.1, §10 |
+| 2 | Snapshot/restart | ~15 min | 1 | §10.5 |
+| 3 | Lifecycle overhead (create/destroy/restart) | ~15 min | 1 | §4 |
+| 4 | Sustained timeseries (60s) | ~70 min | 1 | §10.2 |
+| 5 | TLC state-space stats | ~20 min | 0 | §4.4, §6.7 |
+| 6 | NVLink P2P migration | ~30 min | 2 | §9.3 |
 
-Document results in `docs/benchmarks/v1.1-2x-h100-results.md` with 95% CI.
+Corresponding Rust tests:
+- `crates/ringkernel-cuda/tests/paper_tier_latency.rs`
+- `crates/ringkernel-cuda/tests/paper_snapshot_restart.rs`
+- `crates/ringkernel-cuda/tests/paper_lifecycle_overhead.rs`
+- `crates/ringkernel-cuda/tests/paper_nvlink_migration.rs`
 
-### Task 5 — TLC Model Checking
+Results land in `docs/paper/experiments/results/<timestamp>/` with:
+- `manifest.json` — commit, driver, CUDA, Rust, GPU info
+- `nvidia_smi_full.txt` — full GPU snapshot
+- `ecc_pre.csv` / `ecc_post.csv` — ECC error counts (non-zero = invalid trial)
+- `<exp>/raw.log` + `<exp>/*.csv` — per-experiment outputs
+- `docs/paper/figures/data/*.csv` — figure templates consume these
+
+### Task 4b — Additional v1.1 Gap Validation Tests
+
+Beyond the paper experiments, validate the 4 VynGraph gaps that don't have paper equivalents:
+
+```bash
+# Multi-tenant isolation — 4 tenants, 1000 cross-tenant attempts
+cargo test -p ringkernel-core --release k2k::tests::multi_tenant -- --nocapture
+
+# Provenance chain — 10-step NSAI attribution
+cargo test -p ringkernel-core --release provenance -- --nocapture
+
+# Rule reload under load — swap at 100K msg/s, <1s quiescence
+cargo test -p ringkernel-core --release rules::registry::tests -- --nocapture
+
+# Full stress (all features + 60s sustained) — if not covered by Exp 4
+# Write a custom integration test if needed; model after paper_snapshot_restart.rs
+```
+
+All pass criteria (correctness) can be validated on CPU / single-GPU paths. Only multi-GPU migration and NVLink K2K **require** 2-GPU hardware.
+
+Document results in `docs/benchmarks/v1.1-2x-h100-results.md` with 95% CI. Cross-reference paper's §10 evaluation section.
+
+### Task 5 — TLC Model Checking (Paper Experiment 5)
+
+The paper pipeline runs this too (no GPUs needed, can run in parallel with pre-flight build):
+
+```bash
+cd docs/paper/experiments/05-tlc-stats
+./run.sh ./out
+# Outputs: out/tlc-stats.csv + out/raw/<spec>.log per model
+```
+
+Or manually:
 
 ```bash
 cd docs/verification/
-
-# Option A: Native TLC (install Java 17 + tla2tools.jar)
-./tlc.sh
-
-# Option B: Docker
-docker run --rm -v $(pwd):/workspace pmer/tla \
-  tlc /workspace/migration.tla -config /workspace/migration.cfg
+./tlc.sh       # native TLC (needs Java 17 + tla2tools.jar)
+# OR use Docker: docker run --rm -v $(pwd):/workspace pmer/tla ...
 ```
 
-Run each spec. Bounded state spaces are sized to complete in seconds/minutes. Document any invariant violations — those are real bugs to file.
+All 6 models should terminate in seconds-to-minutes with no counterexamples. If any model produces a counterexample, **STOP** and treat it as a real bug — do not ship v1.1.
 
-Write a report: `docs/verification/v1.1-tlc-report.md` with:
-- Spec name
-- State space explored (distinct states, queue size)
-- Invariants checked (all should be OK)
-- Runtime
-- Any counterexamples found
+Expected state space sizes (from spec bounds):
+- `hlc.tla` — ~10³ states
+- `k2k_delivery.tla` — ~10⁴ states
+- `migration.tla` — ~10⁵ states (largest)
+- `multi_gpu_k2k.tla` — ~10⁴ states
+- `tenant_isolation.tla` — ~10³ states
+- `actor_lifecycle.tla` — ~10⁴ states
 
-### Task 6 — Benchmarks (Paper-Quality)
+Write report at `docs/verification/v1.1-tlc-report.md`:
+- Spec name, distinct states explored, runtime, invariants checked, counterexamples (expect 0)
 
-Use the academic harness from v1.0:
+### Task 6 — Paper Figure Generation (After Experiments Land)
+
+The paper team's `run_all.sh` writes CSVs to `docs/paper/figures/data/`. Build figure PDFs:
+
 ```bash
-./scripts/run-academic-benchmarks.sh
+cd docs/paper/figures
+pdflatex tier-latency.tex        # → tier-latency.pdf
+pdflatex snapshot-restart.tex
+pdflatex lifecycle-cost.tex
+pdflatex sustained-cv.tex
+pdflatex migration-cost.tex
+# tlc-stats.tex is a table, included directly in main.tex
 ```
 
-Then run multi-GPU-specific benchmarks (you may need to add them — model after existing criterion files in `crates/ringkernel/benches/`):
-- Cross-GPU K2K latency vs single-GPU K2K
-- Migration latency vs actor size
-- Tenant isolation overhead (single vs 4 tenants)
-- Provenance overhead (with/without)
+Then rebuild the paper:
 
-Each: 100 samples × 10 trials, compute 95% CI, Cohen's d where comparing. Fill in `docs/benchmarks/v1.1-2x-h100-results.md`.
+```bash
+cd docs/paper
+make                             # → main.pdf
+```
+
+Review `main.pdf` — all figure references should resolve, no "??" citations.
+
+### Task 6b — Extra Benchmarks (If Time Remains)
+
+Not covered by paper but nice for CHANGELOG:
+- Tenant isolation overhead (single vs 4 tenants) — broker throughput comparison
+- Provenance overhead (with/without) — message round-trip with and without ProvenanceHeader
+
+Each: 100 samples × 10 trials, compute 95% CI, Cohen's d. Append to `docs/benchmarks/v1.1-2x-h100-results.md`.
 
 ### Task 7 — Update CHANGELOG and ROADMAP
 
@@ -258,20 +320,36 @@ az group delete --name ringkernel-gpu --yes
 
 The user will consider v1.1 shippable when:
 
-1. ✅ 8/8 hardware matrix tests pass with 95% CI documented
-2. ✅ 6/6 TLC models pass with no counterexamples
-3. ✅ No regression vs v1.0 single-GPU benchmarks
+1. ✅ 6/6 paper experiments complete with CSV outputs in `docs/paper/figures/data/`
+2. ✅ 6/6 TLC models pass with no counterexamples (Experiment 5 output)
+3. ✅ No regression vs v1.0 single-GPU benchmarks (Experiment 1/4 vs v1.0 baseline)
 4. ✅ Cross-tenant leak count = 0 across all tests
-5. ✅ CHANGELOG.md has v1.1.0 entry with concrete numbers
-6. ✅ `cargo test --workspace` green on stable Rust 1.95+
-7. ✅ `cargo clippy --workspace --lib --bins -- -D warnings` green
-8. ✅ `cargo audit` green (or any new advisories justified in `.cargo/audit.toml`)
-9. ✅ Tag `v1.1.0`, push, publish via `./scripts/publish.sh`
+5. ✅ Paper figures built (`make` in `docs/paper/`) — `main.pdf` produces
+6. ✅ CHANGELOG.md has v1.1.0 entry with concrete numbers from experiments
+7. ✅ `cargo test --workspace` green on stable Rust 1.95+
+8. ✅ `cargo clippy --workspace --lib --bins -- -D warnings` green
+9. ✅ `cargo audit` green (or any new advisories justified in `.cargo/audit.toml`)
+10. ✅ Tag `v1.1.0`, push, publish via `./scripts/publish.sh`
 
 ## Starting Prompt for the Other Claude
 
 Paste this as the first message on the VM:
 
-> Read `docs/superpowers/GPU_VM_SESSION_GUIDE_V1_1.md` and follow the task priority order. Start with Task 1 (VM setup), then Task 2 (enable real peer access), then Task 3 (wire real NVLink P2P transfers for migration). After that, run Task 4 (8-test matrix) and Task 5 (TLC models) in parallel if possible. All results must follow the statistical methodology in `docs/benchmarks/METHODOLOGY.md`. Be cost-conscious — this is NC80adis_H100_v5 at ~$8/hr. Deallocate the VM when idle.
+> Read `docs/superpowers/GPU_VM_SESSION_GUIDE_V1_1.md` and `docs/paper/experiments/RUNBOOK.md` first. Follow the task priority order:
+>
+> 1. **Task 1** — VM setup & sanity check (`./scripts/setup-gpu-vm.sh`, verify NVLink)
+> 2. **Task 2** — Wire real `cuCtxEnablePeerAccess` in `crates/ringkernel-cuda/src/multi_gpu/runtime.rs`
+> 3. **Task 3** — Wire real `cuMemcpyPeer` in `crates/ringkernel-cuda/src/multi_gpu/migration.rs`
+> 4. **Task 5** first — TLC model checking (CPU, can run during the build)
+> 5. **Task 4** — `cd docs/paper/experiments && ./run_all.sh` (6 experiments, ~3h total)
+> 6. **Task 4b** — v1.1 gap validation tests (tenant, provenance, rules)
+> 7. **Task 6** — Rebuild paper figures & PDF
+> 8. **Task 7** — CHANGELOG + ROADMAP update, tag v1.1.0, publish
+>
+> All results must follow the statistical methodology in `docs/benchmarks/METHODOLOGY.md`. Experiment outputs land in `docs/paper/experiments/results/<timestamp>/`.
+>
+> **Budget: ~4 hours of GPU time total.** NC80adis_H100_v5 is $8/hr. Deallocate between runs (`az vm deallocate --resource-group ringkernel-gpu --name ringkernel-h100v2`).
+>
+> **STOP conditions** (see guide § "Decision Points"): cross-tenant leak, TLC counterexample, benchmark regression vs v1.0. Do not ship v1.1 until all 9 success criteria pass.
 
 Good luck. The v1.0 handover worked — aim for the same outcome.

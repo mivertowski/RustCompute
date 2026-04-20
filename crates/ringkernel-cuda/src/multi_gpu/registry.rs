@@ -47,10 +47,7 @@ impl MultiGpuRegistry {
         // If already on `gpu`, no-op.
         if let Some(existing) = locations.get(&kernel_id) {
             if *existing == gpu {
-                per_gpu
-                    .entry(gpu)
-                    .or_default()
-                    .insert(kernel_id.clone());
+                per_gpu.entry(gpu).or_default().insert(kernel_id.clone());
                 return;
             }
             // Moving GPU — pull the id off the old per-gpu set.

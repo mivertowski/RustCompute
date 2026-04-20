@@ -31,7 +31,10 @@ const STATE_SIZES: &[usize] = &[1 << 10, 4 << 10, 16 << 10, 64 << 10]; // 1, 4, 
 fn paper_snapshot_restart() {
     let device = match ringkernel_cuda::CudaDevice::new(0) {
         Ok(d) => d,
-        Err(e) => { eprintln!("SKIP: no CUDA device: {e}"); return; }
+        Err(e) => {
+            eprintln!("SKIP: no CUDA device: {e}");
+            return;
+        }
     };
 
     eprintln!("# Snapshot/Restart Wall-Clock — single GPU");
@@ -70,7 +73,12 @@ fn paper_snapshot_restart() {
         for _ in 0..N_WARMUP {
             unsafe {
                 let zero: u32 = 0;
-                cuda_sys::cuMemcpyHtoDAsync_v2(control_flag, &zero as *const _ as *const c_void, 4, stream);
+                cuda_sys::cuMemcpyHtoDAsync_v2(
+                    control_flag,
+                    &zero as *const _ as *const c_void,
+                    4,
+                    stream,
+                );
                 cuda_sys::cuMemcpyDtoDAsync_v2(snap, live, size, stream);
                 cuda_sys::cuEventRecord(event, stream);
                 cuda_sys::cuEventSynchronize(event);
@@ -83,7 +91,11 @@ fn paper_snapshot_restart() {
             unsafe {
                 let one: u32 = 1;
                 let r = cuda_sys::cuMemcpyHtoDAsync_v2(
-                    control_flag, &one as *const _ as *const c_void, 4, stream);
+                    control_flag,
+                    &one as *const _ as *const c_void,
+                    4,
+                    stream,
+                );
                 assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS);
             }
             let t_capture = t0.elapsed().as_nanos();
@@ -106,7 +118,9 @@ fn paper_snapshot_restart() {
 
             let total = t0.elapsed().as_nanos();
 
-            println!("PAPER_SNAPSHOT_RESTART size={size} trial={trial} phase=capture ns={t_capture}");
+            println!(
+                "PAPER_SNAPSHOT_RESTART size={size} trial={trial} phase=capture ns={t_capture}"
+            );
             println!("PAPER_SNAPSHOT_RESTART size={size} trial={trial} phase=copy    ns={t_copy}");
             println!("PAPER_SNAPSHOT_RESTART size={size} trial={trial} phase=ack     ns={t_ack}");
             println!("PAPER_SNAPSHOT_RESTART size={size} trial={trial} phase=total   ns={total}");

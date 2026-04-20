@@ -394,7 +394,8 @@ mod tests {
     fn test_single_block_config_shape() {
         let cfg = single_block_config();
         assert_eq!(
-            cfg.grid_dim, (1, 1, 1),
+            cfg.grid_dim,
+            (1, 1, 1),
             "restore/capture kernels require exactly one block for a deterministic checksum"
         );
         assert_eq!(cfg.block_dim, (128, 1, 1));

@@ -38,7 +38,10 @@ const CMD_HEARTBEAT_REQUEST: u32 = 19;
 fn paper_lifecycle_overhead() {
     let _device = match ringkernel_cuda::CudaDevice::new(0) {
         Ok(d) => d,
-        Err(e) => { eprintln!("SKIP: no CUDA device: {e}"); return; }
+        Err(e) => {
+            eprintln!("SKIP: no CUDA device: {e}");
+            return;
+        }
     };
 
     // Allocate a 256-byte mapped control block and a 256-byte ack region.
@@ -48,11 +51,9 @@ fn paper_lifecycle_overhead() {
     let mut control_dev: u64 = 0;
     let mut ack_dev: u64 = 0;
     unsafe {
-        let r = cuda_sys::cuMemAllocHost_v2(
-            &mut control_dev as *mut _ as *mut *mut c_void, 256);
+        let r = cuda_sys::cuMemAllocHost_v2(&mut control_dev as *mut _ as *mut *mut c_void, 256);
         assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS);
-        let r = cuda_sys::cuMemAllocHost_v2(
-            &mut ack_dev as *mut _ as *mut *mut c_void, 256);
+        let r = cuda_sys::cuMemAllocHost_v2(&mut ack_dev as *mut _ as *mut *mut c_void, 256);
         assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS);
     }
 
@@ -65,11 +66,11 @@ fn paper_lifecycle_overhead() {
     eprintln!();
 
     let rules: &[(&str, u32)] = &[
-        ("Spawn",     CMD_CREATE_ACTOR),
-        ("Activate",  CMD_HEARTBEAT_REQUEST), // proxy: heartbeat = state-touching no-op
-        ("Quiesce",   CMD_NOP),               // proxy: no-op SimCommand for raw injection cost
+        ("Spawn", CMD_CREATE_ACTOR),
+        ("Activate", CMD_HEARTBEAT_REQUEST), // proxy: heartbeat = state-touching no-op
+        ("Quiesce", CMD_NOP),                // proxy: no-op SimCommand for raw injection cost
         ("Terminate", CMD_DESTROY_ACTOR),
-        ("Restart",   CMD_RESTART_ACTOR),
+        ("Restart", CMD_RESTART_ACTOR),
     ];
 
     for &(rule, opcode) in rules {

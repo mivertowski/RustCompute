@@ -334,9 +334,7 @@ impl RuleRegistry {
                 .get(rule_id)
                 .ok_or_else(|| RuleError::NotFound(rule_id.to_string()))?;
 
-            let active = history
-                .active_version
-                .ok_or(RuleError::NoActiveVersion)?;
+            let active = history.active_version.ok_or(RuleError::NoActiveVersion)?;
             if active == to_version {
                 // No-op rollback. Still emit a report.
                 return Ok(ReloadReport {
@@ -386,8 +384,7 @@ impl RuleRegistry {
 
         drop(rules);
 
-        self.swap_backend
-            .terminate_old(rule_id, current_active)?;
+        self.swap_backend.terminate_old(rule_id, current_active)?;
 
         Ok(ReloadReport {
             rule_id: rule_id.to_string(),
@@ -433,9 +430,7 @@ impl RuleRegistry {
     /// Return the currently active rule artifact, if any.
     pub fn get_active(&self, rule_id: &str) -> Option<CompiledRule> {
         let rules = self.rules.read();
-        rules
-            .get(rule_id)
-            .and_then(|h| h.active().cloned())
+        rules.get(rule_id).and_then(|h| h.active().cloned())
     }
 
     /// Full history for a rule (oldest first).
@@ -960,8 +955,7 @@ mod tests {
             Ok(self.drained_per_call)
         }
         fn swap(&self, _rule_id: &str, _new_version: u64) -> Result<(), RuleError> {
-            self.swap
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.swap.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok(())
         }
         fn terminate_old(&self, _rule_id: &str, _old_version: u64) -> Result<(), RuleError> {
@@ -980,9 +974,7 @@ mod tests {
             .expect("v1");
         // After register: pre_stage 1, quiesce 0, swap 0, terminate 0.
         assert_eq!(
-            backend
-                .pre_stage
-                .load(std::sync::atomic::Ordering::Relaxed),
+            backend.pre_stage.load(std::sync::atomic::Ordering::Relaxed),
             1
         );
         assert_eq!(
@@ -996,9 +988,7 @@ mod tests {
             .expect("v2");
         assert_eq!(report.messages_in_flight_during_swap, 42);
         assert_eq!(
-            backend
-                .pre_stage
-                .load(std::sync::atomic::Ordering::Relaxed),
+            backend.pre_stage.load(std::sync::atomic::Ordering::Relaxed),
             2
         );
         assert_eq!(
@@ -1007,9 +997,7 @@ mod tests {
         );
         assert_eq!(backend.swap.load(std::sync::atomic::Ordering::Relaxed), 1);
         assert_eq!(
-            backend
-                .terminate
-                .load(std::sync::atomic::Ordering::Relaxed),
+            backend.terminate.load(std::sync::atomic::Ordering::Relaxed),
             1
         );
     }

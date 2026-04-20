@@ -102,12 +102,7 @@ impl MigrationController {
             }
             if self
                 .in_flight
-                .compare_exchange(
-                    current,
-                    current + 1,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                )
+                .compare_exchange(current, current + 1, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
                 break;
@@ -115,7 +110,9 @@ impl MigrationController {
         }
 
         // 2) Buffer budget.
-        let prev = self.buffer_used.fetch_add(estimated_bytes, Ordering::AcqRel);
+        let prev = self
+            .buffer_used
+            .fetch_add(estimated_bytes, Ordering::AcqRel);
         if prev + estimated_bytes > self.config.global_buffer_budget {
             // Roll back both counters.
             self.buffer_used
@@ -139,9 +136,7 @@ impl MigrationController {
             .into());
         }
 
-        Ok(MigrationPermit {
-            estimated_bytes,
-        })
+        Ok(MigrationPermit { estimated_bytes })
     }
 
     /// Release a previously-acquired permit. Safe to call at most once
@@ -227,12 +222,7 @@ impl TokenBucket {
             }
             if self
                 .tokens
-                .compare_exchange(
-                    current,
-                    current - 1,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                )
+                .compare_exchange(current, current - 1, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
                 return true;
