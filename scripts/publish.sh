@@ -1,8 +1,11 @@
 #!/bin/bash
 #
-# RingKernel Crates Publishing Script (v1.0.0 — NVIDIA CUDA focus)
+# RingKernel Crates Publishing Script (v1.x — NVIDIA CUDA focus)
 #
 # Publishes 17 RingKernel crates to crates.io in correct dependency order.
+# Reads the target version from [workspace.package].version in Cargo.toml
+# — run `./publish.sh --status` to see which version will be published.
+#
 # By default, automatically skips already-published crates, making it safe
 # to run multiple times (useful with crates.io rate limits: ~5/10min).
 #
@@ -43,7 +46,9 @@
 #   - ringkernel-wgpu, ringkernel-wgpu-codegen (WebGPU backend)
 #   - ringkernel-metal (Metal backend)
 #   - ringkernel-wavesim3d (hard wgpu dependency)
-# These crates remain on crates.io at 0.4.x but will not get 1.0.0 updates.
+# These crates remain on crates.io at 0.4.x and are not part of any
+# v1.x release. `REMOVED_CRATES` below is a safety check that aborts
+# if they somehow creep back into workspace.members.
 #
 
 set -e
