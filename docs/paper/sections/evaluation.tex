@@ -1,0 +1,12 @@
+% evaluation.tex — Evaluation
+\section{Evaluation}
+\label{sec:evaluation}
+
+Stub: H100 NVL benchmark suite from 2026-04-16
+(\texttt{docs/benchmarks/ACADEMIC\_PROOF.md}). Headline numbers:
+75ns mapped-memory injection (8698x vs cuLaunchKernel),
+5.54M ops/s sustained (CV 0.05\% over 60s), 0.628\,$\mu$s
+cluster.sync (2.98x vs grid.sync), 116.9x async memory alloc
+speedup. Methodology: locked GPU clocks, exclusive compute mode,
+20 trials per data point, 95\% CI, Welch's t-test for between-
+condition differences.

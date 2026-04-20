@@ -1,0 +1,10 @@
+% k2k.tex — Kernel-to-Kernel Messaging
+\section{Kernel-to-Kernel Messaging}
+\label{sec:k2k}
+
+Stub: K2K calculus, message envelope, intra-block (SMEM) vs
+intra-cluster (DSMEM) vs inter-cluster (global) channels.
+Backpressure policies (RejectAndDLQ vs DropOldest), idempotency
+cache, dead-letter discipline. Theorem: at-least-once delivery,
+per-(source,dest) ordering. Mechanized in
+\texttt{docs/verification/k2k\_delivery.tla}.

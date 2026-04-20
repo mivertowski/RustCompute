@@ -1,156 +1,93 @@
-# RingKernel: A GPU-Native Persistent Actor Model
+# Persistent GPU Actors — Paper Source
 
-Technical paper describing the design, implementation, and evaluation of RingKernel.
+> **Persistent GPU Actors: A Formal Model for Living Computation on the Device**
+> Michael Ivertowski, *Independent Researcher* (Zurich)
+> Target venue: arXiv pre-print, then SSRN; submission to a programming-languages or systems venue thereafter.
 
-## Abstract
+This directory contains the LaTeX source of the RingKernel companion paper.
+The paper formalizes the persistent GPU actor model that RingKernel
+implements, mechanizes the safety properties in TLA+, and validates the
+formal claims against H100 NVL silicon.
 
-The actor model has become foundational for building concurrent and distributed systems.
-However, existing implementations target CPU architectures, leaving GPU parallelism
-largely unexplored. RingKernel extends the actor model to GPU computing, treating GPU
-thread blocks as persistent actors with lock-free message passing and Hybrid Logical
-Clocks for causal ordering.
-
-Key contributions:
-- Formalization of GPU actor semantics with H2K/K2H/K2K communication channels
-- 128-byte ControlBlock for GPU-resident actor lifecycle management
-- Hybrid Logical Clocks on GPU for causal ordering
-- Rust-to-CUDA transpiler for actor kernel generation
-- Evaluation showing 11,327× lower command latency vs traditional GPU programming
-
-## Building the Paper
-
-### Prerequisites
-
-- LaTeX distribution (TeX Live, MiKTeX, or MacTeX)
-- pdflatex and bibtex
-- Optional: latexmk for continuous builds
-
-### Build Commands
-
-```bash
-# Build PDF
-make
-
-# Quick build (skip bibliography)
-make quick
-
-# Continuous rebuild on file changes
-make watch
-
-# Clean build artifacts
-make clean
-
-# Create arxiv submission tarball
-make arxiv
-
-# Word count
-make wordcount
-```
-
-## Directory Structure
+## Structure
 
 ```
 paper/
-├── main.tex              # Main document
-├── references.bib        # Bibliography
-├── Makefile             # Build system
-├── README.md            # This file
-├── sections/
-│   ├── 00-abstract.tex
-│   ├── 01-introduction.tex
-│   ├── 02-background.tex
-│   ├── 03-related-work.tex
-│   ├── 04-system-design.tex
-│   ├── 05-implementation.tex
-│   ├── 06-evaluation.tex
-│   ├── 07-discussion.tex
-│   ├── 08-conclusion.tex
-│   └── 09-appendix.tex
-└── figures/
-    └── README.md        # Figure guidelines
+├── main.tex                     # Document root, preamble, custom commands
+├── references.bib               # Bibliography
+├── Makefile                     # Build automation
+├── README.md                    # This file
+├── .gitignore                   # LaTeX build artifacts
+├── figures/                     # PDF/TikZ figures (currently empty)
+└── sections/
+    ├── abstract.tex             # Abstract: 5 contributions, headline numbers
+    ├── introduction.tex         # The Gap, What Hopper Made Possible, Contribution
+    ├── background.tex           # Actor model, GPU conventions, persistent kernels
+    ├── related_work.tex
+    ├── model.tex                # Lifecycle SOS + Lifecycle-Soundness theorem
+    ├── memory.tex               # Memory hierarchy, axiomatic constraints
+    ├── k2k.tex                  # K2K calculus + delivery theorem
+    ├── supervision.tex          # HLC + restart-monotonicity theorem
+    ├── tenancy.tex              # Audit boundaries + cross-tenant isolation
+    ├── implementation.tex       # RingKernel runtime, CUDA driver surface
+    ├── evaluation.tex           # H100 NVL benchmarks
+    ├── discussion.tex           # Limits, future work
+    ├── conclusion.tex
+    └── appendix.tex             # Quiesce/Terminate/Fail SOS rules
 ```
 
-## Target Venues
-
-This paper is suitable for submission to:
-
-### Systems Conferences
-- **ASPLOS** - Architectural Support for Programming Languages and Operating Systems
-- **EuroSys** - European Conference on Computer Systems
-- **OSDI/SOSP** - Operating Systems Design and Implementation
-- **ATC** - USENIX Annual Technical Conference
-
-### Programming Languages
-- **PLDI** - Programming Language Design and Implementation
-- **OOPSLA** - Object-Oriented Programming, Systems, Languages & Applications
-- **PPoPP** - Principles and Practice of Parallel Programming
-
-### GPU/HPC
-- **SC** - Supercomputing Conference
-- **ICS** - International Conference on Supercomputing
-- **CGO** - Code Generation and Optimization
-
-### Preprint
-- **arXiv** - cs.DC (Distributed Computing), cs.PL (Programming Languages)
-
-## Paper Metadata
-
-- **Title**: RingKernel: A GPU-Native Persistent Actor Model for High-Performance Concurrent Computing
-- **Keywords**: Actor Model, GPU Computing, Persistent Kernels, Message Passing, CUDA, Hybrid Logical Clocks, Lock-Free Algorithms
-- **ACM CCS Concepts**:
-  - Software and its engineering → Concurrent programming languages
-  - Computer systems organization → Heterogeneous (hybrid) systems
-  - Software and its engineering → Message passing
-
-## Reproducing Results
-
-The evaluation benchmarks can be reproduced using the RingKernel repository:
+## Build
 
 ```bash
-# Clone repository
-git clone https://github.com/mivertowski/RustCompute
-cd RustCompute
-
-# Build with CUDA support
-cargo build --release --features cuda
-
-# Run throughput benchmark
-cargo run -p ringkernel-wavesim3d --bin wavesim3d-benchmark --release --features cuda-codegen
-
-# Run latency benchmark
-cargo run -p ringkernel-wavesim3d --bin interactive-benchmark --release --features cuda-codegen
+make            # full build with bibliography (4 LaTeX passes)
+make quick      # single LaTeX pass for fast iteration
+make watch      # latexmk -pvc continuous build
+make clean      # remove auxiliary files (keeps PDF)
+make distclean  # remove everything
 ```
 
-Hardware requirements:
-- NVIDIA GPU with Compute Capability 6.0+ (Pascal or newer)
-- CUDA 12.0+
-- 8GB+ GPU memory recommended
+Required tools: `pdflatex`, `bibtex`, optionally `latexmk` for `watch`.
+On Debian/Ubuntu: `apt install texlive-latex-recommended texlive-latex-extra
+texlive-fonts-recommended texlive-bibtex-extra latexmk`.
 
-## Contributing
+## Companion artifacts
 
-To contribute to the paper:
+The paper's formal claims are mechanically backed by the TLA+ specifications
+in `../verification/`:
 
-1. Edit the appropriate section file in `sections/`
-2. Add references to `references.bib`
-3. Run `make check` to verify no TODOs or undefined references
-4. Run `make` to verify the paper builds
-5. Submit a pull request
+| Theorem (paper)                  | TLA+ spec (`../verification/`) |
+|----------------------------------|--------------------------------|
+| Lifecycle Soundness (Thm 4.1)    | `actor_lifecycle.tla`          |
+| K2K Delivery Properties          | `k2k_delivery.tla`             |
+| HLC Restart Monotonicity         | `hlc.tla`                      |
+| Cross-Tenant Isolation           | `tenant_isolation.tla`         |
+| Migration Safety (deferred)      | `migration.tla`                |
+| Multi-GPU K2K (deferred)         | `multi_gpu_k2k.tla`            |
 
-## License
+Run `make verify` (or `./tlc.sh` from `../verification/`) to model-check
+all specs.
 
-The paper content is licensed under CC BY 4.0.
-The RingKernel software is licensed under Apache 2.0 / MIT dual license.
+The empirical numbers in the Evaluation section are taken from
+`../benchmarks/ACADEMIC_PROOF.md` (run on H100 NVL, 2026-04-16); raw
+Criterion data lives under `target/criterion/` in the repo root.
 
-## Citation
+## Style
 
-If you use RingKernel in your research, please cite (submissing pending):
+The preamble mirrors the DataSynth paper at
+`/home/michael/DEV/Repos/RustSyntheticData/SyntheticData/paper/main.tex`
+for visual consistency: 11pt a4paper, lmodern, microtype, semantic SOS
+rules, theorem environments via `amsthm`, hyperref + cleveref for
+cross-references, natbib (numbers, sort&compress) for citations.
 
-```bibtex
-@inproceedings{gpunativepam2026,
-  author    = {Ivertowski, Michael},
-  title     = {The GPU-Native Persistent Actor Model: Bringing Actor Semantics to Massively Parallel Hardware},
-  booktitle = {Pre-print},
-  year      = {2026},
-  note      = {Preprint: https://arxiv.org/abs/XXXX.XXXXX}
-}
-```
+The `\system{}` macro renders the system name (currently
+`\textsc{RingKernel}`); change this in `main.tex` to retarget the paper
+without editing every section.
+
+## Status
+
+Drafting in progress. Sections currently full:
+
+- `abstract.tex`, `introduction.tex`, `model.tex` — complete first draft.
+- `background.tex` — first subsection complete; remaining are stubs.
+- All other sections are stubs that outline content + pointers to source
+  material (TLA+ specs, benchmark data, runtime modules).

@@ -1,198 +1,171 @@
-% The GPU-Native Persistent Actor Model
-% Technical Paper - arXiv Preprint Style
+% Persistent GPU Actors: A Formal Model for Living Computation on the Device
 %
-% Describes a paradigm for treating GPU compute units as actors with
-% persistent kernels, lock-free message passing, and causal ordering.
-%
-% Implementations: RingKernel (Rust), DotCompute (.NET), Orleans.GpuBridge, RustGraph
-%
-% Target: arXiv (cs.DC, cs.PL, cs.AR)
-%
-\documentclass[11pt,letterpaper]{article}
+% arXiv preprint — compile with: pdflatex main && bibtex main && pdflatex main && pdflatex main
 
-%% ============================================================================
-%% arXiv-style formatting
-%% ============================================================================
+\documentclass[11pt,a4paper]{article}
 
-% Page geometry - generous margins for readability
-\usepackage[
-    letterpaper,
-    top=1in,
-    bottom=1in,
-    left=1.25in,
-    right=1.25in
-]{geometry}
-
-% Typography
+% ── Core packages ──────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage{lmodern}              % Latin Modern fonts
-\usepackage{microtype}            % Improved typography
+\usepackage{lmodern}
+\usepackage{microtype}
+\rmfamily
+\DeclareFontShape{T1}{lmr}{bx}{sc}{<->ssub*lmr/bx/n}{}
+\DeclareFontShape{T1}{lmr}{m}{scit}{<->ssub*lmr/m/sc}{}
+
+% ── Math ───────────────────────────────────────────────────────────────
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{bm}
+% Semantic brackets \llbracket / \rrbracket — defined via mathtools to
+% avoid the stmaryrd dependency (not in texlive-latex-recommended).
+\DeclarePairedDelimiter{\sembrack}{\lBrack}{\rBrack}
+\providecommand{\lBrack}{[\!\!\,[}
+\providecommand{\rBrack}{]\!\!\,]}
+\providecommand{\llbracket}{\lBrack}
+\providecommand{\rrbracket}{\rBrack}
+% Load only the `inference` feature of the semantic package; the default
+% (loading all options) activates math-mode ligatures that break inline
+% \(...\) math.
+\usepackage[inference]{semantic}
+
+% ── Layout ─────────────────────────────────────────────────────────────
+\usepackage[margin=1in]{geometry}
 \usepackage{setspace}
-\setstretch{1.15}                 % Slightly increased line spacing
+\onehalfspacing
 
-% Math
-\usepackage{amsmath}
-\usepackage{amssymb}
-\usepackage{amsthm}
-
-% Tables and figures
+% ── Figures / tables ───────────────────────────────────────────────────
+\usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{multirow}
 \usepackage{subcaption}
-\usepackage{graphicx}
 \usepackage{float}
-\usepackage{tabularx}
-
-% Code listings
-\usepackage{listings}
-\usepackage{xcolor}
-
-% Graphics
-\usepackage{tikz}
 \usepackage{pgfplots}
-\pgfplotsset{compat=1.16}
-\usetikzlibrary{shapes,arrows,positioning,fit,calc}
+\pgfplotsset{compat=1.18}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, automata, positioning, shapes, calc}
 
-% References and links
-\usepackage{hyperref}
-\usepackage{url}
-\usepackage[numbers,sort&compress]{natbib}
+% ── Algorithms ─────────────────────────────────────────────────────────
+% algorithm2e ships in texlive-science; load only when present so the
+% paper builds against a stock texlive-latex-recommended install.
+\IfFileExists{algorithm2e.sty}{%
+  \usepackage[ruled,vlined,linesnumbered]{algorithm2e}%
+}{}
 
-% Author handling
-\usepackage{authblk}
-\usepackage{orcidlink}            % ORCID icons
-
-%% ============================================================================
-%% Hyperref setup
-%% ============================================================================
-\hypersetup{
-    colorlinks=true,
-    linkcolor=blue!70!black,
-    filecolor=magenta,
-    urlcolor=blue!70!black,
-    citecolor=green!50!black,
-    pdftitle={The GPU-Native Persistent Actor Model},
-    pdfauthor={Michael Ivertowski},
-    pdfsubject={GPU Computing, Actor Model, Distributed Systems},
-    pdfkeywords={Actor Model, GPU, CUDA, Persistent Kernels, HLC}
-}
-
-%% ============================================================================
-%% Code listing styles
-%% ============================================================================
-
-% Rust
-\lstdefinelanguage{Rust}{
-  keywords={fn, let, mut, if, else, match, for, while, loop, return, struct, enum, impl, trait, pub, use, mod, async, await, self, Self, where, type, const, static, unsafe, extern, crate, super},
-  keywordstyle=\color{blue!80!black}\bfseries,
-  keywords=[2]{i32, i64, u32, u64, f32, f64, bool, usize, isize, String, Vec, Option, Result, Arc, Box, AtomicU32, AtomicU64},
-  keywordstyle=[2]\color{teal!80!black},
-  comment=[l]{//},
-  morecomment=[s]{/*}{*/},
-  commentstyle=\color{gray}\itshape,
-  stringstyle=\color{red!70!black},
+% ── Code listings ──────────────────────────────────────────────────────
+\usepackage{listings}
+\lstdefinelanguage{TLA}{
+  morekeywords={MODULE, EXTENDS, CONSTANTS, VARIABLES, EQUAL, NEW, IF, THEN, ELSE,
+                LET, IN, CASE, OTHER, DOMAIN, EXCEPT, CHOOSE, UNCHANGED,
+                Init, Next, Spec, Invariant, INSTANCE, ASSUME, THEOREM},
+  morecomment=[s]{(*}{*)},
   morestring=[b]",
-  basicstyle=\ttfamily\small,
-  breaklines=true,
-  showstringspaces=false,
-  tabsize=2,
+  sensitive=true,
 }
-
-% CUDA
-\lstdefinelanguage{CUDA}{
-  language=C++,
-  morekeywords={__global__, __device__, __shared__, __host__, threadIdx, blockIdx, blockDim, gridDim, atomicAdd, atomicCAS, __syncthreads, __threadfence},
-  keywordstyle=\color{blue!80!black}\bfseries,
-  commentstyle=\color{gray}\itshape,
-  stringstyle=\color{red!70!black},
-  basicstyle=\ttfamily\small,
-  breaklines=true,
-  showstringspaces=false,
-}
-
 \lstset{
-  language=Rust,
+  basicstyle=\ttfamily\small,
+  breaklines=true,
   frame=single,
-  framerule=0.5pt,
-  rulecolor=\color{gray!50},
   numbers=left,
   numberstyle=\tiny\color{gray},
-  xleftmargin=2em,
-  framexleftmargin=1.5em,
-  backgroundcolor=\color{gray!5},
-  captionpos=b,
+  keywordstyle=\color{blue!70!black},
+  commentstyle=\color{green!50!black},
+  stringstyle=\color{red!60!black},
 }
 
-%% ============================================================================
-%% Custom commands
-%% ============================================================================
-\newcommand{\arxiv}[1]{\href{https://arxiv.org/abs/#1}{arXiv:#1}}
-\newcommand{\github}[1]{\href{https://github.com/#1}{\texttt{github.com/#1}}}
+% ── Colors / hyperlinks ───────────────────────────────────────────────
+\usepackage[dvipsnames]{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!60!black,citecolor=green!50!black,urlcolor=blue!70!black]{hyperref}
+\usepackage{cleveref}
 
-%% ============================================================================
-%% Document metadata
-%% ============================================================================
+% ── Bibliography ───────────────────────────────────────────────────────
+\usepackage[numbers,sort&compress]{natbib}
 
+% ── Theorem environments ──────────────────────────────────────────────
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{observation}[theorem]{Observation}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{property}[theorem]{Property}
+
+% ── Custom commands ───────────────────────────────────────────────────
+\newcommand{\system}{\texorpdfstring{\textsc{RingKernel}}{RingKernel}}
+\newcommand{\actor}{\textsc{Actor}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\hlc}{\mathsf{HLC}}
+\newcommand{\state}[1]{\ensuremath{\mathsf{#1}}}
+\newcommand{\sem}[1]{\llbracket #1 \rrbracket}
+\newcommand{\trans}[1]{\xrightarrow{#1}}
+\newcommand{\ttrans}[1]{\overset{#1}{\longrightarrow}}
+
+% Convenience: TLA+ logo, used a lot in text mode.
+\newcommand{\TLA}{\textsc{TLA}\ensuremath{^{+}}}
+
+% Lifecycle states (typeset consistently throughout)
+\newcommand{\Dormant}{\state{Dormant}}
+\newcommand{\Initializing}{\state{Initializing}}
+\newcommand{\Active}{\state{Active}}
+\newcommand{\Draining}{\state{Draining}}
+\newcommand{\Terminated}{\state{Terminated}}
+\newcommand{\Failed}{\state{Failed}}
+
+% Lifecycle action verbs (transitions, not states)
+\newcommand{\Spawn}{\textsc{Spawn}}
+\newcommand{\Activate}{\textsc{Activate}}
+\newcommand{\Process}{\textsc{Process}}
+\newcommand{\Quiesce}{\textsc{Quiesce}}
+\newcommand{\Terminate}{\textsc{Terminate}}
+\newcommand{\Fail}{\textsc{Fail}}
+
+% ═══════════════════════════════════════════════════════════════════════
 \title{%
-    \LARGE\textbf{The GPU-Native Persistent Actor Model:}\\[0.3em]
-    \Large\textbf{Bringing Actor Semantics to Massively Parallel Hardware}
+  Persistent GPU Actors:\\
+  A Formal Model for Living Computation on the Device%
 }
 
-\author[1]{Michael Ivertowski~\orcidlink{0009-0008-7829-2249}}
-\affil[1]{%
-    Ernst \& Young AG\\
-    Zurich, Switzerland\\
-    \texttt{michael.ivertowski@ch.ey.com}
+\author{%
+  Michael Ivertowski\\
+  \textit{Independent Researcher}\\
+  \textit{Zurich, Switzerland}\\[2pt]
+  \small\url{https://orcid.org/0009-0008-7829-2249}
 }
 
-\date{%
-    January 2026\\[1em]
-    \small\textit{Preprint. Under review.}
-}
+\date{April 2026}
 
-%% ============================================================================
-%% Document
-%% ============================================================================
+% ═══════════════════════════════════════════════════════════════════════
 \begin{document}
-
 \maketitle
 
-%% Abstract
-\begin{abstract}
-\noindent
-\input{sections/00-abstract}
-\end{abstract}
+% ── Abstract ──────────────────────────────────────────────────────────
+\input{sections/abstract}
 
-\vspace{1em}
-\noindent\textbf{Keywords:} Actor Model, GPU Computing, Persistent Kernels, Message Passing, Hybrid Logical Clocks, Lock-Free Algorithms, CUDA, WebGPU, Distributed Systems, Graph Analytics, Digital Twin, Bi-Temporal Model, Audit Intelligence
+% ── Main body ─────────────────────────────────────────────────────────
+\input{sections/introduction}
+\input{sections/background}
+\input{sections/related_work}
+\input{sections/model}
+\input{sections/memory}
+\input{sections/k2k}
+\input{sections/supervision}
+\input{sections/tenancy}
+\input{sections/implementation}
+\input{sections/evaluation}
+\input{sections/discussion}
+\input{sections/conclusion}
 
-\vspace{0.5em}
-\noindent\textbf{ACM CCS:} Computer systems organization $\rightarrow$ Parallel architectures; Software and its engineering $\rightarrow$ Concurrent programming structures
-
-\vspace{1.5em}
-
-%% Main content sections
-\input{sections/01-introduction}
-\input{sections/02-background}
-\input{sections/03-related-work}
-\input{sections/04-system-design}
-\input{sections/05-implementation}
-\input{sections/06-evaluation}
-\input{sections/07-discussion}
-\input{sections/08-conclusion}
-
-%% Acknowledgments
-\section*{Acknowledgments}
-We thank the open-source community for their contributions to the CUDA ecosystem,
-particularly the cudarc project for Rust CUDA bindings. We also acknowledge the
-foundational work on the actor model by Carl Hewitt and colleagues.
-
-%% Bibliography
+% ── References ────────────────────────────────────────────────────────
 \bibliographystyle{plainnat}
 \bibliography{references}
 
-%% Appendix
+% ── Appendices ────────────────────────────────────────────────────────
 \appendix
-\input{sections/09-appendix}
+\input{sections/appendix}
 
 \end{document}

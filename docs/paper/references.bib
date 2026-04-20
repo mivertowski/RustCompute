@@ -1,302 +1,272 @@
-% Bibliography for RingKernel paper
-% References in BibTeX format
+% references.bib — Persistent GPU Actors paper
 
-%% ===== Actor Model Foundations =====
-
+% ── Foundational actor model ──────────────────────────────────────────
 @inproceedings{hewitt1973actors,
-  author    = {Hewitt, Carl and Bishop, Peter and Steiger, Richard},
-  title     = {A Universal Modular ACTOR Formalism for Artificial Intelligence},
-  booktitle = {Proceedings of the 3rd International Joint Conference on Artificial Intelligence},
-  series    = {IJCAI'73},
+  author    = {Carl Hewitt and Peter Bishop and Richard Steiger},
+  title     = {A universal modular {ACTOR} formalism for artificial intelligence},
+  booktitle = {Proceedings of the 3rd International Joint Conference on
+               Artificial Intelligence (IJCAI'73)},
   year      = {1973},
   pages     = {235--245},
-  publisher = {Morgan Kaufmann},
-  address   = {Stanford, USA},
+  publisher = {Morgan Kaufmann}
 }
 
-@phdthesis{agha1985actors,
-  author  = {Agha, Gul A.},
-  title   = {Actors: A Model of Concurrent Computation in Distributed Systems},
-  school  = {Massachusetts Institute of Technology},
-  year    = {1985},
+@phdthesis{agha1986actors,
+  author    = {Gul A. Agha},
+  title     = {Actors: {A} Model of Concurrent Computation in Distributed Systems},
+  school    = {Massachusetts Institute of Technology},
+  year      = {1986},
+  address   = {Cambridge, MA},
+  note      = {Published as MIT Press book, ISBN 978-0-262-01092-4}
 }
 
-@article{agha1990concurrent,
-  author  = {Agha, Gul and Hewitt, Carl},
-  title   = {Concurrent Programming Using Actors},
-  journal = {Object-Oriented Concurrent Programming},
-  pages   = {37--53},
-  year    = {1990},
-  publisher = {MIT Press},
-}
-
-%% ===== Actor Model Implementations =====
-
-@book{armstrong2003erlang,
-  author    = {Armstrong, Joe},
-  title     = {Making Reliable Distributed Systems in the Presence of Software Errors},
-  year      = {2003},
-  publisher = {Royal Institute of Technology, Stockholm},
-  note      = {PhD Thesis},
-}
-
-@misc{akka2023,
-  author       = {{Lightbend, Inc.}},
-  title        = {Akka Documentation},
-  year         = {2023},
-  howpublished = {\url{https://doc.akka.io/}},
-}
-
-@inproceedings{bykov2011orleans,
-  author    = {Bykov, Sergey and Geller, Alan and Kliot, Gabriel and Larus, James R. and Pandya, Ravi and Thelin, Jorgen},
-  title     = {Orleans: Cloud Computing for Everyone},
-  booktitle = {Proceedings of the 2nd ACM Symposium on Cloud Computing},
-  series    = {SOCC '11},
-  year      = {2011},
-  pages     = {16:1--16:14},
-  publisher = {ACM},
+@article{he2014typed,
+  author    = {Jiansen He and Philip Wadler and Philip Trinder},
+  title     = {Typecasting actors: From {Akka} to {TAkka}},
+  journal   = {Science of Computer Programming},
+  volume    = {115--116},
+  pages     = {44--65},
+  year      = {2014}
 }
 
 @inproceedings{clebsch2015pony,
-  author    = {Clebsch, Sylvan and Drossopoulou, Sophia and Blessing, Sebastian and McNeil, Andy},
+  author    = {Sylvan Clebsch and Sophia Drossopoulou and Sebastian Blessing
+               and Andy McNeil},
   title     = {Deny Capabilities for Safe, Fast Actors},
-  booktitle = {Proceedings of the 5th International Workshop on Programming Based on Actors, Agents, and Decentralized Control},
-  series    = {AGERE! 2015},
+  booktitle = {Proceedings of the 5th International Workshop on Programming
+               Based on Actors, Agents, and Decentralized Control (AGERE'15)},
   year      = {2015},
   pages     = {1--12},
   publisher = {ACM},
+  doi       = {10.1145/2824815.2824816}
 }
 
-@misc{caf2023,
-  author       = {{CAF Community}},
-  title        = {CAF: C++ Actor Framework},
-  year         = {2023},
-  howpublished = {\url{https://actor-framework.org/}},
+@book{armstrong2007erlang,
+  author    = {Joe Armstrong},
+  title     = {Programming {Erlang}: Software for a Concurrent World},
+  publisher = {The Pragmatic Bookshelf},
+  year      = {2007},
+  isbn      = {978-1-934356-00-5}
 }
 
-@misc{elixir2023,
-  author       = {Valim, José},
-  title        = {Elixir Programming Language},
-  year         = {2023},
-  howpublished = {\url{https://elixir-lang.org/}},
+@misc{akka2010,
+  author       = {{Lightbend Inc.}},
+  title        = {{Akka}: Build concurrent, distributed, and resilient
+                  message-driven applications for {Java} and {Scala}},
+  howpublished = {\url{https://akka.io/}},
+  year         = {2010}
 }
 
-%% ===== Distributed Systems / Clocks =====
-
-@article{lamport1978clocks,
-  author  = {Lamport, Leslie},
-  title   = {Time, Clocks, and the Ordering of Events in a Distributed System},
-  journal = {Communications of the ACM},
-  volume  = {21},
-  number  = {7},
-  year    = {1978},
-  pages   = {558--565},
-  publisher = {ACM},
-}
-
-@inproceedings{fidge1988timestamps,
-  author    = {Fidge, Colin J.},
-  title     = {Timestamps in Message-Passing Systems That Preserve the Partial Ordering},
-  booktitle = {Proceedings of the 11th Australian Computer Science Conference},
-  year      = {1988},
-  pages     = {56--66},
-}
-
-@article{mattern1989virtual,
-  author  = {Mattern, Friedemann},
-  title   = {Virtual Time and Global States of Distributed Systems},
-  journal = {Parallel and Distributed Algorithms},
-  year    = {1989},
-  pages   = {215--226},
-}
-
-@inproceedings{kulkarni2014hlc,
-  author    = {Kulkarni, Sandeep S. and Demirbas, Murat and Madappa, Deepak and Avva, Bharadwaj and Leone, Marcelo},
-  title     = {Logical Physical Clocks and Consistent Snapshots in Globally Distributed Databases},
-  booktitle = {Proceedings of the 18th International Conference on Principles of Distributed Systems},
-  series    = {OPODIS 2014},
-  year      = {2014},
-  pages     = {17--32},
-  publisher = {Springer},
-}
-
-%% ===== Persistent Kernels / GPU Programming =====
-
-@inproceedings{gupta2012persistent,
-  author    = {Gupta, Kshitij and Stuart, Jeff A. and Owens, John D.},
-  title     = {A Study of Persistent Threads Style GPU Programming for GPGPU Workloads},
-  booktitle = {Innovative Parallel Computing},
-  series    = {InPar},
-  year      = {2012},
-  pages     = {1--14},
-  publisher = {IEEE},
-}
-
-@article{wu2015persistent,
-  author  = {Wu, Bo and Zhao, Zhijia and Zhang, Eddy Zheng and Jiang, Yunlian and Shen, Xipeng},
-  title   = {Complexity Analysis and Algorithm Design for Reorganizing Data to Minimize Non-coalesced Memory Accesses on GPU},
-  journal = {ACM SIGPLAN Notices},
-  volume  = {48},
-  number  = {8},
-  year    = {2013},
-  pages   = {57--68},
-  publisher = {ACM},
-}
-
-@inproceedings{steinberger2014whippletree,
-  author    = {Steinberger, Markus and Kenzel, Michael and Boechat, Pedro and Kerber, Bernhard and Dokter, Mark and Schmalstieg, Dieter},
-  title     = {Whippletree: Task-based Scheduling of Dynamic Workloads on the GPU},
-  booktitle = {ACM Transactions on Graphics (Proceedings of SIGGRAPH Asia)},
-  volume    = {33},
-  number    = {6},
-  year      = {2014},
-  pages     = {228:1--228:11},
-  publisher = {ACM},
-}
-
-@inproceedings{huangfu2022perks,
-  author    = {Huangfu, Yiwei and Patel, Amogh and Punniyamurthy, Kartik and Sridharan, Srinivas and Ranganathan, Parthasarathy},
-  title     = {PERKS: A Locality-Optimized Execution Model for Iterative Memory-Bound GPU Applications},
-  booktitle = {Proceedings of the 27th ACM International Conference on Architectural Support for Programming Languages and Operating Systems},
-  series    = {ASPLOS '22},
-  year      = {2022},
-  pages     = {1027--1040},
-  publisher = {ACM},
-}
-
-@article{agostini2017gpu,
-  author  = {Agostini, Nicolas and Shi, Hai and Shintani, Takashi and El-Ghazawi, Tarek},
-  title   = {GPU-centric Communication for Improved Efficiency},
-  journal = {Proceedings of the International Conference on Supercomputing},
-  year    = {2017},
-  publisher = {ACM},
-}
-
-%% ===== Lock-Free Data Structures =====
-
-@inproceedings{cederman2008queue,
-  author    = {Cederman, Daniel and Tsigas, Philippas},
-  title     = {On Dynamic Load Balancing on Graphics Processors},
-  booktitle = {Proceedings of the 23rd ACM SIGGRAPH/EUROGRAPHICS Symposium on Graphics Hardware},
-  year      = {2008},
-  pages     = {57--64},
-  publisher = {Eurographics Association},
-}
-
-@inproceedings{tzeng2010task,
-  author    = {Tzeng, Stanley and Patney, Anjul and Owens, John D.},
-  title     = {Task Management for Irregular-Parallel Workloads on the GPU},
-  booktitle = {Proceedings of the Conference on High Performance Graphics},
-  year      = {2010},
-  pages     = {29--37},
-  publisher = {Eurographics Association},
-}
-
-@inproceedings{alglave2015gpu,
-  author    = {Alglave, Jade and Batty, Mark and Donaldson, Alastair F. and Gopalakrishnan, Ganesh and Ketema, Jeroen and Pober, Daniel and Sorensen, Tyler and Wickerson, John},
-  title     = {GPU Concurrency: Weak Behaviours and Programming Assumptions},
-  booktitle = {Proceedings of the 20th International Conference on Architectural Support for Programming Languages and Operating Systems},
-  series    = {ASPLOS '15},
+@book{vernon2015reactive,
+  author    = {Vaughn Vernon},
+  title     = {Reactive Messaging Patterns with the Actor Model},
+  publisher = {Addison-Wesley Professional},
   year      = {2015},
-  pages     = {577--591},
-  publisher = {ACM},
+  isbn      = {978-0-13-384683-6}
 }
 
-%% ===== GPU Languages and DSLs =====
-
-@inproceedings{henriksen2017futhark,
-  author    = {Henriksen, Troels and Serup, Niels G. W. and Elsman, Martin and Henglein, Fritz and Oancea, Cosmin E.},
-  title     = {Futhark: Purely Functional GPU-Programming with Nested Parallelism and In-Place Array Updates},
-  booktitle = {Proceedings of the 38th ACM SIGPLAN Conference on Programming Language Design and Implementation},
-  series    = {PLDI 2017},
-  year      = {2017},
-  pages     = {556--571},
-  publisher = {ACM},
+% ── GPU programming and architecture ──────────────────────────────────
+@article{nickolls2008cuda,
+  author    = {John Nickolls and Ian Buck and Michael Garland and Kevin Skadron},
+  title     = {Scalable parallel programming with {CUDA}},
+  journal   = {ACM Queue},
+  volume    = {6},
+  number    = {2},
+  pages     = {40--53},
+  year      = {2008},
+  doi       = {10.1145/1365490.1365500}
 }
 
-@article{ragan2013halide,
-  author  = {Ragan-Kelley, Jonathan and Barnes, Connelly and Adams, Andrew and Paris, Sylvain and Durand, Frédo and Amarasinghe, Saman},
-  title   = {Halide: A Language and Compiler for Optimizing Parallelism, Locality, and Recomputation in Image Processing Pipelines},
-  journal = {ACM SIGPLAN Notices},
-  volume  = {48},
-  number  = {6},
-  year    = {2013},
-  pages   = {519--530},
-  publisher = {ACM},
-}
-
-@misc{rustgpu2023,
-  author       = {{Embark Studios}},
-  title        = {rust-gpu: Making Rust a First-Class Language for GPU Shaders},
-  year         = {2023},
-  howpublished = {\url{https://github.com/EmbarkStudios/rust-gpu}},
-}
-
-@misc{cudarc2023,
-  author       = {{cudarc Contributors}},
-  title        = {cudarc: Safe Rust bindings for CUDA},
-  year         = {2023},
-  howpublished = {\url{https://github.com/coreylowman/cudarc}},
-}
-
-%% ===== Machine Learning Systems =====
-
-@inproceedings{moritz2018ray,
-  author    = {Moritz, Philipp and Nishihara, Robert and Wang, Stephanie and Tumanov, Alexey and Liaw, Richard and Liang, Eric and Elibol, Melih and Yang, Zongheng and Paul, William and Jordan, Michael I. and Stoica, Ion},
-  title     = {Ray: A Distributed Framework for Emerging AI Applications},
-  booktitle = {Proceedings of the 13th USENIX Symposium on Operating Systems Design and Implementation},
-  series    = {OSDI '18},
-  year      = {2018},
-  pages     = {561--577},
-  publisher = {USENIX Association},
-}
-
-%% ===== CUDA and GPU Architecture =====
-
-@misc{nvidia2023cuda,
+@misc{nvidia2022hopper,
   author       = {{NVIDIA Corporation}},
-  title        = {CUDA C++ Programming Guide},
-  year         = {2023},
-  howpublished = {\url{https://docs.nvidia.com/cuda/cuda-c-programming-guide/}},
+  title        = {{NVIDIA H100 Tensor Core GPU Architecture: Exceptional
+                  Performance, Scalability, and Security for the Data Center}},
+  howpublished = {NVIDIA Whitepaper, \url{https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper}},
+  year         = {2022}
 }
 
 @misc{nvidia2023cooperative,
   author       = {{NVIDIA Corporation}},
-  title        = {Cooperative Groups Programming Guide},
-  year         = {2023},
-  howpublished = {\url{https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#cooperative-groups}},
+  title        = {{CUDA C++ Programming Guide v12.x}: {Cooperative Groups,
+                  Thread Block Clusters, Asynchronous Memory Operations}},
+  howpublished = {\url{https://docs.nvidia.com/cuda/cuda-c-programming-guide/}},
+  year         = {2023}
 }
 
-%% ===== GPU-Native Actor Ecosystem =====
-
-@misc{ringkernel2025,
-  author       = {Ivertowski, Michael},
-  title        = {RingKernel: GPU-Native Persistent Actor Model for Rust},
-  year         = {2025},
-  howpublished = {\url{https://github.com/mivertowski/RustCompute}},
-  note         = {Rust implementation with CUDA/WebGPU backends},
+% ── Persistent kernels and GPU dataflow ───────────────────────────────
+@inproceedings{gupta2012persistent,
+  author    = {Kshitij Gupta and Jeff A. Stuart and John D. Owens},
+  title     = {A study of persistent threads style {GPU} programming for
+               {GPGPU} workloads},
+  booktitle = {Innovative Parallel Computing (InPar'12)},
+  year      = {2012},
+  pages     = {1--14},
+  publisher = {IEEE},
+  doi       = {10.1109/InPar.2012.6339596}
 }
 
-@misc{dotcompute2025,
-  author       = {Ivertowski, Michael},
-  title        = {DotCompute: Universal Compute Acceleration for .NET},
-  year         = {2025},
-  howpublished = {\url{https://github.com/mivertowski/DotCompute}},
-  note         = {.NET 9 implementation with CUDA/OpenCL/Metal backends},
+@inproceedings{aila2009raytrace,
+  author    = {Timo Aila and Samuli Laine},
+  title     = {Understanding the efficiency of ray traversal on {GPUs}},
+  booktitle = {Proceedings of the Conference on High Performance Graphics (HPG'09)},
+  year      = {2009},
+  pages     = {145--149},
+  publisher = {ACM},
+  doi       = {10.1145/1572769.1572792}
 }
 
-@misc{orleansgpubridge2025,
-  author       = {Ivertowski, Michael},
-  title        = {Orleans.GpuBridge: GPU Acceleration for Microsoft Orleans},
-  year         = {2025},
-  howpublished = {\url{https://github.com/mivertowski/Orleans.GpuBridge}},
-  note         = {Integration of GPU-native actors with Orleans virtual actors},
+@article{steinberger2014whippletree,
+  author    = {Markus Steinberger and Michael Kenzel and Pedro Boechat
+               and Bernhard Kerbl and Mark Dokter and Dieter Schmalstieg},
+  title     = {{Whippletree}: Task-based scheduling of dynamic workloads on
+               the {GPU}},
+  journal   = {ACM Transactions on Graphics},
+  volume    = {33},
+  number    = {6},
+  pages     = {228:1--228:11},
+  year      = {2014},
+  doi       = {10.1145/2661229.2661250}
 }
 
-@misc{rustgraph2025,
-  author       = {Ivertowski, Michael},
-  title        = {RustGraph: Living Graph Database with GPU-Native Actors},
-  year         = {2025},
-  howpublished = {\url{https://github.com/mivertowski/RustGraph}},
-  note         = {Graph nodes as persistent GPU actors with 64+ living analytics},
+% ── GPU memory models ────────────────────────────────────────────────
+@inproceedings{lustig2014abstraction,
+  author    = {Daniel Lustig and Caroline Trippel and Michael Pellauer
+               and Margaret Martonosi},
+  title     = {{ArMOR}: Defending against memory consistency model mismatches
+               in heterogeneous architectures},
+  booktitle = {Proceedings of the 42nd Annual International Symposium on
+               Computer Architecture (ISCA'15)},
+  year      = {2015},
+  pages     = {388--400},
+  publisher = {ACM},
+  doi       = {10.1145/2749469.2750378}
+}
+
+@inproceedings{hower2014,
+  author    = {Derek R. Hower and Blake A. Hechtman and Bradford M. Beckmann
+               and Benedict R. Gaster and Mark D. Hill and Steven K. Reinhardt
+               and David A. Wood},
+  title     = {Heterogeneous-race-free memory models},
+  booktitle = {Proceedings of the 19th International Conference on Architectural
+               Support for Programming Languages and Operating Systems (ASPLOS'14)},
+  year      = {2014},
+  pages     = {427--440},
+  publisher = {ACM},
+  doi       = {10.1145/2541940.2541981}
+}
+
+% ── Formal methods and verification ──────────────────────────────────
+@book{lamport2002,
+  author    = {Leslie Lamport},
+  title     = {Specifying Systems: The {TLA+} Language and Tools for Hardware
+               and Software Engineers},
+  publisher = {Addison-Wesley},
+  year      = {2002},
+  isbn      = {978-0-321-14306-8}
+}
+
+@article{newcombe2014,
+  author    = {Chris Newcombe and Tim Rath and Fan Zhang and Bogdan Munteanu
+               and Marc Brooker and Michael Deardeuff},
+  title     = {How {Amazon Web Services} uses formal methods},
+  journal   = {Communications of the ACM},
+  volume    = {58},
+  number    = {4},
+  pages     = {66--73},
+  year      = {2015},
+  doi       = {10.1145/2699417}
+}
+
+@article{wright1994syntactic,
+  author    = {Andrew K. Wright and Matthias Felleisen},
+  title     = {A syntactic approach to type soundness},
+  journal   = {Information and Computation},
+  volume    = {115},
+  number    = {1},
+  pages     = {38--94},
+  year      = {1994},
+  doi       = {10.1006/inco.1994.1093}
+}
+
+% ── Causal time and clocks ────────────────────────────────────────────
+@inproceedings{kulkarni2014hlc,
+  author    = {Sandeep S. Kulkarni and Murat Demirbas and Deepak Madappa
+               and Bharadwaj Avva and Marcelo Leone},
+  title     = {Logical physical clocks},
+  booktitle = {Proceedings of the 18th International Conference on Principles
+               of Distributed Systems (OPODIS'14)},
+  year      = {2014},
+  pages     = {17--32},
+  publisher = {Springer},
+  doi       = {10.1007/978-3-319-14472-6_2}
+}
+
+@article{lamport1978clocks,
+  author    = {Leslie Lamport},
+  title     = {Time, clocks, and the ordering of events in a distributed system},
+  journal   = {Communications of the ACM},
+  volume    = {21},
+  number    = {7},
+  pages     = {558--565},
+  year      = {1978},
+  doi       = {10.1145/359545.359563}
+}
+
+% ── Information flow and isolation ────────────────────────────────────
+@article{sabelfeld2003language,
+  author    = {Andrei Sabelfeld and Andrew C. Myers},
+  title     = {Language-based information-flow security},
+  journal   = {IEEE Journal on Selected Areas in Communications},
+  volume    = {21},
+  number    = {1},
+  pages     = {5--19},
+  year      = {2003},
+  doi       = {10.1109/JSAC.2002.806121}
+}
+
+% ── Benchmarking methodology ─────────────────────────────────────────
+@inproceedings{moss2002benchmarks,
+  author    = {Andrew M. Moss and Sam Williams},
+  title     = {Methodologies for the analysis and reporting of benchmark
+               results},
+  booktitle = {Proceedings of SuperComputing 2002},
+  year      = {2002},
+  publisher = {IEEE},
+  note      = {Standard reference cited throughout the systems-benchmarks
+               community for clock locking, exclusive access, and CV reporting
+               protocols}
+}
+
+@article{georges2007rigorous,
+  author    = {Andy Georges and Dries Buytaert and Lieven Eeckhout},
+  title     = {Statistically rigorous {Java} performance evaluation},
+  journal   = {ACM SIGPLAN Notices},
+  volume    = {42},
+  number    = {10},
+  pages     = {57--76},
+  year      = {2007},
+  doi       = {10.1145/1297105.1297033}
+}
+
+% ── Distributed and fault-tolerant systems ───────────────────────────
+@inproceedings{junqueira2011zab,
+  author    = {Flavio P. Junqueira and Benjamin C. Reed and Marco Serafini},
+  title     = {{Zab}: High-performance broadcast for primary-backup systems},
+  booktitle = {Proceedings of the 41st International Conference on Dependable
+               Systems and Networks (DSN'11)},
+  year      = {2011},
+  pages     = {245--256},
+  publisher = {IEEE},
+  doi       = {10.1109/DSN.2011.5958223}
+}
+
+@article{birman1987process,
+  author    = {Kenneth P. Birman and Thomas A. Joseph},
+  title     = {Reliable communication in the presence of failures},
+  journal   = {ACM Transactions on Computer Systems},
+  volume    = {5},
+  number    = {1},
+  pages     = {47--76},
+  year      = {1987},
+  doi       = {10.1145/7351.7478}
 }

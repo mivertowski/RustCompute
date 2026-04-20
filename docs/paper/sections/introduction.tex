@@ -1,0 +1,159 @@
+% sections/introduction.tex — Introduction
+\section{Introduction}
+\label{sec:introduction}
+
+\subsection{The Gap Between Actors and GPUs}
+
+The actor model, introduced by Hewitt et~al.~\citep{hewitt1973actors}
+and formalized by Agha~\citep{agha1986actors}, takes a position on
+concurrency that has aged remarkably well: an actor is a unit of
+computation that has private state, processes messages one at a
+time from a logically unbounded mailbox, and may create new actors
+or send messages to known actors as a result of processing.  No
+shared memory, no locks, no threads as a primitive.  The model is
+the foundation of Erlang/OTP~\citep{armstrong2007erlang},
+Akka~\citep{akka2010}, Pony~\citep{clebsch2015pony}, and—at a
+larger scale—the design of fault-tolerant
+microservices~\citep{vernon2015reactive}.
+
+GPU programming has evolved along an orthogonal axis.  CUDA and its
+successors~\citep{nickolls2008cuda} expose the device as a
+coprocessor: the host launches a \emph{kernel} (a function with
+implicit parallelism), the kernel runs to completion across a
+two-dimensional grid of thread blocks, and any state that needs to
+survive must be explicitly copied back to host memory.  The unit of
+abstraction is the kernel launch, not a long-lived computation; the
+unit of state is the buffer, not the actor.
+
+These two threads of work have been almost entirely
+disjoint.  Cross-cutting work exists—\emph{persistent
+kernels}~\citep{gupta2012persistent,aila2009raytrace} avoid relaunch
+overhead by keeping a single kernel running and feeding it work via
+device-side queues; producer–consumer pipelines~\citep{steinberger2014whippletree}
+build dataflow graphs on the device—but in each case the abstraction
+is a scheduling trick layered onto the kernel-launch model rather than
+a first-class semantic primitive.  No formal model treats the GPU
+thread block as an actor with its own lifecycle, restart policy,
+causal clock, and supervisor.
+
+\subsection{What Hopper Made Possible}
+
+Three hardware features in NVIDIA Hopper (compute capability 9.0)
+remove the technical obstacles that previously made persistent
+GPU actors awkward to formalize, let alone implement:
+
+\begin{enumerate}
+\item \textbf{Thread Block Clusters and Distributed Shared
+Memory~(DSMEM)}~\citep{nvidia2022hopper} extend the GPU memory
+hierarchy with a new tier between shared memory (per-block) and
+global memory (per-device).  Blocks within a cluster can address
+each other's shared memory at \(\sim\)30 cycles of latency,
+roughly an order of magnitude better than a global-memory
+round-trip.  This is the substrate that makes intra-cluster
+kernel-to-kernel (K2K) messaging viable as a first-class operation
+rather than a host-bounced affair.
+
+\item \textbf{Cooperative kernel launches} with
+\texttt{cuLaunchCooperativeKernel} and \texttt{cluster.sync()}
+permit grid-wide synchronization within a single kernel invocation.
+A persistent kernel can therefore run a producer–consumer loop with
+a synchronization barrier at the end of each iteration, without
+returning to the host.  This makes the actor's tick loop a real
+computational primitive rather than a host-orchestrated
+mini-launch sequence.
+
+\item \textbf{Stream-ordered asynchronous
+allocation}~(\texttt{cuMemAllocAsync}, \texttt{cuMemFreeAsync})
+permits the actor to allocate and free memory inside its own
+execution stream without the global-synchronization penalty of
+classical \texttt{cuMemAlloc}.  We measured a 116.9\(\times\)
+allocation latency improvement over the classical path on H100
+(878\,ns versus 102.6\,\(\mu\)s for 256-byte allocations); the
+formal model treats memory allocation as an asynchronous,
+stream-ordered side effect, exactly mirroring this primitive.
+\end{enumerate}
+
+The combination is genuinely new: it is the first time the GPU has
+exposed primitives sufficient to host a long-lived actor without the
+host driving every transition.
+
+\subsection{Contribution}
+
+We claim five contributions, presented in the order they unfold in
+the paper:
+
+\begin{enumerate}
+\item A \textbf{small-step operational semantics} for the persistent
+GPU actor lifecycle (\Cref{sec:model}).  The semantics is a
+six-state transition system
+(\Dormant{}\,\(\to\)\,\Initializing{}\,\(\to\)\,\Active{}\,\(\to\)\,
+\Draining{}\,\(\to\)\,\Terminated{}; \Failed{} as a fault attractor)
+defined over an explicit memory model that respects the GPU's SIMT
+execution semantics.  The semantics has been mechanized in
+\TLA{} and model-checked for the safety properties stated in
+\Cref{thm:lifecycle-soundness}.
+
+\item A \textbf{K2K messaging calculus} (\Cref{sec:k2k}) that
+describes message origination, routing, delivery, and dead-letter
+disposition for both intra-block and cross-block (DSMEM) channels.
+The calculus is parameterized by a backpressure policy
+(\(\mathsf{RejectAndDLQ}\) versus \(\mathsf{DropOldest}\)) and an
+optional idempotency cache; we prove
+(\Cref{thm:delivery-at-least-once}) that the underlying queue
+semantics yield at-least-once delivery and per-(source,\,destination)
+ordering.
+
+\item A \textbf{Hybrid Logical Clock integration} that gives causal
+ordering on a single device (\Cref{sec:supervision}).  We show
+(\Cref{thm:hlc-restart-monotone}) that supervisor-driven restart
+preserves HLC monotonicity: if an actor fails at HLC time \(t\)
+and is restarted from a snapshot taken at \(t' < t\), the new
+instance issues no message with HLC time
+\(\le t\).  This is the property that lets distributed-style causal
+reasoning extend cleanly across actor failure on a single GPU—a
+non-trivial result, because the snapshot loses physical-clock
+information that the live actor had.
+
+\item A \textbf{tenant-isolation model} (\Cref{sec:tenancy}) in
+which K2K sub-brokers are keyed on a two-tuple audit boundary
+\((\mathit{org\_id}, \mathit{engagement\_id})\).  We prove
+(\Cref{thm:cross-tenant-isolation}) that the supervisor's routing
+function admits no execution trace in which a message
+originating in tenant~\(T_1\) is delivered to an actor registered
+in tenant~\(T_2 \ne T_1\).  This is the property that makes the
+model usable in regulated domains (audit, compliance) where the
+isolation guarantee is itself a deliverable.
+
+\item \textbf{Empirical validation} on NVIDIA H100~NVL silicon
+(\Cref{sec:evaluation}): 75\,ns mapped-memory command injection,
+5.54\,M~messages/second sustained throughput, 0.628\,\(\mu\)s
+cluster-level synchronization, and 12,500\(\times\) speedup
+relative to the kernel-launch model on a workload representative of
+streaming graph analytics.
+All measurements were collected under locked GPU clocks, exclusive
+compute mode, and a statistical protocol calibrated against the
+reproducibility criteria of \citet{moss2002benchmarks}.
+\end{enumerate}
+
+\subsection{Audience and Scope}
+
+The paper is written for two audiences.  For the \emph{programming
+languages} reader, \Cref{sec:model,sec:k2k,sec:supervision,sec:tenancy}
+develop the formal model in the style of small-step operational
+semantics with proofs at the level of detail customary in the
+field.  For the \emph{GPU systems} reader, \Cref{sec:implementation}
+maps the formal model onto the \system{} runtime and discusses the
+engineering choices (CUDA driver-API surface, \texttt{cuMemAllocAsync}
+integration, NVTX profiling instrumentation) needed to realize each
+semantic primitive.  \Cref{sec:evaluation} presents the
+H100~NVL benchmarks and validates the numbers stated above.
+
+What the paper does \emph{not} cover: a complete account of the
+GPU memory-consistency model (we adopt the axiomatic model of
+\citet{lustig2014abstraction} and constrain our proofs to the
+operations that model defines), nor a comprehensive performance
+study against alternative GPU programming
+abstractions~(CUDA Graphs, Triton, JAX); we focus on the
+formal model and its mechanically-checkable properties, with
+benchmarks sized to validate the model rather than to claim
+superiority across all use cases.

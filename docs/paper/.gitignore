@@ -1,31 +1,19 @@
 # LaTeX build artifacts
 *.aux
-*.bbl
-*.blg
 *.log
 *.out
 *.toc
-*.lof
-*.lot
-*.fdb_latexmk
+*.bbl
+*.blg
 *.fls
+*.fdb_latexmk
 *.synctex.gz
-*.synctex(busy)
+sections/*.aux
 
-# PDF output (uncomment to track in git)
-# *.pdf
-
-# Latexmk
-*.latexmain
-
-# Editor backups
-*~
-*.bak
+# Editor swap files
 *.swp
-
-# macOS
+*.swo
 .DS_Store
 
-# arxiv submission
-arxiv-submission/
-ringkernel-arxiv.tar.gz
+# Built PDF — git-ignored during drafting; re-track manually at release tags.
+main.pdf

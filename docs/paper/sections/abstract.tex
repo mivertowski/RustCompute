@@ -1,0 +1,62 @@
+% sections/abstract.tex — Abstract
+\begin{abstract}
+The actor model has shaped fifty years of concurrent and distributed
+systems design~\citep{hewitt1973actors,agha1986actors}, yet its
+classical formulations assume CPU execution: preemptive scheduling,
+heap-allocated mailboxes, and operating-system-mediated supervision.
+GPU programming has evolved in parallel along an orthogonal axis,
+treating the device as a coprocessor that executes ephemeral kernels
+launched by the host.  The two paradigms have remained largely
+disjoint.  Recent hardware advances—NVIDIA Hopper's Thread Block
+Clusters and Distributed Shared Memory~(DSMEM), cooperative kernel
+launches with grid-wide synchronization, stream-ordered asynchronous
+allocation~\citep{nvidia2022hopper,nvidia2023cooperative}—remove the
+last technical obstacles to a different model: \emph{persistent
+GPU actors} that live on the device across the lifetime of the
+application, exchange messages through device-side queues without
+host mediation, and recover from faults under supervisor-driven
+restart policies.  No formal account of this model has appeared in
+the literature.
+
+We present \system{}, a Rust-based runtime that realizes persistent
+GPU actors, and the first formal model of their semantics.  Our
+contributions are:
+\textbf{(i)}~a small-step operational semantics for the actor
+lifecycle (\Dormant{}\,\(\to\)\,\Initializing{}\,\(\to\)\,\Active{}\,
+\(\to\)\,\Draining{}\,\(\to\)\,\Terminated{}, with \Failed{} as a
+fault attractor) that integrates with the GPU's SIMT execution
+model and grid-wide cooperative synchronization;
+\textbf{(ii)}~a kernel-to-kernel (K2K) messaging calculus with
+formal delivery semantics (at-least-once, per-(sender,\,destination)
+ordering, hop-bounded routing) and an explicit dead-letter discipline
+that distinguishes overflow drops from invalid-target drops, policy
+evictions, and idempotency rejections;
+\textbf{(iii)}~a Hybrid Logical Clock (HLC) integration that
+provides causal ordering across actors on a single device and is
+preserved across supervisor-driven restart, with a structural proof
+that snapshot-restore preserves causality;
+\textbf{(iv)}~a tenant-isolation model in which K2K sub-brokers are
+keyed on a two-tuple audit boundary (\(\mathit{org\_id},
+\mathit{engagement\_id}\)) and cross-tenant flow is forbidden by
+construction, with an information-flow argument that the supervisor's
+routing function admits no cross-tenant trace;
+\textbf{(v)}~empirical validation on NVIDIA H100~NVL silicon: 75\,ns
+mapped-memory command injection (8{,}698\(\times\) faster than
+\texttt{cuLaunchKernel}), 5.54\,M~messages/second sustained
+throughput with a coefficient of variation of 0.05\% over 60~seconds,
+and 0.628\,\(\mu\)s cluster-level synchronization
+(2.98\(\times\) faster than grid-wide synchronization).  The \TLA{}
+specifications backing each formal claim are open and machine-checked.
+
+The model and its proofs subsume three apparently unrelated design
+patterns observed in production GPU systems: persistent kernels for
+reduced launch overhead~\citep{gupta2012persistent,aila2009raytrace},
+device-side work queues for producer–consumer pipelines, and
+supervisor trees for fault containment.  We argue that
+\emph{persistent GPU actors} is the unifying abstraction these
+patterns approximate.  We close by sketching how the model extends
+to multi-tenant, multi-engagement workloads in regulated domains
+(audit, compliance, safety-critical reasoning) where formal
+cross-tenant isolation is itself a deliverable, not just an
+implementation detail.
+\end{abstract}

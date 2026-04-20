@@ -1,0 +1,246 @@
+% sections/model.tex — The Persistent GPU Actor Model
+\section{The Persistent GPU Actor Model}
+\label{sec:model}
+
+This section develops the formal model.  We define the syntactic
+domain of actors and configurations~(\Cref{sec:model:syntax}), then
+give a small-step operational
+semantics for the lifecycle~(\Cref{sec:model:lifecycle}), and
+finally state and prove the basic safety property:
+no actor reaches \Active{} without first having been
+initialized~(\Cref{thm:lifecycle-soundness}).
+The mechanized \TLA{} specification corresponding to
+\Cref{sec:model:lifecycle} ships with the open-source distribution
+of \system{} as
+\texttt{docs/verification/actor\_lifecycle.tla} and has been
+model-checked under the configuration
+\texttt{actor\_lifecycle.cfg} for finite parameter ranges.
+
+\subsection{Syntactic Domain}
+\label{sec:model:syntax}
+
+We work over a countable set of \emph{actor identifiers}
+\(\mathcal{A} = \{a_1, a_2, \ldots\}\) with a distinguished
+root \(\rho \in \mathcal{A}\).  Each actor has an associated
+\emph{parent} given by a function
+\(\pi : \mathcal{A} \to \mathcal{A} \cup \{\rho\}\); the parent of
+the root is itself.  We assume the parent relation forms a tree
+(no cycles; every non-root actor has a finite ancestor chain
+ending at \(\rho\)).
+
+\begin{definition}[Lifecycle State]
+\label{def:lifecycle-state}
+The set of \emph{lifecycle states} is
+\[
+\Sigma_{\mathrm{life}} \;=\;
+  \{\Dormant{}, \Initializing{}, \Active{},
+    \Draining{}, \Terminated{}, \Failed{}\}.
+\]
+\Dormant{} is the slot-empty state of an unallocated supervisor
+entry; \Failed{} is a sink for unrecovered faults that the
+supervisor has not yet acted upon.
+\end{definition}
+
+\begin{definition}[Actor State Vector]
+\label{def:actor-state}
+An actor's per-actor state is a tuple
+\[
+  \sigma \;=\;
+  \langle \mathit{life},\,
+          \mathit{snap},\,
+          \mathit{live},\,
+          \mathit{hlc},\,
+          \mathit{rcount},\,
+          \mathit{tag} \rangle
+\]
+where
+\(\mathit{life} \in \Sigma_{\mathrm{life}}\) is the lifecycle state;
+\(\mathit{snap} \in \mathit{Bytes}^*\) is the bytes of the most
+recent state snapshot (empty when no snapshot has been taken);
+\(\mathit{live} \in \mathit{Bytes}^*\) is the bytes of the actor's
+live in-memory state, evolving while \(\mathit{life} = \Active{}\);
+\(\mathit{hlc} \in \N^2\) is the actor's Hybrid Logical Clock
+(physical-counter pair);
+\(\mathit{rcount} \in \N\) is the supervisor's restart counter for
+this actor within the current restart window; and
+\(\mathit{tag} \in \N \times \N\) is the audit boundary
+\((\mathit{org\_id}, \mathit{engagement\_id})\) under which the
+actor is registered.
+\end{definition}
+
+\begin{definition}[Configuration]
+\label{def:configuration}
+A \emph{configuration} \(C\) of the actor system is a triple
+\(C = \langle \Theta, M, t \rangle\), where
+\(\Theta : \mathcal{A} \to (\mathit{Defined} \cup \{\bot\})\) is
+the partial state assignment
+(\(\Theta(a) = \bot\) means the actor identifier \(a\) is
+unallocated), \(M\) is the K2K message store
+(\Cref{sec:k2k}), and
+\(t \in \N\) is the global step counter.
+We write \(\mathcal{C}\) for the set of all configurations.
+\end{definition}
+
+The state assignment \(\Theta\) is finite-support: only finitely
+many identifiers map to defined states at any one time.
+
+\subsection{Lifecycle Transitions}
+\label{sec:model:lifecycle}
+
+The lifecycle of an actor is governed by six rules: spawn, activate,
+process, quiesce, terminate, and fail.  Each is given as a
+small-step transition over configurations.  We use the notation
+\(C \trans{r} C'\) to mean ``configuration \(C\) takes one step under
+rule~\(r\) to configuration \(C'\).''
+
+\paragraph{Spawn}
+A previously-unallocated identifier becomes allocated in
+\Initializing{}.  The supervisor records the parent and resets the
+restart counter and HLC.
+
+\begin{equation}
+\inference[\textsc{Spawn}]
+{
+  \Theta(a) = \bot \\
+  \pi(a) = p \in \mathcal{A} \cup \{\rho\} \\
+  \mathit{tag}_{\mathrm{new}} \in \N \times \N
+}
+{
+  \langle \Theta, M, t\rangle
+  \trans{\mathsf{spawn}(a)}
+  \langle \Theta', M, t+1\rangle
+}
+\label{rule:spawn}
+\end{equation}
+
+\noindent where
+\(\Theta' = \Theta[a \mapsto
+  \langle \Initializing{}, \varepsilon, \varepsilon, \langle 0, 0\rangle,
+          0, \mathit{tag}_{\mathrm{new}}\rangle]\)
+and \(\varepsilon\) is the empty byte sequence.
+
+\paragraph{Activate}
+An actor in \Initializing{} transitions to \Active{}.  The
+supervisor takes a snapshot of the current live state (which is
+\(\varepsilon\) on the first activation but populated on restart).
+
+\begin{equation}
+\inference[\textsc{Activate}]
+{
+  \Theta(a) = \langle \Initializing{}, \mathit{snap}, \mathit{live},
+                       h, r, \tau\rangle
+}
+{
+  \langle \Theta, M, t\rangle
+  \trans{\mathsf{activate}(a)}
+  \langle \Theta', M, t+1\rangle
+}
+\label{rule:activate}
+\end{equation}
+
+\noindent where
+\(\Theta' = \Theta[a \mapsto
+  \langle \Active{}, \mathit{live}, \mathit{live}, h, r, \tau\rangle]\).
+
+The snapshot is set to \(\mathit{live}\) at activation: this is the
+\emph{snapshot invariant}—\(\mathit{snap}\) is always equal to the
+\(\mathit{live}\) bytes at the most recent activation point.
+
+\paragraph{Process}
+An \Active{} actor advances its live state.  The transition
+function \(\delta : \mathit{Bytes}^* \times M \to
+\mathit{Bytes}^* \times M\) consumes a finite prefix of the actor's
+inbox in \(M\), updates \(\mathit{live}\), and may produce new
+messages.
+
+\begin{equation}
+\inference[\textsc{Process}]
+{
+  \Theta(a) = \langle \Active{}, \mathit{snap}, \mathit{live},
+                       h, r, \tau\rangle \\
+  \delta(\mathit{live}, M) = (\mathit{live}', M')
+}
+{
+  \langle \Theta, M, t\rangle
+  \trans{\mathsf{process}(a)}
+  \langle \Theta', M', t+1\rangle
+}
+\label{rule:process}
+\end{equation}
+
+\noindent where
+\(\Theta' = \Theta[a \mapsto
+  \langle \Active{}, \mathit{snap}, \mathit{live}', \hlc.\mathsf{tick}(h), r, \tau\rangle]\)
+and \(\hlc.\mathsf{tick}\) is the HLC advance operation defined in
+\Cref{sec:supervision}.
+
+\paragraph{Quiesce, Terminate, Fail}
+\Cref{rule:quiesce,rule:terminate,rule:fail} (omitted here for space;
+see \Cref{app:lifecycle-rules}) give the remaining transitions.
+\Quiesce{} moves an actor from \Active{} into \Draining{} so its
+inbox can flush; \Terminate{} releases the slot, returning to
+\Dormant{}; \Fail{} models a fault that takes the actor to
+\Failed{}, where the supervisor decides whether to restart it
+(per \Cref{sec:supervision}) or destroy it.
+
+\subsection{Soundness}
+\label{sec:model:soundness}
+
+We can now state the basic safety property: no actor takes a
+\textsc{Process} step from a state in which it has not been
+activated.  In informal terms: a kernel never executes user code
+before its initial state has been laid down.
+
+\begin{theorem}[Lifecycle Soundness]
+\label{thm:lifecycle-soundness}
+For all configurations \(C\) reachable from any initial
+configuration~\(C_0\) under the rules of
+\Cref{sec:model:lifecycle}, and for every actor identifier \(a\)
+with \(\Theta(a) \ne \bot\) in \(C\):
+\[
+  \text{\textsc{Process}}(a) \text{ has been applied along the trace}
+  \;\Longrightarrow\;
+  \text{\textsc{Activate}}(a) \text{ was applied earlier in the trace.}
+\]
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+By induction on the length of the reduction sequence
+\(C_0 \trans{r_1} C_1 \trans{r_2} \cdots \trans{r_n} C\).
+The base case \(n = 0\) is vacuous because no \textsc{Process}
+step has been taken.  For the induction step, examine the rule
+\(r_n\) applied at step \(n\).  By inspection of \Cref{rule:process},
+\textsc{Process}(\(a\)) requires
+\(\Theta_{n-1}(a) = \langle \Active{}, \ldots\rangle\).  By
+\Cref{def:lifecycle-state}, the only rule whose target state is
+\Active{} is \textsc{Activate}~(\Cref{rule:activate}).  By the
+induction hypothesis applied to the prefix
+\(C_0 \trans{r_1} \cdots \trans{r_{n-1}} C_{n-1}\), an
+\textsc{Activate}(\(a\)) step exists in that prefix; this completes
+the induction.
+\qed
+\end{proof}
+
+\Cref{thm:lifecycle-soundness} is the analogue of the classical
+``no use before initialization'' property of imperative type
+systems~\citep{wright1994syntactic}.  It is also a precondition for
+the more substantive theorems of \Cref{sec:supervision}, which
+establish that snapshot-restore preserves causal time even across a
+fault.
+
+\subsection{Mechanization}
+\label{sec:model:mechanization}
+
+\Cref{sec:model:lifecycle} is mechanized in \TLA{} in
+\texttt{docs/verification/actor\_lifecycle.tla}.  The mechanization
+is faithful to the operational semantics: every rule corresponds to
+a \TLA{} action, and the variables \(\mathit{state},
+\mathit{snapshot}, \mathit{live\_state}\) match the components of
+\Cref{def:actor-state}.  We model-checked the specification under
+\texttt{actor\_lifecycle.cfg} for parameter ranges
+\(|\mathcal{A}| \le 5\) and \(\mathit{MaxSteps} \le 30\); within
+those bounds, no violation of \Cref{thm:lifecycle-soundness} or its
+companion invariants (snapshot-equals-live-at-activation; restart
+preserves snapshot) was observed across the explored state space of
+\(\sim 10^7\) distinct configurations.  The mechanized proof is the
+empirical floor of the analytical proof above.

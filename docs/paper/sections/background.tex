@@ -1,0 +1,39 @@
+% sections/background.tex — Background
+\section{Background}
+\label{sec:background}
+
+\subsection{The Actor Model}
+\label{sec:bg:actor}
+
+Hewitt, Bishop and Steiger~\citep{hewitt1973actors} introduced the
+actor model in 1973 as a foundation for describing concurrent
+computation in artificial intelligence systems.  The model rests on
+three primitives: an actor processes messages from its mailbox one
+at a time, may send messages to actors whose identifiers it knows,
+and may create new actors.  No shared state, no locks.  Agha's
+1986 dissertation~\citep{agha1986actors} gave the first formal
+treatment, casting actor systems as labeled transition systems and
+establishing the equivalences that justify mailbox semantics.
+Subsequent work added typed actors~\citep{he2014typed},
+capabilities~\citep{clebsch2015pony}, and supervision
+trees~\citep{armstrong2007erlang}; the latter is the closest
+ancestor of \system{}'s supervisor design.
+
+\subsection{GPU Programming Conventions}
+\label{sec:bg:gpu}
+
+Stub: this subsection will summarise the kernel-launch model
+(grid/block/thread hierarchy, host-device memory transfer,
+synchronization conventions), the SIMT execution discipline, and
+the evolution from CUDA~3.0 (kernels as functions, no persistence)
+through CUDA~9.x (cooperative groups) to CUDA~12.x on Hopper
+(thread block clusters, DSMEM, async memory pools).
+
+\subsection{Persistent Kernels and Their Limits}
+\label{sec:bg:persistent}
+
+Stub: persistent kernel pattern from
+\citet{gupta2012persistent,aila2009raytrace,steinberger2014whippletree};
+why each prior approach stops short of the actor abstraction
+(typically because the kernel is treated as a single producer–consumer
+loop rather than a population of independently-supervised actors).
