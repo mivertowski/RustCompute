@@ -1,9 +1,306 @@
-% supervision.tex — Supervision and Causal Time
+% sections/supervision.tex — Supervision and Causal Time
 \section{Supervision and Causal Time}
 \label{sec:supervision}
 
-Stub: HLC ($\hlc.\mathsf{tick}$, $\hlc.\mathsf{merge}$),
-supervisor restart policies (Permanent, OneForOne, OneForAll,
-RestForOne; Erlang lineage), snapshot-restore mechanics,
-HLC-monotonicity-across-restart theorem. Mechanized in
-\texttt{docs/verification/hlc.tla}.
+The actor model assumes that any actor may fail, and that the system
+must arrange for either restart or destruction of the failed actor
+without corrupting the rest of the system.  In a CPU actor system,
+supervision is straightforward: the failed actor's mailbox can be
+rebuilt from heap, its state can be restored from a checkpoint or
+discarded, and its logical clock can simply continue from wherever
+it left off (the OS scheduler is not affected by an application-level
+fault).  On a GPU, none of these conveniences hold.  A failed kernel
+loses its registers, its shared memory, and its place in the SM
+schedule; restoring it means re-launching it from scratch and
+re-injecting its persistent state from a snapshot held in HBM.
+
+This section formalizes the supervisor protocol.  We begin with the
+Hybrid Logical Clock (HLC) machinery that underwrites causal
+ordering on a single device~(\Cref{sec:supervision:hlc}).  We then
+describe the four restart policies the supervisor offers
+(\Cref{sec:supervision:policies}), give a small-step semantics for
+the snapshot--restart cycle (\Cref{sec:supervision:restart}), and
+prove the central property: HLC monotonicity is preserved across
+restart, even though the supervisor must restart from a snapshot
+taken at an earlier physical time
+(\Cref{thm:hlc-restart-monotone}).  The mechanized counterpart lives
+in \texttt{docs/verification/hlc.tla}.
+
+\subsection{Hybrid Logical Clocks}
+\label{sec:supervision:hlc}
+
+The HLC, due to Kulkarni et~al.~\citep{kulkarni2014hlc}, combines the
+strengths of physical clocks (intuitive wall-clock semantics, useful
+for operators) with the strengths of logical clocks
+(\citet{lamport1978clocks}; causality preservation under message
+passing).  An HLC value is a pair \(\langle p, l\rangle \in \N^2\)
+where \(p\) is the physical-time component
+(microseconds since epoch, in the runtime; abstracted to a bounded
+counter in the spec) and \(l\) is the logical component (a
+within-physical-tick counter).
+
+We define two operations.  \(\hlc.\mathsf{tick}\) advances the local
+clock when an actor takes a local step:
+\[
+\hlc.\mathsf{tick}(\langle p, l\rangle, w) \;=\;
+  \begin{cases}
+    \langle w, 0\rangle             & \text{if } w > p, \\
+    \langle p, l + 1\rangle         & \text{otherwise,}
+  \end{cases}
+\]
+where \(w\) is the current wall-clock reading sampled at the moment of
+the tick.  \(\hlc.\mathsf{merge}\) advances the local clock on
+receipt of a message carrying timestamp \(\langle p_r, l_r\rangle\):
+\[
+\hlc.\mathsf{merge}(\langle p, l\rangle,
+                    \langle p_r, l_r\rangle, w) \;=\;
+  \langle p', l'\rangle
+\]
+where \(p' = \max(p, p_r, w)\) and
+\[
+  l' \;=\;
+  \begin{cases}
+    \max(l, l_r) + 1 & \text{if } p' = p = p_r, \\
+    l + 1            & \text{if } p' = p \neq p_r, \\
+    l_r + 1          & \text{if } p' = p_r \neq p, \\
+    0                & \text{otherwise } (p' = w),
+  \end{cases}
+\]
+(matching the four cases in
+\texttt{docs/verification/hlc.tla} lines 90--101 and \texttt{HlcClock::update}
+in \texttt{crates/ringkernel-core/src/hlc.rs}).
+
+Lexicographic order on HLC values gives a total order on all events
+in the system; the standard causality argument
+(\citet{kulkarni2014hlc}) shows that if event \(e_1\) happened-before
+\(e_2\) in Lamport's sense, then \(e_1\)'s HLC is lexicographically
+less than \(e_2\)'s.  We make explicit use of this property in
+\Cref{thm:hlc-restart-monotone}.
+
+\begin{property}[Per-Actor Monotonicity]
+\label{prop:hlc-per-actor-monotone}
+For any actor \(a\) and any two events \(e_1, e_2\) emitted by \(a\)
+during a single uninterrupted lifetime (i.e., between any two
+adjacent restarts), if \(e_1\) is emitted before \(e_2\), then
+\(e_1.\mathit{hlc} <_{\mathrm{lex}} e_2.\mathit{hlc}\).
+\end{property}
+
+\begin{proof}
+Direct from the definition of \(\hlc.\mathsf{tick}\): the new
+physical component is at least the old, and either the physical
+strictly increases (and the logical resets to zero, but the pair
+strictly increases lexicographically) or the physical is unchanged
+and the logical strictly increases.  The argument for
+\(\hlc.\mathsf{merge}\) is similar, using \(\max\) on the physical
+component.
+\qed
+\end{proof}
+
+The non-trivial question is what happens to monotonicity across a
+restart.  After a fault, the supervisor restores the actor from a
+snapshot taken at some earlier HLC time \(t_{\mathrm{snap}}\), and
+the actor begins emitting events again.  Naively, the new instance
+of the actor would tick its HLC from \(t_{\mathrm{snap}}\), and the
+events emitted just before the fault (with HLC \(t_{\mathrm{fault}}
+> t_{\mathrm{snap}}\)) would be ``in the future'' relative to the new
+instance's clock.  This is the property we must rule out.
+
+\subsection{Restart Policies}
+\label{sec:supervision:policies}
+
+\system{}'s supervisor follows the Erlang/OTP
+discipline~\citep{armstrong2007erlang}.  Each supervisor manages a
+set of children and applies one of four policies on a child's fault:
+
+\begin{description}
+\item[\textsc{Permanent}] Always restart on fault.
+\item[\textsc{OneForOne}] Restart only the failed child; leave
+siblings running.  This is the default for independent actors.
+\item[\textsc{OneForAll}] Restart the failed child and all its
+siblings.  Used when siblings share state that the supervisor cannot
+prove is consistent after a partial fault.
+\item[\textsc{RestForOne}] Restart the failed child and all
+siblings created after it (in spawn order).  Used when later
+siblings depend on the failed child's invariants.
+\end{description}
+
+The choice of policy is a configuration of the supervisor, not of the
+child; from the child's point of view, restart is a single semantic
+event regardless of which policy provoked it.  The HLC argument below
+is therefore independent of which restart policy fired.
+
+The supervisor also tracks a per-child restart counter
+(\(\mathit{rcount}\) in the actor's state vector,
+\Cref{def:actor-state}) and a window length.  If the count exceeds a
+configured maximum within the window, the supervisor escalates
+(forwards the fault to its own supervisor) rather than continuing to
+restart.  This bounds the restart-loop blast radius and is the
+mechanism by which supervisor trees achieve fault containment.
+
+\subsection{Snapshot--Restart Protocol}
+\label{sec:supervision:restart}
+
+A snapshot is taken at every \textsc{Activate} step
+(\Cref{rule:activate}): the supervisor copies the actor's
+\(\mathit{live}\) bytes into the \(\mathit{snap}\) field of the state
+vector.  The snapshot is therefore always equal to the actor's
+\(\mathit{live}\) state at the moment of the most recent activation.
+Between activations, \(\mathit{snap}\) is immutable; the actor mutates
+\(\mathit{live}\) via \textsc{Process} but cannot touch
+\(\mathit{snap}\).  This is the snapshot invariant.
+
+On a fault, the supervisor performs three steps:
+
+\begin{enumerate}
+\item \textbf{Capture}: the supervisor records the actor's HLC at the
+moment of the fault in a per-actor restart state, denoted
+\(\mathit{ret}(a) \in \N^2\).  We call this the \emph{retreat
+timestamp}.
+
+\item \textbf{Reset}: the actor's \(\mathit{live}\) is overwritten
+with \(\mathit{snap}\); \(\mathit{life}\) transitions to
+\Initializing{}; \(\mathit{rcount}\) is incremented; the actor's
+HLC is set to \(\mathit{ret}(a)\) (i.e., it picks up where it left
+off on the physical clock, even though its state has retreated).
+
+\item \textbf{Reactivate}: the actor transitions \Initializing{}
+\(\to\) \Active{} via the same \textsc{Activate} rule
+(\Cref{rule:activate}), which sets a fresh \(\mathit{snap}\) equal to
+the restored \(\mathit{live}\).
+\end{enumerate}
+
+The interesting technical move is step~2: although the actor's
+\emph{state} retreats to the snapshot's content, the actor's
+\emph{HLC} is set to the retreat timestamp \(\mathit{ret}(a)\) (the
+HLC value at the moment of the fault), not to whatever value the
+HLC had at the moment of the snapshot.  This decouples the data
+retreat from the time retreat: the new instance is at the same
+logical moment as the failed instance was, with the only difference
+being that its computational state is older.
+
+\begin{equation}
+\inference[\textsc{Restart}]
+{
+  \Theta(a) = \langle \Failed{}, \mathit{snap}, \mathit{live}, h, r, \tau\rangle \\
+  \mathit{ret}(a) = h_{\mathrm{ret}}
+}
+{
+  \langle \Theta, M, t\rangle
+  \trans{\mathsf{restart}(a)}
+  \langle \Theta', M, t+1\rangle
+}
+\label{rule:restart}
+\end{equation}
+
+\noindent where
+\(\Theta' = \Theta[a \mapsto
+  \langle \Initializing{}, \mathit{snap}, \mathit{snap},
+          h_{\mathrm{ret}}, r+1, \tau\rangle]\).
+
+\subsection{HLC Monotonicity Across Restart}
+\label{sec:supervision:monotonicity}
+
+The central property of the supervisor protocol is that HLC
+monotonicity—\Cref{prop:hlc-per-actor-monotone}—survives restart.
+Concretely: there is no \emph{observable} HLC value emitted by a
+restarted instance that is less-than-or-equal to an HLC value emitted
+by the failed instance.
+
+\begin{theorem}[HLC Restart Monotonicity]
+\label{thm:hlc-restart-monotone}
+Let \(a\) be an actor that fails at HLC time
+\(h_{\mathrm{fault}} \in \N^2\) and is restarted by
+\textsc{Restart}~(\Cref{rule:restart}).  For every event \(e\)
+emitted by the restarted instance of \(a\) (i.e., by any
+\textsc{Process} step taken from a configuration \(C'\) reachable
+after the \textsc{Restart} transition), we have
+\(h_{\mathrm{fault}} <_{\mathrm{lex}} e.\mathit{hlc}\).
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+Let \(h_{\mathrm{ret}}\) be the retreat timestamp captured by the
+supervisor at the moment of fault; by step~1 of the protocol,
+\(h_{\mathrm{ret}}\) is the HLC value the failed instance held at
+the moment of fault, which is the HLC value of the most recent
+event emitted by the failed instance.  Hence \(h_{\mathrm{fault}}
+\le_{\mathrm{lex}} h_{\mathrm{ret}}\).  By step~2 of the
+protocol~(\Cref{rule:restart}), the restarted instance's HLC is
+initialized to \(h_{\mathrm{ret}}\).  Any subsequent event \(e\)
+emitted by the restarted instance is the result of either a
+\(\hlc.\mathsf{tick}\) or a \(\hlc.\mathsf{merge}\) from a clock
+value that starts at \(h_{\mathrm{ret}}\); by
+\Cref{prop:hlc-per-actor-monotone} applied to the new instance's
+lifetime, every such event has HLC strictly greater than
+\(h_{\mathrm{ret}}\).  Therefore \(e.\mathit{hlc}
+>_{\mathrm{lex}} h_{\mathrm{ret}} \ge_{\mathrm{lex}}
+h_{\mathrm{fault}}\), as required.
+\qed
+\end{proof}
+
+The hypothesis is that the supervisor faithfully captures
+\(\mathit{ret}(a)\) before allowing the restart to proceed; if the
+supervisor were to skip step~1 and initialize the new instance at
+\(\hlc.\mathsf{tick}(h_{\mathrm{snap}})\) (i.e., from the
+snapshot's HLC), the property would fail because
+\(h_{\mathrm{snap}} <_{\mathrm{lex}} h_{\mathrm{fault}}\) and a
+single tick is not enough to overshoot \(h_{\mathrm{fault}}\) when
+the physical components match.  The runtime enforces step~1
+explicitly: the supervisor's restart logic refuses to issue
+\textsc{Restart} until \(\mathit{ret}(a)\) has been written to the
+durable supervisor state.
+
+\subsection{Causal Ordering Across Restart}
+\label{sec:supervision:causal}
+
+\Cref{thm:hlc-restart-monotone} has an immediate corollary in terms
+of message-passing causality:
+
+\begin{corollary}[Restart-Safe Causal Ordering]
+\label{cor:restart-causal}
+Let \(e_1\) be a message emitted by the failed instance of \(a\) and
+\(e_2\) be a message emitted by the restarted instance of \(a\).
+For any actor \(b\) that receives both \(e_1\) and \(e_2\), the HLC
+order \(e_1.\mathit{hlc} <_{\mathrm{lex}} e_2.\mathit{hlc}\) holds,
+and hence \(b\)'s
+\(\hlc.\mathsf{merge}\) operation will assign \(e_2\) a strictly
+greater HLC than \(e_1\).
+\end{corollary}
+
+\begin{proof}
+Direct from \Cref{thm:hlc-restart-monotone} by transitivity:
+\(e_1.\mathit{hlc} \le_{\mathrm{lex}} h_{\mathrm{fault}}
+<_{\mathrm{lex}} e_2.\mathit{hlc}\), where the first inequality
+holds because \(e_1\) was emitted by the failed instance no later
+than the moment of fault.  The merge property follows from the
+monotonic-merge property of the HLC
+(\citet{kulkarni2014hlc}, Theorem~3).
+\qed
+\end{proof}
+
+\Cref{cor:restart-causal} is the property that lets external
+observers (e.g., the audit trail of \Cref{sec:tenancy:audit}) treat
+a restarted actor's messages as causally subsequent to the failed
+instance's messages, even when the actor's data has retreated.  This
+is the analogue, in our setting, of the durability guarantees of
+write-ahead logging in a CPU database.
+
+\subsection{Mechanization}
+\label{sec:supervision:mechanization}
+
+The HLC machinery is mechanized in \TLA{} in
+\texttt{docs/verification/hlc.tla}.  The mechanization keeps the
+HLC values, the wall-clock counter, and a sequence of emitted
+events; it model-checks the invariants \texttt{PhysicalTimeMonotonic},
+\texttt{CausalOrdering}, \texttt{PerNodeMonotonic}, and
+\texttt{EventCountsBounded}.  The restart rule of
+\Cref{rule:restart} is not represented directly in
+\texttt{hlc.tla}—the spec is restricted to single-instance per node
+HLC dynamics—but the property of \Cref{thm:hlc-restart-monotone}
+follows from \texttt{PerNodeMonotonic} and the protocol invariant
+that \(\mathit{ret}(a)\) is captured before \textsc{Restart},
+provable analytically as above.  The actor-lifecycle spec in
+\texttt{actor\_lifecycle.tla} models the snapshot--restart cycle
+without explicit HLC; the two specs together cover the property as
+stated.  Folding the two specs together so that TLC can check
+\Cref{thm:hlc-restart-monotone} directly is a target for v1.1 of
+the verification suite (see \Cref{sec:discussion}).

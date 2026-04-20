@@ -1,12 +1,125 @@
-% discussion.tex — Discussion
+% sections/discussion.tex — Discussion
 \section{Discussion}
 \label{sec:discussion}
 
-Stub: Limits of the model (we don't model warp divergence
-explicitly; cooperative-group failure semantics under hardware
-fault remain heuristic). Avenues: extending to multi-vendor
-backends (AMD HIP, Intel oneAPI), formalizing migration semantics
-across devices (only model-checked, not analytically proved),
-NSAI integration as the motivating workload. Open question: can
-we model-check at scales relevant to production GPU workloads,
-or do we need symbolic abstraction techniques?
+\subsection{What the Model Does Not Cover}
+\label{sec:disc:limits}
+
+We collect, in one place, the ways in which the formal model
+abstracts over the runtime.  Each is a candidate for future work
+and a limitation of the current paper's claims.
+
+\paragraph{Warp divergence}
+The model treats a \textsc{Process} step as atomic; in the runtime,
+a \textsc{Process} step is executed by a warp of 32 threads in SIMT
+fashion, and divergent control flow within the warp serializes
+through predicated execution.  The cost model the runtime presents
+to applications is conservative (assume the worst-case branch);
+the formal calculus is silent on divergence.  A finer-grained
+calculus that models per-thread state and predicated execution
+would let one prove tighter bounds for divergent actor bodies but
+would substantially complicate every theorem.  We chose the
+coarser abstraction.
+
+\paragraph{Cooperative-group fault semantics}
+Cooperative kernel launches assume that all blocks of the grid are
+co-resident on the SMs; if an SM faults (e.g., ECC uncorrected
+error), the entire kernel is torn down and the supervisor must
+restart all actors of the failed grid.  The formal model treats
+this as ``every actor's life'' transitioning to \Failed{} via a
+single supervisor-issued \textsc{Fail} step; the actual
+device-level fault recovery is not modeled.  A more complete
+model would distinguish recoverable per-block faults from
+unrecoverable per-grid faults; we leave this to future work.
+
+\paragraph{Migration semantics across devices}
+Multi-GPU \system{} (CUDA Toolkit 12.x with NVLink P2P) supports
+actor migration between devices via a three-phase protocol
+(quiesce, transfer state, swap registration).  The protocol is
+mechanized in \texttt{docs/verification/migration.tla} and
+\texttt{multi\_gpu\_k2k.tla}; the bounded model checker accepts the
+specs without violation, but we do not give an analytical proof in
+this paper.  Migration adds two complications: HLC merge across
+devices (where wall-clock skew between hosts is non-negligible)
+and DSMEM availability (DSMEM is per-device, so the destination
+device must rebuild the cluster topology before the actor resumes).
+We defer the analytical treatment to a companion paper.
+
+\paragraph{Adversary model for tenant isolation}
+The cross-tenant-isolation theorem
+(\Cref{thm:cross-tenant-isolation}) is proved against the calculus's
+own routing rule.  It is not proved against an adversary who can
+subvert the runtime—e.g., by forging an audit tag, by writing
+directly into another tenant's HBM region, or by exploiting a
+device-level memory-protection failure.  Such an adversary is
+outside the scope of the formal model; defending against it is a
+question of runtime hardening (we discussed defense in depth in
+\Cref{sec:tenancy:limits}).  An adversary-aware version of the
+isolation theorem would require modeling the device's memory
+protection guarantees, which depend on hardware features (e.g.,
+Multi-Instance GPU, Confidential Computing for Hopper) we have
+not yet incorporated.
+
+\subsection{Open Questions}
+\label{sec:disc:open}
+
+\paragraph{Scaling the verification}
+The bounded \TLA{} verification covers parameter ranges of 2--3
+actors per spec, 4--10 messages per spec, queue capacity 2--4.  This
+is sufficient to expose state-machine bugs (the kind that show up at
+small configurations or do not show up at any) but does not cover
+production scales (thousands of actors, millions of messages).
+Scaling the verification will likely require symbolic abstraction
+techniques or compositional reasoning; a TLAPS-style proof of a
+scale-invariant invariant, separately verified by TLC at small
+scales, is one direction.
+
+\paragraph{Heterogeneous backends}
+The formal model is GPU-agnostic in its statement (no rule
+references CUDA-specific primitives) but GPU-specific in its
+implementation: AMD HIP and Intel oneAPI offer analogous
+primitives, but the cost models differ enough that the same
+calculus on a different backend would produce a different
+performance profile.  A unified backend abstraction in
+\texttt{ringkernel-core} that maps the same high-level rules onto
+CUDA, HIP, and oneAPI realizations is the largest engineering
+direction we see.
+
+\paragraph{NSAI (neuro-symbolic AI) workloads}
+The motivating workload for \system{} is neuro-symbolic
+reasoning: a population of actors representing logical rules, a
+neural-network actor representing perception, a supervisor
+actor coordinating restart on rule-engine timeouts.  We expect to
+report on this workload in a follow-up paper.  The formal model
+of this paper is the substrate; the NSAI application is the test
+of whether the substrate's primitives compose into something
+domain-experts can reason about productively.
+
+\paragraph{Comparison against alternative GPU programming abstractions}
+We focused this paper on the formal model and validated the
+empirical numbers against the formal claims.  A comprehensive
+performance study against Triton, JAX, and CUDA Graphs across
+diverse workloads is out of scope here; we expect specific
+workloads will favor each of those abstractions over \system{},
+and equally specific workloads will favor \system{} over each of
+them (in particular, workloads with long-lived per-actor state and
+fine-grained inter-actor messaging).  Sketching the trade-off
+landscape is future work.
+
+\subsection{The Bigger Picture}
+\label{sec:disc:big}
+
+The unstated argument of this paper is that the GPU has finally
+become a target for systems work, not just for numerics.  For
+twenty years the GPU has been a coprocessor: the host writes a
+batch of data, calls a function, reads the results back.  The
+hardware features Hopper added—clusters, DSMEM, asynchronous
+allocation, cooperative launches—are not just performance features;
+they are systems features that for the first time let a programmer
+treat the GPU as a long-running computational fabric.  Our
+contribution is to take that fabric seriously as a target for the
+actor model.  We expect, but cannot yet prove, that the same
+fabric will support analogues of other systems abstractions
+(databases, queues, schedulers, supervisors of other kinds) and
+that the formal-model-then-mechanization methodology we apply here
+will translate.

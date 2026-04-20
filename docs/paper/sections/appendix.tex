@@ -1,16 +1,154 @@
-% appendix.tex — Lifecycle Rules: Quiesce, Terminate, Fail
+% sections/appendix.tex — Appendix
 \section{Lifecycle Rules: Quiesce, Terminate, Fail}
 \label{app:lifecycle-rules}
 
-Stub: full SOS rules for the three lifecycle transitions omitted
-from the body of \Cref{sec:model}. Each is presented in the same
-inference-rule style as \Cref{rule:spawn,rule:activate,rule:process}.
+For space, the body of \Cref{sec:model:lifecycle} gave the SOS rules
+for \textsc{Spawn}, \textsc{Activate}, and \textsc{Process} only.
+This appendix gives the three remaining rules, completing the
+six-rule lifecycle of \Cref{def:lifecycle-state}.  Each is an
+inference rule over configurations \(\langle \Theta, M, t\rangle\)
+in the same style as the body rules.
 
 \subsection{Quiesce}
 \label{rule:quiesce}
 
+An \Active{} actor transitions to \Draining{} on receipt of a
+quiesce signal from the supervisor.  In \Draining{}, the actor's
+\textsc{Process} step continues to consume queued messages but the
+actor accepts no new messages from the K2K bus; once the inbox is
+empty, the supervisor may transition the actor to \Terminated{}
+via the \textsc{Terminate} rule below.
+
+\begin{equation}
+\inference[\textsc{Quiesce}]
+{
+  \Theta(a) = \langle \Active{}, \mathit{snap}, \mathit{live},
+                       h, r, \tau\rangle
+}
+{
+  \langle \Theta, M, t\rangle
+  \trans{\mathsf{quiesce}(a)}
+  \langle \Theta', M, t+1\rangle
+}
+\end{equation}
+
+\noindent where
+\(\Theta' = \Theta[a \mapsto
+  \langle \Draining{}, \mathit{snap}, \mathit{live},
+          h, r, \tau\rangle]\).
+
+The K2K layer enforces the ``no new messages'' contract by
+consulting the destination's lifecycle state at the moment of
+\textsc{SendOK}: an envelope addressed to a \Draining{} actor is
+short-circuited to the dead-letter store with reason
+\state{InvalidTarget} (the precondition of \Cref{rule:k2k-send}
+implicitly requires the destination to be \Active{}).
+
 \subsection{Terminate}
 \label{rule:terminate}
 
+A \Draining{} actor whose inbox is empty transitions to
+\Terminated{}, after which the supervisor may release the actor's
+slot (back to \Dormant{}).  We give the two-step variant: first
+\textsc{Terminate}, then \textsc{Release}.
+
+\begin{equation}
+\inference[\textsc{Terminate}]
+{
+  \Theta(a) = \langle \Draining{}, \mathit{snap}, \mathit{live},
+                       h, r, \tau\rangle \\
+  Q(a) = \varepsilon
+}
+{
+  \langle \Theta, M, t\rangle
+  \trans{\mathsf{terminate}(a)}
+  \langle \Theta', M, t+1\rangle
+}
+\end{equation}
+
+\noindent where
+\(\Theta' = \Theta[a \mapsto
+  \langle \Terminated{}, \mathit{snap}, \mathit{live},
+          h, r, \tau\rangle]\).
+
+\begin{equation}
+\inference[\textsc{Release}]
+{
+  \Theta(a) = \langle \Terminated{}, \ldots\rangle
+}
+{
+  \langle \Theta, M, t\rangle
+  \trans{\mathsf{release}(a)}
+  \langle \Theta[a \mapsto \bot], M, t+1\rangle
+}
+\end{equation}
+
+The two-step pattern (terminate, then release) is operationally
+useful: between the two steps, the actor's snapshot and final HLC
+are still readable for audit purposes.  The supervisor records this
+window in its persistent log; the runtime exposes it through
+\texttt{GET /api/v1/admin/actor/:id/snapshot} for as long as the
+operator has not issued \textsc{Release}.
+
 \subsection{Fail}
 \label{rule:fail}
+
+A fault in any non-terminal lifecycle state moves the actor to
+\Failed{}.  The supervisor decides next whether to restart
+(\Cref{rule:restart}) or to terminate.
+
+\begin{equation}
+\inference[\textsc{Fail}]
+{
+  \Theta(a) = \langle \ell, \mathit{snap}, \mathit{live}, h, r, \tau\rangle \\
+  \ell \in \{\Initializing{}, \Active{}, \Draining{}\}
+}
+{
+  \langle \Theta, M, t\rangle
+  \trans{\mathsf{fail}(a)}
+  \langle \Theta', M, t+1\rangle
+}
+\end{equation}
+
+\noindent where
+\(\Theta' = \Theta[a \mapsto
+  \langle \Failed{}, \mathit{snap}, \mathit{live}, h, r, \tau\rangle]\).
+
+The \textsc{Fail} rule does not specify the cause; the runtime
+distinguishes timeouts (the actor missed a tick deadline),
+explicit panics (the actor's \(\delta\) returned an error), and
+device faults (the underlying SM raised an unrecoverable error).
+The supervisor's restart policy
+(\Cref{sec:supervision:policies}) consults the cause to decide
+whether to restart, escalate, or terminate; the formal model
+abstracts this into a non-deterministic choice between
+\textsc{Restart}~(\Cref{rule:restart}) and a chained
+\textsc{Terminate}~/~\textsc{Release} sequence.
+
+\subsection{Composite Properties}
+\label{app:composite-properties}
+
+The six rules together produce the lifecycle state machine:
+
+\[
+\Dormant{} \;\xrightarrow{\textsc{Spawn}}\;
+\Initializing{} \;\xrightarrow{\textsc{Activate}}\;
+\Active{}
+\begin{cases}
+\xrightarrow{\textsc{Process}} \Active{} & \text{(self-loop)} \\
+\xrightarrow{\textsc{Quiesce}} \Draining{}
+  \xrightarrow{\textsc{Terminate}} \Terminated{}
+  \xrightarrow{\textsc{Release}} \Dormant{} \\
+\xrightarrow{\textsc{Fail}} \Failed{}
+  \xrightarrow{\textsc{Restart}} \Initializing{}
+\end{cases}
+\]
+
+The rules are mutually exclusive on the source state: at most one
+rule applies to any given configuration for a given actor at a
+given step.  This is the basis of the determinism argument that
+underwrites the soundness theorem of \Cref{thm:lifecycle-soundness}:
+since each rule has a unique target state per source state, the
+configuration's evolution is determined (modulo the supervisor's
+non-deterministic policy choices) by the trace of supervisor
+actions and message arrivals.

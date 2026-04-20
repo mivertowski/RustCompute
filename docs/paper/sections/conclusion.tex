@@ -1,11 +1,58 @@
-% conclusion.tex — Conclusion
+% sections/conclusion.tex — Conclusion
 \section{Conclusion}
 \label{sec:conclusion}
 
-Stub: We presented the first formal model of persistent GPU
-actors, mechanized in TLA+, validated empirically on H100. The
-model unifies persistent kernels, device-side queues, and
-supervision trees under a single semantic framework. Open
-artifacts: TLA+ specs in \texttt{docs/verification/}, RingKernel
-v1.0.0 source under MIT license, benchmark raw data under
-\texttt{target/criterion/}.
+We presented the first formal model of persistent GPU actors—a
+small-step operational semantics for the actor lifecycle on a
+single GPU, mechanized in \TLA{} and validated empirically on
+NVIDIA H100~NVL silicon.  The model is the unifying abstraction
+behind three apparently unrelated patterns observed in production
+GPU systems: persistent kernels (the lifecycle without supervision
+or causal time), device-side work queues (the K2K calculus without
+audit boundaries), and supervisor trees (the supervision discipline
+without a formal substrate).  By formalizing the substrate, we
+make each of those patterns derivable as a special case rather
+than a separate engineering accident.
+
+The technical contributions—the lifecycle calculus
+(\Cref{sec:model}), the K2K messaging discipline
+(\Cref{sec:k2k}), the HLC integration with restart
+(\Cref{sec:supervision}), and the cross-tenant isolation theorem
+(\Cref{sec:tenancy})—were chosen to be the smallest set of
+properties that an audit-grade or compliance-grade GPU runtime
+must demonstrate.  Each is mechanized; each is mapped to a Rust
+module in the open-source \texttt{ringkernel-core} runtime; each
+is validated against H100 measurements that ship with the
+distribution under \texttt{docs/benchmarks/}.
+
+The empirical results—8{,}698$\times$ command-injection speedup,
+5.54~M~msg/s sustained throughput at CV 0.05\%, 0.628~$\mu$s
+cluster-level synchronization, 116.9$\times$ async memory
+allocation speedup—do not by themselves justify the actor model on
+the GPU; they justify the proposition that, having chosen the
+actor model on the GPU, the runtime can be built on hardware
+primitives that meet the cost expectations actor systems impose on
+their substrates.  The model gives the actor abstraction; the
+hardware finally gives the substrate; the paper is the bridge.
+
+\paragraph{Open artifacts}
+All artifacts referenced in this paper are available in the
+\system{} open-source distribution under MIT license:
+
+\begin{itemize}
+\item \texttt{docs/verification/} — the \TLA{} specifications,
+\texttt{tlc.sh} runner, and per-spec configuration files.
+\item \texttt{crates/ringkernel-core/}, \texttt{ringkernel-cuda/},
+\texttt{ringkernel-cuda-codegen/} — the runtime source.
+\item \texttt{docs/benchmarks/} — the methodology document, the
+academic-proof report, and the H100/B200 baseline characterization.
+\item \texttt{target/criterion/} (after running the benchmark
+suite) — raw data, including per-trial timings and confidence
+intervals.
+\item \texttt{docs/paper/} — the source of this paper, including
+the build automation in \texttt{Makefile}.
+\end{itemize}
+
+The repository is at the URL stated in the paper metadata; pull
+requests, formal-model extensions, and adversary-aware additions
+are welcome.

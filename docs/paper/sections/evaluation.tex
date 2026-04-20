@@ -1,12 +1,278 @@
-% evaluation.tex — Evaluation
+% sections/evaluation.tex — Evaluation
 \section{Evaluation}
 \label{sec:evaluation}
 
-Stub: H100 NVL benchmark suite from 2026-04-16
-(\texttt{docs/benchmarks/ACADEMIC\_PROOF.md}). Headline numbers:
-75ns mapped-memory injection (8698x vs cuLaunchKernel),
-5.54M ops/s sustained (CV 0.05\% over 60s), 0.628\,$\mu$s
-cluster.sync (2.98x vs grid.sync), 116.9x async memory alloc
-speedup. Methodology: locked GPU clocks, exclusive compute mode,
-20 trials per data point, 95\% CI, Welch's t-test for between-
-condition differences.
+The evaluation is structured around the formal model: each
+benchmark either validates a specific operational primitive on
+which the model depends, or measures a system-level property the
+model predicts.  We do not claim a comprehensive comparison against
+all GPU programming abstractions; we benchmark against the
+host-driven kernel-launch baseline and against CUDA Graphs (the
+strongest publicly-documented host-driven alternative), and
+report the headline numbers that the formal model's headline
+claims rest on.
+
+All measurements were collected on 2026-04-16 on a single H100~NVL
+under the conditions described in
+\Cref{sec:eval:methodology}; raw data is available in
+\texttt{target/criterion/} in the open-source distribution, and the
+methodology document is \texttt{docs/benchmarks/METHODOLOGY.md}.
+
+\subsection{Methodology}
+\label{sec:eval:methodology}
+
+We follow the protocol of \citet{moss2002benchmarks}, augmented for
+GPU benchmarking with the recommendations of
+\citet{georges2007rigorous} on confidence-interval reporting and
+between-condition statistical testing.  Concretely:
+
+\begin{itemize}
+\item GPU clocks are locked at 1{,}785~MHz via
+\texttt{nvidia-smi -lgc}; persistence mode is enabled
+(\texttt{nvidia-smi -pm 1}); compute mode is set to
+\texttt{EXCLUSIVE\_PROCESS} to preclude background contention.
+
+\item Each measurement is replicated across 20 independent trials,
+each consisting of 1{,}000 inner iterations; the per-iteration
+timing is reported with a 95\% confidence interval.
+
+\item Between-condition comparisons (e.g., persistent actor vs.\
+\texttt{cuLaunchKernel}) report Cohen's~\(d\) and a Welch's
+\(t\)-test \(p\)-value; the difference is considered significant if
+\(p < 10^{-3}\) and \(|d| > 2\) (very large effect).
+
+\item All measurements are taken on the same host (Azure NC80adis
+H100~v5; AMD EPYC 9V84 96-core, 314~GiB DDR5, 1\(\times\)
+H100~NVL with 95{,}830~MiB HBM3 and ECC enabled), CUDA Toolkit
+12.8 (V12.8.93), driver 595.58.03.
+
+\item ECC error counts are sampled before and after each trial;
+trials in which any ECC corrected error appears are discarded
+(zero discards across the reported runs).
+\end{itemize}
+
+\subsection{Command Injection}
+\label{sec:eval:injection}
+
+The first claim is that mapped-memory command injection eliminates
+the kernel-launch overhead that dominates host-orchestrated GPU
+workloads.  We compare three execution models (\Cref{tab:injection}):
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Model & Per-cmd ($\mu$s) & Total ($\mu$s) & 95\% CI ($\mu$s) & vs.\ baseline \\
+\midrule
+\texttt{cuLaunchKernel} (baseline) & 1.583 & 1{,}583.1 & $\pm$6.0 & 1.0$\times$ \\
+CUDA Graph replay & 0.547 & 546.9 & $\pm$12.3 & 2.9$\times$ \\
+Persistent actor (mapped mem) & 0.000 & 0.2 & $\pm$0.0 & \textbf{8{,}698$\times$} \\
+\bottomrule
+\end{tabular}
+\caption{Command injection latency, 1{,}000 commands per trial, 20
+trials.  Persistent-actor latency is the time to issue a
+\texttt{volatile} write to a 32-bit slot in mapped memory; the
+device picks up the command at the start of its next tick.}
+\label{tab:injection}
+\end{table}
+
+The Welch's \(t\)-test on the persistent-actor versus
+\texttt{cuLaunchKernel} comparison gives \(p < 10^{-20}\) with
+Cohen's \(d \gg 2.0\); the persistent-actor versus CUDA-Graph
+comparison is similarly significant (\(p < 10^{-20}\), \(d \gg
+2.0\)).  The 8{,}698$\times$ figure is the strongest single result
+in the paper: it is what makes the persistent-kernel substrate
+viable for sub-microsecond actor injection at all.
+
+The interpretation, in terms of the formal model, is that the
+\textsc{Process} step's setup cost (the host's contribution to
+``ready the actor for one tick'') is essentially free in the
+persistent-kernel model and substantial in either of the
+host-orchestrated alternatives.  Workloads in which the actor's
+work per tick is small (telemetry aggregation, sensor fusion,
+streaming graph updates) can amortize the host's setup cost only in
+the persistent-kernel design.
+
+\subsection{K2K Throughput and Stability}
+\label{sec:eval:throughput}
+
+The second claim is that the K2K calculus's lock-free queues sustain
+high throughput at low latency, with stability sufficient for
+operational use.  We measured per-message latency at four payload
+sizes (\Cref{tab:k2k-latency}) and a 60-second sustained run at the
+1~KiB payload size to characterize stability
+(\Cref{tab:k2k-sustained}).
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Payload & Latency (ns) & 95\% CI (ns) & Throughput (M~msg/s) \\
+\midrule
+64 B   & 72.28  & [72.26, 72.32] & 13.83 \\
+256 B  & 74.67  & [74.65, 74.70] & 13.39 \\
+1 KiB  & 82.64  & [82.61, 82.68] & 12.10 \\
+4 KiB  & 177.50 & [177.47, 177.53] & 5.63 \\
+\bottomrule
+\end{tabular}
+\caption{K2K per-message latency by payload size, 1{,}000 messages
+per trial, 20 trials, in-block (\textsc{Smem}) tier.}
+\label{tab:k2k-latency}
+\end{table}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lr}
+\toprule
+Metric & Value \\
+\midrule
+Duration & 60.0 s \\
+Total operations & 315{,}169{,}092 \\
+Mean throughput & \textbf{5.54~M~msg/s} \\
+Coefficient of variation & \textbf{0.05\%} \\
+p50 latency & 70 ns \\
+p95 latency & 80 ns \\
+p99 latency & 100 ns \\
+Throughput drift (first vs.\ last 1-s window) & 0.1\% \\
+Memory growth & 0 MiB \\
+ECC errors & 0 \\
+\bottomrule
+\end{tabular}
+\caption{K2K sustained run, 60 seconds, 1~KiB payload.  CV of
+0.05\% is two orders of magnitude below the conventional
+``extremely stable'' threshold (1\%) and three orders below the
+``stable'' threshold (5\%).}
+\label{tab:k2k-sustained}
+\end{table}
+
+The throughput in \Cref{tab:k2k-sustained} is lower than the
+inverse of the 70~ns~p50 latency would suggest: the gap is the
+device-side BSP barrier between phases of the persistent kernel
+(per \Cref{sec:implementation:kernel}).  Each iteration of the
+kernel processes one message per actor; the throughput is the
+product of actor count and tick rate.  At 5.54~M~msg/s with a
+4-block, 256-thread cluster, this is roughly 5.4~K
+messages/actor/second, sustained for 60 seconds without drift.
+
+\subsection{Cluster-Level Synchronization}
+\label{sec:eval:cluster}
+
+The third claim is that Hopper's cluster-scoped synchronization is
+substantially cheaper than grid-wide synchronization, and that
+this difference is exploitable by the K2K calculus's tier choice
+(\Cref{sec:k2k:tiers}).  \Cref{tab:cluster-sync} compares
+\texttt{cluster.sync()} and \texttt{grid.sync()} under identical
+conditions.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Method & Per-sync ($\mu$s) & Total ($\mu$s) & 95\% CI ($\mu$s) & Std Dev ($\mu$s) \\
+\midrule
+\texttt{cluster.sync()} & \textbf{0.628} & 628.2 & $\pm$1.4 & 3.1 \\
+\texttt{grid.sync()}    & 1.875          & 1{,}874.9 & $\pm$3.5 & 8.0 \\
+\bottomrule
+\end{tabular}
+\caption{Synchronization latency, 1{,}000 syncs per trial, 20
+trials, 4-block $\times$ 256-thread workload.}
+\label{tab:cluster-sync}
+\end{table}
+
+The 2.98$\times$ speedup of \texttt{cluster.sync()} over
+\texttt{grid.sync()} (\(p < 10^{-20}\), Cohen's \(d \gg 2.0\))
+follows directly from the architecture: cluster-scoped barriers
+synchronize only blocks within a single GPC, while grid-scoped
+barriers synchronize across all GPCs and incur the GPC-to-GPC
+communication cost.  In K2K terms, this means the
+\textsc{Smem} and \textsc{Dsmem} tiers can iterate at
+0.628~$\mu$s/tick while the \textsc{Hbm} tier is bounded by the
+1.875~$\mu$s/tick of \texttt{grid.sync()}.  The K2K tier choice is
+not just a memory-tier choice; it is also a synchronization-tier
+choice.
+
+\subsection{Asynchronous Memory Allocation}
+\label{sec:eval:async-mem}
+
+The fourth claim is that stream-ordered asynchronous allocation
+(\Cref{sec:bg:gpu}, third paragraph) eliminates the global driver
+lock that dominates the cost of classical \texttt{cuMemAlloc}.
+\Cref{tab:async-alloc} reports the comparison at a 256-byte
+allocation size.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrr}
+\toprule
+Method & Per-alloc (ns) & Speedup \\
+\midrule
+\texttt{cuMemAlloc} (synchronous) & 102{,}576 & 1.0$\times$ \\
+\texttt{cuMemAllocAsync} (stream-ordered) & \textbf{878} & \textbf{116.9$\times$} \\
+\bottomrule
+\end{tabular}
+\caption{Allocation latency, 256-byte allocations, 1{,}000
+allocations per trial, 20 trials.}
+\label{tab:async-alloc}
+\end{table}
+
+The 116.9$\times$ improvement is essential to the
+``free actor allocation in the actor's own stream'' assumption of
+\Cref{sec:implementation:driver}: at 102~$\mu$s per allocation,
+spawning a thousand actors would consume 100~ms of host time and
+serialize against every other CUDA stream; at 878~ns, the same
+thousand spawns consume under 1~ms and overlap freely with other
+stream work.
+
+\subsection{Application Workloads}
+\label{sec:eval:apps}
+
+To validate that the formal model's primitives compose into useful
+applications, we measured three end-to-end workloads built on
+\system{}.  We do not analyze them in detail here; the numbers are
+included to characterize the system at the application level.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Workload & Backend & Throughput & Speedup vs.\ CPU \\
+\midrule
+WaveSim3D (FDTD, $64^3$)        & GPU stencil    & 78{,}089 Mcell/s & 217.9$\times$ \\
+WaveSim3D (FDTD, $64^3$)        & GPU block actor & 18{,}633 Mcell/s & 52.1$\times$ \\
+TxMon (fraud detection)          & CUDA codegen   & 205.31 G~tx/s & 15{,}624$\times$ \\
+ProcInt (process mining DFG)     & GPU            & 10.83 M~ev/s & --- \\
+\bottomrule
+\end{tabular}
+\caption{Three application workloads on H100~NVL.  Speedups are
+relative to CPU baseline (Rayon, 40 cores).  WaveSim3D is reported
+with two backends to show the cost of the actor abstraction over a
+hand-tuned stencil kernel: 4.2$\times$ slowdown for the actor model,
+which is the price of the lifecycle and supervision machinery.}
+\label{tab:apps}
+\end{table}
+
+The WaveSim3D row in \Cref{tab:apps} is the most informative number
+for this paper: it isolates the cost of the actor abstraction by
+comparing the same workload run as a hand-tuned stencil kernel
+versus run as a population of block actors.  The 4.2$\times$ slowdown
+is the headline ``what does the actor model cost?'' figure.  For
+workloads where the abstraction is essential (multi-actor
+composition, supervisor-driven restart, cross-tenant isolation),
+the cost is paid once for the framework rather than rebuilt per
+application.
+
+\subsection{Reproducibility}
+\label{sec:eval:repro}
+
+All measurements are reproducible from the open-source distribution
+of \system{} at the commit recorded in
+\texttt{docs/benchmarks/h100-b200-baseline.md} (commit 42724ae,
+RingKernel 0.4.2; the equivalent v1.0 release artifact is on the
+release branch).  The full benchmark suite is invokable as
+\texttt{cargo bench --workspace -p ringkernel-cuda --features cuda},
+which produces the Criterion HTML reports under
+\texttt{target/criterion/}; the methodology document
+\texttt{docs/benchmarks/METHODOLOGY.md} describes the GPU clock
+locking, exclusive compute mode, and ECC monitoring protocol step
+by step, and \texttt{docs/benchmarks/h100-b200-baseline.md} captures
+the full system state at the moment of the reported measurements.

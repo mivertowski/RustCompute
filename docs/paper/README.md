@@ -85,9 +85,14 @@ without editing every section.
 
 ## Status
 
-Drafting in progress. Sections currently full:
+First-pass draft complete. All 13 sections plus appendix are written;
+the paper compiles to a 40-page PDF on stock TeX Live 2023 (Debian)
+with no undefined references. Each formal claim is accompanied by a
+proof sketch and a pointer to the corresponding TLA+ spec under
+`../verification/`.
 
-- `abstract.tex`, `introduction.tex`, `model.tex` — complete first draft.
-- `background.tex` — first subsection complete; remaining are stubs.
-- All other sections are stubs that outline content + pointers to source
-  material (TLA+ specs, benchmark data, runtime modules).
+Next iteration: figures (lifecycle state diagram, K2K channel
+hierarchy, supervisor tree), an additional theorem on multi-GPU
+migration safety (currently model-checked but not analytically
+proved), and a comparison table against Triton / JAX / CUDA Graphs
+in the related-work section.

@@ -98,10 +98,12 @@ describes message origination, routing, delivery, and dead-letter
 disposition for both intra-block and cross-block (DSMEM) channels.
 The calculus is parameterized by a backpressure policy
 (\(\mathsf{RejectAndDLQ}\) versus \(\mathsf{DropOldest}\)) and an
-optional idempotency cache; we prove
-(\Cref{thm:delivery-at-least-once}) that the underlying queue
-semantics yield at-least-once delivery and per-(source,\,destination)
-ordering.
+optional idempotency cache; we prove that the underlying queue
+semantics yield no-loss for accepted envelopes
+(\Cref{thm:no-message-loss}), per-(source,\,destination) FIFO
+delivery (\Cref{thm:fifo-per-sender}), and—with the cache in
+place—at-most-once observable delivery
+(\Cref{thm:no-duplicate-delivery}).
 
 \item A \textbf{Hybrid Logical Clock integration} that gives causal
 ordering on a single device (\Cref{sec:supervision}).  We show

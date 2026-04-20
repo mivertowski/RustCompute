@@ -19,21 +19,121 @@ capabilities~\citep{clebsch2015pony}, and supervision
 trees~\citep{armstrong2007erlang}; the latter is the closest
 ancestor of \system{}'s supervisor design.
 
+Industrial adoption has been concentrated in distributed and
+fault-tolerant settings.  Erlang/OTP~\citep{armstrong2007erlang} has
+served the telecommunications industry since the late 1980s; the
+Akka library~\citep{akka2010} brought the model to the JVM in 2010
+and is widely deployed in reactive
+microservices~\citep{vernon2015reactive}; Pony's deny-capability
+type system~\citep{clebsch2015pony} makes data-race freedom a
+compile-time property of actor message passing.  All of these
+systems share an assumption \system{} does not inherit: that the
+host operating system provides preemptive scheduling, heap-based
+mailbox allocation, and cheap inter-actor synchronization through
+mutexes or semaphores.  None of those assumptions transfer to the
+GPU; the design contribution of \system{} is to rebuild the actor
+abstraction on a substrate where they fail.
+
 \subsection{GPU Programming Conventions}
 \label{sec:bg:gpu}
 
-Stub: this subsection will summarise the kernel-launch model
-(grid/block/thread hierarchy, host-device memory transfer,
-synchronization conventions), the SIMT execution discipline, and
-the evolution from CUDA~3.0 (kernels as functions, no persistence)
-through CUDA~9.x (cooperative groups) to CUDA~12.x on Hopper
-(thread block clusters, DSMEM, async memory pools).
+NVIDIA's CUDA programming model~\citep{nickolls2008cuda} structures a
+GPU computation as a \emph{kernel}—a function with implicit
+parallelism—launched from the host across a two-dimensional grid of
+thread blocks, each containing a configurable number of warps of 32
+threads.  The host invokes a kernel with
+\texttt{cuLaunchKernel}; the device runs it to completion across the
+grid; the host then issues another kernel for the next phase of
+computation.  State that needs to survive between kernels must be
+explicitly placed in HBM (the device's high-bandwidth memory) by
+the host before the first kernel and explicitly read back by the
+host after the last.
+
+Three architectural eras shape the model that we extend.
+
+\paragraph{CUDA 1.0--3.x: kernels as functions}
+The original CUDA~\citep{nickolls2008cuda} treats kernels as
+stateless transformations: each launch begins with a fresh device
+state, runs to completion, and exits.  Persistence across launches
+is the host's responsibility, achieved through HBM allocation and
+explicit \texttt{cudaMemcpy} calls.  Inter-block synchronization
+within a single launch is impossible: blocks are scheduled to SMs
+arbitrarily and may run, finish, and reuse SM resources before
+sibling blocks even begin.  This era's only intra-launch
+synchronization primitive is \texttt{\_\_syncthreads()} within a
+single block.
+
+\paragraph{CUDA 9.x: cooperative groups}
+Cooperative Groups~\citep{nvidia2023cooperative} (CUDA~9, 2017)
+introduced a typed hierarchy of synchronizable thread groups:
+warps, blocks, multi-block groups, and—critically—the entire grid.
+Grid-wide synchronization is enabled by launching a kernel with
+\texttt{cuLaunchCooperativeKernel} (which guarantees that all blocks
+of the grid are co-resident on the SMs simultaneously) and calling
+\texttt{cooperative\_groups::this\_grid().sync()} from inside the
+kernel.  This is the primitive that first makes a single kernel
+launch capable of multi-stage computation without returning to the
+host.  It is also the primitive that makes a persistent kernel
+viable: a kernel can run a producer--consumer loop forever, with
+\texttt{grid.sync()} as the barrier between iterations.
+
+\paragraph{CUDA 12.x on Hopper: clusters, DSMEM, and async memory}
+Hopper~(\citet{nvidia2022hopper}; CUDA 12.x) adds three primitives
+on top of cooperative groups.  \emph{Thread block clusters} group up
+to 16 blocks as a unit guaranteed to run on the same Graphics
+Processing Cluster (GPC); \texttt{cluster.sync()} synchronizes within
+that cluster at $\sim$0.6~$\mu$s ($\sim$2--3$\times$ faster than
+grid-wide synchronization).  \emph{Distributed shared memory
+(DSMEM)} lets each block in a cluster address the shared memory of
+its sibling blocks via \texttt{cluster.map\_shared\_rank()}, with
+$\sim$30 cycles of latency—an order of magnitude better than
+HBM~\citep{nvidia2022hopper}.  \emph{Stream-ordered asynchronous
+allocation} (\texttt{cuMemAllocAsync},
+\texttt{cuMemFreeAsync}; CUDA~11.2 on Ampere, but stable on Hopper)
+permits an actor to allocate and free memory inside its own
+execution stream, replacing the global-synchronization penalty of
+classical \texttt{cuMemAlloc} with a stream-local synchronization.
+We measured an allocation-latency improvement of 116.9$\times$ on
+H100 (878~ns versus 102.6~$\mu$s for 256-byte allocations);
+\Cref{sec:evaluation} documents the measurement protocol.
 
 \subsection{Persistent Kernels and Their Limits}
 \label{sec:bg:persistent}
 
-Stub: persistent kernel pattern from
-\citet{gupta2012persistent,aila2009raytrace,steinberger2014whippletree};
-why each prior approach stops short of the actor abstraction
-(typically because the kernel is treated as a single producer–consumer
-loop rather than a population of independently-supervised actors).
+The persistent-kernel pattern was introduced informally by Aila and
+Laine~\citep{aila2009raytrace} in the context of GPU ray traversal,
+where the cost of relaunching a kernel for each ray dwarfed the
+cost of the trace itself.  Their solution: launch a single kernel
+that loops, pulling rays from a device-side work queue until the
+queue is empty.  Gupta, Stuart, and Owens~\citep{gupta2012persistent}
+gave the first systematic study of the pattern across a range of
+GPGPU workloads, characterizing when persistent threads outperform
+launch-per-iteration and when they don't.
+Steinberger et~al.~\citep{steinberger2014whippletree} extended the
+idea to dynamic workloads with the Whippletree scheduler, which
+treats the persistent kernel as a runtime that schedules
+heterogeneous tasks pulled from device-side queues.
+
+In all three cases the kernel is a single producer--consumer loop:
+one body of code, one queue, one termination condition.  The
+abstraction is operationally similar to a thread pool with a single
+shared work queue.  None of the three works treats individual
+participants in the loop as actors with private state, lifecycle,
+restart policy, or causal clock; the kernel is a scheduling trick
+layered onto the kernel-launch model.  In \system{}'s language, all
+three are special cases of a single actor population in which every
+actor has the same behavior and the supervisor is trivial
+(no restart, no per-actor snapshot, no per-actor isolation tag).
+
+The gap our work fills is to lift the loop body to a population of
+independently-supervised actors with the full complement of
+lifecycle, supervision, causal time, and tenant isolation
+primitives.  The gap is non-trivial because each of those
+primitives requires device-side state that prior persistent-kernel
+work did not need: per-actor snapshots in HBM, per-actor HLCs in
+the state vector, per-actor audit tags routed through sub-brokers,
+and a supervisor-managed restart counter with windowed escalation.
+The lifecycle theorem of \Cref{thm:lifecycle-soundness} and the
+restart-monotonicity theorem of \Cref{thm:hlc-restart-monotone}
+have no analogue in the persistent-kernel literature because the
+properties they assert do not exist in those systems.

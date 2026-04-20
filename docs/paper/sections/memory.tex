@@ -1,9 +1,161 @@
-% memory.tex — Memory Model
+% sections/memory.tex — Memory Model
 \section{Memory Model}
 \label{sec:memory}
 
-Stub: GPU memory hierarchy (registers $\to$ shared $\to$ DSMEM
-$\to$ L1/L2 $\to$ HBM), persistent state placement, mapped-memory
-control blocks, the actor's view as constrained by Lustig's
-axiomatic model. Connects \Cref{def:actor-state} to physical
-memory.
+The lifecycle and K2K calculus of \Cref{sec:model,sec:k2k} are
+parameterized by a memory model: the bytes of \(\mathit{snap}\) and
+\(\mathit{live}\), the queues \(Q(d)\), the dead-letter store \(X\),
+and the idempotency cache \(I\) all live somewhere in the device's
+address space.  Where they live—and how the runtime constrains
+their visibility, persistence, and access ordering—affects which
+small-step traces the actor system can realize.  This section
+describes the GPU memory hierarchy as it applies to \system{}, maps
+the abstract model components onto physical tiers, and identifies the
+constraints on the abstract semantics that the device imposes.
+
+\subsection{Hierarchy}
+\label{sec:memory:hierarchy}
+
+NVIDIA Hopper exposes a five-tier memory hierarchy:
+
+\begin{enumerate}
+\item \textbf{Registers}: per-thread, lifetime equal to the
+issuing warp's stay on the SM, no inter-thread visibility without an
+explicit shuffle.
+\item \textbf{Shared memory (SMEM)}: per-block, on-chip, $\sim$30
+cycles of latency, partitioned into 32 banks; visible to all threads
+in the block; reset on block exit.
+\item \textbf{Distributed shared memory (DSMEM)}: per-cluster,
+on-chip but with cross-block addressing via
+\texttt{cluster.map\_shared\_rank()}; $\sim$30 cycles of latency
+within a GPC~\citep{nvidia2022hopper}; reset on cluster exit.
+\item \textbf{L1 / L2 caches}: per-SM L1, per-device L2 ($\sim$50~MiB
+on H100); software-transparent, but \texttt{\_\_ldg()} and
+\texttt{cuda::memcpy\_async} give the kernel some control over
+caching policy.
+\item \textbf{HBM (global memory)}: per-device, off-chip, $\sim$400
+cycles of latency, persistent across kernel launches.
+\end{enumerate}
+
+Persistent actors necessarily live in HBM: they survive across
+kernel invocations and the on-chip tiers do not.  But the tiers
+above HBM are essential to performance: a hot inbox lives partly in
+SMEM (the in-kernel ring), partly in DSMEM (the cross-block
+forwarding ring), partly in L2 (recently-touched envelopes), and
+only its overflow tail in HBM.  The semantics must allow this
+distribution while preserving the abstract calculus.
+
+\subsection{Placement of Model Components}
+\label{sec:memory:placement}
+
+We map each component of the formal model to its physical residence
+in the runtime:
+
+\begin{itemize}
+\item \(\mathit{snap}\) (per-actor snapshot): HBM, in a
+supervisor-private region not addressable by the actor.
+
+\item \(\mathit{live}\) (per-actor live state): HBM under the actor's
+own ownership; the actor mutates it directly via \textsc{Process}.
+The kernel may cache portions in registers and SMEM during a
+\textsc{Process} step; the live HBM copy is the canonical version.
+
+\item \(Q(d)\) (inbox queue): tiered. The first \(N_{\mathrm{smem}}\)
+slots live in SMEM (only when \(d\) is in the same block as the
+sender, i.e., \textsc{Smem} tier); the next \(N_{\mathrm{dsmem}}\)
+slots live in DSMEM (when \(d\) is in the same cluster); the
+overflow tail lives in HBM.  The runtime chooses
+\(N_{\mathrm{smem}}, N_{\mathrm{dsmem}}\) at sub-broker creation
+time.
+
+\item \(D\) (delivered set): not materialized at runtime; the model
+treats it as a derived quantity. The runtime maintains only the
+\emph{count} and per-(source,\,destination) HLC of the most recent
+delivery, in HBM.
+
+\item \(X\) (dead-letter store): HBM, a supervisor-managed ring
+buffer per sub-broker. Its capacity is configurable; eviction policy
+is FIFO.
+
+\item \(I\) (idempotency cache): HBM, a Cuckoo hash with
+\(2^{16}\)-entry capacity per sub-broker, evicting on insert collisions.
+
+\item HLC values: registers and SMEM during a \textsc{Process} step;
+the canonical per-actor HLC lives in the actor's HBM state vector
+(\Cref{def:actor-state}, \(\mathit{hlc}\) field).
+\end{itemize}
+
+The dead-letter store and idempotency cache are intentionally HBM-only:
+they must survive both \textsc{Process} steps and \textsc{Restart}.
+The inbox tier choice is a performance-versus-capacity trade-off
+rather than a correctness one; the calculus remains the same
+regardless of which tier the slots are physically in.
+
+\subsection{Memory Consistency}
+\label{sec:memory:consistency}
+
+The GPU's memory consistency model
+(\citet{lustig2014abstraction,hower2014}) is weaker than sequential
+consistency: a thread's writes are observable by other threads only
+in a partial order constrained by acquire/release fences.  The K2K
+calculus relies on three concrete constraints from that model:
+
+\begin{enumerate}
+\item \textbf{Producer release}: at the end of \textsc{SendOK}, the
+producer issues a \texttt{cuda::atomic\_thread\_fence(\\
+release, scope::cluster)}, which makes the envelope's payload
+bytes visible to any subsequent acquire on the same cluster.
+
+\item \textbf{Consumer acquire}: at the start of \textsc{Deliver},
+the consumer issues a matching \texttt{cuda::atomic\_thread\_fence(\\
+acquire, scope::cluster)} before reading the envelope payload.
+
+\item \textbf{Cursor atomicity}: the producer and consumer cursors
+of each queue are 32-bit values updated with \texttt{atomicAdd} and
+\texttt{atomicCAS}, which are sequentially consistent at
+\texttt{system} scope on Hopper.
+\end{enumerate}
+
+The first two are the standard ``release-acquire'' synchronization
+pattern; together they establish a happens-before edge from the
+\textsc{SendOK} of an envelope to the matching
+\textsc{Deliver}~\citep{lustig2014abstraction}.  The third gives the
+queue's bounded-buffer property: the producer never overwrites a
+slot the consumer has not yet released, and vice versa.
+
+The formal model elides the fences: it treats \textsc{SendOK} and
+\textsc{Deliver} as atomic single-step events.  This is a sound
+abstraction provided the runtime emits the fences described above;
+without them the K2K calculus would admit traces in which the
+delivered envelope's payload bytes were partially observable.  The
+runtime's K2K implementation, in
+\texttt{crates/ringkernel-cuda/src/k2k.cu}, emits the fences at the
+right places; we sketch the correspondence in
+\Cref{sec:implementation:k2k}.
+
+\subsection{Snapshot Atomicity}
+\label{sec:memory:snapshot}
+
+The snapshot--restart protocol of \Cref{sec:supervision:restart}
+requires that \(\mathit{snap}\) is atomically equal to
+\(\mathit{live}\) at the moment of \textsc{Activate}.  The runtime
+realizes this by serializing \textsc{Activate} against
+\textsc{Process}: the supervisor pauses the actor's execution
+(transitioning \Active{} to \Initializing{} via a flag in mapped
+memory polled at the start of every \textsc{Process} iteration),
+copies \(\mathit{live}\) to \(\mathit{snap}\) using
+\texttt{cudaMemcpyAsync} on a supervisor-private stream, awaits
+the copy's completion via \texttt{cudaEventSynchronize}, then sets
+the flag back to \Active{}.  The full sequence happens within a
+single host-side critical section under a \texttt{Mutex} held by
+the supervisor; concurrent supervisor actions on the same actor are
+serialized by that mutex.
+
+The snapshot copy is consistent with the device's memory consistency
+model: the host's \texttt{cudaMemcpyAsync} establishes an
+acquire-release pair on the device side, so the SM's view of
+\(\mathit{live}\) at the moment of the copy is exactly the bytes
+the host receives into \(\mathit{snap}\).  The formal model treats
+this as instantaneous; the runtime's actual copy cost is bounded
+by HBM bandwidth (\(\sim\)3~TB/s on H100, so a 4-MiB snapshot copies
+in \(\sim\)1.4~$\mu$s).

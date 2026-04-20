@@ -1,10 +1,515 @@
-% k2k.tex — Kernel-to-Kernel Messaging
+% sections/k2k.tex — Kernel-to-Kernel Messaging
 \section{Kernel-to-Kernel Messaging}
 \label{sec:k2k}
 
-Stub: K2K calculus, message envelope, intra-block (SMEM) vs
-intra-cluster (DSMEM) vs inter-cluster (global) channels.
-Backpressure policies (RejectAndDLQ vs DropOldest), idempotency
-cache, dead-letter discipline. Theorem: at-least-once delivery,
-per-(source,dest) ordering. Mechanized in
+The actor model treats messages as the only means of inter-actor
+communication.  Translating that primitive to a GPU is the central
+implementation question of the paper: a CPU actor system can lean on
+operating-system mailboxes (heap-allocated, lock-protected, accessed
+via syscalls); a GPU actor cannot.  A GPU actor lives in a kernel
+that is itself a thread of a thread block of a cluster of a grid, with
+distinct memory tiers (registers \(\to\) shared \(\to\) DSMEM \(\to\)
+L2 \(\to\) HBM) and distinct synchronization primitives at each tier.
+Choosing where to put the mailbox determines the latency and
+bandwidth of every message the actor will ever send.
+
+This section defines the kernel-to-kernel (K2K) messaging calculus.
+We give a uniform syntactic envelope that abstracts the channel tier,
+a small-step semantics for sending and delivering messages, and the
+backpressure and dead-letter discipline that the runtime layers on
+top.  We then prove three safety properties that the underlying
+queue semantics implies: no-loss, FIFO per (source,\,destination),
+and—once the idempotency cache is in place—at-most-once observable
+delivery.  All three are mechanized in
 \texttt{docs/verification/k2k\_delivery.tla}.
+
+\subsection{Channel Hierarchy}
+\label{sec:k2k:tiers}
+
+\system{} exposes three channel tiers, distinguished by which memory
+substrate carries the message bytes:
+
+\begin{enumerate}
+\item \textbf{Intra-block (\textsc{Smem})}: source and destination
+actors share a thread block; the queue is allocated in shared memory
+(SMEM); enqueue/dequeue is a single \texttt{atomicAdd} on a 32-bit
+producer/consumer cursor pair.  Latency: a handful of cycles.
+
+\item \textbf{Intra-cluster (\textsc{Dsmem})}: source and destination
+actors are in different blocks of the same cluster; the queue lives
+in distributed shared memory (DSMEM); a remote-block pointer
+materialized via \texttt{cluster.map\_shared\_rank()} feeds a
+\texttt{cuda::barrier::arrive\_and\_wait} to publish the slot.
+Latency: \(\sim\)30 cycles end-to-end on H100~\citep{nvidia2022hopper}.
+
+\item \textbf{Inter-cluster (\textsc{Hbm})}: source and destination
+actors are in different clusters; the queue lives in global memory
+(HBM); enqueue is a \texttt{cuda::atomic\_ref<...>::fetch\_add} with
+\texttt{memory\_order\_acq\_rel} ordering on the producer cursor.
+Latency: an HBM round-trip ($\sim$400~cycles) plus L2 traversal.
+\end{enumerate}
+
+The calculus below abstracts the tier; we write \(\tau \in
+\{\textsc{Smem}, \textsc{Dsmem}, \textsc{Hbm}\}\) for the
+channel-tier tag carried in the envelope, and the small-step rules
+treat all three uniformly.  The runtime makes the placement decision
+(\Cref{sec:implementation}); the calculus is concerned only with the
+end-to-end semantics each tier implements.
+
+\subsection{Message Envelope}
+\label{sec:k2k:envelope}
+
+Every message transmitted on a K2K channel is wrapped in an
+envelope—a fixed-layout header followed by a typed payload.  The
+header is the unit on which routing, deduplication, dead-letter
+disposition, and tracing operate; the payload is opaque to the K2K
+layer.
+
+\begin{definition}[K2K Envelope]
+\label{def:k2k-envelope}
+A K2K envelope is a tuple
+\[
+  e \;=\;
+  \langle \mathit{src},\,
+          \mathit{dst},\,
+          \mathit{mid},\,
+          \mathit{tag},\,
+          \mathit{ts},\,
+          \mathit{tier},\,
+          \mathit{ttl},\,
+          \mathit{payload} \rangle
+\]
+where \(\mathit{src}, \mathit{dst} \in \mathcal{A}\) are the source
+and destination actor identifiers (\Cref{def:configuration});
+\(\mathit{mid} \in \N\) is a globally unique message identifier
+issued by the source;
+\(\mathit{tag} \in \N \times \N\) is the audit boundary
+\((\mathit{org\_id}, \mathit{engagement\_id})\) under which the
+message is sent (\Cref{sec:tenancy});
+\(\mathit{ts}\) is the source actor's HLC timestamp at the moment of
+\textsc{Send} (\Cref{sec:supervision});
+\(\mathit{tier} \in \{\textsc{Smem}, \textsc{Dsmem}, \textsc{Hbm}\}\)
+is the chosen channel tier;
+\(\mathit{ttl} \in \N\) is a hop counter decremented on every routing
+step (\(\mathit{ttl} = 0 \Rightarrow\) drop to dead-letter); and
+\(\mathit{payload}\) is the user-supplied byte sequence.  Let
+\(\mathcal{E}\) denote the set of all envelopes.
+\end{definition}
+
+The choice of \(\mathit{mid} \in \N\) (rather than a hash of the
+payload) is intentional: a single source may legitimately send
+identical payloads in succession, and the calculus must treat them
+as distinct.  The runtime allocates \(\mathit{mid}\) from a 64-bit
+counter local to each source actor and tags the high bits with the
+source identifier so identifiers are globally unique without
+coordination.
+
+\subsection{Configurations and Calculus}
+\label{sec:k2k:calculus}
+
+We extend the system configuration of \Cref{def:configuration} to
+expose the K2K message store \(M\) explicitly.  In this section,
+\(M\) is the disjoint union of three components:
+\[
+  M \;=\;
+  Q \;\uplus\; D \;\uplus\; X
+\]
+where \(Q : \mathcal{A} \to \mathcal{E}^*\) maps each actor to its
+inbox queue (a finite sequence of envelopes), \(D \subseteq
+\mathcal{E}\) is the set of envelopes that have been delivered (i.e.,
+consumed by a \textsc{Process} step), and \(X \subseteq \mathcal{E}
+\times \Lambda\) is the dead-letter store, a set of envelope/reason
+pairs where \(\Lambda\) is the set of dead-letter reasons defined in
+\Cref{sec:k2k:dlq}.  We also assume an idempotency cache
+\(I \subseteq \N \times \mathcal{A}\), recording the
+\((\mathit{mid}, \mathit{src})\) pairs the runtime has already
+accepted at least once at the destination side.
+
+The K2K calculus consists of four small-step transitions:
+\textsc{Send}, \textsc{Deliver}, \textsc{Drop}, and \textsc{Replay}.
+
+\paragraph{Send}
+The source attempts to enqueue an envelope \(e\) into the destination
+queue \(Q(\mathit{dst})\).  If the queue has spare capacity (i.e.,
+\(|Q(\mathit{dst})| < \mathit{cap}\) for the per-actor queue
+capacity~\(\mathit{cap}\)), the envelope is appended; otherwise the
+runtime applies the configured backpressure policy
+(\Cref{sec:k2k:backpressure}).  We give the success rule here; the
+two backpressure-failure rules follow in \Cref{sec:k2k:backpressure}.
+
+\begin{equation}
+\inference[\textsc{SendOK}]
+{
+  e = \langle s, d, m, \tau, \ldots\rangle \\
+  |Q(d)| < \mathit{cap} \\
+  d \neq s
+}
+{
+  \langle \Theta, \langle Q, D, X\rangle, t\rangle
+  \trans{\mathsf{send}(e)}
+  \langle \Theta, \langle Q', D, X\rangle, t+1\rangle
+}
+\label{rule:k2k-send}
+\end{equation}
+
+\noindent where \(Q' = Q[d \mapsto Q(d) \cdot e]\) (i.e., \(e\)
+appended).
+
+\paragraph{Deliver}
+A destination actor \(d\) consumes the head of its queue.  This
+corresponds to the \textsc{Process} rule of \Cref{rule:process}
+threading through one envelope; we expose it here as a separate K2K
+event for traceability.
+
+\begin{equation}
+\inference[\textsc{Deliver}]
+{
+  Q(d) = e \cdot q \\
+  e = \langle s, d, m, \tau, \ldots\rangle \\
+  (m, s) \notin I
+}
+{
+  \langle \Theta, \langle Q, D, X\rangle, t\rangle
+  \trans{\mathsf{deliver}(e)}
+  \langle \Theta, \langle Q', D', X\rangle, t+1\rangle
+}
+\label{rule:k2k-deliver}
+\end{equation}
+
+\noindent where \(Q' = Q[d \mapsto q]\), \(D' = D \cup \{e\}\), and
+the runtime adds \((m, s)\) to \(I\) as a side effect.  The
+\((m, s) \notin I\) precondition implements the at-most-once side of
+the idempotency guarantee (\Cref{sec:k2k:idempotency}); a duplicate
+envelope (\(\mathit{mid}, \mathit{src}\) already seen) is consumed
+without emitting a delivery, via \textsc{DeliverDup} below.
+
+\begin{equation}
+\inference[\textsc{DeliverDup}]
+{
+  Q(d) = e \cdot q \\
+  e = \langle s, d, m, \tau, \ldots\rangle \\
+  (m, s) \in I
+}
+{
+  \langle \Theta, \langle Q, D, X\rangle, t\rangle
+  \trans{\mathsf{drop\_dup}(e)}
+  \langle \Theta, \langle Q', D, X'\rangle, t+1\rangle
+}
+\label{rule:k2k-deliver-dup}
+\end{equation}
+
+\noindent where \(Q' = Q[d \mapsto q]\) and \(X' = X \cup
+\{(e, \state{IdempotencyReject})\}\).  The duplicate is recorded in
+the dead-letter store with the reason \state{IdempotencyReject}; this
+ensures the delivery cardinality on the visible side
+(\(D\)) stays bounded, while preserving full audit trace on the
+dead-letter side (\(X\)).
+
+\paragraph{Drop and Replay}
+\textsc{Drop} (with reason) and \textsc{Replay} are detailed in
+\Cref{sec:k2k:backpressure,sec:k2k:dlq}.
+
+\subsection{Backpressure Policies}
+\label{sec:k2k:backpressure}
+
+When the destination queue is full at the moment of \textsc{Send}, the
+runtime must choose a disposition.  \system{} supports two policies,
+selectable per channel tier and per audit boundary:
+
+\begin{description}
+\item[\(\mathsf{RejectAndDLQ}\)] The envelope is not enqueued; it is
+moved to the dead-letter store with reason
+\state{Overflow}.  The source's \textsc{Send} call returns a failed
+status which the source may observe and retry.
+
+\item[\(\mathsf{DropOldest}\)] The envelope at the head of the
+destination queue is moved to the dead-letter store with reason
+\state{Evicted}, and the new envelope is enqueued at the tail.  This
+prefers fresh data over stale; it is the right policy for telemetry
+and best-effort streams.
+\end{description}
+
+\begin{equation}
+\inference[\textsc{SendFullReject}]
+{
+  e = \langle s, d, m, \tau, \ldots\rangle \\
+  |Q(d)| = \mathit{cap} \\
+  \mathit{policy}(d) = \mathsf{RejectAndDLQ}
+}
+{
+  \langle \Theta, \langle Q, D, X\rangle, t\rangle
+  \trans{\mathsf{drop}(e, \state{Overflow})}
+  \langle \Theta, \langle Q, D, X'\rangle, t+1\rangle
+}
+\label{rule:k2k-send-reject}
+\end{equation}
+
+\noindent where \(X' = X \cup \{(e, \state{Overflow})\}\).
+
+\begin{equation}
+\inference[\textsc{SendFullDropOldest}]
+{
+  e = \langle s, d, m, \tau, \ldots\rangle \\
+  Q(d) = e_0 \cdot q,\; |Q(d)| = \mathit{cap} \\
+  \mathit{policy}(d) = \mathsf{DropOldest}
+}
+{
+  \langle \Theta, \langle Q, D, X\rangle, t\rangle
+  \trans{\mathsf{evict\_drop}(e_0)}
+  \langle \Theta, \langle Q', D, X'\rangle, t+1\rangle
+}
+\label{rule:k2k-send-evict}
+\end{equation}
+
+\noindent where \(Q' = Q[d \mapsto q \cdot e]\) and
+\(X' = X \cup \{(e_0, \state{Evicted})\}\).
+
+\subsection{Idempotency Cache}
+\label{sec:k2k:idempotency}
+
+The cache \(I \subseteq \N \times \mathcal{A}\) records the
+\((\mathit{mid}, \mathit{src})\) pairs that have been accepted at the
+destination side, regardless of whether the source eventually retries.
+Two operations interact with the cache:
+
+\begin{itemize}
+\item \textsc{Deliver}~(\Cref{rule:k2k-deliver}) requires
+\((\mathit{mid}, \mathit{src}) \notin I\) as a precondition and adds
+the pair to \(I\) as a side effect.
+\item \textsc{DeliverDup}~(\Cref{rule:k2k-deliver-dup}) is the
+contrapositive: the pair is already in \(I\), so the envelope is
+moved to dead-letter rather than the visible delivery set.
+\end{itemize}
+
+The cache is bounded; the runtime evicts entries by an LRU policy with
+configurable maximum size.  An evicted entry can in principle re-enter
+\(I\) on a later sighting, which would re-admit the duplicate to the
+visible delivery set and violate at-most-once.  In practice the cache
+is sized so that the eviction window exceeds the maximum sender retry
+window, an assumption we make explicit
+(\Cref{thm:no-duplicate-delivery}, condition \emph{(c)}).
+
+\subsection{Dead-Letter Discipline}
+\label{sec:k2k:dlq}
+
+The dead-letter store \(X\) records every envelope that left the
+queue without ever crossing into \(D\).  The reason set is:
+\[
+  \Lambda \;=\;
+  \{\state{Overflow},\,
+    \state{Evicted},\,
+    \state{InvalidTarget},\,
+    \state{IdempotencyReject},\,
+    \state{TenantMismatch},\,
+    \state{TTLExhausted}\}.
+\]
+
+The first two are produced by the backpressure rules of
+\Cref{sec:k2k:backpressure}; \state{IdempotencyReject} by
+\Cref{rule:k2k-deliver-dup}; \state{InvalidTarget} when
+\(d \notin \dom(\Theta)\) at the time of routing;
+\state{TenantMismatch} when the source's tag and the destination's
+tag would cross a tenant boundary (\Cref{sec:tenancy}); and
+\state{TTLExhausted} when the routing layer decremented
+\(\mathit{ttl}\) to zero before reaching \(\mathit{dst}\).
+
+The discipline is total: every envelope that does not reach \(D\) is
+in \(X\) with a reason.  The system never silently drops a message.
+This is operationally important (it is the basis of the audit guarantee
+of \Cref{sec:tenancy:audit}) and is also the property that makes the
+delivery theorems in \Cref{sec:k2k:theorems} stateable as
+conjunction of trace properties on \((D, X)\).
+
+\paragraph{Replay}
+The dead-letter store can be inspected and selectively re-injected by
+a supervisor (the runtime exposes
+\texttt{POST /api/v1/admin/k2k/dlq/replay}).  We model this as a
+single rule:
+
+\begin{equation}
+\inference[\textsc{Replay}]
+{
+  (e, \lambda) \in X \\
+  \lambda \in \{\state{Overflow}, \state{Evicted}\} \\
+  e = \langle s, d, m, \tau, \ldots\rangle \\
+  d \in \dom(\Theta)
+}
+{
+  \langle \Theta, \langle Q, D, X\rangle, t\rangle
+  \trans{\mathsf{replay}(e)}
+  \langle \Theta, \langle Q, D, X\rangle, t+1\rangle
+}
+\label{rule:k2k-replay}
+\end{equation}
+
+\noindent followed by an immediate \textsc{Send}(\(e\)) using the
+fresh state (or a fresh \textsc{SendFullReject} if the queue is
+again full).  Replay only applies to backpressure reasons
+(\state{Overflow}, \state{Evicted}); replaying an envelope
+dropped for \state{InvalidTarget}, \state{TenantMismatch},
+\state{IdempotencyReject}, or \state{TTLExhausted} would re-trigger
+the same drop and is forbidden by the rule's premise.
+
+\subsection{Safety Theorems}
+\label{sec:k2k:theorems}
+
+We can now state the three safety properties that the calculus
+guarantees.  Each corresponds directly to an invariant in the
+mechanized TLA\ensuremath{^{+}} spec.
+
+\begin{theorem}[No Message Loss]
+\label{thm:no-message-loss}
+For every reachable configuration \(\langle \Theta,
+\langle Q, D, X\rangle, t\rangle\) and every envelope \(e\) for which
+a \textsc{SendOK}~(\Cref{rule:k2k-send}) step has been applied along
+the trace, exactly one of the following holds:
+\begin{enumerate}
+\item \(e \in D\) (delivered, possibly via \textsc{Deliver} or marked
+as duplicate via \textsc{DeliverDup}—in which case
+\((e, \state{IdempotencyReject}) \in X\));
+\item \(e\) is in flight: \(e \in Q(\mathit{dst})\) for some position;
+\item \((e, \lambda) \in X\) for some
+\(\lambda \in \{\state{Evicted}\}\) (the only way an accepted
+envelope can leave the queue without delivery is eviction).
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+Induction on the trace.  The base case is vacuous (no \textsc{Send}
+has been applied).  For the induction step, consider the last rule
+applied:
+\begin{itemize}
+\item \textsc{SendOK}~(\Cref{rule:k2k-send}) appends \(e\) to
+\(Q(\mathit{dst})\), so condition~(2) holds for \(e\) immediately
+after the step; conditions~(1) and~(3) are unaffected.
+\item \textsc{Deliver}~(\Cref{rule:k2k-deliver}) removes the head of
+\(Q(\mathit{dst})\) and adds it to \(D\), so the disposition of that
+envelope moves from~(2) to~(1); other envelopes in flight retain
+their disposition.
+\item \textsc{DeliverDup}~(\Cref{rule:k2k-deliver-dup}) removes the
+head of \(Q(\mathit{dst})\) and adds it to \(X\) with reason
+\state{IdempotencyReject}; per the theorem's clause~(1), this is
+considered ``delivered'' for the no-loss accounting.
+\item \textsc{SendFullDropOldest}~(\Cref{rule:k2k-send-evict})
+removes the head of \(Q(\mathit{dst})\) and moves it to \(X\) with
+reason \state{Evicted}, so its disposition moves from~(2) to~(3).
+\end{itemize}
+No rule removes an envelope from a position satisfying any of (1),
+(2), or (3) without simultaneously placing it into another
+satisfying position.  By induction, the conjunction
+``\(e \in D \lor e \in Q(\mathit{dst}) \lor (e, \state{Evicted})
+\in X\)'' is preserved at every step.
+\qed
+\end{proof}
+
+\Cref{thm:no-message-loss} is the analogue of the
+\texttt{NoMessageLoss} invariant in
+\texttt{docs/verification/k2k\_delivery.tla}, lines 95--104.  The
+mechanization elides the dead-letter store and treats only the
+in-flight/delivered case (clauses~(1) and~(2)), which is the right
+abstraction for a small bounded model; the analytical proof above
+covers the full discipline including dead-letter dispositions.
+
+\begin{theorem}[FIFO per Source--Destination Pair]
+\label{thm:fifo-per-sender}
+For all reachable configurations and for every pair of envelopes
+\(e_1 = \langle s, d, m_1, \ldots\rangle\) and
+\(e_2 = \langle s, d, m_2, \ldots\rangle\) sharing the same source
+\(s\) and destination \(d\) such that \textsc{SendOK}\((e_1)\) was
+applied before \textsc{SendOK}\((e_2)\) (i.e., \(m_1 < m_2\) since
+the source assigns identifiers monotonically), if both \(e_1\) and
+\(e_2\) appear in \(D\), then \textsc{Deliver}\((e_1)\) was applied
+before \textsc{Deliver}\((e_2)\).
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+The destination queue \(Q(d)\) is a sequence; \textsc{SendOK}
+appends to the tail and \textsc{Deliver} consumes the head.  Both
+operations preserve the relative order of the remaining elements.
+By induction on the trace, the relative order of any two envelopes
+that share \((s, d)\) and are both alive in \(Q(d)\) at any point
+is the order in which they were appended, which is the order in
+which the source assigned their \(\mathit{mid}\)s.  Therefore, if
+\(\mathit{mid}_1 < \mathit{mid}_2\), then \(e_1\) is delivered no
+later than \(e_2\).  The presence of \textsc{SendFullDropOldest}
+between the two does not affect the property: the only envelope
+\textsc{SendFullDropOldest} can evict is the head of the queue, and
+if it evicts \(e_1\) before \(e_1\) is delivered, then \(e_1
+\notin D\) and the antecedent of the implication fails.
+\qed
+\end{proof}
+
+\Cref{thm:fifo-per-sender} corresponds to \texttt{FIFOPerSender} in
+the mechanized spec (lines 108--115).  Note that the property is
+stated only for envelopes that share \((\mathit{src}, \mathit{dst})\):
+two envelopes from the same source to different destinations may
+arrive in either order, and two envelopes from different sources to
+the same destination interleave according to the queue's append
+schedule.
+
+\begin{theorem}[At-Most-Once Observable Delivery]
+\label{thm:no-duplicate-delivery}
+Suppose the idempotency cache is sized so that no
+\((\mathit{mid}, \mathit{src})\) pair is evicted from \(I\) within
+the source's retry window for that envelope.  Then for every
+reachable configuration, no envelope identifier \((\mathit{mid},
+\mathit{src})\) appears in two distinct envelopes in \(D\).
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+Suppose for contradiction that \(D\) contains two envelopes
+\(e_1 \neq e_2\) with \(e_1.\mathit{mid} = e_2.\mathit{mid}\) and
+\(e_1.\mathit{src} = e_2.\mathit{src}\).  Both must have been
+admitted to \(D\) by \textsc{Deliver}~(\Cref{rule:k2k-deliver}),
+which has the precondition
+\((\mathit{mid}, \mathit{src}) \notin I\) and the side effect of
+adding \((\mathit{mid}, \mathit{src})\) to \(I\).  Without loss of
+generality say \textsc{Deliver}\((e_1)\) was applied first.  After
+that step, \((\mathit{mid}, \mathit{src}) \in I\).  By the
+hypothesis on cache sizing, \((\mathit{mid}, \mathit{src})\)
+remains in \(I\) until the source's retry window for that envelope
+has closed; the source assigns a fresh \(\mathit{mid}\) for any
+subsequent envelope.  But \(e_2\) shares \(\mathit{mid}\) with
+\(e_1\), so \(e_2\) was sent within the retry window, contradicting
+the precondition of \textsc{Deliver}\((e_2)\).
+\qed
+\end{proof}
+
+\Cref{thm:no-duplicate-delivery} corresponds to
+\texttt{NoDuplicateDelivery} in the mechanized spec (lines 121--123),
+which states the same property in the simpler form ``no two distinct
+delivery tuples share an \(\mathit{mid}\)'' (the spec elides the
+\(\mathit{src}\) component because the spec's \(\mathit{mid}\)s are
+globally unique by construction).  The
+analytical statement above adds the cache-sizing precondition
+explicitly because in the runtime the cache is finite, and the
+hypothesis is something the operator must verify against the actual
+retry policy.
+
+\paragraph{Implementation note}
+A weaker theorem—at-least-once delivery—follows immediately from
+\Cref{thm:no-message-loss} together with the operator's commitment
+to invoke \textsc{Replay} on every \state{Overflow} dead-letter.
+We do not state this as a separate theorem because at-least-once is
+not a property the calculus alone can guarantee: it depends on
+operator behavior outside the formal model.  The runtime exposes
+the dead-letter API for exactly this purpose
+(\Cref{sec:implementation:admin}).
+
+\subsection{Mechanization}
+\label{sec:k2k:mechanization}
+
+The K2K calculus is mechanized in \TLA{} in
+\texttt{docs/verification/k2k\_delivery.tla}.  The mechanization
+keeps four state variables (\texttt{queues}, \texttt{sent\_accepted},
+\texttt{delivered}, \texttt{dropped}) and two actions (\texttt{Send},
+\texttt{Deliver}); it elides the dead-letter reason set, the
+idempotency cache, and the replay rule, modeling them as sources of
+nondeterminism.  We model-checked under the configuration
+\texttt{k2k\_delivery.cfg} for parameter ranges
+\(|\textit{Actors}| \le 3\), \(\textit{MaxMsgs} \le 4\), and
+\(\textit{QueueCap} \le 2\); within those bounds the invariants
+\texttt{NoMessageLoss}, \texttt{FIFOPerSender},
+\texttt{NoDuplicateDelivery}, \texttt{DropAcceptedDisjoint}, and
+\texttt{QueueBoundOK} hold on every reachable state, with the search
+exhausting the explored state space without violation.

@@ -1,9 +1,264 @@
-% implementation.tex — Implementation: \system{}
+% sections/implementation.tex — Implementation: \system{}
 \section{Implementation: \system{}}
 \label{sec:implementation}
 
-Stub: Crate structure (ringkernel-core, ringkernel-cuda,
-ringkernel-cuda-codegen), CUDA driver-API surface used,
-cuMemAllocAsync integration, NVTX profiling, Rust-to-CUDA
-transpilation via ringkernel-cuda-codegen, the 1496-test suite
-that ships with v1.0.0.
+\system{} is a Rust workspace with 22 crates totaling roughly 80,000
+lines, of which the core
+runtime—\texttt{ringkernel-core},
+\texttt{ringkernel-cuda}, and
+\texttt{ringkernel-cuda-codegen}—accounts for the formal model's
+implementation surface.  The remaining crates implement domain
+adapters (audio FFT, accelerated networking, transactional
+monitoring) and language bindings (Python, CLI) that sit outside
+this paper's scope.  We focus here on the three crates that realize
+the formal model and discuss the engineering choices that made each
+small-step rule expressible against CUDA's driver-API surface.
+
+\subsection{Crate Structure}
+\label{sec:implementation:crates}
+
+\begin{itemize}
+\item \texttt{ringkernel-core} (\(\sim\)18,000 LOC): host-side
+runtime. Implements the supervisor, the K2K bus, the HLC, the
+audit-tag registry, the dead-letter store, and the snapshot--restart
+protocol. Contains the host-side state of every model component
+(\(\Theta\), \(M\), \(I\)).
+
+\item \texttt{ringkernel-cuda} (\(\sim\)9,000 LOC of Rust + 4,000
+LOC of CUDA): device-side runtime. Hosts the persistent kernel, the
+mapped-memory control block, the SMEM/DSMEM/HBM ring buffers, the
+release-acquire fence sequences, and the per-actor tick loop.
+
+\item \texttt{ringkernel-cuda-codegen} (\(\sim\)6,000 LOC): a
+build-time transpiler that lifts user-supplied Rust actor bodies into
+CUDA C++ that links against the persistent kernel. The lift is
+syntax-directed; the formal model treats the resulting code as the
+\(\delta\) function of \Cref{rule:process}.
+\end{itemize}
+
+\subsection{CUDA Driver-API Surface}
+\label{sec:implementation:driver}
+
+The runtime uses the CUDA driver API rather than the higher-level
+runtime API for two reasons: precise control over stream and event
+ordering (essential for the snapshot atomicity argument of
+\Cref{sec:memory:snapshot}), and access to the cooperative-launch
+and cluster primitives (essential for the persistent kernel itself).
+The set of driver entry points used is:
+
+\begin{itemize}
+\item \texttt{cuLaunchCooperativeKernel}: launch the persistent
+kernel with grid-wide synchronization enabled. Called once at
+runtime startup.
+
+\item \texttt{cuMemAllocAsync}, \texttt{cuMemFreeAsync}: stream-ordered
+allocation. The actor's per-instance state (mailbox slots,
+scratch buffers) is allocated this way so that allocation cost is
+overlapped with the actor's normal execution rather than serialized
+on a global mutex.
+
+\item \texttt{cuMemHostAlloc} with the \texttt{CU\_MEMHOSTALLOC\_\\
+DEVICEMAP} flag: pinned, mapped host memory. This is the substrate
+for the control block (the host writes commands into mapped memory;
+the device polls them at the start of each tick). Mapped-memory
+writes are the source of the 75~ns command-injection latency that
+\Cref{sec:evaluation} reports.
+
+\item \texttt{cuStreamWaitValue32} / \texttt{cuStreamWriteValue32}:
+host-side polling on a device-resident 32-bit flag. Used by the
+supervisor to await the kernel's acknowledgement of a control
+command (e.g., quiesce-complete, snapshot-taken) without resorting
+to event synchronization.
+
+\item \texttt{cuEventRecord} / \texttt{cuEventSynchronize}: precise
+ordering between supervisor-initiated host-to-device copies (snapshot
+restoration, control block updates) and the persistent kernel's tick
+loop. Used in the critical section of \textsc{Restart}.
+
+\item \texttt{cuMemcpyAsync}: bulk host-to-device and device-to-device
+copies for snapshot capture and restoration.
+\end{itemize}
+
+The full set of driver calls fits on a single page; the engineering
+work in \texttt{ringkernel-cuda} is in the careful sequencing of
+these calls under the constraints of the formal model rather than
+in the breadth of API consumed.
+
+\subsection{The Persistent Kernel}
+\label{sec:implementation:kernel}
+
+The kernel is a single CUDA C++ function launched once at startup
+and never returning until shutdown.  Its outer structure is:
+
+\begin{verbatim}
+__global__ void persistent_kernel(ControlBlock* cb,
+                                  ActorState*  states,
+                                  K2KBus*      bus) {
+  auto cluster = cooperative_groups::this_cluster();
+  auto grid    = cooperative_groups::this_grid();
+  while (!cb->shutdown) {
+    process_control(cb);            // poll mapped memory
+    deliver_phase(states, bus);     // K2K Deliver, per-actor
+    process_phase(states, bus);     // Process step, per-actor
+    cluster.sync();                 // intra-cluster barrier
+    bus->forward_phase(cluster);    // DSMEM cross-block hop
+    grid.sync();                    // grid-wide barrier
+  }
+}
+\end{verbatim}
+
+The two synchronization barriers per iteration (\texttt{cluster.sync()}
+and \texttt{grid.sync()}) realize the BSP (bulk-synchronous parallel)
+discipline: every actor advances at most one tick per iteration,
+and no actor observes a message produced in the same iteration as
+its own \textsc{Process} step.  This is the operational model that
+the formal calculus's small-step semantics abstracts; the formal
+``one rule per step'' becomes ``one tick per iteration of the
+persistent kernel.''
+
+The control block is the host's only handle on the running kernel.
+A 64-byte cache-aligned struct in mapped memory, it carries:
+the shutdown flag; per-actor command slots (start, stop, restart,
+snapshot); the supervisor's restart counters; and a 32-bit
+acknowledgement field that the kernel writes after each tick.  The
+host writes commands by ordinary memory store; the device sees them
+on the next tick's \texttt{process\_control} call.  No CUDA driver
+call is involved in the steady state.
+
+\subsection{K2K Bus Implementation}
+\label{sec:implementation:k2k}
+
+The K2K bus realizes the calculus of \Cref{sec:k2k} through three
+ring-buffer implementations, one per channel tier, all sharing the
+same envelope layout (\Cref{def:k2k-envelope}).
+
+\paragraph{SMEM ring}
+A 4~KiB ring inside each block's shared memory; producer and
+consumer cursors are 32-bit \texttt{atomicAdd} counters. Used only
+when the destination actor lives in the same block.  Latency is
+sub-cycle (the cursor update overlaps with the payload write).
+
+\paragraph{DSMEM ring}
+A 16~KiB ring split across cluster blocks via
+\texttt{cluster.map\_shared\_rank()}. The ring is partitioned so that
+each block owns the ring slots into which it writes; the consumer
+reads via the cluster-shared pointer. The release-acquire pair from
+\Cref{sec:memory:consistency} is realized as a cluster-scoped
+\texttt{cuda::atomic\_thread\_fence} in the producer and a matching
+fence in the consumer.
+
+\paragraph{HBM ring}
+A 1~MiB ring in HBM per (source-cluster, destination-cluster) pair.
+The producer enqueues with a global-scoped
+\texttt{cuda::atomic\_ref<...>::fetch\_add(release)}; the consumer
+dequeues with a matching \texttt{load(acquire)}.  This is the
+slowest path ($\sim$400 cycles round trip) and is used only when
+the destination is in a different cluster.
+
+The dead-letter store is a single per-tag HBM ring with capacity
+configurable from the host (default 16,384 envelopes); the
+idempotency cache is a Cuckoo hash with two tables, total capacity
+\(2^{16}\) entries per tag, evicting on insert collision.  Both
+data structures are entirely device-resident in steady state; the
+host inspects them on demand via a debug entry point.
+
+\subsection{Snapshot-Restart Engineering}
+\label{sec:implementation:snapshot}
+
+\Cref{sec:supervision:restart}'s three-step protocol—capture,
+reset, reactivate—is realized in
+\texttt{ringkernel-core/src/supervisor.rs} as a single
+\texttt{Mutex}-guarded host critical section.  The three steps are:
+
+\begin{enumerate}
+\item \emph{Capture}: write the actor's HLC into a per-actor
+\texttt{ret\_hlc} field in the control block; await the kernel's
+ack via \texttt{cuStreamWaitValue32}.
+
+\item \emph{Reset}: issue a \texttt{cuMemcpyAsync} from the actor's
+\(\mathit{snap}\) HBM region to its \(\mathit{live}\) HBM region;
+record a CUDA event; await it via
+\texttt{cuEventSynchronize}.
+
+\item \emph{Reactivate}: write the lifecycle-state flag in the
+control block from \Failed{} to \Initializing{}; the kernel's next
+tick observes this and runs the actor's per-actor reactivation
+code, which (per \Cref{rule:activate}) takes a fresh snapshot equal
+to the just-restored \(\mathit{live}\).
+\end{enumerate}
+
+The mutex serializes restart against any concurrent supervisor
+action on the same actor (e.g., a parallel attempt to issue a
+\textsc{Quiesce} or to take an out-of-band snapshot). The cost of
+the full protocol is dominated by the \texttt{cuMemcpyAsync} of
+step~2; for a 4~KiB actor state, the total host-side wall-clock
+cost is under 50~$\mu$s on H100, of which $\sim$30~$\mu$s is the
+event-synchronization round-trip and $\sim$10~$\mu$s is the actual
+copy.
+
+\subsection{Admin Surface and RBAC}
+\label{sec:implementation:admin}
+
+The supervisor exposes its operations to the host via an HTTP/JSON
+admin API in \texttt{ringkernel-core/src/admin.rs}.  The endpoints
+relevant to the formal model are:
+
+\begin{itemize}
+\item \texttt{POST /api/v1/admin/k2k/dlq/replay}: replay a
+dead-letter envelope per \textsc{Replay}~(\Cref{rule:k2k-replay}).
+\item \texttt{GET /api/v1/admin/k2k/dlq/list?tag=...}: list
+dead-letters for a given audit tag.
+\item \texttt{POST /api/v1/admin/actor/restart}: force a
+\textsc{Restart}~(\Cref{rule:restart}) on a named actor.
+\item \texttt{GET /api/v1/admin/actor/:id/snapshot}: download the
+\(\mathit{snap}\) bytes for offline inspection.
+\item \texttt{POST /api/v1/admin/config}: hot-reload the
+restart-policy and backpressure configuration without restarting
+the runtime.
+\end{itemize}
+
+The admin API is gated by an RBAC layer (capability-based; the
+identity carries a set of \texttt{can\_replay},
+\texttt{can\_restart}, \texttt{can\_inspect} capabilities) so that
+the operational levers are not casually accessible.  The audit tag
+of every admin invocation is recorded in the audit trace
+(\Cref{sec:tenancy:audit}); a replay of an envelope with audit tag
+\(\tau\) is itself tagged \(\tau\).
+
+\subsection{Test Suite}
+\label{sec:implementation:tests}
+
+\system{} ships with 1{,}496 unit and integration tests under
+\texttt{cargo test --workspace}.  The tests fall into four
+categories:
+
+\begin{enumerate}
+\item \emph{Unit tests of host-side data structures}
+($\sim$900 tests): the supervisor, the K2K queues, the dead-letter
+store, the idempotency cache, the HLC, the audit-tag registry.
+These run in $\sim$15~s on the dev box.
+
+\item \emph{Integration tests of the runtime} ($\sim$400 tests):
+end-to-end actor lifecycles, cross-tenant rejection, snapshot
+restoration, restart policies, replay flow.  These run in
+$\sim$45~s.
+
+\item \emph{Device-side smoke tests} (74 tests, gated on
+\texttt{--features cuda}): the persistent kernel, the K2K rings, the
+DSMEM cross-block hop, the cooperative-launch path. These require a
+GPU and run in $\sim$60~s on H100.
+
+\item \emph{Property-based tests} (122 tests using
+\texttt{proptest}): randomized exploration of the actor lifecycle
+and K2K calculus, checking the invariants of
+\Cref{thm:lifecycle-soundness,thm:no-message-loss,thm:fifo-per-sender,%
+thm:cross-tenant-isolation} on randomly-generated traces.
+\end{enumerate}
+
+The property-based tests are an empirical complement to the bounded
+\TLA{} verification: where TLC exhausts state space at a given
+configuration, \texttt{proptest} samples randomly from a much
+larger configuration space.  The combination has caught
+implementation regressions (e.g., a concurrency bug in the
+dead-letter store evicted on the wrong cursor) that escaped both
+the unit tests and the bounded TLA model.

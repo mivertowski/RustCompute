@@ -1,8 +1,246 @@
-% tenancy.tex — Tenant Isolation
+% sections/tenancy.tex — Tenant Isolation
 \section{Tenant Isolation}
 \label{sec:tenancy}
 
-Stub: Two-tuple audit boundary $(\mathit{org\_id}, \mathit{engagement\_id})$,
-K2KSubBroker per-tenant key, information-flow argument (no cross-tenant
-trace). Application to audit/compliance domains where the isolation
-guarantee is itself a deliverable.
+\system{}'s motivating workloads come from regulated domains—audit,
+compliance, safety-critical reasoning—where a single physical device
+hosts the work of multiple distinct legal entities (e.g., a cloud
+deployment serving several audit firms simultaneously, or one firm's
+deployment serving multiple client engagements concurrently).  In
+those settings, the isolation guarantee is itself a deliverable:
+the operator must be able to certify, ideally by structural
+argument rather than by audit log inspection, that no message
+originating in one tenant's actors was ever delivered to an actor
+in another tenant.  Tenancy is therefore a first-class concern of
+the formal model, not a runtime checkpoint that ``usually'' holds.
+
+This section formalizes the tenant boundary, gives a small-step
+account of the cross-tenant routing rule, and proves cross-tenant
+isolation: under the routing rule, no execution trace exists in
+which a message crosses a tenant boundary.  The argument is by
+construction: the routing function rejects cross-tenant sends as a
+single first-class operation, and there is no other path by which
+a message can reach an actor's inbox.  The mechanized counterpart
+is in \texttt{docs/verification/tenant\_isolation.tla}.
+
+\subsection{Audit Boundaries}
+\label{sec:tenancy:boundaries}
+
+\system{} represents the tenant of an actor as a two-tuple
+\((\mathit{org\_id}, \mathit{engagement\_id}) \in \N \times \N\),
+where \(\mathit{org\_id}\) identifies the legal entity (the audit
+firm, the regulated organization) and \(\mathit{engagement\_id}\)
+identifies the specific engagement within that entity (the audit
+year, the client engagement, the compliance review).  The two-tuple
+is the natural granularity for audit isolation: an audit firm
+cannot legally cross-pollinate data between two of its own
+engagements, even though both engagements run under the same
+\(\mathit{org\_id}\).
+
+\begin{definition}[Audit Tag]
+\label{def:audit-tag}
+An \emph{audit tag} is a pair \(\tau = (\mathit{org\_id},
+\mathit{engagement\_id}) \in \N \times \N\).  Two tags are
+\emph{equal} iff both components match.  We write \(\mathcal{T}\)
+for the set of all audit tags and \(\bot \in \mathcal{T}\) for the
+sentinel ``unregistered'' tag (which compares equal to nothing).
+\end{definition}
+
+Every actor carries its tag in the \(\mathit{tag}\) component of its
+state vector~(\Cref{def:actor-state}); the supervisor enforces that
+\(\mathit{tag}\) is set at \textsc{Spawn} and never changes thereafter.
+Every K2K envelope carries the source actor's tag in its
+\(\mathit{tag}\) field~(\Cref{def:k2k-envelope}).  The routing layer
+checks tag equality on every \textsc{Send}.
+
+\subsection{Routing Function}
+\label{sec:tenancy:routing}
+
+The cross-tenant rejection rule is a single inference rule that
+sits between the K2K \textsc{SendOK} of \Cref{rule:k2k-send} and any
+queue manipulation:
+
+\begin{equation}
+\inference[\textsc{TenantReject}]
+{
+  e = \langle s, d, m, \tau_e, \ldots\rangle \\
+  \Theta(s) = \langle \ldots, \tau_s\rangle \\
+  \Theta(d) = \langle \ldots, \tau_d\rangle \\
+  \tau_s = \bot \;\lor\; \tau_d = \bot \;\lor\; \tau_s \neq \tau_d
+}
+{
+  \langle \Theta, \langle Q, D, X\rangle, t\rangle
+  \trans{\mathsf{drop}(e, \state{TenantMismatch})}
+  \langle \Theta, \langle Q, D, X'\rangle, t+1\rangle
+}
+\label{rule:tenant-reject}
+\end{equation}
+
+\noindent where \(X' = X \cup \{(e, \state{TenantMismatch})\}\).
+
+The corresponding accept rule has the symmetric premise:
+
+\begin{equation}
+\inference[\textsc{TenantAccept}]
+{
+  e = \langle s, d, m, \tau_e, \ldots\rangle \\
+  \Theta(s) = \langle \ldots, \tau_s\rangle \\
+  \Theta(d) = \langle \ldots, \tau_d\rangle \\
+  \tau_s \neq \bot \;\land\; \tau_d \neq \bot \;\land\; \tau_s = \tau_d
+}
+{
+  \langle \Theta, M, t\rangle
+  \trans{\mathsf{tenant\_ok}(e)}
+  \langle \Theta, M, t\rangle
+}
+\label{rule:tenant-accept}
+\end{equation}
+
+The runtime composes \textsc{TenantAccept} with \textsc{SendOK} (or
+the appropriate backpressure variant): the K2K layer never sees an
+envelope until the tenant check has accepted.  In the formal model,
+we capture this by stating that \textsc{SendOK}~(\Cref{rule:k2k-send})
+is gated by \textsc{TenantAccept}: every \textsc{SendOK} step is
+preceded in the trace by a \textsc{TenantAccept} step on the same
+envelope.  Failed tenant checks short-circuit to the dead-letter
+store via \textsc{TenantReject}; the K2K layer has no opportunity to
+see the envelope at all.
+
+\subsection{Sub-Brokers}
+\label{sec:tenancy:subbrokers}
+
+The runtime realizes the tenant gate as a per-tag \emph{sub-broker}
+inside the K2K bus.  Each sub-broker maintains its own queue
+storage, its own dead-letter store, its own idempotency cache, and
+its own metrics.  Sub-brokers are spawned lazily on first use of a
+tag and destroyed when the tag's actors are all terminated.
+
+The sub-broker is more than an implementation detail: it is the
+mechanism by which the routing function of
+\Cref{sec:tenancy:routing} becomes \emph{structural} rather than
+\emph{procedural}.  An envelope in sub-broker \(\tau\) cannot reach
+sub-broker \(\tau'\) because the queue storage of \(\tau'\) is in a
+disjoint memory region and is reachable only through \(\tau'\)'s
+public interface (\textsc{Send}, \textsc{Deliver}), which itself
+checks the tag.  Even a faulty actor in \(\tau\) that attempted to
+write directly into \(\tau'\)'s memory would fail at the device's
+permission boundary.
+
+In the formal model we abstract over this and treat the routing
+function as a single rule pair (\textsc{TenantAccept} /
+\textsc{TenantReject}); the structural argument that sub-brokers
+provide an additional defense in depth is discussed in
+\Cref{sec:discussion}.
+
+\subsection{Cross-Tenant Isolation}
+\label{sec:tenancy:isolation}
+
+We can now state and prove the central isolation property.
+
+\begin{theorem}[Cross-Tenant Isolation]
+\label{thm:cross-tenant-isolation}
+For every reachable configuration \(\langle \Theta, \langle Q, D,
+X\rangle, t\rangle\) and every envelope \(e = \langle s, d, m,
+\tau_e, \ldots\rangle \in D\), the source's audit tag and the
+destination's audit tag agree:
+\[
+  \Theta(s).\mathit{tag} \;=\; \Theta(d).\mathit{tag}
+  \quad\text{and}\quad
+  \Theta(s).\mathit{tag} \neq \bot.
+\]
+\end{theorem}
+
+\begin{proof}
+Induction on the trace.  The base case is vacuous because \(D\) is
+empty in any initial configuration.  For the induction step,
+consider the rule applied at the last step: only \textsc{Deliver}
+(of \Cref{rule:k2k-deliver}) adds to \(D\).  The premise of
+\textsc{Deliver} requires the head of \(Q(d)\) to be \(e\), which
+in turn (by the gated composition with \textsc{TenantAccept})
+requires the tag check to have succeeded at the moment of
+\textsc{SendOK}\((e)\).  By \textsc{TenantAccept}~(\Cref{rule:tenant-accept}),
+this succeeded only if \(\Theta(s).\mathit{tag} =
+\Theta(d).\mathit{tag}\) and both are non-\(\bot\).
+
+It remains to argue that the tags have not changed between
+\textsc{SendOK}\((e)\) and \textsc{Deliver}\((e)\).  By the
+spawn invariant of \Cref{sec:tenancy:boundaries}, \(\mathit{tag}\)
+is set at \textsc{Spawn} and never modified by any subsequent
+rule.  Therefore the tag values at the time of delivery are
+identical to those at the time of send, and the conclusion holds.
+\qed
+\end{proof}
+
+\Cref{thm:cross-tenant-isolation} corresponds directly to
+\texttt{IsolationByConstruction} in
+\texttt{docs/verification/tenant\_isolation.tla} (lines 95--101).
+The mechanized form keeps a stronger invariant:
+\texttt{NoSameMessageInBothTenants} (lines 85--88) says that no
+single message identifier appears in two different tenants' delivery
+sets.  This stronger statement is implied by
+\Cref{thm:cross-tenant-isolation} together with the global
+uniqueness of \(\mathit{mid}\)~(see the discussion of
+\Cref{def:k2k-envelope}).
+
+\subsection{Audit Trace}
+\label{sec:tenancy:audit}
+
+The fact that \(D\) is partitioned by audit tag has an immediate
+operational consequence: the audit trace of an engagement
+\(\tau\) is exactly the projection of \(D\) onto envelopes whose
+source has tag \(\tau\), and (by
+\Cref{thm:cross-tenant-isolation}) all destinations of those
+envelopes also have tag \(\tau\).  The trace is therefore
+self-contained: an auditor can verify the trace of engagement
+\(\tau\) without inspecting any artifact from any other engagement,
+and the operator can produce that trace by querying a single
+sub-broker rather than scanning the whole device.
+
+The runtime implements this query as
+\texttt{GET /api/v1/admin/k2k/dlq/list?tag=...} (for the rejected
+side) and a tenant-scoped event subscription on the WebSocket
+endpoint \texttt{/ws/audit/:tag} (for the delivered side).  The
+operational guarantee, from the formal model, is that no envelope
+emitted by another tenant will ever appear in either response.
+
+\subsection{Limitations of the Formal Argument}
+\label{sec:tenancy:limits}
+
+The argument above proves isolation \emph{within the model}.  It
+does not prove isolation against an adversary who can subvert the
+runtime: an attacker who can write directly into an actor's
+\(\mathit{tag}\) field would defeat the property.  We make two
+notes on this:
+
+\begin{enumerate}
+\item In the runtime, \(\mathit{tag}\) is held in a memory region
+that is not exposed to the actor's user code; the actor reaches its
+own tag only through a read-only accessor, and the supervisor is
+the sole writer.  This is a defense-in-depth measure that the
+formal model abstracts over.
+
+\item The formal model treats \textsc{Spawn} as a privileged
+operation only the supervisor can invoke; the actor cannot create
+new actors with arbitrary tags.  The runtime enforces this through
+the supervisor RBAC layer~(\Cref{sec:implementation:admin}).
+\end{enumerate}
+
+A complete adversary model—formalizing what an attacker can do at
+the GPU's hardware boundary—is beyond the scope of this paper; we
+discuss it as future work in \Cref{sec:discussion}.
+
+\subsection{Mechanization}
+\label{sec:tenancy:mechanization}
+
+The tenant-isolation rule is mechanized in
+\texttt{docs/verification/tenant\_isolation.tla}, which models
+\texttt{RegisterKernel} (the analogue of \textsc{Spawn} for the
+isolation argument), \texttt{Send} (folded with the tenant check),
+and the disjoint inboxes/rejected/delivered sets.  We model-checked
+under the configuration \texttt{tenant\_isolation.cfg} for parameter
+ranges \(|\textit{Tenants}| \le 2\), \(|\textit{Kernels}| \le 3\),
+and \(\textit{MaxMsgs} \le 4\).  Within those bounds, the
+invariants \texttt{NoSameMessageInBothTenants},
+\texttt{CrossTenantRejected}, \texttt{IsolationByConstruction}, and
+\texttt{InboxesWellFormed} held on every reachable state, with the
+search exhausting the explored state space without violation.

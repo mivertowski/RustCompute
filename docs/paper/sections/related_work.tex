@@ -1,9 +1,135 @@
-% related_work.tex — Related Work
+% sections/related_work.tex — Related Work
 \section{Related Work}
 \label{sec:related_work}
 
-Stub: actor calculi (Hewitt, Agha, Pony), GPU persistent-kernel
-literature (Gupta 2012, Aila 2009, Steinberger 2014), distributed
-actor systems (Erlang/OTP, Akka, Orleans), formal models of GPU
-memory (Lustig \& Pfaff 2014, Hower 2014), TLA+ for systems
-verification (Lamport 2002, AWS use of TLA+ Newcombe 2014).
+\system{} sits at the intersection of three research streams that
+have, until now, evolved largely independently: actor calculi and
+their type systems; GPU programming abstractions and their
+formal semantics; and the use of mechanized formal methods for
+distributed-systems verification.  We review each in turn,
+positioning \system{} relative to representative work.
+
+\subsection{Actor Calculi and Type Systems}
+\label{sec:rw:actors}
+
+The lineage from Hewitt's 1973 informal model~\citep{hewitt1973actors}
+to Agha's transition-system formalization~\citep{agha1986actors}
+established the operational semantics on which essentially all
+subsequent work rests.  Practical actor systems—Erlang/OTP
+\citep{armstrong2007erlang}, Akka~\citep{akka2010},
+Pony~\citep{clebsch2015pony}—have layered type systems, capability
+systems, and supervision disciplines on top of Agha's small-step
+core, but the core itself has remained stable: an actor is a
+mailbox-driven sequential process; messages are values; state is
+private.
+
+\system{}'s lifecycle calculus (\Cref{sec:model:lifecycle}) inherits
+this core.  The novelty is what surrounds it.  Where Agha's calculus
+treats actor creation as a single-step operation that immediately
+produces an active actor, our model interposes \Initializing{} and
+\Active{} states to capture the snapshot-restoration cost of GPU
+restart.  Where Pony's deny capabilities forbid concurrent reads
+and writes through static type discipline~\citep{clebsch2015pony},
+our cross-tenant isolation theorem (\Cref{thm:cross-tenant-isolation})
+forbids cross-boundary message flow through structural routing—the
+runtime obstacle is similar (you cannot reach the data you should not
+see) but the mechanism is dynamic, not static.
+
+\subsection{GPU Programming Abstractions}
+\label{sec:rw:gpu}
+
+The persistent-kernel literature
+\citep{aila2009raytrace,gupta2012persistent,steinberger2014whippletree}
+is the closest GPU-side prior work; we discussed it in
+\Cref{sec:bg:persistent}.  Three other strands deserve mention.
+
+\paragraph{Domain-specific GPU compilers}
+Triton~\citep{nickolls2008cuda}\footnote{We cite Nickolls et~al.\ as the
+canonical CUDA programming-model reference; we use it as a stand-in
+for the broader CUDA compiler ecosystem in which Triton, JAX, and
+TVM operate.}, JAX, and TVM all generate GPU kernels from
+higher-level descriptions.  Their abstractions are functional
+(JAX, TVM) or block-functional (Triton): a kernel is a function
+applied to tensors, not a long-lived process.  None of them
+exposes a notion of actor lifecycle, message passing, or causal
+time.  They are complementary: one could imagine a Triton-generated
+kernel running inside a \system{} actor as the actor's
+\textsc{Process} step.
+
+\paragraph{CUDA Graphs and stream-based composition}
+CUDA Graphs~\citep{nvidia2023cooperative} let an application capture
+a sequence of kernel launches and replay them as a single submission;
+the speedup over individual launches is roughly 3$\times$ on H100
+(per our measurements; see \Cref{sec:evaluation}).  CUDA Graphs
+attack the same problem we do—launch-overhead amortization—but at a
+different layer: a CUDA Graph is still a sequence of one-shot
+kernels, and the host still drives every iteration.  \system{}'s
+persistent kernel runs continuously; the host injects work into
+mapped memory but does not orchestrate the kernel's tick loop.
+
+\paragraph{GPU memory consistency}
+Lustig et~al.~\citep{lustig2014abstraction} and Hower
+et~al.~\citep{hower2014} formalized the memory consistency models of
+heterogeneous architectures, including GPUs.  Their models are
+protocol-level rather than program-level: they describe what
+orderings the hardware guarantees, not what programs can be written
+on top.  Our memory-model section (\Cref{sec:memory:consistency})
+adopts their framework as a parameter, constraining our
+\textsc{SendOK} and \textsc{Deliver} rules to compose
+release-acquire pairs that respect their axioms.  This is the
+narrowest formal interface: we do not claim a new memory model;
+we claim a runtime that uses an existing one correctly.
+
+\subsection{Formal Methods for Distributed Systems}
+\label{sec:rw:formal}
+
+The use of \TLA{}~\citep{lamport2002} for verifying distributed
+systems, popularized by AWS~\citep{newcombe2014}, has produced a
+methodology in which a target protocol is specified abstractly,
+model-checked for invariants under bounded configurations, and then
+mapped onto an implementation by an explicit correspondence
+table.  We follow this methodology directly: each of the four
+theorems in this paper has a corresponding \TLA{} module in
+\texttt{docs/verification/}, and each module's variables map onto
+specific Rust modules in \texttt{crates/ringkernel-core/}.  The
+correspondence table is in \texttt{docs/verification/README.md}.
+
+\paragraph{Causal time and HLC}
+Logical clocks (\citet{lamport1978clocks}) and the more recent
+hybrid construction of \citet{kulkarni2014hlc} are widely used in
+distributed databases (MongoDB, CockroachDB) for cross-shard
+causal consistency.  Our use is unusual in two ways: first, we apply
+HLC \emph{within} a single device, not across a network; second,
+we extend the standard monotonicity argument to cover supervisor-driven
+restart, which has no analogue in the distributed-database setting
+(databases use replication, not restart).
+\Cref{thm:hlc-restart-monotone} is, to our knowledge, the first
+formal statement of HLC monotonicity across an actor restart.
+
+\paragraph{Information flow and tenant isolation}
+The information-flow tradition stemming from
+\citet{sabelfeld2003language} provides type systems and program
+logics for proving non-interference between security levels.  Our
+isolation theorem (\Cref{thm:cross-tenant-isolation}) is weaker than
+non-interference in the static-type sense (we do not preclude
+tenants from observing each other's resource usage through timing
+or queue-depth side channels), but it is at the right granularity
+for audit: an auditor's question is not ``did tenant~A learn
+anything about tenant~B?''\ in the noninterference sense, but
+``did any artifact of tenant~A appear in tenant~B's
+delivery set?''\ which is exactly what our theorem rules out.
+
+\paragraph{Reliable broadcast and at-least-once messaging}
+The distributed-systems literature on reliable broadcast
+(\citet{birman1987process}) and primary-backup
+(\citet{junqueira2011zab}) has long-since established the
+at-least-once / exactly-once / per-source-FIFO landscape for
+message delivery.  Our K2K theorems
+(\Cref{thm:no-message-loss,thm:fifo-per-sender,%
+thm:no-duplicate-delivery}) are the within-device specializations
+of those properties, with the additional twist that the dead-letter
+discipline lets us state at-most-once observable delivery as a
+conjunctive property over \(D\) and \(X\), not just \(D\).  The
+\TLA{} structure is similar to Junqueira et~al.'s Zab
+specification~\citep{junqueira2011zab}; the within-device setting
+is what is novel.
