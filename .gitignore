@@ -28,6 +28,9 @@ docs/ringkernel-executive-overview.toc
 
 # TLA+ / TLC artifacts
 docs/verification/tla2tools.jar
+
+# Validation run logs (b200-validate.sh, benchmarks)
+/logs/
 docs/verification/states/
 
 # LaTeX intermediates from paper figures
