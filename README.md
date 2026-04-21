@@ -198,6 +198,50 @@ let actor = registry.lookup("standards/isa/*"); // Wildcard patterns
 | `ringkernel-procint` | GPU process intelligence, DFG mining, conformance checking | Stable |
 | `ringkernel-python` | Python bindings | Stable |
 
+## GPU Compatibility
+
+RingKernel targets **NVIDIA datacenter GPUs** (Tesla / A-series / H-series / B-series). Consumer cards (GeForce / RTX) will compile and run the core persistent-actor path, but several features are intentionally gated to datacenter silicon: ECC memory, NVLink P2P, MIG, and the Hopper/Blackwell tensor formats assume a datacenter pipeline. There is no downlevel emulation — a kernel that asks for a type or launch mode the device can't execute is rejected at codegen.
+
+Gating is not hand-maintained documentation; it lives in the runtime. `GpuArchitecture::from_compute_capability(major, minor)` (in `ringkernel-cuda/src/launch_config/mode.rs`) routes the detected device to a preset, and each feature is guarded by a `supports_*()` method. Scalar types carry their own `ScalarType::min_compute_capability()` (in `ringkernel-ir/src/types.rs`).
+
+### Architecture to compute capability
+
+| Arch | CC | Datacenter GPUs | RingKernel status |
+|------|-----|-----------------|-------------------|
+| Volta | 7.0 | V100 | Compiles; cooperative groups only (no persistent-actor verification) |
+| Ampere | 8.0 / 8.6 | A100, A30, A40 | Persistent actors work; no DSMEM / cluster.sync |
+| Ada | 8.9 | L40, L40S, L4 | Persistent actors work; no DSMEM / cluster.sync |
+| **Hopper** | **9.0** | **H100, H100 NVL, H200, GH200** | **Primary target — v1.0 and v1.1 verified** |
+| Blackwell | 10.0 / 11.x | B100, B200, GB200 | Codegen stubs compile; runtime paths await B200 silicon |
+| Rubin | 12.x | (future) | Preset placeholder only |
+
+> **DGX Spark is not datacenter Blackwell.** The GB10 Superchip in DGX Spark reports compute capability **sm_121** — it carries the Blackwell ISA name but is a single-die consumer/workstation part (48 SMs, LPDDR5X shared with Grace via NVLink-C2C, no HBM, no NVSwitch fabric, no MIG, reduced FP64 density). Datacenter Blackwell (B100 / B200 / GB200) is sm_100 / sm_101 / sm_103 with HBM3e and multi-GPU NVLink 5. RingKernel's v1.1 multi-GPU K2K path (`cuMemcpyPeerAsync` between peer GPUs) does not apply to DGX Spark — there is one GPU die. FP4/FP6 tensor ops and the cluster programming model are available; NVLink peer bandwidth, peer-to-peer migration, and multi-tenant GPU partitioning (MIG) are not.
+
+### Feature to minimum compute capability
+
+| Feature | Min CC | Arch floor | Gate | v1.x status |
+|---------|--------|-----------|------|-------------|
+| Persistent kernel / `grid.sync()` | 6.0 | Pascal | `supports_cooperative_groups()` | Shipped, v1.0 |
+| Cluster launch (`cuLaunchKernelEx` + cluster dims) | 9.0 | Hopper | `supports_cluster_launch()` | Shipped, v1.0 |
+| DSMEM ring-topology K2K | 9.0 | Hopper | Implicit (requires clusters) | Shipped, v1.0 |
+| `cluster.sync()` at 0.628 us | 9.0 | Hopper | Implicit (requires clusters) | Shipped, v1.0 |
+| TMA (tensor memory accelerator) | 9.0 | Hopper | Implicit (Hopper preset) | Used by codegen, v1.0 |
+| NVLink 4 P2P (`cuMemcpyPeerAsync`) | 9.0 datacenter | Hopper | `PeerAccessManager::supports_p2p()` | Shipped, v1.1 (258 GB/s @ 16 MiB) |
+| Confidential Computing / TEE | 9.0 | Hopper | `supports_tee()` | Surface exposed; not exercised in benchmarks |
+| Dynamic Cluster Launch Control | 10.0 | Blackwell | `supports_cluster_launch_control()` | Query wired; runtime awaits B200 |
+| NVLink 5 | 10.0 | Blackwell | `supports_nvlink5()` | Query wired; awaits B200 |
+| BF16 scalar type | 8.0 | Ampere | `ScalarType::BF16.min_compute_capability()` | Codegen (CUDA / MSL / WGSL) |
+| FP8 (E4M3 / E5M2) scalar types | 9.0 | Hopper | `ScalarType::FP8E4M3.min_compute_capability()` | Codegen; rejected on pre-Hopper |
+| FP6 (E3M2 / E2M3) scalar types | 10.0 | Blackwell | `ScalarType::FP6E3M2.min_compute_capability()` | Codegen; rejected on pre-Blackwell |
+| FP4 (E2M1) scalar type | 10.0 | Blackwell | `ScalarType::FP4E2M1.min_compute_capability()` | Codegen; rejected on pre-Blackwell |
+| NVSHMEM symmetric heap | any CUDA-capable | (host-ABI feature) | `nvshmem` Cargo feature on `ringkernel-cuda` | Shipped as v1.2 groundwork; opt-in |
+
+### Practical guidance
+
+- **Running the published benchmarks** (persistent command injection, DSMEM K2K, NVLink P2P migration) requires Hopper (H100 / H100 NVL / H200 / GH200). They will not be reproducible on Ampere, because cluster.sync and DSMEM do not exist below CC 9.0.
+- **Running the persistent-actor programming model** (queues, supervision, HLC, multi-tenant isolation) works on anything from Pascal upward. The performance numbers change; the API does not.
+- **Blackwell-specific codegen paths** compile today and will start exercising at runtime once we have B200 access. The `supports_*` queries guarantee that pre-Blackwell devices refuse the kernel rather than launching something they cannot execute.
+
 ## Build Commands
 
 ```bash

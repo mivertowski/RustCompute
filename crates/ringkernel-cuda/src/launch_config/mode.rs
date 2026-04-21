@@ -367,8 +367,13 @@ impl GpuArchitecture {
     #[must_use]
     pub fn from_compute_capability(major: u32, minor: u32) -> Self {
         match (major, minor) {
-            (12, _) => Self::rubin(),
-            (10, _) | (11, _) => Self::blackwell(),
+            // sm_120 = RTX 50-series consumer desktop Blackwell.
+            // sm_121 = DGX Spark GB10 (consumer/workstation Blackwell).
+            // Datacenter Blackwell (B100/B200/GB200) is sm_100/101/103.
+            // All 12.x variants share the Blackwell ISA. Rubin's real
+            // compute capability is not yet public — callers that want
+            // the Rubin preset must select it explicitly via `rubin()`.
+            (10, _) | (11, _) | (12, _) => Self::blackwell(),
             (9, _) => Self::hopper(),
             (8, 9) => Self::ada(),
             (8, _) => Self::ampere(),
@@ -746,19 +751,14 @@ mod tests {
     }
 
     #[test]
-    fn from_compute_capability_routes_to_blackwell_and_rubin() {
-        assert_eq!(
-            GpuArchitecture::from_compute_capability(10, 0)
-                .compute_capability
-                .0,
-            10
-        );
-        assert_eq!(
-            GpuArchitecture::from_compute_capability(12, 0)
-                .compute_capability
-                .0,
-            12
-        );
+    fn from_compute_capability_routes_blackwell_family_to_blackwell_preset() {
+        // Datacenter Blackwell (B100/B200/GB200) — sm_100.
+        assert!(GpuArchitecture::from_compute_capability(10, 0).supports_fp4());
+        // Consumer desktop Blackwell (RTX 50-series) — sm_120.
+        assert!(GpuArchitecture::from_compute_capability(12, 0).supports_fp4());
+        // DGX Spark GB10 — sm_121. Must not fall through to Rubin.
+        assert!(GpuArchitecture::from_compute_capability(12, 1).supports_fp4());
+        // Hopper unchanged.
         assert_eq!(
             GpuArchitecture::from_compute_capability(9, 0)
                 .compute_capability
