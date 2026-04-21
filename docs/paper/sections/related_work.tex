@@ -2,12 +2,24 @@
 \section{Related Work}
 \label{sec:related_work}
 
-\system{} sits at the intersection of three research streams that
-have, until now, evolved largely independently: actor calculi and
-their type systems; GPU programming abstractions and their
-formal semantics; and the use of mechanized formal methods for
-distributed-systems verification.  We review each in turn,
-positioning \system{} relative to representative work.
+\system{} sits at the intersection of four research streams that
+have, until now, largely evolved independently: actor calculi and
+their type systems; actor frameworks extended to heterogeneous or
+GPU execution; GPU programming abstractions, including device-side
+and task-based runtimes; and mechanized formal methods for
+concurrent and distributed systems—including a small but relevant
+literature on verifying GPU kernels directly.  We review each in
+turn, positioning \system{} relative to representative work.  The
+short version of the positioning is: prior work has addressed
+\emph{actor-to-accelerator integration}, \emph{formal reasoning
+about GPU kernel semantics}, and \emph{device-side/task-based
+GPU execution} as three largely separate threads.  \system{}'s
+claim is not to improve on any of those individually; it is to
+combine \emph{persistent device residency, actor lifecycle,
+supervision, HLC, tenant routing, and cross-GPU migration} in a
+single formal and runtime package, with each property stated as a
+theorem over a small-step calculus and each theorem bounded-model-checked
+in \TLA{}.
 
 \subsection{Actor Calculi and Type Systems}
 \label{sec:rw:actors}
@@ -24,7 +36,7 @@ mailbox-driven sequential process; messages are values; state is
 private.
 
 \system{}'s lifecycle calculus (\Cref{sec:model:lifecycle}) inherits
-this core.  The novelty is what surrounds it.  Where Agha's calculus
+this core.  What differs is the material that surrounds it.  Where Agha's calculus
 treats actor creation as a single-step operation that immediately
 produces an active actor, our model interposes \Initializing{} and
 \Active{} states to capture the snapshot-restoration cost of GPU
@@ -35,33 +47,73 @@ forbids cross-boundary message flow through structural routing—the
 runtime obstacle is similar (you cannot reach the data you should not
 see) but the mechanism is dynamic, not static.
 
+\subsection{Actors Meet Accelerators}
+\label{sec:rw:hetero-actors}
+
+The closest prior work on integrating actor abstractions with
+GPU-class hardware comes from the C++ Actor Framework (CAF).
+Charousset et~al.~\citep{charousset2016manyfold} extended CAF to
+heterogeneous many-core machines via OpenCL (\emph{Manyfold actors}),
+and Hiesgen et~al.~\citep{hiesgen2018opencl} sharpened that work
+into \emph{OpenCL Actors}, adding data parallelism to actor-based
+programming with CAF as a first-class construct.  Both introduce
+an actor whose \(\delta\) function is an OpenCL kernel spawned and
+managed through the CAF runtime.  The emphasis is on CPU-side
+orchestration: the actor's identity, mailbox, and lifecycle live
+on the host, and the GPU is a device on which one particular
+action of that actor runs.  \system{}'s move is the dual one: the
+actor's identity, mailbox, lifecycle, supervisor, HLC, and tenant
+tag all live \emph{on the device}, and the host issues commands
+but never owns actor state.  None of the CAF-based heterogeneous
+actor works state formal properties about device-resident
+lifecycle, HLC monotonicity under restart, or cross-tenant
+routing—those questions do not arise when the actor is
+host-resident.
+
 \subsection{GPU Programming Abstractions}
 \label{sec:rw:gpu}
 
 The persistent-kernel literature
 \citep{aila2009raytrace,gupta2012persistent,steinberger2014whippletree}
 is the closest GPU-side prior work; we discussed it in
-\Cref{sec:bg:persistent}.  Three other strands deserve mention.
+\Cref{sec:bg:persistent}.  Four other strands deserve mention.
 
 \paragraph{Domain-specific GPU compilers}
-Triton~\citep{nickolls2008cuda}\footnote{We cite Nickolls et~al.\ as the
-canonical CUDA programming-model reference; we use it as a stand-in
-for the broader CUDA compiler ecosystem in which Triton, JAX, and
-TVM operate.}, JAX, and TVM all generate GPU kernels from
-higher-level descriptions.  Their abstractions are functional
-(JAX, TVM) or block-functional (Triton): a kernel is a function
-applied to tensors, not a long-lived process.  None of them
-exposes a notion of actor lifecycle, message passing, or causal
-time.  They are complementary: one could imagine a Triton-generated
-kernel running inside a \system{} actor as the actor's
-\textsc{Process} step.
+Triton~\citep{tillet2019triton}, JAX~\citep{jax2018}, and
+TVM~\citep{chen2018tvm} all generate GPU kernels from higher-level
+descriptions.  Their abstractions are functional (JAX, TVM) or
+block-functional (Triton): a kernel is a function applied to
+tensors, not a long-lived process.  None of them exposes a notion
+of actor lifecycle, message passing, or causal time.  They are
+complementary rather than competing: one could imagine a
+Triton-generated kernel running inside a \system{} actor as the
+actor's \textsc{Process} step.
+
+\paragraph{Device-side and task-based GPU runtimes}
+Two recent works address the host-orchestration overhead we attack
+in \Cref{sec:eval:injection}, from different directions.
+\emph{Mustard}~\citep{mustard2025} is a device-side execution model
+for multi-GPU task graphs in which the CPU initializes the graph
+once and the GPU thereafter schedules graph vertices, tracks
+dependencies, and balances across devices without host
+intervention.  \emph{Cypress}~\citep{cypress2025} is a task-based
+programming model with sequential semantics targeting modern
+(Hopper-class) GPUs, where the compiler infers parallelism and
+inserts data movement under a sequential-execution abstraction.
+Both eliminate per-step host orchestration, as \system{} does, but
+their unit of abstraction is a task/task-graph vertex rather than a
+long-lived actor: neither models lifecycle states, supervisor
+restart, HLC, tenant routing, or migration.  The mechanisms are
+complementary—\system{}'s \textsc{Process} step could in principle
+delegate to a Cypress task or a Mustard sub-graph—but the formal
+claim is orthogonal.
 
 \paragraph{CUDA Graphs and stream-based composition}
 CUDA Graphs~\citep{nvidia2023cooperative} let an application capture
 a sequence of kernel launches and replay them as a single submission;
 the speedup over individual launches is roughly 3$\times$ on H100
 (per our measurements; see \Cref{sec:evaluation}).  CUDA Graphs
-attack the same problem we do—launch-overhead amortization—but at a
+attack the same launch-overhead problem as \system{}, but at a
 different layer: a CUDA Graph is still a sequence of one-shot
 kernels, and the host still drives every iteration.  \system{}'s
 persistent kernel runs continuously; the host injects work into
@@ -77,48 +129,68 @@ row, ``\cmark'' means the system provides a first-class abstraction
 of the property, ``\textit{ext}'' means the property is achievable
 by the user's own glue code, and ``--'' means there is no support.
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
-\small
+\footnotesize
+\setlength{\tabcolsep}{4pt}
 \renewcommand{\arraystretch}{1.15}
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{lcccccc}
 \toprule
-System & Granularity & Lifecycle & Msg.\ pass & Fault tol.\ & Causal time & Multi-tenant \\
+System & Granularity & Lifecycle & Msg.\ pass & Fault tol. & Causal time & Multi-tenant \\
 \midrule
-\system{}                   & actor    & \cmark    & \cmark & \cmark   & HLC      & \cmark \\
-Persistent kernels          & loop body & --       & queue  & --       & --       & -- \\
-\quad\citep{aila2009raytrace,gupta2012persistent,steinberger2014whippletree}
-                            &          &           &        &          &          & \\
-CUDA Graphs                 & kernel   & --        & --     & --       & --       & -- \\
-Triton / JAX / TVM          & function & --        & --     & --       & --       & -- \\
+\system{}
+                            & actor      & \cmark   & \cmark & \cmark      & HLC      & \cmark \\
+Persistent kernels$^{a}$
+                            & loop body  & --       & queue  & --          & --       & -- \\
+Cypress \citep{cypress2025}
+                            & task       & --       & --     & --          & --       & -- \\
+Mustard \citep{mustard2025}
+                            & task graph & --       & --     & --          & --       & -- \\
+CUDA Graphs                 & kernel     & --       & --     & --          & --       & -- \\
+Triton / JAX / TVM$^{b}$
+                            & function   & --       & --     & --          & --       & -- \\
+OpenCL Actors \citep{hiesgen2018opencl}
+                            & host actor & \cmark   & \cmark & \textit{ext}& seq.\ ID & -- \\
 Erlang OTP \citep{armstrong2007erlang}
-                            & actor    & \cmark    & \cmark & \cmark   & seq.\ ID & \textit{ext} \\
-Akka \citep{akka2010}       & actor    & \cmark    & \cmark & \cmark   & seq.\ ID & \textit{ext} \\
+                            & actor      & \cmark   & \cmark & \cmark      & seq.\ ID & \textit{ext} \\
+Akka \citep{akka2010}       & actor      & \cmark   & \cmark & \cmark      & seq.\ ID & \textit{ext} \\
 Pony \citep{clebsch2015pony}
-                            & actor    & \cmark    & \cmark & --       & --       & static \\
+                            & actor      & \cmark   & \cmark & --          & --       & static \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
+\vspace{2pt}
+\\[-1pt]
+{\footnotesize
+\textsuperscript{a}\,\citet{aila2009raytrace,gupta2012persistent,%
+steinberger2014whippletree}.\quad
+\textsuperscript{b}\,\citet{tillet2019triton,jax2018,chen2018tvm}.}
 \caption{Design-space comparison of \system{} against representative
-GPU programming abstractions and CPU actor systems.  ``\cmark'' = first-class
-abstraction; ``\textit{ext}'' = achievable via external glue;
+GPU programming abstractions, heterogeneous actor frameworks, and
+CPU actor systems.  ``\cmark'' = first-class abstraction;
+``\textit{ext}'' = achievable via external glue;
 ``static'' = compile-time enforcement only;
-``--'' = unsupported; ``HLC'' = Hybrid Logical Clock; ``seq.\ ID'' =
-monotone sequence number per actor.  GPU-side rows are above
-the dividing line; CPU-side actor systems are shown below for
-context.  The table makes plain that no other GPU programming
-abstraction provides any of the rightmost four columns as a
-first-class feature, which is the gap \system{} fills.}
+``--'' = unsupported; ``HLC'' = Hybrid Logical Clock; ``seq.\ ID''
+= monotone sequence number per actor.  GPU-native rows are above
+the dividing line; heterogeneous and CPU-side actor systems are
+shown below for context.  Among the systems summarized, none
+packages lifecycle, causal clocks, tenant isolation, and migration
+as a single first-class substrate running on the device.}
 \label{tab:comparison}
 \end{table}
 
 The table's rightmost columns—causal time, multi-tenant isolation,
 fault tolerance, lifecycle—are the formal-model territory.  The
-GPU-side abstractions either treat them as out-of-scope (CUDA
-Graphs, Triton, JAX) or approximate them through a single
-all-or-nothing pattern (the persistent-kernel literature).  The
-CPU-side actor systems handle them at the operating-system layer
-that does not exist on the GPU.  \system{}'s contribution is a
-single substrate that handles all four on the device.
+GPU-side abstractions treat them as out-of-scope (CUDA Graphs,
+Triton, JAX, TVM, Cypress, Mustard) or approximate them through a
+single all-or-nothing pattern (the persistent-kernel literature).
+Heterogeneous actor frameworks (OpenCL Actors, Manyfold Actors)
+address lifecycle and messaging but keep actor identity on the
+host.  The CPU-side actor systems handle lifecycle and supervision
+at the operating-system layer that does not exist on the GPU.
+\system{}'s contribution is a single device-resident substrate that
+carries all four properties with a formal statement for each.
 
 \paragraph{GPU memory consistency}
 Lustig et~al.~\citep{lustig2014abstraction} and Hower
@@ -133,7 +205,7 @@ release-acquire pairs that respect their axioms.  This is the
 narrowest formal interface: we do not claim a new memory model;
 we claim a runtime that uses an existing one correctly.
 
-\subsection{Formal Methods for Distributed Systems}
+\subsection{Formal Methods for Concurrent and GPU Systems}
 \label{sec:rw:formal}
 
 The use of \TLA{}~\citep{lamport2002} for verifying distributed
@@ -141,11 +213,29 @@ systems, popularized by AWS~\citep{newcombe2014}, has produced a
 methodology in which a target protocol is specified abstractly,
 model-checked for invariants under bounded configurations, and then
 mapped onto an implementation by an explicit correspondence
-table.  We follow this methodology directly: each of the four
-theorems in this paper has a corresponding \TLA{} module in
+table.  We follow this methodology directly: each theorem in this
+paper has a corresponding \TLA{} module in
 \texttt{docs/verification/}, and each module's variables map onto
 specific Rust modules in \texttt{crates/ringkernel-core/}.  The
 correspondence table is in \texttt{docs/verification/README.md}.
+The checks are bounded (small numbers of actors, messages, queue
+capacities); we do not claim scale-free proofs.
+
+\paragraph{Formal verification of GPU kernels}
+A small but adjacent literature verifies the kernel programs
+themselves rather than the surrounding runtime.  GPUVerify
+\citep{betts2012gpuverify} introduced a synchronous,
+delayed-visibility semantics for GPU programs and uses it to prove
+data-race and barrier-divergence freedom of individual CUDA/OpenCL
+kernels.  This is a different target from ours: GPUVerify reasons
+about the internals of a single kernel, whereas \system{} reasons
+about a long-lived persistent kernel hosting a population of
+actors, with the small-step rules firing on message arrival,
+supervisor event, and migration phase transition rather than on
+intra-kernel thread scheduling.  The two lines of work are
+compatible in principle—one could verify the persistent kernel's
+internal synchronization with a GPUVerify-style tool while
+verifying the actor calculus over the kernel at the \TLA{} level.
 
 \paragraph{Causal time and HLC}
 Logical clocks (\citet{lamport1978clocks}) and the more recent
@@ -155,9 +245,9 @@ causal consistency.  Our use is unusual in two ways: first, we apply
 HLC \emph{within} a single device, not across a network; second,
 we extend the standard monotonicity argument to cover supervisor-driven
 restart, which has no analogue in the distributed-database setting
-(databases use replication, not restart).
-\Cref{thm:hlc-restart-monotone} is, to our knowledge, the first
-formal statement of HLC monotonicity across an actor restart.
+(databases use replication, not restart).  To our knowledge,
+\Cref{thm:hlc-restart-monotone} is the first formal statement of
+HLC monotonicity across an actor restart.
 
 \paragraph{Information flow and tenant isolation}
 The information-flow tradition stemming from
@@ -184,5 +274,5 @@ of those properties, with the additional twist that the dead-letter
 discipline lets us state at-most-once observable delivery as a
 conjunctive property over \(D\) and \(X\), not just \(D\).  The
 \TLA{} structure is similar to Junqueira et~al.'s Zab
-specification~\citep{junqueira2011zab}; the within-device setting
-is what is novel.
+specification~\citep{junqueira2011zab}; what differs is the
+within-device setting.

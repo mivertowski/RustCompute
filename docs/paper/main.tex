@@ -34,6 +34,12 @@
 \usepackage{setspace}
 \onehalfspacing
 
+% Allow LaTeX to stretch interword spaces by up to 3em when a paragraph
+% would otherwise produce an overfull line (typically caused by long
+% \texttt{...} identifiers or URLs that cannot hyphenate).  This is the
+% single-shot fix that avoids peppering the sources with \allowbreak.
+\setlength{\emergencystretch}{3em}
+
 % ── Figures / tables ───────────────────────────────────────────────────
 \usepackage{graphicx}
 \usepackage{booktabs}
@@ -81,8 +87,17 @@
 
 % ── Colors / hyperlinks ───────────────────────────────────────────────
 \usepackage[dvipsnames]{xcolor}
-\usepackage[colorlinks=true,linkcolor=blue!60!black,citecolor=green!50!black,urlcolor=blue!70!black]{hyperref}
+\usepackage[colorlinks=true,linkcolor=blue!60!black,citecolor=green!50!black,urlcolor=blue!70!black,breaklinks=true]{hyperref}
 \usepackage{cleveref}
+
+% Encourage URL line breaks at any character (not just / - .).  Without
+% this, long NVIDIA / Colfax / ETH blog URLs in the bibliography
+% produce overfull lines.
+\PassOptionsToPackage{hyphens}{url}
+\makeatletter
+\g@addto@macro{\UrlBreaks}{\UrlOrds}
+\makeatother
+\Urlmuskip=0mu plus 1mu
 
 % ── Bibliography ───────────────────────────────────────────────────────
 \usepackage[numbers,sort&compress]{natbib}

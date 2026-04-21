@@ -53,8 +53,9 @@
   author       = {{Lightbend Inc.}},
   title        = {{Akka}: Build concurrent, distributed, and resilient
                   message-driven applications for {Java} and {Scala}},
-  howpublished = {\url{https://akka.io/}},
-  year         = {2010}
+  howpublished = {Software library, \url{https://akka.io/}},
+  year         = {2010},
+  note         = {Initial release 2010; accessed 2026-04}
 }
 
 @book{vernon2015reactive,
@@ -91,6 +92,116 @@
                   Thread Block Clusters, Asynchronous Memory Operations}},
   howpublished = {\url{https://docs.nvidia.com/cuda/cuda-c-programming-guide/}},
   year         = {2023}
+}
+
+@misc{nvidia2023hopperguide,
+  author       = {{NVIDIA Corporation}},
+  title        = {{NVIDIA Hopper Tuning Guide}},
+  howpublished = {\url{https://docs.nvidia.com/cuda/hopper-tuning-guide/}},
+  year         = {2023}
+}
+
+% ── Domain-specific GPU compilers ────────────────────────────────────
+@inproceedings{tillet2019triton,
+  author    = {Philippe Tillet and H.~T. Kung and David Cox},
+  title     = {{Triton}: An Intermediate Language and Compiler for Tiled Neural
+               Network Computations},
+  booktitle = {Proceedings of the 3rd ACM SIGPLAN International Workshop on
+               Machine Learning and Programming Languages (MAPL'19)},
+  year      = {2019},
+  pages     = {10--19},
+  publisher = {ACM},
+  doi       = {10.1145/3315508.3329973}
+}
+
+@misc{jax2018,
+  author       = {James Bradbury and Roy Frostig and Peter Hawkins and
+                  Matthew James Johnson and Chris Leary and Dougal Maclaurin
+                  and George Necula and Adam Paszke and Jake Vander{P}las and
+                  Skye Wanderman-Milne and Qiao Zhang},
+  title        = {{JAX}: composable transformations of {Python+NumPy} programs},
+  howpublished = {Software, \url{https://github.com/google/jax}},
+  year         = {2018},
+  note         = {Version 0.4, accessed 2026-04}
+}
+
+@inproceedings{chen2018tvm,
+  author    = {Tianqi Chen and Thierry Moreau and Ziheng Jiang and Lianmin Zheng
+               and Eddie Yan and Meghan Cowan and Haichen Shen and Leyuan Wang
+               and Yuwei Hu and Luis Ceze and Carlos Guestrin and
+               Arvind Krishnamurthy},
+  title     = {{TVM}: An Automated End-to-End Optimizing Compiler for Deep Learning},
+  booktitle = {Proceedings of the 13th USENIX Symposium on Operating Systems
+               Design and Implementation (OSDI'18)},
+  year      = {2018},
+  pages     = {578--594},
+  publisher = {USENIX Association},
+  isbn      = {978-1-939133-08-3}
+}
+
+% ── Heterogeneous and GPU actor frameworks ──────────────────────────
+@inproceedings{charousset2016manyfold,
+  author    = {Dominik Charousset and Raphael Hiesgen and Thomas C. Schmidt},
+  title     = {Manyfold Actors: Extending the {C++} Actor Framework to
+               Heterogeneous Many-Core Machines using {OpenCL}},
+  booktitle = {Proceedings of the 6th International Workshop on Programming
+               Based on Actors, Agents, and Decentralized Control (AGERE'16)},
+  year      = {2016},
+  pages     = {45--51},
+  publisher = {ACM},
+  doi       = {10.1145/2824815.2824820}
+}
+
+@incollection{hiesgen2018opencl,
+  author    = {Raphael Hiesgen and Dominik Charousset and Thomas C. Schmidt},
+  title     = {{OpenCL} Actors -- Adding Data Parallelism to Actor-Based
+               Programming with {CAF}},
+  booktitle = {Programming with Actors: State-of-the-Art and Research Perspectives},
+  editor    = {Alessandro Ricci and Philipp Haller},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {10789},
+  pages     = {59--93},
+  publisher = {Springer},
+  year      = {2018},
+  doi       = {10.1007/978-3-030-00302-9_3}
+}
+
+% ── Device-side and task-based GPU execution ────────────────────────
+@inproceedings{mustard2025,
+  author    = {Ilyas Turimbetov and Mohamed Wahib and Didem Unat},
+  title     = {A Device-Side Execution Model for Multi-{GPU} Task Graphs},
+  booktitle = {Proceedings of the 39th ACM International Conference on
+               Supercomputing (ICS'25)},
+  address   = {Salt Lake City, UT, USA},
+  year      = {2025},
+  publisher = {ACM},
+  doi       = {10.1145/3721145.3730426}
+}
+
+@article{cypress2025,
+  author    = {Rohan Yadav and Michael Garland and Alex Aiken and
+               Michael Bauer},
+  title     = {Task-Based Tensor Computations on Modern {GPUs}},
+  journal   = {Proceedings of the ACM on Programming Languages},
+  volume    = {9},
+  number    = {PLDI},
+  pages     = {396--420},
+  articleno = {163},
+  year      = {2025},
+  doi       = {10.1145/3729262}
+}
+
+% ── Formal verification of GPU kernels ──────────────────────────────
+@inproceedings{betts2012gpuverify,
+  author    = {Adam Betts and Nathan Chong and Alastair F. Donaldson and
+               Shaz Qadeer and Paul Thomson},
+  title     = {{GPUVerify}: A Verifier for {GPU} Kernels},
+  booktitle = {Proceedings of the ACM International Conference on Object Oriented
+               Programming Systems Languages and Applications (OOPSLA'12)},
+  year      = {2012},
+  pages     = {113--132},
+  publisher = {ACM},
+  doi       = {10.1145/2384616.2384625}
 }
 
 % ── Blackwell architecture ────────────────────────────────────────────
@@ -130,11 +241,14 @@
 }
 
 @misc{microbench-blackwell,
-  author       = {Lin Sun and Weile Luo and Hao Qin and Jingwen Leng
-                  and Tianyi Liu and Bingsheng He},
-  title        = {Microbenchmarking {NVIDIA's Blackwell} Architecture},
-  howpublished = {arXiv:2512.02189 [cs.AR]},
-  year         = {2025}
+  author        = {Lin Sun and Weile Luo and Hao Qin and Jingwen Leng
+                   and Tianyi Liu and Bingsheng He},
+  title         = {Microbenchmarking {NVIDIA's Blackwell} Architecture},
+  howpublished  = {arXiv preprint},
+  eprint        = {2512.02189},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AR},
+  year          = {2025}
 }
 
 % ── Rubin architecture ────────────────────────────────────────────────
@@ -277,16 +391,16 @@
 }
 
 % ── Benchmarking methodology ─────────────────────────────────────────
-@inproceedings{moss2002benchmarks,
-  author    = {Andrew M. Moss and Sam Williams},
-  title     = {Methodologies for the analysis and reporting of benchmark
-               results},
-  booktitle = {Proceedings of SuperComputing 2002},
-  year      = {2002},
-  publisher = {IEEE},
-  note      = {Standard reference cited throughout the systems-benchmarks
-               community for clock locking, exclusive access, and CV reporting
-               protocols}
+@inproceedings{hoefler2015scientific,
+  author    = {Torsten Hoefler and Roberto Belli},
+  title     = {Scientific Benchmarking of Parallel Computing Systems: Twelve
+               Ways to Tell the Masses When Reporting Performance Results},
+  booktitle = {Proceedings of the International Conference for High Performance
+               Computing, Networking, Storage and Analysis (SC'15)},
+  year      = {2015},
+  pages     = {73:1--73:12},
+  publisher = {ACM},
+  doi       = {10.1145/2807591.2807644}
 }
 
 @article{georges2007rigorous,

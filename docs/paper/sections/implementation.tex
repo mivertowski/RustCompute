@@ -41,9 +41,9 @@ syntax-directed; the formal model treats the resulting code as the
 
 The runtime uses the CUDA driver API rather than the higher-level
 runtime API for two reasons: precise control over stream and event
-ordering (essential for the snapshot atomicity argument of
+ordering (required for the snapshot atomicity argument of
 \Cref{sec:memory:snapshot}), and access to the cooperative-launch
-and cluster primitives (essential for the persistent kernel itself).
+and cluster primitives (required for the persistent kernel itself).
 The set of driver entry points used is:
 
 \begin{itemize}
@@ -60,9 +60,10 @@ on a global mutex.
 \item \texttt{cuMemHostAlloc} with the \texttt{CU\_MEMHOSTALLOC\_\\
 DEVICEMAP} flag: pinned, mapped host memory. This is the substrate
 for the control block (the host writes commands into mapped memory;
-the device polls them at the start of each tick). Mapped-memory
-writes are the source of the 75~ns command-injection latency that
-\Cref{sec:evaluation} reports.
+the device polls them at the start of each tick).  The host
+amortizes command submission through the CPU's write-combining
+buffer: a 1{,}000-command burst costs 0.18~$\mu$s wall-clock
+(\Cref{tab:injection}).
 
 \item \texttt{cuStreamWaitValue32} / \texttt{cuStreamWriteValue32}:
 host-side polling on a device-resident 32-bit flag. Used by the
@@ -165,10 +166,12 @@ host inspects them on demand via a debug entry point.
 \subsection{Snapshot-Restart Engineering}
 \label{sec:implementation:snapshot}
 
-\Cref{sec:supervision:restart}'s three-step protocol—capture,
-reset, reactivate—is realized in
-\texttt{ringkernel-core/src/supervisor.rs} as a single
-\texttt{Mutex}-guarded host critical section.  The three steps are:
+\Cref{sec:supervision:restart}'s three-step protocol (capture,
+reset, reactivate) is realized in
+\texttt{ringkernel-\allowbreak core/\allowbreak
+src/supervisor.rs} as a single
+\texttt{Mutex}-guarded host critical section.  The three steps
+are:
 
 \begin{enumerate}
 \item \emph{Capture}: write the actor's HLC into a per-actor
@@ -199,7 +202,7 @@ measured this directly on H100~NVL (200 trials per state size,
 the same total cost (the copy is small enough that HBM bandwidth
 is irrelevant).
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
 \begin{tabular}{lrrrr}
 \toprule
@@ -221,21 +224,25 @@ device-side copy contribution is sub-2~$\mu$s even at 64~KiB.}
 \label{sec:implementation:admin}
 
 The supervisor exposes its operations to the host via an HTTP/JSON
-admin API in \texttt{ringkernel-core/src/admin.rs}.  The endpoints
-relevant to the formal model are:
+admin API in \texttt{ringkernel-\allowbreak core/\allowbreak
+src/admin.rs}.  The endpoints relevant to the formal model are:
 
 \begin{itemize}
-\item \texttt{POST /api/v1/admin/k2k/dlq/replay}: replay a
-dead-letter envelope per \textsc{Replay}~(\Cref{rule:k2k-replay}).
-\item \texttt{GET /api/v1/admin/k2k/dlq/list?tag=...}: list
+\item \texttt{POST\ /api/\allowbreak v1/\allowbreak admin/\allowbreak
+k2k/\allowbreak dlq/\allowbreak replay}: replay a dead-letter
+envelope per \textsc{Replay}~(\Cref{rule:k2k-replay}).
+\item \texttt{GET\ /api/\allowbreak v1/\allowbreak admin/\allowbreak
+k2k/\allowbreak dlq/\allowbreak list?tag=...}: list
 dead-letters for a given audit tag.
-\item \texttt{POST /api/v1/admin/actor/restart}: force a
+\item \texttt{POST\ /api/\allowbreak v1/\allowbreak
+admin/\allowbreak actor/\allowbreak restart}: force a
 \textsc{Restart}~(\Cref{rule:restart}) on a named actor.
-\item \texttt{GET /api/v1/admin/actor/:id/snapshot}: download the
+\item \texttt{GET\ /api/\allowbreak v1/\allowbreak admin/\allowbreak
+actor/:id/\allowbreak snapshot}: download the
 \(\mathit{snap}\) bytes for offline inspection.
-\item \texttt{POST /api/v1/admin/config}: hot-reload the
-restart-policy and backpressure configuration without restarting
-the runtime.
+\item \texttt{POST\ /api/\allowbreak v1/\allowbreak
+admin/\allowbreak config}: hot-reload the restart-policy and
+backpressure configuration without restarting the runtime.
 \end{itemize}
 
 The admin API is gated by an RBAC layer (capability-based; the

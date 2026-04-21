@@ -9,7 +9,7 @@ source GPU to a target GPU without losing in-flight messages,
 breaking causal ordering, or violating the cross-tenant isolation of
 \Cref{sec:tenancy}.  This section formalizes the migration protocol
 \system{} uses for that purpose, gives a small-step semantics for
-its phases, states the central safety theorem, and describes the
+its phases, states the main safety theorem, and describes the
 cross-GPU K2K extensions that the protocol relies on.  Both the
 migration protocol and the cross-GPU K2K calculus are mechanized in
 \TLA{}: \texttt{docs/verification/migration.tla} for the migration
@@ -73,12 +73,22 @@ authoritative.
 \label{sec:migration:safety}
 
 The safety guarantee of the migration protocol is the conjunction
-of three statements: every message accepted before, during, or
+of four statements: every message accepted before, during, or
 after migration is eventually delivered (or in flight) at the
 target; the relative order of two messages from the same source is
-preserved across the cutover; and the routing table flips
-atomically (no observable state in which both \(g_s\) and \(g_t\)
-accept simultaneously).  We state this as a single theorem.
+preserved across the cutover; the routing table flips atomically
+(no observable state in which both \(g_s\) and \(g_t\) accept
+simultaneously); and the checksum captured at the source equals
+the checksum computed at the target at the moment of swap.  We
+state these together as a single theorem.  The statement is
+intended as a formal specification of the protocol's safety claims;
+the supporting argument below is a \emph{proof sketch}, and the
+same properties are additionally discharged under bounded TLC model
+checking in \texttt{migration.tla} (\Cref{sec:eval:tlc}).  A fully
+detailed analytical proof, including the cross-device HLC
+interaction of \Cref{sec:migration:hlc-cross}, is deferred to a
+companion paper; \Cref{sec:disc:limits} restates this scope
+explicitly.
 
 \begin{theorem}[Migration Safety]
 \label{thm:migration-safety}
@@ -160,8 +170,11 @@ migration and leave the source authoritative.
 \texttt{FIFOPreserved}, and \texttt{ChecksumMatch} in
 \texttt{migration.tla} (lines 187--208).  The bounded model checker
 under \texttt{migration.cfg} explores configurations of up to four
-in-flight messages and verifies all four invariants
-exhaustively.
+in-flight messages and finds no counterexample to any of the four
+invariants within those bounds.  The mechanization thus provides a
+second, independent witness to the safety claims; it does not
+discharge the theorem at arbitrary scale (see
+\Cref{sec:disc:limits} and \Cref{sec:disc:open}).
 
 \subsection{Cross-GPU K2K}
 \label{sec:migration:cross-gpu}
@@ -175,11 +188,12 @@ channel tiers:
 connected by NVLink, the runtime issues a peer-to-peer copy
 (\texttt{cuMemcpyPeerAsync}) directly from source-device memory to
 target-device memory.  On a 2$\times$ H100~NVL system with the
-12-link NVLink bundle, the runtime reaches 257.78~GB/s sustained
-bandwidth at 16~MiB (81\% of the bundle's $\sim$318~GB/s
-theoretical peak; \Cref{tab:mgpu-bw}) and runs 8.65$\times$ faster
-than the host-staged fallback at the same size
-(\Cref{tab:migration}).
+12-link NVLink4 bundle (each link 25~GB/s per direction; 300~GB/s
+unidirectional aggregate, 600~GB/s bidirectional), the runtime
+reaches 257.78~GB/s unidirectional sustained bandwidth at 16~MiB
+(85.9\% of the 300~GB/s unidirectional peak; \Cref{tab:mgpu-bw})
+and runs 8.65$\times$ faster than the host-staged fallback at the
+same size (\Cref{tab:migration}).
 
 \item \textbf{Host stage}: when no NVLink path exists, the runtime
 falls back to a two-hop copy through host memory:
@@ -197,31 +211,39 @@ table.  The relevant \TLA{} actions in
 \texttt{multi\_gpu\_k2k.tla} are \texttt{RouteP2P} (NVLink path)
 and \texttt{RouteHost} (host-stage fallback).
 
-\begin{theorem}[Bounded Latency]
-\label{thm:bounded-latency}
+\begin{theorem}[Fast-Path Selection / No Host Staging on NVLink Paths]
+\label{thm:fast-path-selection}
 For every reachable configuration of the cross-GPU K2K calculus, no
 message addressed to a destination on an NVLink-connected GPU is
 ever placed on the host-stage queue.
 \end{theorem}
 
+We label this result \emph{fast-path selection} rather than a
+general latency bound: the claim is structural—the runtime's path
+chooser never routes an NVLink-reachable pair through the host
+staging queue—not a quantitative upper bound on end-to-end latency
+under load.  Wall-clock performance of each path is characterized
+empirically in \Cref{sec:eval:mgpu-bw}.
+
 \begin{proof}[Proof sketch]
 \texttt{RouteP2P} and \texttt{RouteHost} have mutually exclusive
 preconditions: \texttt{RouteP2P} requires
-\texttt{HasNVLink(sg, dg)} and \texttt{RouteHost} requires
-\(\neg\)\texttt{HasNVLink(sg, dg)}.  By the well-formedness of the
+\texttt{HasNVLink(sg,\,dg)} and \texttt{RouteHost} requires
+\(\neg\texttt{HasNVLink(sg,\,dg)}\).  By the well-formedness of the
 NVLink topology (a static input to the runtime), exactly one of the
 two preconditions holds for any given pair of GPUs, so a message
 takes the P2P path if and only if NVLink is available.  This is the
-\texttt{BoundedLatency} invariant of
-\texttt{multi\_gpu\_k2k.tla} (lines 158--168), and is preserved on
-every reachable trace.
+\texttt{NoHostStagingOnNVLinkPaths} invariant of
+\texttt{multi\_\allowbreak gpu\_\allowbreak k2k.tla} (lines
+158--168); bounded TLC finds no counterexample under the stated
+configuration.
 \qed
 \end{proof}
 
-\Cref{thm:bounded-latency} is operationally important: it
-guarantees that adding more GPUs to a deployment never silently
-degrades latency for actor pairs that should remain on the fast
-path.  An NVLink topology change that severs the path between two
+\Cref{thm:fast-path-selection} has a straightforward operational
+reading: adding more GPUs to a deployment does not degrade latency
+for actor pairs that should remain on the fast path without the
+change being visible in the routing table.  An NVLink topology change that severs the path between two
 GPUs would cause new messages between actors on those GPUs to fall
 back to the host-stage tier; the runtime exposes this transition
 as a metric (\texttt{ringkernel\_k2k\_host\_stage\_messages\_total})

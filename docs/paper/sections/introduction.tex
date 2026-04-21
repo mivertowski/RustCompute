@@ -6,7 +6,7 @@
 
 The actor model, introduced by Hewitt et~al.~\citep{hewitt1973actors}
 and formalized by Agha~\citep{agha1986actors}, takes a position on
-concurrency that has aged remarkably well: an actor is a unit of
+concurrency that has proved durable: an actor is a unit of
 computation that has private state, processes messages one at a
 time from a logically unbounded mailbox, and may create new actors
 or send messages to known actors as a result of processing.  No
@@ -30,11 +30,19 @@ disjoint.  Cross-cutting work exists—\emph{persistent
 kernels}~\citep{gupta2012persistent,aila2009raytrace} avoid relaunch
 overhead by keeping a single kernel running and feeding it work via
 device-side queues; producer–consumer pipelines~\citep{steinberger2014whippletree}
-build dataflow graphs on the device—but in each case the abstraction
-is a scheduling trick layered onto the kernel-launch model rather than
-a first-class semantic primitive.  No formal model treats the GPU
-thread block as an actor with its own lifecycle, restart policy,
-causal clock, and supervisor.
+build dataflow graphs on the device; heterogeneous actor frameworks
+such as OpenCL Actors~\citep{hiesgen2018opencl} integrate GPU
+kernels into host-resident actor runtimes; and more recent
+device-side task runtimes (Mustard~\citep{mustard2025}) and
+task-based programming models for Hopper-class GPUs
+(Cypress~\citep{cypress2025}) attack host-orchestration overhead
+from the task-graph side.  In each of those directions the
+abstraction is a scheduling or dispatch mechanism rather than a
+formal account of a long-lived, device-resident actor with its own
+lifecycle, restart policy, causal clock, tenant tag, and
+supervisor.  To our knowledge, no existing work combines
+device-resident lifecycle, supervision, causal clocks, tenant
+routing, and cross-GPU migration under a single formal account.
 
 \subsection{What Hopper Made Possible}
 
@@ -73,84 +81,134 @@ formal model treats memory allocation as an asynchronous,
 stream-ordered side effect, exactly mirroring this primitive.
 \end{enumerate}
 
-The combination is genuinely new: it is the first time the GPU has
-exposed primitives sufficient to host a long-lived actor without the
-host driving every transition.
+In combination, these features make the design practical enough to
+formalize and evaluate directly: Hopper is, to our knowledge, the
+first NVIDIA architecture on which a long-lived actor with a
+formally-stated lifecycle, supervisor-driven restart, and causal
+time can plausibly live on the device without the host orchestrating
+every transition.  We are not claiming that Hopper is the first
+\emph{conceivable} substrate for such a model; we note only that
+sub-microsecond K2K, sub-microsecond cluster synchronization, and
+stream-ordered allocation bring device-resident actors within the
+cost envelope that actor runtimes typically require of their
+substrates.
 
 \subsection{Contribution}
 
-We claim six contributions, presented in the order they unfold in
-the paper:
+We claim seven contributions, presented in the order they unfold in
+the paper.  Each is labeled with what it actually is: a
+\emph{definition} (formal statement of a calculus or semantics), an
+\emph{analytical proof or proof sketch} (pencil-and-paper argument
+over the calculus), a \emph{bounded mechanization} (the corresponding
+\TLA{} module model-checked by TLC under specified finite parameter
+ranges), or an \emph{empirical measurement} (benchmark numbers with
+reported confidence intervals).  These modes are complementary and
+we are careful not to conflate them:
 
 \begin{enumerate}
-\item A \textbf{small-step operational semantics} for the persistent
-GPU actor lifecycle (\Cref{sec:model}).  The semantics is a
-six-state transition system
+\item \textbf{We define} a small-step operational semantics for the
+persistent GPU actor lifecycle (\Cref{sec:model}).  The semantics is
+a six-state transition system
 (\Dormant{}\,\(\to\)\,\Initializing{}\,\(\to\)\,\Active{}\,\(\to\)\,
 \Draining{}\,\(\to\)\,\Terminated{}; \Failed{} as a fault attractor)
 defined over an explicit memory model that respects the GPU's SIMT
-execution semantics.  The semantics has been mechanized in
-\TLA{} and model-checked for the safety properties stated in
-\Cref{thm:lifecycle-soundness}.
+execution semantics.  \textbf{We prove} lifecycle soundness
+(\Cref{thm:lifecycle-soundness}) analytically, and \textbf{we
+mechanize} the semantics in \TLA{} and discharge the same invariant
+under bounded TLC model checking.
 
-\item A \textbf{K2K messaging calculus} (\Cref{sec:k2k}) that
-describes message origination, routing, delivery, and dead-letter
+\item \textbf{We define} a K2K messaging calculus (\Cref{sec:k2k})
+covering message origination, routing, delivery, and dead-letter
 disposition for both intra-block and cross-block (DSMEM) channels.
 The calculus is parameterized by a backpressure policy
 (\(\mathsf{RejectAndDLQ}\) versus \(\mathsf{DropOldest}\)) and an
-optional idempotency cache; we prove that the underlying queue
-semantics yield no-loss for accepted envelopes
+optional idempotency cache.  \textbf{We prove} (analytically, plus
+bounded mechanization) no-loss accounting for accepted envelopes
 (\Cref{thm:no-message-loss}), per-(source,\,destination) FIFO
-delivery (\Cref{thm:fifo-per-sender}), and—with the cache in
-place—at-most-once observable delivery
-(\Cref{thm:no-duplicate-delivery}).
+delivery (\Cref{thm:fifo-per-sender}), and—conditional on an
+explicitly-stated cache-sizing hypothesis—at-most-once observable
+delivery (\Cref{thm:no-duplicate-delivery}).
 
-\item A \textbf{Hybrid Logical Clock integration} that gives causal
-ordering on a single device (\Cref{sec:supervision}).  We show
-(\Cref{thm:hlc-restart-monotone}) that supervisor-driven restart
-preserves HLC monotonicity: if an actor fails at HLC time \(t\)
-and is restarted from a snapshot taken at \(t' < t\), the new
-instance issues no message with HLC time
-\(\le t\).  This is the property that lets distributed-style causal
-reasoning extend cleanly across actor failure on a single GPU—a
-non-trivial result, because the snapshot loses physical-clock
-information that the live actor had.
+\item \textbf{We define} a Hybrid Logical Clock integration that
+gives causal ordering on a single device (\Cref{sec:supervision}).
+\textbf{We prove} (\Cref{thm:hlc-restart-monotone}) that
+supervisor-driven restart preserves HLC monotonicity: if an actor
+fails at HLC time \(t\) and is restarted from a snapshot taken at
+\(t' < t\), the new instance issues no message with HLC time
+\(\le t\).  Restart may roll back \emph{state}, but not
+\emph{time}.  To our knowledge this is the first formal statement
+of HLC monotonicity across an actor restart; the proof is
+analytical, and the per-node monotonicity and event-count
+invariants are additionally bounded-mechanized in
+\texttt{hlc.tla}.
 
-\item A \textbf{tenant-isolation model} (\Cref{sec:tenancy}) in
-which K2K sub-brokers are keyed on a two-tuple audit boundary
-\((\mathit{org\_id}, \mathit{engagement\_id})\).  We prove
+\item \textbf{We define} a tenant-isolation model (\Cref{sec:tenancy})
+in which K2K sub-brokers are keyed on a two-tuple audit boundary
+\((\mathit{org\_id}, \mathit{engagement\_id})\).  \textbf{We prove}
 (\Cref{thm:cross-tenant-isolation}) that the supervisor's routing
-function admits no execution trace in which a message
-originating in tenant~\(T_1\) is delivered to an actor registered
-in tenant~\(T_2 \ne T_1\).  This is the property that makes the
-model usable in regulated domains (audit, compliance) where the
-isolation guarantee is itself a deliverable.
+function admits no execution trace in which a message originating
+in tenant~\(T_1\) is delivered to an actor registered in
+tenant~\(T_2 \ne T_1\).  This is a routing-level structural
+guarantee under the model—not an end-to-end confidentiality claim
+against an adversary who can subvert the runtime or hardware—but it
+is at the right granularity for audit (\Cref{sec:tenancy:limits});
+\textbf{we mechanize} the same property under bounded TLC.
 
-\item A \textbf{multi-GPU migration protocol}
-(\Cref{sec:migration}) that relocates a live actor from a source
-GPU to a target GPU through a five-phase machine
-(\state{Running}~\(\to\)~\state{Quiesced}~\(\to\)~%
-\state{Transferring}~\(\to\)~\state{Swapping}~\(\to\)~\state{Complete}).
-We prove (\Cref{thm:migration-safety}) the conjunction of
-atomic-swap, no-message-loss, FIFO-across-cutover, and
-state-consistency, and (\Cref{thm:bounded-latency}) that
-NVLink-paired actor pairs are never routed through the host stage.
-The HLC-restart-monotonicity argument extends to migration via the
-\(\hlc.\mathsf{merge}\) operation at restore.
+\item \textbf{We define} a multi-GPU migration protocol
+(\Cref{sec:migration}) that relocates a live actor from source
+GPU~\(g_s\) to target GPU~\(g_t\) through a five-phase machine
+(\state{Running} \(\to\) \state{Quiesced} \(\to\)
+\state{Transferring} \(\to\) \state{Swapping} \(\to\)
+\state{Complete}).
+\textbf{We sketch} the safety conjunction of atomic-swap,
+no-message-loss, FIFO-across-cutover, and state-consistency
+(\Cref{thm:migration-safety}), and state the path-selection
+property that NVLink-paired actors never fall back to the host
+stage (\Cref{thm:fast-path-selection}).  The full analytical
+treatment is deferred to a companion paper;
+\textbf{we mechanize} both properties in \TLA{} and discharge them
+under bounded TLC.  The HLC monotonicity argument extends to
+migration via the \(\hlc.\mathsf{merge}\) operation at restore.
 
-\item \textbf{Empirical validation} on NVIDIA H100~NVL silicon
-(\Cref{sec:evaluation}): 75\,ns mapped-memory command injection
-(8{,}698\(\times\) faster than \texttt{cuLaunchKernel}),
-5.10\,M~messages/second sustained throughput at coefficient of
-variation 0.66\% over four 60-second trials, 0.628\,\(\mu\)s
-cluster-level synchronization (2.98\(\times\) faster than grid-wide
-synchronization), 116.9\(\times\) async memory-allocation speedup
-over classical \texttt{cuMemAlloc}, and 257.78\,GB/s NVLink P2P
-bandwidth at 16~MiB on a 2\(\times\) H100~NVL system (81\% of peak).
-All measurements were collected under locked GPU clocks, exclusive
-compute mode, and a statistical protocol calibrated against the
-reproducibility criteria of \citet{moss2002benchmarks}
-and~\citet{georges2007rigorous}.
+\item \textbf{We mechanize} the entire formal apparatus as six
+\TLA{} modules under
+\texttt{docs/\allowbreak verification/} and model-check them with
+TLC under bounded configurations (\Cref{sec:eval:tlc},
+\Cref{tab:tlc-stats}); all six pass with no counterexamples within
+their stated bounds.  Running the pass caught a real
+specification-level bug in the migration checksum invariant
+(\Cref{sec:disc:tlc-bug}) before it reached the paper—a concrete
+instance of the verification apparatus doing engineering work rather
+than ceremonial proof dressing.
+
+\item \textbf{We measure} the runtime on NVIDIA H100~NVL silicon
+(\Cref{sec:evaluation}).  A 1{,}000-command burst submitted
+through mapped memory costs 0.18\,\(\mu\)s of host wall-clock
+\emph{amortized over the burst through the CPU's write-combining
+buffer}, against 1{,}583.1\,\(\mu\)s for the same burst issued as
+1{,}000 \texttt{cuLaunchKernel} calls---8{,}698\(\times\) less
+host time submitting the burst on this path, under the control-path
+/ work-submission comparison described in \Cref{sec:eval:injection}
+(not a runtime-vs-runtime execution-speed claim).  K2K messaging yields
+72--83\,ns round-trip latency at payloads up to 1~KiB through the
+intra-block lock-free queue, with 5.10\,M~messages/second
+sustained throughput at coefficient of variation 0.66\% over four
+60-second trials.  Cluster-level synchronization runs at
+0.628\,\(\mu\)s (2.98\(\times\) faster than grid-wide
+synchronization); stream-ordered asynchronous allocation is
+116.9\(\times\) faster than classical \texttt{cuMemAlloc}; and
+NVLink P2P reaches 257.78\,GB/s unidirectional at 16~MiB on a
+2\(\times\) H100~NVL system, which is 85.9\% of the 12-link
+NVLink4 bundle's 300\,GB/s unidirectional peak (equivalently,
+43.0\% of its 600\,GB/s bidirectional peak).
+We also report the 4.2\(\times\) slowdown of a block-actor
+WaveSim3D stencil relative to a hand-tuned kernel
+(\Cref{tab:apps}): this is the price of actor semantics over a
+fused baseline, which we take to be among the more direct
+indicators of the cost of the abstraction.  All measurements were collected under locked
+GPU clocks, exclusive compute mode, and a statistical protocol
+calibrated against the reproducibility criteria of
+\citet{georges2007rigorous} and~\citet{hoefler2015scientific}.
 \end{enumerate}
 
 \subsection{Audience and Scope}

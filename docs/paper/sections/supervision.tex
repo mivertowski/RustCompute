@@ -7,8 +7,8 @@ must arrange for either restart or destruction of the failed actor
 without corrupting the rest of the system.  In a CPU actor system,
 supervision is straightforward: the failed actor's mailbox can be
 rebuilt from heap, its state can be restored from a checkpoint or
-discarded, and its logical clock can simply continue from wherever
-it left off (the OS scheduler is not affected by an application-level
+discarded, and its logical clock can continue from wherever it
+left off (the OS scheduler is not affected by an application-level
 fault).  On a GPU, none of these conveniences hold.  A failed kernel
 loses its registers, its shared memory, and its place in the SM
 schedule; restoring it means re-launching it from scratch and
@@ -20,9 +20,9 @@ ordering on a single device~(\Cref{sec:supervision:hlc}).  We then
 describe the four restart policies the supervisor offers
 (\Cref{sec:supervision:policies}), give a small-step semantics for
 the snapshot--restart cycle (\Cref{sec:supervision:restart}), and
-prove the central property: HLC monotonicity is preserved across
-restart, even though the supervisor must restart from a snapshot
-taken at an earlier physical time
+state the main property we prove: HLC monotonicity is preserved
+across restart, even though the supervisor must restart from a
+snapshot taken at an earlier physical time
 (\Cref{thm:hlc-restart-monotone}).  The mechanized counterpart lives
 in \texttt{docs/verification/hlc.tla}.
 
@@ -96,14 +96,15 @@ component.
 \qed
 \end{proof}
 
-The non-trivial question is what happens to monotonicity across a
-restart.  After a fault, the supervisor restores the actor from a
-snapshot taken at some earlier HLC time \(t_{\mathrm{snap}}\), and
-the actor begins emitting events again.  Naively, the new instance
-of the actor would tick its HLC from \(t_{\mathrm{snap}}\), and the
-events emitted just before the fault (with HLC \(t_{\mathrm{fault}}
-> t_{\mathrm{snap}}\)) would be ``in the future'' relative to the new
-instance's clock.  This is the property we must rule out.
+The less immediate question is what happens to monotonicity across
+a restart.  After a fault, the supervisor restores the actor from
+a snapshot taken at some earlier HLC time \(t_{\mathrm{snap}}\),
+and the actor begins emitting events again.  If the new instance
+of the actor were to tick its HLC from \(t_{\mathrm{snap}}\), the
+events emitted just before the fault (with HLC
+\(t_{\mathrm{fault}} > t_{\mathrm{snap}}\)) would be ``in the
+future'' relative to the new instance's clock.  This is the
+behaviour we need to rule out.
 
 \subsection{Restart Policies}
 \label{sec:supervision:policies}
@@ -131,7 +132,7 @@ is therefore independent of which restart policy fired.
 \Cref{fig:supervisor-tree} shows a representative supervisor tree
 with the four policies in use.
 
-\begin{figure}[h]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
     every node/.style={font=\footnotesize\sffamily},
@@ -257,11 +258,14 @@ being that its computational state is older.
 \subsection{HLC Monotonicity Across Restart}
 \label{sec:supervision:monotonicity}
 
-The central property of the supervisor protocol is that HLC
+The main property of the supervisor protocol is that HLC
 monotonicity—\Cref{prop:hlc-per-actor-monotone}—survives restart.
 Concretely: there is no \emph{observable} HLC value emitted by a
 restarted instance that is less-than-or-equal to an HLC value emitted
-by the failed instance.
+by the failed instance.  Informally: \emph{restart may roll back
+state, but it must not roll back time.}  The retreat-timestamp
+protocol of \Cref{sec:supervision:restart} is exactly the mechanism
+that keeps those two rollbacks separate.
 
 \begin{theorem}[HLC Restart Monotonicity]
 \label{thm:hlc-restart-monotone}
@@ -297,11 +301,14 @@ h_{\mathrm{fault}}\), as required.
 The hypothesis is that the supervisor faithfully captures
 \(\mathit{ret}(a)\) before allowing the restart to proceed; if the
 supervisor were to skip step~1 and initialize the new instance at
-\(\hlc.\mathsf{tick}(h_{\mathrm{snap}})\) (i.e., from the
-snapshot's HLC), the property would fail because
-\(h_{\mathrm{snap}} <_{\mathrm{lex}} h_{\mathrm{fault}}\) and a
-single tick is not enough to overshoot \(h_{\mathrm{fault}}\) when
-the physical components match.  The runtime enforces step~1
+\(\hlc.\mathsf{tick}(h_{\mathrm{snap}}, w)\) (i.e., from the
+snapshot's HLC, for any wall-clock reading \(w\) at the moment of
+restart), the property would fail in the regime where
+\(h_{\mathrm{snap}} <_{\mathrm{lex}} h_{\mathrm{fault}}\) and
+\(w\) does not exceed the physical component of
+\(h_{\mathrm{fault}}\): a single tick is then not enough to
+overshoot \(h_{\mathrm{fault}}\) when the physical components
+match.  The runtime enforces step~1
 explicitly: the supervisor's restart logic refuses to issue
 \textsc{Restart} until \(\mathit{ret}(a)\) has been written to the
 durable supervisor state.

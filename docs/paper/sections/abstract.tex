@@ -1,71 +1,103 @@
 % sections/abstract.tex — Abstract
 \begin{abstract}
-The actor model has shaped fifty years of concurrent and distributed
-systems design~\citep{hewitt1973actors,agha1986actors}, yet its
-classical formulations assume CPU execution: preemptive scheduling,
-heap-allocated mailboxes, and operating-system-mediated supervision.
+The actor model has had a long influence on concurrent and
+distributed systems design~\citep{hewitt1973actors,agha1986actors};
+its classical formulations nevertheless assume CPU execution:
+preemptive scheduling, heap-allocated mailboxes, and
+operating-system-mediated supervision.
 GPU programming has evolved in parallel along an orthogonal axis,
 treating the device as a coprocessor that executes ephemeral kernels
 launched by the host.  The two paradigms have remained largely
 disjoint.  Recent hardware advances—NVIDIA Hopper's Thread Block
 Clusters and Distributed Shared Memory~(DSMEM), cooperative kernel
-launches with grid-wide synchronization, stream-ordered asynchronous
-allocation~\citep{nvidia2022hopper,nvidia2023cooperative}—remove the
-last technical obstacles to a different model: \emph{persistent
-GPU actors} that live on the device across the lifetime of the
-application, exchange messages through device-side queues without
-host mediation, and recover from faults under supervisor-driven
-restart policies.  No formal account of this model has appeared in
-the literature.
+launches with grid-wide synchronization, and stream-ordered
+asynchronous allocation~\citep{nvidia2022hopper,nvidia2023cooperative}—make
+a different model practical enough to formalize and evaluate
+directly: \emph{persistent GPU actors} that live on the device
+across the lifetime of the application, exchange messages through
+device-side queues without host mediation, and recover from faults
+under supervisor-driven restart policies.  Prior work has addressed
+actor-to-accelerator integration, formal reasoning about GPU kernel
+internals, and device-side task-based execution as three largely
+separate threads; to our knowledge, no existing work combines
+device-resident lifecycle, supervision, causal clocks, tenant
+routing, and migration under a single formal account.
 
 We present \system{}, a Rust-based runtime that realizes persistent
-GPU actors, and the first formal model of their semantics.  Our
-contributions are:
-\textbf{(i)}~a small-step operational semantics for the actor
-lifecycle (\Dormant{}\,\(\to\)\,\Initializing{}\,\(\to\)\,\Active{}\,
-\(\to\)\,\Draining{}\,\(\to\)\,\Terminated{}, with \Failed{} as a
-fault attractor) that integrates with the GPU's SIMT execution
-model and grid-wide cooperative synchronization;
-\textbf{(ii)}~a kernel-to-kernel (K2K) messaging calculus with
-formal delivery semantics (at-least-once, per-(sender,\,destination)
-ordering, hop-bounded routing) and an explicit dead-letter discipline
-that distinguishes overflow drops from invalid-target drops, policy
-evictions, and idempotency rejections;
-\textbf{(iii)}~a Hybrid Logical Clock (HLC) integration that
-provides causal ordering across actors on a single device and is
-preserved across supervisor-driven restart, with a structural proof
-that snapshot-restore preserves causality;
-\textbf{(iv)}~a tenant-isolation model in which K2K sub-brokers are
-keyed on a two-tuple audit boundary (\(\mathit{org\_id},
-\mathit{engagement\_id}\)) and cross-tenant flow is forbidden by
-construction, with an information-flow argument that the supervisor's
-routing function admits no cross-tenant trace;
-\textbf{(v)}~a multi-GPU actor migration protocol with
-phase-machine semantics and proofs of atomic-swap, no-message-loss,
-FIFO-across-cutover, and state-consistency, plus a structural
-guarantee that NVLink-paired actors never fall back to the
-host-staged path;
-\textbf{(vi)}~empirical validation on NVIDIA H100~NVL silicon: 75\,ns
-mapped-memory command injection (8{,}698\(\times\) faster than
-\texttt{cuLaunchKernel}), 5.10\,M~messages/second sustained
-throughput with a coefficient of variation of 0.66\% over four
-60-second trials, and 0.628\,\(\mu\)s cluster-level synchronization
-(2.98\(\times\) faster than grid-wide synchronization).  On a
-2\(\times\) H100~NVL system the NVLink P2P migration path reaches
-257.78\,GB/s (81\% of the 12-link NVLink bundle's theoretical peak)
+GPU actors, and---to our knowledge---the first formal model that
+combines lifecycle, supervision, causal clocks, tenant routing, and
+cross-GPU migration for device-resident actors.  Our contributions
+are:
+\textbf{(i)}~we \emph{define} a small-step operational semantics for
+the actor lifecycle (\Dormant{}\,\(\to\)\,\Initializing{}\,\(\to\)\,%
+\Active{}\,\(\to\)\,\Draining{}\,\(\to\)\,\Terminated{}, with
+\Failed{} as a fault attractor) integrated with the GPU's SIMT
+execution model and grid-wide cooperative synchronization;
+\textbf{(ii)}~we define a kernel-to-kernel (K2K) messaging calculus
+with explicit delivery semantics (no-loss accounting for accepted
+envelopes, per-(sender,\,destination) FIFO, idempotency-gated
+at-most-once observable delivery, hop-bounded routing) and an
+explicit dead-letter discipline distinguishing overflow drops,
+invalid-target drops, policy evictions, and idempotency rejections;
+\textbf{(iii)}~we define a Hybrid Logical Clock (HLC) integration
+that provides causal ordering across actors on a single device and
+\emph{prove} that snapshot-restore preserves causality across
+supervisor-driven restart;
+\textbf{(iv)}~we define a tenant-isolation model in which K2K
+sub-brokers are keyed on a two-tuple audit boundary
+(\(\mathit{org\_id}, \mathit{engagement\_id}\)) and prove that the
+supervisor's routing function admits no cross-tenant trace under
+the model—a routing-level structural guarantee, not an end-to-end
+confidentiality claim against hardware-capable adversaries;
+\textbf{(v)}~we define a multi-GPU actor migration protocol with
+phase-machine semantics; its atomic-swap, no-message-loss,
+FIFO-across-cutover, and state-consistency properties are stated
+and sketched analytically in \Cref{sec:migration} and checked
+under bounded configurations in \TLA{}, and we state a
+fast-path-selection property that NVLink-paired actors never fall
+back to the host-staged path;
+\textbf{(vi)}~we \emph{mechanize} the calculus of each preceding
+contribution as a \TLA{} specification and discharge its invariants
+via bounded TLC model checking across six modules (the checks are
+sound up to the stated parameter bounds; we do not claim scale-free
+proofs);
+\textbf{(vii)}~we \emph{measure} the runtime on NVIDIA H100~NVL
+silicon.  The host cost to submit a burst of 1{,}000 commands
+through mapped memory is 0.18\,\(\mu\)s wall-clock, \emph{amortized}
+over the burst through the CPU's write-combining buffer; the same
+burst issued as 1{,}000 \texttt{cuLaunchKernel} calls costs
+1{,}583.1\,\(\mu\)s, so the host pays 8{,}698\(\times\) less time
+submitting the burst on this path.  (Per-command values and the
+amortized-versus-one-shot distinction are spelled out in
+Table~\ref{tab:injection}.)  K2K (kernel-to-kernel)
+message latency is 72--83\,ns for payloads up to 1~KiB through the
+intra-block lock-free queue; sustained throughput is 5.10\,M
+messages/second with a coefficient of variation of 0.66\% over
+four 60-second trials; cluster-level synchronization is
+0.628\,\(\mu\)s (2.98\(\times\) faster than grid-wide
+synchronization).  On a 2\(\times\) H100~NVL system the NVLink
+P2P migration path reaches 257.78\,GB/s unidirectional at 16~MiB
+(85.9\% of the 12-link NVLink4 bundle's 300\,GB/s unidirectional
+peak, equivalently 43.0\% of the 600\,GB/s bidirectional peak)
 and runs 8.65\(\times\) faster than the host-staged fallback at
-16~MiB.  The \TLA{}
-specifications backing each formal claim are open and machine-checked.
+the same size.  The command-submission
+comparison measures the control path---mapped-memory writes
+versus host-driven launches, amortized over a 1{,}000-command
+burst---not a runtime-vs-runtime execution-speed claim.  The
+\TLA{} specifications backing each formal claim are open; running
+them under TLC caught a real spec-level bug before it reached the
+paper (\Cref{sec:disc:tlc-bug}).
 
-The model and its proofs subsume three apparently unrelated design
-patterns observed in production GPU systems: persistent kernels for
-reduced launch overhead~\citep{gupta2012persistent,aila2009raytrace},
-device-side work queues for producer–consumer pipelines, and
-supervisor trees for fault containment.  We argue that
-\emph{persistent GPU actors} is the unifying abstraction these
-patterns approximate.  We close by sketching how the model extends
-to multi-tenant, multi-engagement workloads in regulated domains
-(audit, compliance, safety-critical reasoning) where formal
-cross-tenant isolation is itself a deliverable, not just an
-implementation detail.
+The model relates three design patterns observed in production
+GPU systems that are not usually treated together: persistent
+kernels for reduced launch overhead~\citep{gupta2012persistent,%
+aila2009raytrace}, device-side work queues for
+producer--consumer pipelines, and supervisor trees for fault
+containment.  We suggest that \emph{persistent GPU actors} can be
+read as a unifying abstraction for these patterns.  The paper
+closes by sketching how the model extends to multi-tenant,
+multi-engagement workloads in regulated domains (audit,
+compliance, safety-critical reasoning) where a routing-level
+cross-tenant isolation guarantee is itself an auditable
+deliverable.
 \end{abstract}

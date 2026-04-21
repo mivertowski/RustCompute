@@ -41,8 +41,9 @@ The K2K layer enforces the ``no new messages'' contract by
 consulting the destination's lifecycle state at the moment of
 \textsc{SendOK}: an envelope addressed to a \Draining{} actor is
 short-circuited to the dead-letter store with reason
-\state{InvalidTarget} (the precondition of \Cref{rule:k2k-send}
-implicitly requires the destination to be \Active{}).
+\state{InvalidTarget} because \Cref{rule:k2k-send} includes the
+explicit premise \(\Theta(d) = \langle\Active{}, \ldots\rangle\)
+and therefore does not fire when the destination is \Draining{}.
 
 \subsection{Terminate}
 \label{rule:terminate}
@@ -87,8 +88,9 @@ The two-step pattern (terminate, then release) is operationally
 useful: between the two steps, the actor's snapshot and final HLC
 are still readable for audit purposes.  The supervisor records this
 window in its persistent log; the runtime exposes it through
-\texttt{GET /api/v1/admin/actor/:id/snapshot} for as long as the
-operator has not issued \textsc{Release}.
+\texttt{GET\ /api/\allowbreak v1/\allowbreak admin/\allowbreak
+actor/:id/\allowbreak snapshot} for as long as the operator has not
+issued \textsc{Release}.
 
 \subsection{Fail}
 \label{rule:fail}
@@ -128,20 +130,29 @@ abstracts this into a non-deterministic choice between
 \subsection{Composite Properties}
 \label{app:composite-properties}
 
-The six rules together produce the lifecycle state machine:
+The lifecycle rules---\textsc{Spawn}, \textsc{Activate},
+\textsc{Process} from \Cref{sec:model:lifecycle};
+\textsc{Quiesce}, \textsc{Terminate}, \textsc{Release},
+\textsc{Fail} from \Cref{app:lifecycle-rules}; and
+\textsc{Restart} from \Cref{rule:restart}---together produce the
+lifecycle state machine (read top-to-bottom, then the three
+branches out of \Active{}):
 
 \[
-\Dormant{} \;\xrightarrow{\textsc{Spawn}}\;
-\Initializing{} \;\xrightarrow{\textsc{Activate}}\;
-\Active{}
-\begin{cases}
-\xrightarrow{\textsc{Process}} \Active{} & \text{(self-loop)} \\
-\xrightarrow{\textsc{Quiesce}} \Draining{}
-  \xrightarrow{\textsc{Terminate}} \Terminated{}
-  \xrightarrow{\textsc{Release}} \Dormant{} \\
-\xrightarrow{\textsc{Fail}} \Failed{}
-  \xrightarrow{\textsc{Restart}} \Initializing{}
-\end{cases}
+\begin{aligned}
+&\Dormant{} \;\xrightarrow{\textsc{Spawn}}\;
+  \Initializing{} \;\xrightarrow{\textsc{Activate}}\;
+  \Active{} \\[2pt]
+&\Active{} \;\xrightarrow{\textsc{Process}}\; \Active{}
+  \qquad\text{(self-loop)} \\[2pt]
+&\Active{} \;\xrightarrow{\textsc{Quiesce}}\;
+  \Draining{} \;\xrightarrow{\textsc{Terminate}}\;
+  \Terminated{} \;\xrightarrow{\textsc{Release}}\;
+  \Dormant{} \\[2pt]
+&\Active{} \;\xrightarrow{\textsc{Fail}}\;
+  \Failed{} \;\xrightarrow{\textsc{Restart}}\;
+  \Initializing{}
+\end{aligned}
 \]
 
 The rules are mutually exclusive on the source state: at most one

@@ -31,8 +31,9 @@ systems share an assumption \system{} does not inherit: that the
 host operating system provides preemptive scheduling, heap-based
 mailbox allocation, and cheap inter-actor synchronization through
 mutexes or semaphores.  None of those assumptions transfer to the
-GPU; the design contribution of \system{} is to rebuild the actor
-abstraction on a substrate where they fail.
+GPU; the design work of \system{} consists in reconstructing the
+actor abstraction on a substrate where those assumptions do not
+hold.
 
 \subsection{GPU Programming Conventions}
 \label{sec:bg:gpu}
@@ -66,12 +67,14 @@ single block.
 \paragraph{CUDA 9.x: cooperative groups}
 Cooperative Groups~\citep{nvidia2023cooperative} (CUDA~9, 2017)
 introduced a typed hierarchy of synchronizable thread groups:
-warps, blocks, multi-block groups, and—critically—the entire grid.
-Grid-wide synchronization is enabled by launching a kernel with
-\texttt{cuLaunchCooperativeKernel} (which guarantees that all blocks
-of the grid are co-resident on the SMs simultaneously) and calling
-\texttt{cooperative\_groups::this\_grid().sync()} from inside the
-kernel.  This is the primitive that first makes a single kernel
+warps, blocks, multi-block groups, and, critically, the entire
+grid.  Grid-wide synchronization is enabled by launching a kernel
+with
+\texttt{cuLaunch\allowbreak Cooperative\allowbreak Kernel} (which
+guarantees that all blocks of the grid are co-resident on the SMs
+simultaneously) and calling
+\texttt{cooperative\_groups::\allowbreak
+this\_grid().sync()} from inside the kernel.  This is the primitive that first makes a single kernel
 launch capable of multi-stage computation without returning to the
 host.  It is also the primitive that makes a persistent kernel
 viable: a kernel can run a producer--consumer loop forever, with
@@ -125,15 +128,16 @@ three are special cases of a single actor population in which every
 actor has the same behavior and the supervisor is trivial
 (no restart, no per-actor snapshot, no per-actor isolation tag).
 
-The gap our work fills is to lift the loop body to a population of
-independently-supervised actors with the full complement of
-lifecycle, supervision, causal time, and tenant isolation
-primitives.  The gap is non-trivial because each of those
-primitives requires device-side state that prior persistent-kernel
-work did not need: per-actor snapshots in HBM, per-actor HLCs in
-the state vector, per-actor audit tags routed through sub-brokers,
-and a supervisor-managed restart counter with windowed escalation.
-The lifecycle theorem of \Cref{thm:lifecycle-soundness} and the
-restart-monotonicity theorem of \Cref{thm:hlc-restart-monotone}
-have no analogue in the persistent-kernel literature because the
-properties they assert do not exist in those systems.
+The remaining gap, and the one this paper addresses, is to lift
+the loop body to a population of independently-supervised actors
+with the further complement of lifecycle, supervision, causal time,
+and tenant isolation primitives.  The step is substantive because
+each of those primitives requires device-side state that prior
+persistent-kernel work did not need: per-actor snapshots in HBM,
+per-actor HLCs in the state vector, per-actor audit tags routed
+through sub-brokers, and a supervisor-managed restart counter with
+windowed escalation.  The lifecycle theorem of
+\Cref{thm:lifecycle-soundness} and the restart-monotonicity
+theorem of \Cref{thm:hlc-restart-monotone} do not have direct
+analogues in the persistent-kernel literature, as the properties
+they assert are not stated in those systems.

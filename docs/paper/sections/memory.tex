@@ -8,10 +8,24 @@ parameterized by a memory model: the bytes of \(\mathit{snap}\) and
 and the idempotency cache \(I\) all live somewhere in the device's
 address space.  Where they live—and how the runtime constrains
 their visibility, persistence, and access ordering—affects which
-small-step traces the actor system can realize.  This section
-describes the GPU memory hierarchy as it applies to \system{}, maps
-the abstract model components onto physical tiers, and identifies the
-constraints on the abstract semantics that the device imposes.
+small-step traces the actor system can realize.  This section is
+the \emph{assumption boundary} between the abstract calculus and
+Hopper's actual execution and memory semantics: it establishes
+which device behaviors we take as given, which placement decisions
+are the runtime's design choices, and which orderings our proofs
+rely on.  The three layers are
+\textbf{(i)}~hardware-documented facts about Hopper's memory
+hierarchy, DSMEM, cooperative groups, and atomics
+(\Cref{sec:memory:hierarchy},
+\citet{nvidia2022hopper,nvidia2023cooperative,nvidia2023hopperguide});
+\textbf{(ii)}~runtime design choices about where queues,
+snapshots, and caches live
+(\Cref{sec:memory:placement});
+and \textbf{(iii)}~proof assumptions about release-acquire
+ordering and snapshot atomicity that the K2K and supervisor
+theorems depend on
+(\Cref{sec:memory:consistency,sec:memory:snapshot}).  We are
+explicit about which claim rests on which layer.
 
 \subsection{Hierarchy}
 \label{sec:memory:hierarchy}
@@ -101,19 +115,30 @@ in a partial order constrained by acquire/release fences.  The K2K
 calculus relies on three concrete constraints from that model:
 
 \begin{enumerate}
-\item \textbf{Producer release}: at the end of \textsc{SendOK}, the
-producer issues a \texttt{cuda::atomic\_thread\_fence(\\
-release, scope::cluster)}, which makes the envelope's payload
+\item \textbf{Producer release}: at the end of \textsc{SendOK},
+the producer issues a
+\texttt{cuda::\allowbreak atomic\_thread\_fence(\allowbreak
+release,\ scope::cluster)}, which makes the envelope's payload
 bytes visible to any subsequent acquire on the same cluster.
 
 \item \textbf{Consumer acquire}: at the start of \textsc{Deliver},
-the consumer issues a matching \texttt{cuda::atomic\_thread\_fence(\\
-acquire, scope::cluster)} before reading the envelope payload.
+the consumer issues a matching
+\texttt{cuda::\allowbreak atomic\_thread\_fence(\allowbreak
+acquire,\ scope::cluster)} before reading the envelope payload.
 
 \item \textbf{Cursor atomicity}: the producer and consumer cursors
-of each queue are 32-bit values updated with \texttt{atomicAdd} and
-\texttt{atomicCAS}, which are sequentially consistent at
-\texttt{system} scope on Hopper.
+of each queue are 32-bit values updated with
+\texttt{cuda::atomic\_ref<uint32\_t>}-style operations.  Per the
+CUDA C++ programming
+guide~\citep{nvidia2023cooperative,nvidia2023hopperguide}, the
+built-in \texttt{atomicAdd} and \texttt{atomicCAS} functions are
+atomic only at their specified scope and behave as
+\texttt{memory\_order\_relaxed} with respect to the surrounding
+ordering.  The runtime therefore pairs each cursor update with an
+explicit scoped fence (the release/acquire pair above) rather than
+relying on the atomic operation alone for ordering; cursor atomicity
+alone gives single-value atomicity, not system-scope sequential
+consistency.
 \end{enumerate}
 
 The first two are the standard ``release-acquire'' synchronization
@@ -129,9 +154,9 @@ abstraction provided the runtime emits the fences described above;
 without them the K2K calculus would admit traces in which the
 delivered envelope's payload bytes were partially observable.  The
 runtime's K2K implementation, in
-\texttt{crates/ringkernel-cuda/src/k2k.cu}, emits the fences at the
-right places; we sketch the correspondence in
-\Cref{sec:implementation:k2k}.
+\texttt{crates/\allowbreak ringkernel-\allowbreak cuda/\allowbreak
+src/k2k.cu}, emits the fences at the right places; we sketch the
+correspondence in \Cref{sec:implementation:k2k}.
 
 \subsection{Snapshot Atomicity}
 \label{sec:memory:snapshot}
@@ -152,10 +177,21 @@ the supervisor; concurrent supervisor actions on the same actor are
 serialized by that mutex.
 
 The snapshot copy is consistent with the device's memory consistency
-model: the host's \texttt{cudaMemcpyAsync} establishes an
-acquire-release pair on the device side, so the SM's view of
-\(\mathit{live}\) at the moment of the copy is exactly the bytes
-the host receives into \(\mathit{snap}\).  The formal model treats
-this as instantaneous; the runtime's actual copy cost is bounded
-by HBM bandwidth (\(\sim\)3~TB/s on H100, so a 4-MiB snapshot copies
-in \(\sim\)1.4~$\mu$s).
+model along a specific synchronization path.  \texttt{cudaMemcpyAsync}
+itself is not a formal release-acquire primitive in the sense of
+\Cref{sec:memory:consistency}; per the CUDA asynchronous-execution
+documentation~\citep{nvidia2023cooperative} it is a
+\emph{stream-ordered} operation whose completion is observable via
+\texttt{cudaEventRecord}/\texttt{cudaEventSynchronize} or
+\texttt{cudaStreamSynchronize}.  What establishes the happens-before
+edge we rely on is the full sequence
+(i)~device-side flag flip \Active{}\,\(\to\)\,\Initializing{}
+committed via an explicit release fence,
+(ii)~\texttt{cudaMemcpyAsync} queued on the supervisor's stream,
+(iii)~\texttt{cudaEventRecord} on the same stream, and
+(iv)~host-side \texttt{cudaEventSynchronize} before the flag is
+flipped back.  The combination, not any single step, gives the
+formal guarantee the model needs.  The formal model treats the
+composite as instantaneous; the runtime's actual copy cost is
+bounded by HBM bandwidth (\(\sim\)3~TB/s on H100, so a 4-MiB
+snapshot copies in \(\sim\)1.4~$\mu$s).

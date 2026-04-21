@@ -3,14 +3,14 @@
 \label{sec:evaluation}
 
 The evaluation is structured around the formal model: each
-benchmark either validates a specific operational primitive on
+benchmark either exercises a specific operational primitive on
 which the model depends, or measures a system-level property the
-model predicts.  We do not claim a comprehensive comparison against
-all GPU programming abstractions; we benchmark against the
+model anticipates.  We do not claim a comprehensive comparison
+against all GPU programming abstractions; we benchmark against the
 host-driven kernel-launch baseline and against CUDA Graphs (the
-strongest publicly-documented host-driven alternative), and
-report the headline numbers that the formal model's headline
-claims rest on.
+strongest publicly-documented host-driven alternative we are aware
+of), and report the numbers that the model's quantitative claims
+rest on.
 
 All measurements were collected on 2026-04-16 on a single H100~NVL
 under the conditions described in
@@ -21,10 +21,12 @@ methodology document is \texttt{docs/benchmarks/METHODOLOGY.md}.
 \subsection{Methodology}
 \label{sec:eval:methodology}
 
-We follow the protocol of \citet{moss2002benchmarks}, augmented for
-GPU benchmarking with the recommendations of
-\citet{georges2007rigorous} on confidence-interval reporting and
-between-condition statistical testing.  Concretely:
+We follow the statistical protocol of \citet{georges2007rigorous}
+on confidence-interval reporting and between-condition significance
+testing, augmented for parallel systems with the reporting
+guidelines of \citet{hoefler2015scientific} on clock locking,
+exclusive-access configuration, and coefficient-of-variation
+discipline.  Concretely:
 
 \begin{itemize}
 \item GPU clocks are locked at 1{,}785~MHz via
@@ -53,28 +55,55 @@ trials in which any ECC corrected error appears are discarded
 (zero discards across the reported runs).
 \end{itemize}
 
-\subsection{Command Injection}
+\subsection{Command Submission Latency}
 \label{sec:eval:injection}
 
-The first claim is that mapped-memory command injection eliminates
-the kernel-launch overhead that dominates host-orchestrated GPU
-workloads.  We compare three execution models (\Cref{tab:injection}):
+The first claim is about the \emph{control path}: the host-side
+cost of submitting one additional unit of work to the device
+through three different work-submission mechanisms.  This is a
+latency measurement for the control-path operation—mapped-memory
+store versus \texttt{cuLaunchKernel} versus CUDA Graph replay—not a
+runtime-against-runtime comparison of execution speed.  The three
+mechanisms dispatch work on different units of orchestration (a
+command slot in a persistent-kernel's control block versus a fresh
+kernel launch versus a graph-replay submission), so the comparison
+is fair \emph{for the question posed} (per-command host overhead)
+and informative about when each mechanism dominates cost, but it
+does not establish that one runtime is intrinsically faster than
+another for a given workload.  We compare the three mechanisms in
+\Cref{tab:injection}.
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{lrrrr}
 \toprule
-Model & Per-cmd ($\mu$s) & Total ($\mu$s) & 95\% CI ($\mu$s) & vs.\ baseline \\
+Mechanism & Amort.\ per-cmd ($\mu$s) & Burst total ($\mu$s) & 95\% CI ($\mu$s) & vs.\ baseline \\
 \midrule
-\texttt{cuLaunchKernel} (baseline) & 1.583 & 1{,}583.1 & $\pm$6.0 & 1.0$\times$ \\
-CUDA Graph replay & 0.547 & 546.9 & $\pm$12.3 & 2.9$\times$ \\
-Persistent actor (mapped mem) & 0.000 & 0.2 & $\pm$0.0 & \textbf{8{,}698$\times$} \\
+\texttt{cuLaunchKernel} (baseline)   & 1.583   & 1{,}583.1 & $\pm$6.0  & 1.0$\times$ \\
+CUDA Graph replay                    & 0.547   &    546.9  & $\pm$12.3 & 2.9$\times$ \\
+Persistent actor (mapped-mem store)  & 0.00018 &      0.182 & $\pm$0.01 & \textbf{8{,}698$\times$} \\
 \bottomrule
 \end{tabular}
-\caption{Command injection latency, 1{,}000 commands per trial, 20
-trials.  Persistent-actor latency is the time to issue a
-\texttt{volatile} write to a 32-bit slot in mapped memory; the
-device picks up the command at the start of its next tick.}
+\caption{Host-side submission cost for a 1{,}000-command burst,
+across three work-submission mechanisms: classical host launch
+(one \texttt{cuLaunchKernel} per command, with
+\texttt{cuStreamSynchronize} at burst end); CUDA Graph (1{,}000
+launches captured, then one \texttt{cuGraphLaunch} replay); and
+persistent actor (1{,}000 \texttt{ptr::write\_volatile} writes to
+mapped memory, followed by one x86 \texttt{mfence}).  20 trials,
+95\% CI from trial-level variance.  ``Burst total'' is the
+wall-clock for the full 1{,}000-command burst; ``per-cmd
+amortized'' is burst~/~1000 and should be read as the amortized
+per-command cost through the CPU's write-combining buffer, not
+as the one-shot propagation latency of a single write (which
+includes PCIe crossing and is measured separately; order of
+magnitude \(\sim\)100--300\,ns with a flush on H100~NVL).  The
+8{,}698$\times$ ratio compares burst totals and means ``the host
+spends 8{,}698$\times$ less time submitting this burst on this
+path'', not ``persistent actors execute kernels 8{,}698$\times$
+faster''.}
 \label{tab:injection}
 \end{table}
 
@@ -82,18 +111,27 @@ The Welch's \(t\)-test on the persistent-actor versus
 \texttt{cuLaunchKernel} comparison gives \(p < 10^{-20}\) with
 Cohen's \(d \gg 2.0\); the persistent-actor versus CUDA-Graph
 comparison is similarly significant (\(p < 10^{-20}\), \(d \gg
-2.0\)).  The 8{,}698$\times$ figure is the strongest single result
-in the paper: it is what makes the persistent-kernel substrate
-viable for sub-microsecond actor injection at all.
+2.0\)).  The 8{,}698$\times$ figure is the largest single
+control-path gap we report; within the burst comparison, it is
+what lets the persistent-kernel substrate absorb command bursts
+without the host becoming the bottleneck.  It is not a claim
+about execution throughput once a command has been accepted---%
+that is what \Cref{sec:eval:throughput} measures.  The reported
+amortized per-command cost assumes write-combining semantics; a
+single isolated mapped-memory write with an explicit flush is
+slower (a few hundred nanoseconds), and we report K2K
+message-passing round-trip latency directly in
+\Cref{sec:eval:throughput} rather than inferring it from this
+table.
 
 The interpretation, in terms of the formal model, is that the
-\textsc{Process} step's setup cost (the host's contribution to
-``ready the actor for one tick'') is essentially free in the
-persistent-kernel model and substantial in either of the
+\textsc{Process} step's host-side setup cost (the host's
+contribution to ``ready the actor for one tick'') is negligible in
+the persistent-kernel model and substantial in either of the
 host-orchestrated alternatives.  Workloads in which the actor's
 work per tick is small (telemetry aggregation, sensor fusion,
-streaming graph updates) can amortize the host's setup cost only in
-the persistent-kernel design.
+streaming graph updates) can amortize the host's submission cost
+only in the persistent-kernel design.
 
 \subsection{K2K Throughput and Stability}
 \label{sec:eval:throughput}
@@ -105,7 +143,7 @@ sizes (\Cref{tab:k2k-latency}) and a 60-second sustained run at the
 1~KiB payload size to characterize stability
 (\Cref{tab:k2k-sustained}).
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
 \begin{tabular}{lrrr}
 \toprule
@@ -122,7 +160,7 @@ per trial, 20 trials, in-block (\textsc{Smem}) tier.}
 \label{tab:k2k-latency}
 \end{table}
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
 \begin{tabular}{lr}
 \toprule
@@ -170,7 +208,7 @@ tier~\citep{nvidia2022hopper}; what
 \Cref{tab:k2k-tier} reports is the host-side wall-clock that the
 actor runtime actually pays.
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
 \begin{tabular}{lrrrr}
 \toprule
@@ -203,7 +241,7 @@ this difference is exploitable by the K2K calculus's tier choice
 \texttt{cluster.sync()} and \texttt{grid.sync()} under identical
 conditions.
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
 \begin{tabular}{lrrrr}
 \toprule
@@ -220,14 +258,14 @@ trials, 4-block $\times$ 256-thread workload.}
 
 The 2.98$\times$ speedup of \texttt{cluster.sync()} over
 \texttt{grid.sync()} (\(p < 10^{-20}\), Cohen's \(d \gg 2.0\))
-follows directly from the architecture: cluster-scoped barriers
+is consistent with the architecture: cluster-scoped barriers
 synchronize only blocks within a single GPC, while grid-scoped
 barriers synchronize across all GPCs and incur the GPC-to-GPC
 communication cost.  In K2K terms, this means the
 \textsc{Smem} and \textsc{Dsmem} tiers can iterate at
 0.628~$\mu$s/tick while the \textsc{Hbm} tier is bounded by the
 1.875~$\mu$s/tick of \texttt{grid.sync()}.  The K2K tier choice is
-not just a memory-tier choice; it is also a synchronization-tier
+not only a memory-tier choice; it is also a synchronization-tier
 choice.
 
 \subsection{Asynchronous Memory Allocation}
@@ -239,7 +277,7 @@ lock that dominates the cost of classical \texttt{cuMemAlloc}.
 \Cref{tab:async-alloc} reports the comparison at a 256-byte
 allocation size.
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
 \begin{tabular}{lrr}
 \toprule
@@ -254,13 +292,13 @@ allocations per trial, 20 trials.}
 \label{tab:async-alloc}
 \end{table}
 
-The 116.9$\times$ improvement is essential to the
-``free actor allocation in the actor's own stream'' assumption of
-\Cref{sec:implementation:driver}: at 102~$\mu$s per allocation,
+The 116.9$\times$ improvement is what permits the
+``near-free actor allocation in the actor's own stream'' assumption
+of \Cref{sec:implementation:driver}: at 102~$\mu$s per allocation,
 spawning a thousand actors would consume 100~ms of host time and
 serialize against every other CUDA stream; at 878~ns, the same
-thousand spawns consume under 1~ms and overlap freely with other
-stream work.
+thousand spawns consume under 1~ms and overlap with other stream
+work.
 
 \subsection{Lifecycle Rule Overhead}
 \label{sec:eval:lifecycle}
@@ -272,7 +310,7 @@ host-side cost of each rule is the time from the supervisor writing
 the command into mapped memory to reading back the device-issued
 acknowledgement.
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
 \begin{tabular}{lrrr}
 \toprule
@@ -306,33 +344,40 @@ machinery on the issue path.
 \label{sec:eval:mgpu-bw}
 
 For the cross-GPU K2K calculus of \Cref{sec:migration:cross-gpu},
-the central question is whether the runtime can saturate NVLink
+the principal question is whether the runtime can saturate NVLink
 P2P bandwidth at realistic transfer sizes.  We measured back-to-back
 \texttt{cuMemcpyPeerAsync} bursts (256 transfers per measurement,
 32 warmup iterations, single stream) on a 2$\times$ H100~NVL
-system with the 12-link bonded NVLink bundle, theoretical peak
-$\sim$318~GB/s unidirectional.
+system with the 12-link NVLink4 bundle: each link runs at 25~GB/s
+per direction, so the bundle's theoretical peak is 300~GB/s
+unidirectional (equivalently 600~GB/s bidirectional).  The
+\texttt{cuMemcpyPeerAsync} path is one-way, so we report
+utilisation against the 300~GB/s unidirectional peak.
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
 \begin{tabular}{lrrr}
 \toprule
-Size & Total (ns) & Bandwidth (GB/s) & Peak utilization \\
+Size & Total (ns) & Bandwidth (GB/s) & Unidir.\ peak util.\ \\
 \midrule
-4 KiB   &        455{,}097 &   2.30 &  0.7\% \\
-64 KiB  &        535{,}035 &  31.36 &  9.9\% \\
-1 MiB   &      1{,}500{,}029 & 178.95 & 56.3\% \\
-16 MiB  &     16{,}661{,}095 & 257.78 & \textbf{81.1\%} \\
+4 KiB   &        455{,}097 &   2.30 &  0.8\% \\
+64 KiB  &        535{,}035 &  31.36 & 10.5\% \\
+1 MiB   &      1{,}500{,}029 & 178.95 & 59.7\% \\
+16 MiB  &     16{,}661{,}095 & 257.78 & \textbf{85.9\%} \\
 \bottomrule
 \end{tabular}
 \caption{Multi-GPU K2K sustained bandwidth via NVLink P2P,
-2$\times$ H100~NVL on Azure NC80adis\_H100\_v5 (NV12 topology).
-At 16~MiB the runtime reaches 81\% of the NVLink bundle's
-theoretical peak — the stream is saturating the fabric.  The
+2$\times$ H100~NVL on Azure NC80adis\_H100\_v5 (NV12 topology:
+12 NVLink4 links between the two GPUs, 25~GB/s per direction per
+link).  Peak utilisation is reported against the 300~GB/s
+unidirectional peak of the bundle (equivalently, 43.0\% of the
+600~GB/s bidirectional peak at 16~MiB).  At 16~MiB the runtime
+reaches 85.9\% of the unidirectional peak --- the stream is
+saturating the fabric in the direction it is measured.  The
 small-payload path is dominated by per-call overhead, not
-bandwidth.  This validates the cross-GPU K2K design: the
-inter-GPU tier is bandwidth-bound, not setup-bound, at the
-sizes where it matters operationally.}
+bandwidth.  This is consistent with the cross-GPU K2K design's
+expectation that the inter-GPU tier be bandwidth-bound, not
+setup-bound, at the sizes where it matters operationally.}
 \label{tab:mgpu-bw}
 \end{table}
 
@@ -343,7 +388,7 @@ regime: NVLink P2P is 1.96$\times$ faster than host-staged at
 together cover the bandwidth/latency Pareto front for
 cross-GPU actor migration.
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
 \begin{tabular}{lrrr}
 \toprule
@@ -365,21 +410,26 @@ because the data crosses the PCIe + host-memory boundary twice.}
 \label{tab:migration}
 \end{table}
 
-\Cref{thm:bounded-latency} of \Cref{sec:migration:cross-gpu}
+\Cref{thm:fast-path-selection} of \Cref{sec:migration:cross-gpu}
 guarantees by construction that NVLink-paired actors never take
-the host path; \Cref{tab:migration} quantifies what that
-construction is worth, from $\sim$2$\times$ at the K2K scale to
-$\sim$9$\times$ at the bulk-state-transfer scale.
+the host path; \Cref{tab:migration} quantifies the associated
+speedup, from $\sim$2$\times$ at the K2K scale to $\sim$9$\times$
+at the bulk-state-transfer scale.
 
-\subsection{Application Workloads}
+\subsection{The Cost of Actor Semantics: WaveSim3D and Application Workloads}
 \label{sec:eval:apps}
 
-To validate that the formal model's primitives compose into useful
-applications, we measured three end-to-end workloads built on
-\system{}.  We do not analyze them in detail here; the numbers are
-included to characterize the system at the application level.
+A separate question from the control-path result of
+\Cref{sec:eval:injection} is: once one pays for actor semantics---a
+lifecycle state machine, per-actor supervision, a K2K mailbox, an
+HLC, a tenant tag---how much throughput is given up on a workload
+where none of those are strictly necessary?  We measure this
+against a WaveSim3D stencil (3D FDTD, $64^3$), run twice: once as a
+hand-tuned fused GPU stencil and once as a population of block
+actors implementing the same update rule under the \system{}
+runtime.  The difference is one measure of the abstraction cost.
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
 \begin{tabular}{lrrr}
 \toprule
@@ -393,54 +443,75 @@ ProcInt (process mining DFG)     & GPU            & 10.83 M~ev/s & --- \\
 \end{tabular}
 \caption{Three application workloads on H100~NVL.  Speedups are
 relative to CPU baseline (Rayon, 40 cores).  WaveSim3D is reported
-with two backends to show the cost of the actor abstraction over a
-hand-tuned stencil kernel: 4.2$\times$ slowdown for the actor model,
-which is the price of the lifecycle and supervision machinery.}
+with two backends to quantify the cost of the actor abstraction
+over a hand-tuned stencil kernel: a 4.2$\times$ slowdown for the
+actor model, which is the price of the lifecycle, mailbox, and
+supervision machinery on a workload that does not need them.}
 \label{tab:apps}
 \end{table}
 
-The WaveSim3D row in \Cref{tab:apps} is the most informative number
-for this paper: it isolates the cost of the actor abstraction by
-comparing the same workload run as a hand-tuned stencil kernel
-versus run as a population of block actors.  The 4.2$\times$ slowdown
-is the headline ``what does the actor model cost?'' figure.  For
-workloads where the abstraction is essential (multi-actor
-composition, supervisor-driven restart, cross-tenant isolation),
-the cost is paid once for the framework rather than rebuilt per
-application.
+The WaveSim3D comparison isolates the \emph{price of actor
+semantics} on a workload that has no structural use for most of
+them.  4.2$\times$ is not small; we report it in the body of the
+evaluation rather than behind a disclaimer.  The reading we would
+encourage is that a purely-numerical workload with a fused stencil
+kernel should remain a fused stencil kernel; the actor abstraction
+tends to pay off only on workloads where at least one of
+lifecycle management, supervisor restart, cross-actor messaging,
+cross-tenant isolation, or cross-GPU migration is a required
+feature rather than an incidental one.  TxMon's fraud-detection
+pipeline and ProcInt's process-mining DFG fall into that category
+(both use per-tenant routing and supervisor restart); WaveSim3D
+does not.  The actor framework's cost is most plausibly amortized
+across applications that need its primitives.
 
 \subsection{Mechanized Verification Coverage}
 \label{sec:eval:tlc}
 
 The four core theorems of \Cref{thm:lifecycle-soundness,%
 thm:no-message-loss,thm:hlc-restart-monotone,thm:cross-tenant-isolation}
-plus the migration-safety and bounded-latency theorems of
+plus the migration-safety and fast-path-selection theorems of
 \Cref{sec:migration} are mechanized in six \TLA{} modules under
 \texttt{docs/verification/}.  \Cref{tab:tlc-stats} reports the
 state-space size and wall-clock for each spec under its bounded
-configuration; all six pass with no counterexamples.
+configuration; all six pass with no counterexamples within their
+stated bounds.  An earlier iteration of the migration spec did not
+pass: TLC produced a counterexample on the \texttt{ChecksumMatch}
+invariant when late-arriving messages mutated the source's state
+variable between capture and swap.  The counterexample identified a
+specification-level bug—the spec did not model the immutability of
+the captured snapshot that the Rust implementation already
+enforced.  \Cref{sec:disc:tlc-bug} describes the episode in detail.
+We mention it here because it is a concrete indication that the
+verification apparatus is doing engineering work rather than
+serving only as proof dressing.
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
+\small
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{lrrrrl}
 \toprule
 Spec & Bounds & Distinct states & Generated & Wall (s) & Result \\
 \midrule
-\texttt{actor\_lifecycle} & $|A|\!\le\!3,$ MaxSteps$\!\le\!8$              &   2{,}681 &   7{,}015 & $<$1 & OK \\
-\texttt{hlc}              & $|N|\!\le\!2,$ MaxPhys$\!\le\!3$               & 4{,}600{,}000 & 16{,}700{,}000 &   29 & OK \\
-\texttt{k2k\_delivery}    & $|A|\!\le\!2,$ MaxMsgs$\!\le\!4,$ QCap$\!\le\!2$ &     241 &     399 & $<$1 & OK \\
-\texttt{tenant\_isolation}& $|T|\!\le\!2,$ $|K|\!\le\!3,$ MaxMsgs$\!\le\!3$ & 12{,}261 & 26{,}953 & $<$1 & OK \\
-\texttt{migration}        & MaxMsgs$\!\le\!4$                              &     725 &   1{,}445 & $<$1 & OK \\
-\texttt{multi\_gpu\_k2k}  & $|G|\!\le\!2,$ $|A|\!\le\!3,$ MaxMsgs$\!\le\!3$ &   3{,}452 &   9{,}571 & $<$1 & OK \\
+\texttt{actor\_lifecycle} & $|A|{\le}3,$ Steps${\le}8$              &   2{,}681 &   7{,}015 & $<$1 & OK \\
+\texttt{hlc}              & $|N|{\le}2,$ Phys${\le}3$               & 4{,}600{,}000 & 16{,}700{,}000 &   29 & OK \\
+\texttt{k2k\_delivery}    & $|A|{\le}2,$ Msgs${\le}4,$ QCap${\le}2$ &     241 &     399 & $<$1 & OK \\
+\texttt{tenant\_isolation}& $|T|{\le}2,$ $|K|{\le}3,$ Msgs${\le}3$ & 12{,}261 & 26{,}953 & $<$1 & OK \\
+\texttt{migration}        & Msgs${\le}4$                            &     725 &   1{,}445 & $<$1 & OK \\
+\texttt{multi\_gpu\_k2k}  & $|G|{\le}2,$ $|A|{\le}3,$ Msgs${\le}3$ &   3{,}452 &   9{,}571 & $<$1 & OK \\
 \bottomrule
 \end{tabular}
 \caption{TLC model-checking statistics for the six \TLA{}
-specifications.  Run on TLC 2.19 (Java 17, 8 worker threads on
-the 80-vCPU EPYC host).  All specs pass under the bounded
-configurations listed; no invariant violations were observed.
-The \texttt{hlc} spec has the largest state space because the
-Hybrid Logical Clock state vector is structurally larger than the
-other modules' state.}
+specifications.  ``Steps'', ``Msgs'', ``Phys'' and ``QCap'' are
+the \texttt{MaxSteps}, \texttt{MaxMsgs}, \texttt{MaxPhys} and
+\texttt{QueueCap} configuration parameters respectively, in the
+notation of the specs' \texttt{.cfg} files.  Run on TLC 2.19
+(Java 17, 8 worker threads on the 80-vCPU EPYC host).  All specs
+pass under the bounded configurations listed; no invariant
+violations were observed.  The \texttt{hlc} spec has the largest
+state space because the Hybrid Logical Clock state vector is
+structurally larger than the other modules' state.}
 \label{tab:tlc-stats}
 \end{table}
 

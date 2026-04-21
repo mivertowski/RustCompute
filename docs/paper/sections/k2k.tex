@@ -3,10 +3,10 @@
 \label{sec:k2k}
 
 The actor model treats messages as the only means of inter-actor
-communication.  Translating that primitive to a GPU is the central
-implementation question of the paper: a CPU actor system can lean on
-operating-system mailboxes (heap-allocated, lock-protected, accessed
-via syscalls); a GPU actor cannot.  A GPU actor lives in a kernel
+communication.  Translating that primitive to a GPU is one of the
+principal implementation questions of the paper: a CPU actor system
+can lean on operating-system mailboxes (heap-allocated,
+lock-protected, accessed via syscalls); a GPU actor cannot.  A GPU actor lives in a kernel
 that is itself a thread of a thread block of a cluster of a grid, with
 distinct memory tiers (registers \(\to\) shared \(\to\) DSMEM \(\to\)
 L2 \(\to\) HBM) and distinct synchronization primitives at each tier.
@@ -22,6 +22,36 @@ queue semantics implies: no-loss, FIFO per (source,\,destination),
 and—once the idempotency cache is in place—at-most-once observable
 delivery.  All three are mechanized in
 \texttt{docs/verification/k2k\_delivery.tla}.
+
+\paragraph{A note on delivery guarantees}
+Three delivery properties show up below, and they are easy to
+confuse.  We use them with the following specific meanings, once
+and for all.  \textbf{No-loss} is an accounting property over the
+envelope once it has been accepted by \textsc{SendOK}: the envelope
+is either in flight, delivered, or dead-lettered with an auditable
+reason—it never disappears (\Cref{thm:no-message-loss}).
+\textbf{At-least-once} is an operational property: the runtime
+exposes a replay API so the operator can re-inject backpressure
+dead-letters until they deliver; at-least-once is therefore a
+property of the calculus plus an explicit operator commitment
+(\Cref{sec:k2k:dlq}).  \textbf{At-most-once observable delivery} is
+the calculus property that the idempotency cache gives us: under
+the cache-sizing hypothesis of
+\Cref{thm:no-duplicate-delivery}, no two envelopes in \(D\) share
+\((\mathit{mid}, \mathit{src})\); duplicates are short-circuited to
+\(X\) with reason \state{IdempotencyReject} rather than admitted
+to the visible delivery set.  The three properties are
+complementary: no-loss gives accounting, at-least-once gives
+operational recovery, at-most-once observable gives the visible
+delivery cardinality used by audit and by downstream application
+logic.  A typical trace over an accepted envelope is
+\(\textsc{SendOK} \to \textsc{Deliver}\) (the happy path);
+\(\textsc{SendOK} \to \textsc{DeliverDup} \to X\) if a duplicate
+arrives after the first has been delivered (at-most-once
+observable); and \(\textsc{SendFullDropOldest} \to X
+\to \textsc{Replay} \to \textsc{SendOK} \to \textsc{Deliver}\) if
+backpressure evicts the envelope and the operator chooses to
+replay it (at-least-once via operator action).
 
 \subsection{Channel Hierarchy}
 \label{sec:k2k:tiers}
@@ -58,7 +88,7 @@ end-to-end semantics each tier implements.
 \Cref{fig:k2k-tiers} sketches the three tiers and their relationship
 to the GPU memory hierarchy.
 
-\begin{figure}[h]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
     every node/.style={font=\footnotesize\sffamily},
@@ -191,17 +221,23 @@ The K2K calculus consists of four small-step transitions:
 
 \paragraph{Send}
 The source attempts to enqueue an envelope \(e\) into the destination
-queue \(Q(\mathit{dst})\).  If the queue has spare capacity (i.e.,
-\(|Q(\mathit{dst})| < \mathit{cap}\) for the per-actor queue
-capacity~\(\mathit{cap}\)), the envelope is appended; otherwise the
-runtime applies the configured backpressure policy
-(\Cref{sec:k2k:backpressure}).  We give the success rule here; the
-two backpressure-failure rules follow in \Cref{sec:k2k:backpressure}.
+queue \(Q(\mathit{dst})\).  \textsc{SendOK} fires only when the
+destination is allocated and in \Active{} state (so its inbox is
+accepting traffic), the source and destination are distinct, and
+the queue has spare capacity.  If the destination is in
+\Draining{}, \Initializing{}, \Terminated{}, or \Failed{}, a
+separate \textsc{DropInvalidTarget} rule short-circuits to
+dead-letter with reason \state{InvalidTarget}
+(\Cref{sec:k2k:dlq}); if the queue is full, the configured
+backpressure policy (\Cref{sec:k2k:backpressure}) applies.  We
+give the success rule here; the two backpressure-failure rules
+follow in \Cref{sec:k2k:backpressure}.
 
 \begin{equation}
 \inference[\textsc{SendOK}]
 {
   e = \langle s, d, m, \tau, \ldots\rangle \\
+  \Theta(d) = \langle \Active{}, \ldots\rangle \\
   |Q(d)| < \mathit{cap} \\
   d \neq s
 }
@@ -214,7 +250,10 @@ two backpressure-failure rules follow in \Cref{sec:k2k:backpressure}.
 \end{equation}
 
 \noindent where \(Q' = Q[d \mapsto Q(d) \cdot e]\) (i.e., \(e\)
-appended).
+appended).  The \(\Theta(d) = \langle \Active{}, \ldots\rangle\)
+premise is the \emph{destination-lifecycle precondition} that the
+appendix Quiesce rule (\Cref{rule:quiesce}) relies on to justify
+rejecting sends to a \Draining{} actor.
 
 \paragraph{Deliver}
 A destination actor \(d\) consumes the head of its queue.  This
@@ -286,8 +325,8 @@ status which the source may observe and retry.
 \item[\(\mathsf{DropOldest}\)] The envelope at the head of the
 destination queue is moved to the dead-letter store with reason
 \state{Evicted}, and the new envelope is enqueued at the tail.  This
-prefers fresh data over stale; it is the right policy for telemetry
-and best-effort streams.
+prefers fresh data over stale; it tends to be the preferred policy
+for telemetry and best-effort streams.
 \end{description}
 
 \begin{equation}
@@ -374,12 +413,12 @@ tag would cross a tenant boundary (\Cref{sec:tenancy}); and
 \state{TTLExhausted} when the routing layer decremented
 \(\mathit{ttl}\) to zero before reaching \(\mathit{dst}\).
 
-The discipline is total: every envelope that does not reach \(D\) is
-in \(X\) with a reason.  The system never silently drops a message.
-This is operationally important (it is the basis of the audit guarantee
-of \Cref{sec:tenancy:audit}) and is also the property that makes the
-delivery theorems in \Cref{sec:k2k:theorems} stateable as
-conjunction of trace properties on \((D, X)\).
+The discipline is total: every envelope that does not reach \(D\)
+is in \(X\) with a reason.  The system does not drop a message
+without recording it.  This property underwrites the audit
+guarantee of \Cref{sec:tenancy:audit} and also lets the delivery
+theorems in \Cref{sec:k2k:theorems} be stated as a conjunction of
+trace properties over \((D, X)\).
 
 \paragraph{Replay}
 The dead-letter store can be inspected and selectively re-injected by
@@ -425,14 +464,23 @@ For every reachable configuration \(\langle \Theta,
 a \textsc{SendOK}~(\Cref{rule:k2k-send}) step has been applied along
 the trace, exactly one of the following holds:
 \begin{enumerate}
-\item \(e \in D\) (delivered, possibly via \textsc{Deliver} or marked
-as duplicate via \textsc{DeliverDup}—in which case
-\((e, \state{IdempotencyReject}) \in X\));
-\item \(e\) is in flight: \(e \in Q(\mathit{dst})\) for some position;
+\item \(e \in D\) (delivered to the visible delivery set by
+\textsc{Deliver});
+\item \(e \in Q(\mathit{dst})\) at some position (in flight);
 \item \((e, \lambda) \in X\) for some
-\(\lambda \in \{\state{Evicted}\}\) (the only way an accepted
-envelope can leave the queue without delivery is eviction).
+\(\lambda \in \{\state{Evicted},\, \state{IdempotencyReject}\}\)
+(moved to dead-letter either because backpressure evicted it under
+the \(\mathsf{DropOldest}\) policy or because the idempotency cache
+rejected it as a duplicate).
 \end{enumerate}
+The three alternatives are mutually exclusive: an envelope cannot
+simultaneously be in \(D\), in some \(Q(\mathit{dst})\), and in
+\(X\).  Together they cover every envelope that \textsc{SendOK}
+has accepted; nothing is silently dropped.  Dead-letter disposition
+for the other reasons in \(\Lambda\) (\state{Overflow},
+\state{InvalidTarget}, \state{TenantMismatch}, \state{TTLExhausted})
+applies to envelopes that \textsc{SendOK} never accepted and is
+therefore outside the scope of this theorem.
 \end{theorem}
 
 \begin{proof}[Proof sketch]
@@ -448,28 +496,32 @@ after the step; conditions~(1) and~(3) are unaffected.
 envelope moves from~(2) to~(1); other envelopes in flight retain
 their disposition.
 \item \textsc{DeliverDup}~(\Cref{rule:k2k-deliver-dup}) removes the
-head of \(Q(\mathit{dst})\) and adds it to \(X\) with reason
-\state{IdempotencyReject}; per the theorem's clause~(1), this is
-considered ``delivered'' for the no-loss accounting.
+head of \(Q(\mathit{dst})\) and adds \((e, \state{IdempotencyReject})\)
+to \(X\), so the envelope moves from~(2) to~(3).
 \item \textsc{SendFullDropOldest}~(\Cref{rule:k2k-send-evict})
-removes the head of \(Q(\mathit{dst})\) and moves it to \(X\) with
-reason \state{Evicted}, so its disposition moves from~(2) to~(3).
+removes the head of \(Q(\mathit{dst})\) and adds \((e_0,
+\state{Evicted})\) to \(X\), so the evicted envelope's disposition
+moves from~(2) to~(3).
 \end{itemize}
-No rule removes an envelope from a position satisfying any of (1),
-(2), or (3) without simultaneously placing it into another
-satisfying position.  By induction, the conjunction
-``\(e \in D \lor e \in Q(\mathit{dst}) \lor (e, \state{Evicted})
-\in X\)'' is preserved at every step.
+Mutual exclusion holds because no rule places an envelope into one
+of (1)--(3) without first removing it from another, and the three
+targets (\(D\), \(Q\), \(X\)) are set-disjoint by construction.  By
+induction, the partition ``\(e \in D\) \emph{xor} \(e \in
+Q(\mathit{dst})\) \emph{xor} \((e, \state{Evicted}) \in X\) \emph{xor}
+\((e, \state{IdempotencyReject}) \in X\)'' is preserved at every
+step.
 \qed
 \end{proof}
 
 \Cref{thm:no-message-loss} is the analogue of the
 \texttt{NoMessageLoss} invariant in
-\texttt{docs/verification/k2k\_delivery.tla}, lines 95--104.  The
+\texttt{docs/\allowbreak verification/\allowbreak
+k2k\_delivery.tla}, lines 95--104.  The
 mechanization elides the dead-letter store and treats only the
-in-flight/delivered case (clauses~(1) and~(2)), which is the right
-abstraction for a small bounded model; the analytical proof above
-covers the full discipline including dead-letter dispositions.
+in-flight/delivered case (clauses~(1) and~(2)), which is an
+appropriate abstraction for a small bounded model; the analytical
+proof above covers the full discipline, including dead-letter
+dispositions.
 
 \begin{theorem}[FIFO per Source--Destination Pair]
 \label{thm:fifo-per-sender}

@@ -7,21 +7,37 @@ compliance, safety-critical reasoning—where a single physical device
 hosts the work of multiple distinct legal entities (e.g., a cloud
 deployment serving several audit firms simultaneously, or one firm's
 deployment serving multiple client engagements concurrently).  In
-those settings, the isolation guarantee is itself a deliverable:
-the operator must be able to certify, ideally by structural
-argument rather than by audit log inspection, that no message
-originating in one tenant's actors was ever delivered to an actor
-in another tenant.  Tenancy is therefore a first-class concern of
-the formal model, not a runtime checkpoint that ``usually'' holds.
+those settings, a routing-level isolation guarantee relevant to
+auditability is itself a deliverable: the operator must be able to
+certify, ideally by structural argument rather than by audit log
+inspection, that no message originating in one tenant's actors was
+ever delivered to an actor in another tenant.  Tenancy is therefore
+a first-class concern of the formal model, not a runtime checkpoint
+that ``usually'' holds.
+
+\paragraph{Scope of the guarantee.}
+Before we state anything, we are explicit about what the theorem of
+\Cref{sec:tenancy:isolation} proves and does not prove.  It proves
+\emph{routing-level structural isolation within the model}: given
+the routing rule and the \textsc{TenantAccept} / \textsc{TenantReject}
+inference pair, there is no execution trace in which a message
+crosses a tenant boundary.  It does \emph{not} prove end-to-end
+confidentiality against an adversary who can subvert the runtime,
+forge an audit tag, write directly into another tenant's HBM
+region, or exploit a device-level memory-protection failure.
+Those adversary classes are outside the model and are discussed in
+\Cref{sec:tenancy:limits} and \Cref{sec:disc:limits}.  The theorem
+is therefore an appropriate guarantee for \emph{audit-grade} claims
+(``no artifact of tenant~A appears in tenant~B's delivery set'');
+it is not, and is not offered as, a full confidentiality proof.
 
 This section formalizes the tenant boundary, gives a small-step
-account of the cross-tenant routing rule, and proves cross-tenant
-isolation: under the routing rule, no execution trace exists in
-which a message crosses a tenant boundary.  The argument is by
-construction: the routing function rejects cross-tenant sends as a
-single first-class operation, and there is no other path by which
-a message can reach an actor's inbox.  The mechanized counterpart
-is in \texttt{docs/verification/tenant\_isolation.tla}.
+account of the cross-tenant routing rule, and proves that
+routing-level isolation.  The argument is by construction: the
+routing function rejects cross-tenant sends as a single first-class
+operation, and there is no other path by which a message can reach
+an actor's inbox.  The mechanized counterpart is in
+\texttt{docs/verification/tenant\_isolation.tla}.
 
 \subsection{Audit Boundaries}
 \label{sec:tenancy:boundaries}
@@ -115,8 +131,8 @@ storage, its own dead-letter store, its own idempotency cache, and
 its own metrics.  Sub-brokers are spawned lazily on first use of a
 tag and destroyed when the tag's actors are all terminated.
 
-The sub-broker is more than an implementation detail: it is the
-mechanism by which the routing function of
+The sub-broker is more than an implementation detail: it serves
+as the mechanism through which the routing function of
 \Cref{sec:tenancy:routing} becomes \emph{structural} rather than
 \emph{procedural}.  An envelope in sub-broker \(\tau\) cannot reach
 sub-broker \(\tau'\) because the queue storage of \(\tau'\) is in a
@@ -135,7 +151,7 @@ provide an additional defense in depth is discussed in
 \subsection{Cross-Tenant Isolation}
 \label{sec:tenancy:isolation}
 
-We can now state and prove the central isolation property.
+We can now state and prove the isolation property.
 
 \begin{theorem}[Cross-Tenant Isolation]
 \label{thm:cross-tenant-isolation}
@@ -171,9 +187,10 @@ identical to those at the time of send, and the conclusion holds.
 \qed
 \end{proof}
 
-\Cref{thm:cross-tenant-isolation} corresponds directly to
-\texttt{IsolationByConstruction} in
-\texttt{docs/verification/tenant\_isolation.tla} (lines 95--101).
+\Cref{thm:cross-tenant-isolation} corresponds directly to the
+\texttt{IsolationByConstruction} invariant in
+\texttt{docs/\allowbreak verification/\allowbreak
+tenant\_isolation.\allowbreak tla} (lines 95--101).
 The mechanized form keeps a stronger invariant:
 \texttt{NoSameMessageInBothTenants} (lines 85--88) says that no
 single message identifier appears in two different tenants' delivery
@@ -197,9 +214,11 @@ and the operator can produce that trace by querying a single
 sub-broker rather than scanning the whole device.
 
 The runtime implements this query as
-\texttt{GET /api/v1/admin/k2k/dlq/list?tag=...} (for the rejected
+\texttt{GET\ /api/\allowbreak v1/\allowbreak admin/\allowbreak
+k2k/\allowbreak dlq/\allowbreak list?tag=...}  (for the rejected
 side) and a tenant-scoped event subscription on the WebSocket
-endpoint \texttt{/ws/audit/:tag} (for the delivered side).  The
+endpoint \texttt{/ws/\allowbreak audit/:tag} (for the delivered
+side).  The
 operational guarantee, from the formal model, is that no envelope
 emitted by another tenant will ever appear in either response.
 

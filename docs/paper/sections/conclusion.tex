@@ -2,17 +2,28 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-We presented the first formal model of persistent GPU actors—a
-small-step operational semantics for the actor lifecycle on a
-single GPU, mechanized in \TLA{} and validated empirically on
-NVIDIA H100~NVL silicon.  The model is the unifying abstraction
-behind three apparently unrelated patterns observed in production
-GPU systems: persistent kernels (the lifecycle without supervision
-or causal time), device-side work queues (the K2K calculus without
-audit boundaries), and supervisor trees (the supervision discipline
-without a formal substrate).  By formalizing the substrate, we
-make each of those patterns derivable as a special case rather
-than a separate engineering accident.
+This paper defines and evaluates one plausible formal substrate for
+long-lived, actor-style computation on GPUs: a small-step
+operational semantics for the lifecycle of a device-resident actor,
+a kernel-to-kernel messaging calculus with an explicit dead-letter
+discipline, an HLC integration that survives supervisor-driven
+restart, a routing-level cross-tenant isolation argument, and a
+multi-GPU migration protocol.  Each is stated as a calculus,
+analytically proved or sketched, and mechanized in \TLA{} under
+bounded TLC model checking; the runtime realizing the calculus is
+benchmarked on NVIDIA H100~NVL silicon.  To our knowledge this is
+the first work that combines device-resident lifecycle,
+supervision, causal clocks, tenant routing, and cross-GPU migration
+under a single formal model.
+
+The model can be read as relating three design patterns that are
+not usually treated together in the GPU systems literature:
+persistent kernels (the lifecycle without supervision or causal
+time), device-side work queues (the K2K calculus without audit
+boundaries), and supervisor trees (the supervision discipline
+without a formal substrate).  Formalizing the substrate makes
+each of those patterns expressible as a special case within a
+common framework rather than as a separate engineering device.
 
 The technical contributions—the lifecycle calculus
 (\Cref{sec:model}), the K2K messaging discipline
@@ -20,20 +31,29 @@ The technical contributions—the lifecycle calculus
 (\Cref{sec:supervision}), and the cross-tenant isolation theorem
 (\Cref{sec:tenancy})—were chosen to be the smallest set of
 properties that an audit-grade or compliance-grade GPU runtime
-must demonstrate.  Each is mechanized; each is mapped to a Rust
-module in the open-source \texttt{ringkernel-core} runtime; each
-is validated against H100 measurements that ship with the
-distribution under \texttt{docs/benchmarks/}.
+must demonstrate.  Each is mechanized under bounded configurations;
+each is mapped to a Rust module in the open-source
+\texttt{ringkernel-core} runtime; each is cross-referenced against
+H100 measurements that ship with the distribution under
+\texttt{docs/benchmarks/}.  The verification pass caught a real
+spec-level bug in the migration checksum invariant
+(\Cref{sec:disc:tlc-bug}), which is the kind of engineering outcome
+we think formal methods should be held to.
 
-The empirical results—8{,}698$\times$ command-injection speedup,
-5.10~M~msg/s sustained throughput at CV 0.66\%, 0.628~$\mu$s
-cluster-level synchronization, 116.9$\times$ async memory
-allocation speedup—do not by themselves justify the actor model on
-the GPU; they justify the proposition that, having chosen the
-actor model on the GPU, the runtime can be built on hardware
-primitives that meet the cost expectations actor systems impose on
-their substrates.  The model gives the actor abstraction; the
-hardware finally gives the substrate; the paper is the bridge.
+The empirical results---the 8{,}698$\times$ command-submission
+latency figure, 5.10~M~msg/s sustained throughput at CV 0.66\%,
+0.628~$\mu$s cluster-level synchronization, 116.9$\times$ async
+memory allocation improvement---do not by themselves justify the
+actor model on the GPU; they support the narrower proposition that,
+having chosen an actor-style substrate for a GPU runtime, the
+Hopper-era primitives sit within the cost envelope that actor
+systems typically require of their substrates.  The 4.2$\times$
+slowdown of the block-actor WaveSim3D relative to a hand-tuned
+stencil records the other side of the ledger: there is a
+measurable abstraction cost, and it should be budgeted for in
+application choice.  The aim of the paper is not to claim that the
+actor model is always the appropriate GPU abstraction; it is to
+offer a formal and empirical basis on which to decide.
 
 \paragraph{Open artifacts}
 All artifacts referenced in this paper are available in the
