@@ -317,6 +317,31 @@ cargo run -p ringkernel-cli -- check --backends all
 - **Architecture**: [`docs/01-architecture-overview.md`](docs/01-architecture-overview.md)
 - **API Reference**: [docs.rs/ringkernel](https://docs.rs/ringkernel)
 
+## Citation
+
+If you use RingKernel or the formal model in academic work, please cite the preprint:
+
+> Michael Ivertowski. *Persistent GPU Actors: A Formal Model for Living Computation on the Device.* Preprint, April 2026. DOI: [10.13140/RG.2.2.24010.12484](https://doi.org/10.13140/RG.2.2.24010.12484).
+
+BibTeX:
+
+```bibtex
+@misc{ivertowski2026ringkernel,
+  author       = {Michael Ivertowski},
+  title        = {Persistent {GPU} Actors: A Formal Model for Living
+                  Computation on the Device},
+  year         = {2026},
+  month        = apr,
+  howpublished = {Preprint},
+  doi          = {10.13140/RG.2.2.24010.12484},
+  url          = {https://doi.org/10.13140/RG.2.2.24010.12484},
+  note         = {arXiv version in preparation}
+}
+```
+
+The paper source is in [`docs/paper/`](docs/paper/) (LaTeX); `make` in that
+directory reproduces the PDF.
+
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
