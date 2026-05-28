@@ -8122,6 +8122,7 @@ dependencies = [
  "nvml-wrapper",
  "parking_lot",
  "ringkernel-core",
+ "ringkernel-ir",
  "serde",
  "serde_json",
  "sha2 0.10.9",
