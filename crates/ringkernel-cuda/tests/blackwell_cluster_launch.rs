@@ -19,7 +19,7 @@ use ringkernel_cuda::driver_api::DirectPtxModule;
 use ringkernel_cuda::hopper::cluster::{
     self, ClusterLaunchConfig, ClusterSchedulingPolicy,
 };
-use ringkernel_cuda::launch_config::mode::GpuArchitecture;
+use ringkernel_cuda::launch_config::GpuArchitecture;
 
 /// Returns true iff a Blackwell-class device (CC >= 10.0) is present.
 fn is_blackwell() -> bool {
