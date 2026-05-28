@@ -9,7 +9,7 @@
 
 #![cfg(feature = "cuda")]
 
-use ringkernel_ir::ScalarType;
+use ringkernel_ir::{lower_to_cuda, IrBuilder, IrType, ScalarType};
 
 /// Returns true iff a Blackwell-class device (CC >= 10.0) is present.
 #[allow(dead_code)]
@@ -52,6 +52,26 @@ fn blackwell_scalar_types_are_floating_point() {
         assert!(
             ty.is_float(),
             "{ty:?} must be classified as floating point"
+        );
+    }
+}
+
+#[test]
+fn blackwell_scalar_cuda_names_match_expected() {
+    // Closes the gap implied by EXPECTED_CUDA_NAMES's doc comment: actually
+    // lower a module that uses each scalar and assert the generated CUDA
+    // contains the expected __nv_* name. Guards against typos in
+    // lower_scalar_type (ringkernel-ir/src/lower_cuda.rs:696-703).
+    for (ty, expected_name) in EXPECTED_CUDA_NAMES {
+        let mut builder = IrBuilder::new("rk_scalar_probe");
+        let _ = builder.parameter("x", IrType::ptr(IrType::Scalar(*ty)));
+        builder.ret();
+        let module = builder.build();
+        let cuda = lower_to_cuda(&module)
+            .unwrap_or_else(|e| panic!("lowering {ty:?} failed: {e}"));
+        assert!(
+            cuda.contains(expected_name),
+            "{ty:?}: expected '{expected_name}' in lowered CUDA, got:\n{cuda}"
         );
     }
 }
