@@ -56,7 +56,7 @@ else
     echo "WARN: no passwordless sudo — clocks NOT locked. Results will be more variable." >&2
 fi
 
-# 60-second warmup with a known-cheap bench (silently OK if absent).
+# 30-second warmup with a known-cheap bench (silently OK if absent).
 cargo bench --package ringkernel -- serialization --warm-up-time 30 >> "$LOG" 2>&1 || true
 
 # The actual run.
