@@ -58,11 +58,11 @@ fn blackwell_arch_routes_cluster_launch_control() {
 #[ignore = "requires B200 (sm_100+) and a filled-in KERNEL_PTX"]
 fn blackwell_cluster_launch_control_runtime() {
     if !is_blackwell() {
-        eprintln!("Skipping: not a Blackwell GPU");
+        println!("Skipping: not a Blackwell GPU");
         return;
     }
     if KERNEL_PTX.is_empty() {
-        eprintln!("Skipping: KERNEL_PTX not yet filled in on this machine");
+        println!("Skipping: KERNEL_PTX not yet filled in on this machine");
         return;
     }
 
@@ -74,6 +74,8 @@ fn blackwell_cluster_launch_control_runtime() {
     // control path executed correctly. The exact kernel body is filled
     // in on the VM.
     let mut out_dev: u64 = 0;
+    // SAFETY: cudarc driver allocation + H2D copy on a freshly created device
+    // pointer; `out_dev` is exclusively owned by this test and not aliased.
     unsafe {
         let r = cuda_sys::cuMemAlloc_v2(&mut out_dev, 4);
         assert_eq!(r, cuda_sys::CUresult::CUDA_SUCCESS, "cuMemAlloc");
@@ -95,6 +97,9 @@ fn blackwell_cluster_launch_control_runtime() {
         vec![&mut out_ptr as *mut u64 as *mut c_void];
     let stream: cuda_sys::CUstream = ptr::null_mut();
 
+    // SAFETY: kernel launch with manually-marshalled params (matches the
+    // KernelParams contract); the params vec outlives the launch call and
+    // the stream is the null default stream.
     unsafe {
         cluster::launch_kernel_with_cluster(func, &config, &mut params, stream)
             .expect("cluster launch");
@@ -103,6 +108,10 @@ fn blackwell_cluster_launch_control_runtime() {
     }
 
     let mut out_host: u32 = 0;
+    // SAFETY: D2H copy of 4 bytes into a stack-local `out_host`; the kernel
+    // has already synchronised above so the device buffer is quiescent. The
+    // subsequent cuMemFree_v2 reclaims the same allocation made in the first
+    // unsafe block.
     unsafe {
         let r = cuda_sys::cuMemcpyDtoH_v2(
             &mut out_host as *mut u32 as *mut c_void,
