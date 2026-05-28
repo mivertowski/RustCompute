@@ -108,3 +108,97 @@ tmux new -s rk
 ## Starting prompt for the B200 session
 
 > Read `docs/superpowers/GPU_VM_SESSION_GUIDE_B200.md`. Run `./scripts/b200-validate.sh` and report which steps (if any) fail. If all six pass, start P1 (dedicated Cluster Launch Control test) and check with me before moving to P2. Do not launch `gpu_8x_b200` without asking — single GPU is the default.
+
+---
+
+## Phase 1 runbook (1× B200)
+
+Implementation plan: `docs/superpowers/plans/2026-05-28-b200-vm-time-strategy.md`.
+Strategy spec: `docs/superpowers/specs/2026-05-28-b200-vm-time-strategy.md`.
+
+```bash
+# 0. SSH, tmux, persistent FS
+ssh ubuntu@<lambda-1x-b200-ip>
+tmux new -s rk
+
+# 1. Repo on the persistent FS
+cd /home/ubuntu/persistent
+[ -d RingKernel ] && (cd RingKernel && git fetch && git checkout b200-validation && git pull --ff-only) \
+                  || git clone -b b200-validation https://github.com/mivertowski/RustCompute.git RingKernel
+cd RingKernel
+export CARGO_HOME=/home/ubuntu/persistent/cargo-cache
+export CARGO_TARGET_DIR=/home/ubuntu/persistent/RingKernel/target
+./scripts/setup-gpu-vm.sh   # idempotent
+
+# 2. P0 — environment validation (GATE G1 if anything fails)
+./scripts/b200-validate.sh
+
+# 3. P1 — fill in KERNEL_PTX in blackwell_cluster_launch.rs, run
+$EDITOR crates/ringkernel-cuda/tests/blackwell_cluster_launch.rs
+cargo test -p ringkernel-cuda --features cuda --release \
+    --test blackwell_cluster_launch -- --ignored --nocapture
+
+# 4. P2 — fill in per-scalar KERNEL_PTX in blackwell_fp_scalar_smoke.rs
+#         (GATE G2 if FP4/FP6 iteration exceeds 2h)
+$EDITOR crates/ringkernel-cuda/tests/blackwell_fp_scalar_smoke.rs
+cargo test -p ringkernel-cuda --features cuda --release \
+    --test blackwell_fp_scalar_smoke -- --ignored --nocapture
+
+# 5. P4 — paper-grade command inject latency
+./scripts/b200-collect-paper-numbers.sh latency
+
+# 6. P5 — TEE-I/O probe (may need instance reboot with CC mode flag)
+cargo test -p ringkernel-cuda --features cuda --release \
+    --test blackwell_tee_io_probe -- --ignored --nocapture
+
+# 7. Regression
+cargo test --workspace --release --exclude ringkernel-txmon
+
+# 8. Commit + push + terminate
+git add logs/ benchmark_results/b200/ crates/ringkernel-cuda/tests/blackwell_*.rs
+git commit -m "feat(b200): Phase 1 single-GPU Blackwell validation"
+git push origin b200-validation
+# Lambda dashboard → Terminate
+```
+
+After this commit, **stop the 1× instance and report Phase 1 results** so the user can confirm GATE G3 before booking the 8× instance.
+
+## Phase 2 runbook (8× B200)
+
+```bash
+# 0. SSH into the 8x instance, re-attach the persistent FS
+ssh ubuntu@<lambda-8x-b200-ip>
+tmux new -s rk
+cd /home/ubuntu/persistent/RingKernel
+git fetch && git checkout b200-validation && git pull --ff-only
+
+# 1. GATE G4 — topology check
+./scripts/b200-multi-gpu-runner.sh topo
+#   If fabric is not 8-way NVLink 5 full mesh: stop, report, ask.
+
+# 2. P3 — NVLink 5 peer bandwidth
+./scripts/b200-multi-gpu-runner.sh p3
+
+# 3. P4 repeat on multi-GPU host
+./scripts/b200-multi-gpu-runner.sh p4
+
+# 4. Commit, push, terminate
+git add logs/b200-topo/ benchmark_results/b200/multi-gpu/
+git commit -m "feat(b200): Phase 2 NVLink 5 bandwidth + multi-GPU P4 repeat"
+git push origin b200-validation
+# Lambda dashboard → Terminate
+```
+
+## Hard gates summary
+
+| Gate | When | If hit |
+|---|---|---|
+| G1 | Any `b200-validate.sh` step fails | Stop, report which step, ask user |
+| G2 | P2 FP4/FP6 stalls > 2h | Capture nvcc stderr, ask whether to narrow to FP8 or extend |
+| G3 | Between Phase 1 and Phase 2 | Mandatory: summarise Phase 1, ask before booking 8× |
+| G4 | NVLink fabric is not 8-way full mesh | Report adjusted target, ask whether to proceed |
+| G5 | Before `git tag v1.2.0` | Prepare locally, do not push, ask user to review Addendum 7 + CHANGELOG |
+
+## Phase 3 (offline, after VM session returns)
+
+Plan: `docs/superpowers/plans/2026-05-28-b200-vm-time-strategy.md` Task 11 (added once Phase 1+2 data lands).
