@@ -144,6 +144,8 @@ $EDITOR crates/ringkernel-cuda/tests/blackwell_fp_scalar_smoke.rs
 cargo test -p ringkernel-cuda --features cuda --release \
     --test blackwell_fp_scalar_smoke -- --ignored --nocapture
 
+# (P3 NVLink 5 peer bandwidth is deferred to Phase 2 on the 8× instance.)
+
 # 5. P4 — paper-grade command inject latency
 ./scripts/b200-collect-paper-numbers.sh latency
 
