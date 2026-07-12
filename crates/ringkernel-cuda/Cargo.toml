@@ -73,3 +73,28 @@ multi-gpu = ["cuda", "nvml-wrapper"]
 # When enabled, a build-time linker search path is added; users whose
 # NVSHMEM install lives outside /usr can set NVSHMEM_LIB_DIR.
 nvshmem = ["cuda", "multi-gpu"]
+
+# `cuda-1xxxx` feature names below are cudarc's own version features
+# (propagated transitively via `cuda-version-from-build-system`), not
+# declared here directly — silences rustc's `unexpected_cfgs` lint for
+# `#[cfg(feature = "cuda-12040")]`-style checks against them in hopper/mod.rs.
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = [
+    'cfg(feature, values("cuda-11040"))',
+    'cfg(feature, values("cuda-11050"))',
+    'cfg(feature, values("cuda-11060"))',
+    'cfg(feature, values("cuda-11070"))',
+    'cfg(feature, values("cuda-11080"))',
+    'cfg(feature, values("cuda-12000"))',
+    'cfg(feature, values("cuda-12010"))',
+    'cfg(feature, values("cuda-12020"))',
+    'cfg(feature, values("cuda-12030"))',
+    'cfg(feature, values("cuda-12040"))',
+    'cfg(feature, values("cuda-12050"))',
+    'cfg(feature, values("cuda-12060"))',
+    'cfg(feature, values("cuda-12080"))',
+    'cfg(feature, values("cuda-12090"))',
+    'cfg(feature, values("cuda-13000"))',
+    'cfg(feature, values("cuda-13010"))',
+    'cfg(feature, values("cuda-13020"))',
+] }
