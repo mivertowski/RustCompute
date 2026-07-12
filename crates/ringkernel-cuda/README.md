@@ -10,8 +10,11 @@ managing persistent GPU kernels.
 
 ## Requirements
 
-- NVIDIA GPU with Compute Capability 7.0 or higher (Volta, Turing, Ampere, Ada,
-  Hopper, Blackwell)
+- NVIDIA GPU with Compute Capability 6.0 or higher (Pascal and newer) for the
+  core persistent-actor/cooperative-groups path. Some features have higher
+  floors — Thread Block Clusters, DSMEM, TMA, and Green Contexts all require
+  Hopper (CC 9.0+). See the top-level README's "Feature to minimum compute
+  capability" table for the full per-feature breakdown.
 - CUDA Toolkit 12.x or later
 - cudarc 0.19.3 (pinned via workspace)
 - Linux (native) or Windows (WSL2, with cooperative-group limitations)

@@ -11,7 +11,11 @@
 //!
 //! # Requirements
 //!
-//! - NVIDIA GPU with Compute Capability 7.0+
+//! - NVIDIA GPU with Compute Capability 6.0+ (Pascal and newer) for the core
+//!   persistent-actor/cooperative-groups path. Some features have higher
+//!   floors (e.g. Thread Block Clusters/DSMEM/TMA/Green Contexts require
+//!   Hopper, CC 9.0+) — see the top-level README's "Feature to minimum
+//!   compute capability" table for the full breakdown.
 //! - CUDA Toolkit 11.0+
 //! - Native Linux (persistent kernels) or WSL2 (event-driven fallback)
 //!
