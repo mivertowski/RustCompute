@@ -11,7 +11,11 @@
 //!
 //! # Requirements
 //!
-//! - NVIDIA GPU with Compute Capability 7.0+
+//! - NVIDIA GPU with Compute Capability 6.0+ (Pascal and newer) for the core
+//!   persistent-actor/cooperative-groups path. Some features have higher
+//!   floors (e.g. Thread Block Clusters/DSMEM/TMA/Green Contexts require
+//!   Hopper, CC 9.0+) — see the top-level README's "Feature to minimum
+//!   compute capability" table for the full breakdown.
 //! - CUDA Toolkit 11.0+
 //! - Native Linux (persistent kernels) or WSL2 (event-driven fallback)
 //!
@@ -227,12 +231,78 @@ pub fn compile_ptx(_cuda_source: &str) -> ringkernel_core::error::Result<String>
     ))
 }
 
-/// PTX kernel source template for persistent ring kernel.
+/// PTX kernel source template for persistent ring kernel, generic over the
+/// target compute capability (major, minor).
 ///
 /// This is a minimal kernel that immediately marks itself as terminated.
-/// Uses PTX 8.0 / sm_75 as the lowest common denominator that supports
-/// cooperative groups. PTX is forward-compatible, so sm_75 PTX runs on
-/// sm_89/sm_90/sm_100 and newer GPUs.
+///
+/// PTX `.target` directives are only forward-compatible (PTX built for
+/// `sm_X` runs on `sm_X` and newer, never older) — so this must be
+/// generated per-device rather than hardcoded to a single value. Maps the
+/// device's actual compute capability to the corresponding PTX ISA
+/// version, matching the minimum ISA version that introduced each `sm_XX`
+/// target (per NVIDIA's PTX ISA documentation).
+pub fn ring_kernel_ptx_template_for(major: u32, minor: u32) -> String {
+    let ptx_version = match (major, minor) {
+        // Pascal
+        (6, 0) | (6, 1) | (6, 2) => "5.0",
+        // Volta / Turing
+        (7, 0) | (7, 2) => "6.0",
+        (7, 5) => "6.3",
+        // Ampere
+        (8, 0) => "7.0",
+        (8, 6) | (8, 7) => "7.1",
+        (8, 9) => "8.0",
+        // Hopper
+        (9, 0) => "8.0",
+        // Blackwell and newer — fall through to the newest known ISA
+        (major, _) if major >= 10 => "8.5",
+        // Below Pascal (Maxwell/Kepler) or anything unrecognized: fall back
+        // to the oldest ISA version this template's instructions need.
+        _ => "5.0",
+    };
+    format!(
+        r#"
+.version {ptx_version}
+.target sm_{major}{minor}
+.address_size 64
+
+.visible .entry ring_kernel_main(
+    .param .u64 control_block_ptr,
+    .param .u64 input_queue_ptr,
+    .param .u64 output_queue_ptr,
+    .param .u64 shared_state_ptr
+) {{
+    .reg .u64 %cb_ptr;
+    .reg .u32 %one;
+
+    // Load control block pointer
+    ld.param.u64 %cb_ptr, [control_block_ptr];
+
+    // Mark as terminated immediately (offset 8)
+    mov.u32 %one, 1;
+    st.global.u32 [%cb_ptr + 8], %one;
+
+    ret;
+}}
+"#
+    )
+}
+
+/// PTX kernel source template for persistent ring kernel — **deprecated**
+/// fixed-`sm_75` fallback, kept only for API compatibility with existing
+/// callers that don't have a device handle available.
+///
+/// PTX built for `sm_75` will fail to load (`CUDA_ERROR_INVALID_PTX`) on any
+/// GPU with a compute capability below 7.5 (e.g. Pascal, sm_61) — PTX
+/// forward-compatibility only extends to equal-or-newer architectures.
+/// Prefer [`ring_kernel_ptx_template_for`] with the actual target device's
+/// compute capability (`CudaDevice::compute_capability`, not part of this
+/// crate's public API surface).
+#[deprecated(
+    since = "1.1.1",
+    note = "hardcodes sm_75, breaking on Pascal and older GPUs — use ring_kernel_ptx_template_for(major, minor) with the real device's compute capability instead"
+)]
 pub const RING_KERNEL_PTX_TEMPLATE: &str = r#"
 .version 8.0
 .target sm_75

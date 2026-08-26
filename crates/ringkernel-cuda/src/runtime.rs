@@ -20,7 +20,7 @@ use crate::device::CudaDevice;
 use crate::kernel::CudaKernel;
 use crate::memory::CudaMemoryPool;
 use crate::persistent::{PersistentSimulation, PersistentSimulationConfig};
-use crate::RING_KERNEL_PTX_TEMPLATE;
+use crate::ring_kernel_ptx_template_for;
 
 /// CUDA runtime for RingKernel.
 pub struct CudaRuntime {
@@ -263,6 +263,13 @@ impl RingKernelRuntime for CudaRuntime {
 
             let sim = PersistentSimulation::new(&self.device, sim_config)?;
 
+            // Generate PTX targeting the actual device's compute capability
+            // — PTX .target is forward-compatible only (never backward), so
+            // this must match (or be older than) the real device, not a
+            // hardcoded value.
+            let (cc_major, cc_minor) = self.device.compute_capability();
+            let template_ptx = ring_kernel_ptx_template_for(cc_major, cc_minor);
+
             // Determine PTX and function name for the persistent kernel.
             // Use cooperative kernel PTX from build.rs if available.
             #[cfg(feature = "cooperative")]
@@ -274,10 +281,7 @@ impl RingKernelRuntime for CudaRuntime {
                         "Cooperative PTX not available (nvcc not found at build time), \
                          falling back to template PTX"
                     );
-                    (
-                        RING_KERNEL_PTX_TEMPLATE.to_string(),
-                        "ring_kernel_main".to_string(),
-                    )
+                    (template_ptx.clone(), "ring_kernel_main".to_string())
                 } else {
                     (coop_ptx.to_string(), "coop_persistent_fdtd".to_string())
                 }
@@ -288,15 +292,12 @@ impl RingKernelRuntime for CudaRuntime {
                 tracing::warn!(
                     "Cooperative feature not enabled, persistent simulation will use template PTX"
                 );
-                (
-                    RING_KERNEL_PTX_TEMPLATE.to_string(),
-                    "ring_kernel_main".to_string(),
-                )
+                (template_ptx.clone(), "ring_kernel_main".to_string())
             };
 
             // Still load PTX for the CudaKernel's module/function fields
             // (needed for state transition to Launched)
-            kernel.load_ptx(RING_KERNEL_PTX_TEMPLATE)?;
+            kernel.load_ptx(&template_ptx)?;
 
             let kernel = Arc::new(kernel);
 
@@ -321,8 +322,9 @@ impl RingKernelRuntime for CudaRuntime {
 
             Ok(KernelHandle::new(id, kernel))
         } else {
-            // Standard path: load template PTX
-            kernel.load_ptx(RING_KERNEL_PTX_TEMPLATE)?;
+            // Standard path: load template PTX, targeting the actual device.
+            let (cc_major, cc_minor) = self.device.compute_capability();
+            kernel.load_ptx(&ring_kernel_ptx_template_for(cc_major, cc_minor))?;
 
             let kernel = Arc::new(kernel);
             self.kernels.write().insert(id.clone(), Arc::clone(&kernel));
